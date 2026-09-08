@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="24px" height="24px" viewBox="0 0 24 24" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>Icon/ Alert/ warning</title>
+    <g id="Saving-the-file" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="Error-saving" transform="translate(-689.000000, -478.000000)" fill="#D3D3D3">
+            <g id="Group-2" transform="translate(656.000000, 415.000000)">
+                <g id="Group" transform="translate(0.000000, 25.000000)">
+                    <g transform="translate(30.000000, 35.000000)" id="Icon/-Alert/-warning">
+                        <path d="M15,3 C21.627417,3 27,8.372583 27,15 C27,21.627417 21.627417,27 15,27 C8.372583,27 3,21.627417 3,15 C3,8.372583 8.372583,3 15,3 Z M13.9393398,18.4393398 C13.3535534,19.0251263 13.3535534,19.9748737 13.9393398,20.5606602 C14.5251263,21.1464466 15.4748737,21.1464466 16.0606602,20.5606602 C16.6464466,19.9748737 16.6464466,19.0251263 16.0606602,18.4393398 C15.4748737,17.8535534 14.5251263,17.8535534 13.9393398,18.4393398 Z M15,9 C14.1715729,9 13.5,9.55964406 13.5,10.25 L13.5,15.25 C13.5,15.9403559 14.1715729,16.5 15,16.5 C15.8284271,16.5 16.5,15.9403559 16.5,15.25 L16.5,10.25 C16.5,9.55964406 15.8284271,9 15,9 Z" id="Combined-Shape"></path>
+                    </g>
+                </g>
+            </g>
+        </g>
+    </g>
+</svg>

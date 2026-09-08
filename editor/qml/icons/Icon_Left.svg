@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="6px" height="8px" viewBox="0 0 6 8" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>Icon/ Content/ Image/ edit</title>
+    <defs>
+        <path d="M3.89187796,4 L0.867367554,7.02451041 C0.644210815,7.24766715 0.644210815,7.60947571 0.867367554,7.83263245 C1.09052429,8.05578918 1.45233285,8.05578918 1.67548959,7.83263245 L5.10406102,4.40406102 C5.32721776,4.18090428 5.32721776,3.81909572 5.10406102,3.59593898 L1.67548959,0.167367554 C1.45233285,-0.0557891845 1.09052429,-0.0557891845 0.867367554,0.167367554 C0.644210815,0.390524292 0.644210815,0.752332851 0.867367554,0.975489589 L3.89187796,4 Z" id="path-1"></path>
+    </defs>
+    <g id="Icon/-Content/-Image/-edit" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <mask id="mask-2" fill="white">
+            <use xlink:href="#path-1"></use>
+        </mask>
+        <g id="Shape" transform="translate(2.985714, 4.000000) scale(-1, 1) translate(-2.985714, -4.000000) ">
+            <use fill="#FFFFFF" xlink:href="#path-1"></use>
+            <use fill-opacity="0.2" fill="#212121" xlink:href="#path-1"></use>
+        </g>
+    </g>
+</svg>

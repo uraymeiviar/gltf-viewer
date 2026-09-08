@@ -1,0 +1,6 @@
+<RCC>
+    <qresource prefix="/resources/style_sheets/">
+        <file>editor.css</file>
+        <file>globals.txt</file>
+    </qresource>
+</RCC>

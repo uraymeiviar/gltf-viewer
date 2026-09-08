@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<svg width="16" height="16" xmlns="http://www.w3.org/2000/svg" xmlns:svg="http://www.w3.org/2000/svg" version="1.1">
+ <title>Icon/ Hierarchy/ Unshow</title>
+
+ <g class="layer">
+  <title>Layer 1</title>
+  <g fill="none" fill-rule="evenodd" id="Icon/-Hierarchy/-Unshow">
+   <path d="m13.2,2.44c0.35,0.33 0.84,1.01 0.54,1.3l-9.41,9.6c-0.25,0.21 -0.81,0.03 -1.37,-0.47c-0.39,-0.39 -0.65,-1.09 -0.38,-1.38l1.4,-1.42c-0.53,-0.56 -1.33,-1.56 -1.38,-1.65c-0.15,-0.24 -0.15,-0.54 0,-0.78c0.09,-0.15 2.25,-3.61 5.39,-3.61c0.97,0 1.48,0.3 1.56,0.37l2.14,-2.14c0.45,-0.41 1.06,-0.24 1.52,0.18zm-1.36,3.62c1.26,1 1.47,1.48 1.53,1.57c0.15,0.24 0.15,0.54 0,0.78c-0.09,0.15 -2.12,3.41 -5.1,3.6l-0.28,0.01l-0.01,0c-0.8,-0.02 -1.28,-0.17 -1.62,-0.37c0.53,-0.56 1.25,-1.25 1.62,-1.63c1.1,0 1.95,-0.93 1.95,-2.03l1.91,-1.93zm-3.86,-0.04c-1.1,0 -2,0.9 -2,2c0.63,-0.64 1.05,-1.07 2,-2zl0,0zl0,0z" fill="#D3D3D3" id="Combined-Shape"/>
+   <line fill="none" fill-opacity="null" id="svg_1" stroke="null" stroke-dasharray="null" stroke-linecap="null" stroke-linejoin="null" stroke-opacity="null" x1="14.89" x2="12.31" y1="3.08" y2="5.51"/>
+  </g>
+ </g>
+</svg>

@@ -1,0 +1,97 @@
+# generated build id
+/resources/build_id
+
+# C++ objects and libs
+*.slo
+*.lo
+*.o
+*.a
+*.la
+*.lai
+
+# Qt-es
+object_script.*.Release
+object_script.*.Debug
+*_plugin_import.cpp
+/.qmake.cache
+/.qmake.stash
+*.pro.user
+*.pro.user.*
+*.qbs.user
+*.qbs.user.*
+*.moc
+moc_*.cpp
+moc_*.h
+qrc_*.cpp
+ui_*.h
+*.qmlc
+*.jsc
+Makefile*
+*build-*
+
+# Qt unit tests
+target_wrapper.*
+
+# QtCreator
+*.autosave
+
+# QtCreator Qml
+*.qmlproject.user
+*.qmlproject.user.*
+
+# QtCreator CMake
+CMakeLists.txt.user*
+
+build/
+build-*/
+build_*/
+cmake-build-*/
+out
+
+.idea/
+.vs/
+.vscode/
+
+tests/*/*.png
+
+.DS_Store
+
+
+.project
+.cproject
+Makefile
+CMakeCache.txt
+CMakeFiles
+cmake_install.cmake
+CMakeSettings.json
+vscode_build
+ninja_build
+
+*.exe
+*.a
+*.qm
+
+/deploy
+__pycache__
+*.swp
+artefacts
+Deployment/linuxdeploy-x86_64.AppImage
+Deployment/appimagetool-x86_64.AppImage
+Deployment/linuxdeploy-plugin-appimage-x86_64.AppImage
+Deployment/linuxdeploy-plugin-qt-x86_64.AppImage
+Deployment/Gestaltor-af8189d59-x86_64.AppImage
+appdir
+enc_temp_folder
+
+#Add new renderer to prevent discarding everything after switching between Gestaltor and ANARI
+/rendering
+/Deployment/linuxdeployqt-7-x86_64.AppImage
+node_modules
+/editor/js/dist
+/vscode_build
+/xcode_build
+
+# Report results
+/tests/Results
+/Deployment/Gestaltor.app
+/xcode_build

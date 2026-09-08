@@ -1,0 +1,350 @@
+<RCC>
+    <qresource prefix="/">
+        <file>resources/png/arrow_white.png</file>
+        <file>resources/png/camera.png</file>
+        <file>resources/png/Assets/CheckBox_Off_small.png</file>
+        <file>resources/png/Assets/CheckBox_Off.png</file>
+        <file>resources/png/Assets/CheckBox_On_small.png</file>
+        <file>resources/png/Assets/CheckBox_On.png</file>
+        <file>resources/png/close.png</file>
+        <file>resources/png/Assets/ContentEntry_Body.png</file>
+        <file>resources/png/fullscreenWindow.png</file>
+        <file>resources/png/grid.png</file>
+        <file>resources/png/Assets/Icon_ColorPicker.png</file>
+        <file>resources/png/Icons_Console/Icon_Console_Debug_256.png</file>
+        <file>resources/png/Icons_Console/Icon_Console_Error_256.png</file>
+        <file>resources/png/Icons_Console/Icon_Console_Fatal_256.png</file>
+        <file>resources/png/Icons_Console/Icon_Console_Message_256.png</file>
+        <file>resources/png/Icons_Console/Icon_Console_Warning_256.png</file>
+        <file>resources/png/Assets/Matrix_Border.png</file>
+        <file>resources/png/Assets/Icon_Entry_Add.png</file>
+        <file>resources/png/Assets/Icon_Entry_Delete.png</file>
+        <file>resources/png/Assets/Icon_Expand.png</file>
+        <file>resources/png/Assets/Icon_Header_Console.png</file>
+        <file>resources/png/Assets/Icon_Header_Content.png</file>
+        <file>resources/png/Assets/Icon_Header_Hierarchy.png</file>
+        <file>resources/png/Assets/Icon_Header_Inspector.png</file>
+        <file>resources/png/Assets/Icon_Header_Notification.png</file>
+        <file>resources/png/Assets/Icon_Header_RenderView.png</file>
+        <file>resources/png/Assets/Icon_Header_Timeline.png</file>
+        <file>resources/png/Assets/Icon_Header_Viewport.png</file>
+        <file>resources/png/Assets/Icon_Header_Lighting.png</file>
+        <file>resources/png/Assets/Icon_Header_Statistics.png</file>
+        <file>resources/png/Assets/Icon_Hierarchy_Camera_Off_32.png</file>
+        <file>resources/png/Assets/Icon_Hierarchy_Camera_On_32.png</file>
+        <file>resources/png/Assets/Icon_Hierarchy_Camera_Unavailable_32.png</file>
+        <file>resources/png/Assets/Icon_Hierarchy_Light_Off_32.png</file>
+        <file>resources/png/Assets/Icon_Hierarchy_Light_On_32.png</file>
+        <file>resources/png/Assets/Icon_Hierarchy_Light_Unavailable_32.png</file>
+        <file>resources/png/Assets/Icon_Hierarchy_Locked_Off_32.png</file>
+        <file>resources/png/Assets/Icon_Hierarchy_Locked_On_32.png</file>
+        <file>resources/png/Assets/Icon_Hierarchy_Mesh_Off_32.png</file>
+        <file>resources/png/Assets/Icon_Hierarchy_Mesh_Shaded_32.png</file>
+        <file>resources/png/Assets/Icon_Hierarchy_Mesh_Unavailable_32.png</file>
+        <file>resources/png/Assets/Icon_Hierarchy_Mesh_Wireframe_32.png</file>
+        <file>resources/png/Assets/Icon_Hierarchy_Skin_Off_32.png</file>
+        <file>resources/png/Assets/Icon_Hierarchy_Skin_On_32.png</file>
+        <file>resources/png/Assets/Icon_Hierarchy_Skin_Unavailable_32.png</file>
+        <file>resources/png/Assets/Icon_Hierarchy_Joint_Available_32.png</file>
+        <file>resources/png/Assets/Icon_Hierarchy_Joint_Unavailable_32.png</file>
+        <file>resources/png/Assets/Icon_Hierarchy_Animation_Available_32.png</file>
+        <file>resources/png/Assets/Icon_Hierarchy_Animation_Unavailable_32.png</file>
+        <file>resources/png/Assets/Icon_Hierarchy_Visible_Off_32.png</file>
+        <file>resources/png/Assets/Icon_Hierarchy_Visible_On_32.png</file>
+        <file>resources/png/Assets/Icon_Hierarchy_AudioEmitter_On_32.png</file>
+        <file>resources/png/Assets/Icon_Hierarchy_AudioEmitter_Unavailable_32.png</file>
+        <file>resources/png/Assets/Icon_LinkTo.png</file>
+        <file>resources/png/Assets/Icon_LockedFalse.png</file>
+        <file>resources/png/Assets/Icon_LockedTrue.png</file>
+        <file>resources/png/Assets/Icon_Search.png</file>
+        <file>resources/png/Assets/Icon_SliderBox_down.png</file>
+        <file>resources/png/Assets/Icon_SliderBox_up.png</file>
+        <file>resources/png/Assets/Icon_SliderBox.png</file>
+        <file>resources/png/Icons_Timeline/Icon_Timeline_JumpToEnd_32.png</file>
+        <file>resources/png/Icons_Timeline/Icon_Timeline_JumpToEnd_64.png</file>
+        <file>resources/png/Icons_Timeline/Icon_Timeline_JumpToEnd_128.png</file>
+        <file>resources/png/Icons_Timeline/Icon_Timeline_JumpToEnd_256.png</file>
+        <file>resources/png/Icons_Timeline/Icon_Timeline_JumpToStart_32.png</file>
+        <file>resources/png/Icons_Timeline/Icon_Timeline_JumpToStart_64.png</file>
+        <file>resources/png/Icons_Timeline/Icon_Timeline_JumpToStart_128.png</file>
+        <file>resources/png/Icons_Timeline/Icon_Timeline_JumpToStart_256.png</file>
+        <file>resources/png/Icons_Timeline/Icon_Timeline_NextFrame_32.png</file>
+        <file>resources/png/Icons_Timeline/Icon_Timeline_NextFrame_64.png</file>
+        <file>resources/png/Icons_Timeline/Icon_Timeline_NextFrame_128.png</file>
+        <file>resources/png/Icons_Timeline/Icon_Timeline_NextFrame_256.png</file>
+        <file>resources/png/Icons_Timeline/Icon_Timeline_Pause_32.png</file>
+        <file>resources/png/Icons_Timeline/Icon_Timeline_Pause_64.png</file>
+        <file>resources/png/Icons_Timeline/Icon_Timeline_Pause_128.png</file>
+        <file>resources/png/Icons_Timeline/Icon_Timeline_Pause_256.png</file>
+        <file>resources/png/Icons_Timeline/Icon_Timeline_Play_32.png</file>
+        <file>resources/png/Icons_Timeline/Icon_Timeline_Play_64.png</file>
+        <file>resources/png/Icons_Timeline/Icon_Timeline_Play_128.png</file>
+        <file>resources/png/Icons_Timeline/Icon_Timeline_Play_256.png</file>
+        <file>resources/png/Icons_Timeline/Icon_Timeline_PreviousFrame_32.png</file>
+        <file>resources/png/Icons_Timeline/Icon_Timeline_PreviousFrame_64.png</file>
+        <file>resources/png/Icons_Timeline/Icon_Timeline_PreviousFrame_128.png</file>
+        <file>resources/png/Icons_Timeline/Icon_Timeline_PreviousFrame_256.png</file>
+        <file>resources/png/Icons_Timeline/Icon_Timeline_Stop_32.png</file>
+        <file>resources/png/Icons_Timeline/Icon_Timeline_Stop_64.png</file>
+        <file>resources/png/Icons_Timeline/Icon_Timeline_Stop_128.png</file>
+        <file>resources/png/Icons_Timeline/Icon_Timeline_Stop_256.png</file>
+        <file>resources/png/Assets/Icon_Tool_Measure.png</file>
+        <file>resources/png/Assets/Icon_Tool_Move.png</file>
+        <file>resources/png/Assets/Icon_Tool_Rotate.png</file>
+        <file>resources/png/Assets/Icon_Tool_Scale.png</file>
+        <file>resources/png/Assets/Icon_Tool_Select.png</file>
+        <file>resources/png/Assets/Icon_VisibleFalse.png</file>
+        <file>resources/png/Assets/Icon_VisibleTrue.png</file>
+        <file>resources/png/Assets/Icon_Window_Close.png</file>
+        <file>resources/png/Assets/Icon_Window_Maximize.png</file>
+        <file>resources/png/Assets/Inspector_Link_Tab_Active_Back.png</file>
+        <file>resources/png/Assets/Inspector_Link_Tab_Active_Middle.png</file>
+        <file>resources/png/Assets/Inspector_Link_Tab_Inactive_Tip.png</file>
+        <file>resources/png/Assets/Inspector_Link_Tab_Inactive.png</file>
+        <file>resources/png/lock.png</file>
+        <file>resources/png/minimize.png</file>
+        <file>resources/png/node.png</file>
+        <file>resources/png/open.png</file>
+        <file>resources/png/Assets/RadioButton_Off_dark.png</file>
+        <file>resources/png/Assets/RadioButton_Off.png</file>
+        <file>resources/png/Assets/RadioButton_On_dark.png</file>
+        <file>resources/png/Assets/RadioButton_On.png</file>
+        <file>resources/png/Assets/ScrollBar_Arrow_Down.png</file>
+        <file>resources/png/Assets/ScrollBar_Arrow_Left.png</file>
+        <file>resources/png/Assets/ScrollBar_Arrow_Right.png</file>
+        <file>resources/png/Assets/ScrollBar_Arrow_Up.png</file>
+        <file>resources/png/Assets_small/small_test - CheckBox_Off.png</file>
+        <file>resources/png/Assets_small/small_test - CheckBox_On.png</file>
+        <file>resources/png/Assets_small/small_test - ContentEntry_Arrow.png</file>
+        <file>resources/png/Assets_small/small_test - ContentEntry_Body.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_BrowseTo.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_ColorPicker.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_Console_Error.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_Console_Message.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_Console_Warning.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_ContentCategory_Animations.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_ContentCategory_Cameras.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_ContentCategory_Environments.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_ContentCategory_Images.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_ContentCategory_Lights.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_ContentCategory_Materials.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_ContentCategory_Meshes.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_ContentCategory_Nodes.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_ContentCategory_Scenes.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_ContentCategory_Skins.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_ContentCategory_Textures.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_Dropdown.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_Entry_Add.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_Entry_Delete.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_Expand.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_Header_Config.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_Header_Console.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_Header_Content.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_Header_Hierarchy.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_Header_Inspector.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_Header_Notification.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_Header_RenderView.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_Header_Timeline.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_Header_Viewport.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_LinkTo.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_LockedFalse.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_LockedTrue.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_Search.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_SliderBox.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_Tool_Measure.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_Tool_Move.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_Tool_Rotate.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_Tool_Scale.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_Tool_Select.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_VisibleFalse.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_VisibleTrue.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_Window_Close.png</file>
+        <file>resources/png/Assets_small/small_test - Icon_Window_Maximize.png</file>
+        <file>resources/png/Assets_small/small_test - RadioButton_Off.png</file>
+        <file>resources/png/Assets_small/small_test - RadioButton_On.png</file>
+        <file>resources/png/Assets_small/small_test - ScrollBar_Arrow.png</file>
+        <file>resources/png/Assets/Inspector_Link_Tab_Active.png</file>
+        <file>resources/png/Assets/Inspector_Link_Tab_Active_Tip.png</file>
+        <file>resources/png/Assets/Inspector_Link_Tab_Inactive_Back.png</file>
+        <file>resources/png/Assets/Inspector_Link_Tab_Inactive_Middle.png</file>
+        <file>resources/png/Assets/Icon_ApplicationWindow.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Animation_32.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Animation_64.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Animation_128.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Animation_256.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Camera_32.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Camera_64.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Camera_128.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Camera_256.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_AudioSource_256.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_AudioEmitter_256.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Environment_32.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Environment_64.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Environment_128.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Environment_256.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Image_32.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Image_64.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Image_128.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Image_256.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Light_32.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Light_64.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Light_128.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Light_256.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Material_32.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Material_64.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Material_128.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Material_256.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Mesh_32.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Mesh_64.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Mesh_128.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Mesh_256.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_MaterialVariants_32.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_MaterialVariants_64.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_MaterialVariants_128.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_MaterialVariants_256.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Node_32.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Node_64.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Node_128.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Node_256.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Primitive_32.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Primitive_64.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Primitive_128.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Primitive_256.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Sampler_32.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Sampler_64.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Sampler_128.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Sampler_256.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Scene_32.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Scene_64.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Scene_128.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Scene_256.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Skin_32.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Skin_64.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Skin_128.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Skin_256.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Texture_32.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Texture_64.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Texture_128.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Texture_256.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_XMP_256.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Packet_256.png</file>
+        <file>resources/png/Icons_Generic/Icon_Generic_Nothing_32.png</file>
+        <file>resources/png/Icons_Generic/Icon_Generic_X_Red_32.png</file>
+        <file>resources/png/Icons_Generic/Icon_Generic_X_Red_64.png</file>
+        <file>resources/png/Icons_Generic/Icon_Generic_X_Red_128.png</file>
+        <file>resources/png/Icons_Generic/Icon_Generic_X_Red_256.png</file>
+        <file>resources/png/Icons_Generic/Icon_Generic_Checkmark_Green_32.png</file>
+        <file>resources/png/Icons_Generic/Icon_Generic_Checkmark_Green_64.png</file>
+        <file>resources/png/Icons_Generic/Icon_Generic_Checkmark_Green_128.png</file>
+        <file>resources/png/Icons_Generic/Icon_Generic_Checkmark_Green_256.png</file>
+        <file>resources/png/Icons_Generic/Icon_Experimental.png</file>
+        <file>resources/png/Icons_Generic/Icon_Archived.png</file>
+        <file>resources/png/Icons_Generic/Icon_Collapse.png</file>
+        <file>resources/png/Icons_Generic/Icon_Expand.png</file>
+        <file>resources/png/Icons_Generic/Icon_Generic_Content_256.png</file>
+        <file>resources/png/Interactibles/Checkbox_Object_Off_32.png</file>
+        <file>resources/png/Interactibles/Checkbox_Object_Off_64.png</file>
+        <file>resources/png/Interactibles/Checkbox_Object_Off_128.png</file>
+        <file>resources/png/Interactibles/Checkbox_Object_Off_256.png</file>
+        <file>resources/png/Interactibles/Checkbox_Object_On_32.png</file>
+        <file>resources/png/Interactibles/Checkbox_Object_On_64.png</file>
+        <file>resources/png/Interactibles/Checkbox_Object_On_128.png</file>
+        <file>resources/png/Interactibles/Checkbox_Object_On_256.png</file>
+        <file>resources/png/Interactibles/Button_RemoveValue.png</file>
+        <file>resources/png/Viewport_Helper/Icon_Helper_Light_Point_512.png</file>
+        <file>resources/png/Viewport_Helper/Icon_Helper_Light_Directional_512.png</file>
+        <file>resources/png/Viewport_Helper/Icon_Helper_Light_Spot_512.png</file>
+        <file>resources/png/Viewport_Helper/Icon_Helper_Camera_512.png</file>
+        <file>resources/png/Viewport_Helper/Icon_Helper_Audio_512.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Accessor_32.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Accessor_64.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Accessor_128.png</file>
+        <file>resources/png/Icons_Category/Icon_Category_Accessor_256.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Accessor_32.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Accessor_64.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Accessor_128.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Accessor_256.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Animation_32.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Animation_64.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Animation_128.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Animation_256.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Camera_32.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Camera_64.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Camera_128.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Camera_256.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Environment_32.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Environment_64.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Environment_128.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Environment_256.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Image_32.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Image_64.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Image_128.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Image_256.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Light_32.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Light_64.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Light_128.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Light_256.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Material_32.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Material_64.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Material_128.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Material_256.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Mesh_32.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Mesh_64.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Mesh_128.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Mesh_256.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_MaterialVariants_32.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_MaterialVariants_64.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_MaterialVariants_128.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_MaterialVariants_256.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Node_32.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Node_64.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Node_128.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Node_256.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Primitive_32.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Primitive_64.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Primitive_128.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Primitive_256.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Sampler_32.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Sampler_64.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Sampler_128.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Sampler_256.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Scene_32.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Scene_64.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Scene_128.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Scene_256.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Skin_32.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Skin_64.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Skin_128.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Skin_256.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Texture_32.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Texture_64.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Texture_128.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Texture_256.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Packet_256.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_AudioSource_256.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_AudioEmitter_256.png</file>
+        <file>resources/png/Icons_Tools/Icon_Tools_Measure_256.png</file>
+        <file>resources/png/Icons_Tools/Icon_Tools_Move_256.png</file>
+        <file>resources/png/Icons_Tools/Icon_Tools_Rotate_256.png</file>
+        <file>resources/png/Icons_Tools/Icon_Tools_Scale_256.png</file>
+        <file>resources/png/Icons_Tools/Icon_Tools_Select_256.png</file>
+		<file>resources/png/Icons_Tools/Icon_Grid_off_256.png</file>
+		<file>resources/png/Icons_Tools/Icon_Grid_on_256.png</file>
+		<file>resources/png/Icons_Tools/Icon_Tools_Audio_disable.png</file>
+		<file>resources/png/Icons_Tools/Icon_Tools_Audio_off.png</file>
+		<file>resources/png/Icons_Tools/Icon_Tools_Audio_on.png</file>
+		<file>resources/png/Icons_Tools/Icon_Animation_Selection_256.png</file>
+		<file>resources/png/Icons_Tools/Icon_Ortho_256.png</file>
+		<file>resources/png/Icons_Tools/Icon_Perspective_256.png</file>
+		<file>resources/png/Icons_Tools/Icon_perspective_disabled_256.png</file>
+		<file>resources/png/Icons_Tools/Icon_Render_256.png</file>
+		<file>resources/png/Icons_Tools/Icon_Global_Space_256.png</file>
+		<file>resources/png/Icons_Tools/Icon_Local_Space_256.png</file>
+        <file>OpenGL-Renderer/resources/images/lut_sheen_E.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Error_256.png</file>
+        <file>resources/png/Icons_Slot/Icon_Slot_Add_256.png</file>
+        <file>resources/png/Assets/Icon_SliderBox_down_Inactive.png</file>
+        <file>resources/png/Assets/Icon_SliderBox_up_Inactive.png</file>
+        <file>resources/png/Icons_Titlebar/Icon_Preferences_256.png</file>
+    </qresource>
+</RCC>

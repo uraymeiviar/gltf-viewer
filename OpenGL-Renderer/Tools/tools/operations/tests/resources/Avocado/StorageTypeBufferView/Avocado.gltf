@@ -1,0 +1,186 @@
+{
+	"accessors": [
+		{
+			"bufferView": 3,
+			"byteOffset": 0,
+			"componentType": 5126,
+			"count": 406,
+			"type": "VEC2"
+		},
+		{
+			"bufferView": 4,
+			"byteOffset": 0,
+			"componentType": 5126,
+			"count": 406,
+			"type": "VEC3"
+		},
+		{
+			"bufferView": 5,
+			"byteOffset": 0,
+			"componentType": 5126,
+			"count": 406,
+			"type": "VEC4"
+		},
+		{
+			"bufferView": 6,
+			"byteOffset": 0,
+			"componentType": 5126,
+			"count": 406,
+			"max": [
+				0.02128091,
+				0.06284806,
+				0.0138090011
+			],
+			"min": [
+				-0.02128091,
+				-4.773855e-05,
+				-0.013809
+			],
+			"type": "VEC3"
+		},
+		{
+			"bufferView": 7,
+			"byteOffset": 0,
+			"componentType": 5123,
+			"count": 2046,
+			"type": "SCALAR"
+		}
+	],
+	"asset": {
+		"extras": {
+			"created": "Fri Mar  4 18:03:00 2022"
+		},
+		"generator": "Gestaltor 2022.1.0  Development (internal) (dev-5366a13*)",
+		"version": "2.0"
+	},
+	"bufferViews": [
+		{
+			"buffer": 0,
+			"byteLength": 4652,
+			"byteOffset": 0
+		},
+		{
+			"buffer": 0,
+			"byteLength": 1695,
+			"byteOffset": 4652
+		},
+		{
+			"buffer": 0,
+			"byteLength": 3463,
+			"byteOffset": 6347
+		},
+		{
+			"buffer": 0,
+			"byteLength": 3248,
+			"byteOffset": 9812
+		},
+		{
+			"buffer": 0,
+			"byteLength": 4872,
+			"byteOffset": 13060
+		},
+		{
+			"buffer": 0,
+			"byteLength": 6496,
+			"byteOffset": 17932
+		},
+		{
+			"buffer": 0,
+			"byteLength": 4872,
+			"byteOffset": 24428
+		},
+		{
+			"buffer": 0,
+			"byteLength": 4092,
+			"byteOffset": 29300
+		}
+	],
+	"buffers": [
+		{
+			"byteLength": 33392,
+			"uri": "Avocado.bin"
+		}
+	],
+	"images": [
+		{
+			"bufferView": 0,
+			"mimeType": "image/jpeg",
+			"name": "Avocado_baseColor"
+		},
+		{
+			"bufferView": 1,
+			"mimeType": "image/jpeg",
+			"name": "Avocado_roughnessMetallic"
+		},
+		{
+			"bufferView": 2,
+			"mimeType": "image/jpeg",
+			"name": "Avocado_normal"
+		}
+	],
+	"materials": [
+		{
+			"name": "2256_Avocado_d",
+			"normalTexture": {
+				"index": 2
+			},
+			"pbrMetallicRoughness": {
+				"baseColorTexture": {
+					"index": 0
+				},
+				"metallicRoughnessTexture": {
+					"index": 1
+				}
+			}
+		}
+	],
+	"meshes": [
+		{
+			"name": "Avocado",
+			"primitives": [
+				{
+					"attributes": {
+						"NORMAL": 1,
+						"POSITION": 3,
+						"TANGENT": 2,
+						"TEXCOORD_0": 0
+					},
+					"indices": 4,
+					"material": 0,
+					"mode": 4
+				}
+			]
+		}
+	],
+	"nodes": [
+		{
+			"mesh": 0,
+			"name": "Avocado",
+			"rotation": [
+				0.0,
+				1.0,
+				0.0,
+				0.0
+			]
+		}
+	],
+	"scene": 0,
+	"scenes": [
+		{
+			"nodes": [
+				0
+			]
+		}
+	],
+	"textures": [
+		{
+			"source": 0
+		},
+		{
+			"source": 1
+		},
+		{
+			"source": 2
+		}
+	]
+}

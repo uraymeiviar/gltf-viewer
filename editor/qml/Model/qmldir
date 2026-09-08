@@ -1,0 +1,3 @@
+module Model
+singleton Observables 1.0 Observables.qml
+singleton Operations 1.0 Operations.qml

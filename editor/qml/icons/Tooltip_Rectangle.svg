@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="16px" height="16px" viewBox="0 0 16 16" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>Rectangle</title>
+    <g id="Rectangle" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <polygon fill="#D3D3D3" transform="translate(8.000000, 8.000000) scale(1, -1) rotate(45.000000) translate(-8.000000, -8.000000) " points="13 3 13 13 3 13"></polygon>
+    </g>
+</svg>

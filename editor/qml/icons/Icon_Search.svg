@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="20px" height="20px" viewBox="0 0 20 20" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>Icon/ Search</title>
+    <defs>
+        <filter id="filter-1">
+            <feColorMatrix in="SourceGraphic" type="matrix" values="0 0 0 0 0.956863 0 0 0 0 0.956863 0 0 0 0 0.956863 0 0 0 1.000000 0"></feColorMatrix>
+        </filter>
+        <path d="M5.1,0 C7.91665222,0 10.2,2.28334778 10.2,5.1 C10.2,6.29211766 9.79098065,7.38870373 9.10562227,8.2570779 L11.8242641,10.9757359 C12.0585786,11.2100505 12.0585786,11.5899495 11.8242641,11.8242641 C11.5899495,12.0585786 11.2100505,12.0585786 10.9757359,11.8242641 L10.9757359,11.8242641 L8.2570779,9.10562227 C7.38870373,9.79098065 6.29211766,10.2 5.1,10.2 C2.28334778,10.2 0,7.91665222 0,5.1 C0,2.28334778 2.28334778,0 5.1,0 Z M5.1,1.2 C2.94608948,1.2 1.2,2.94608948 1.2,5.1 C1.2,7.25391052 2.94608948,9 5.1,9 C6.16798063,9 7.13569818,8.57072269 7.84001642,7.87530429 L7.85573593,7.85573593 C7.86169574,7.84977612 7.86774973,7.8439679 7.87389312,7.83831127 C8.57072269,7.13569818 9,6.16798063 9,5.1 C9,2.94608948 7.25391052,1.2 5.1,1.2 Z" id="path-2"></path>
+    </defs>
+    <g id="Icon/-Search" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g filter="url(#filter-1)" id="search">
+            <g transform="translate(4.000000, 4.000000)">
+                <mask id="mask-3" fill="white">
+                    <use xlink:href="#path-2"></use>
+                </mask>
+                <use id="Combined-Shape" fill="#FFFFFF" xlink:href="#path-2"></use>
+            </g>
+        </g>
+    </g>
+</svg>

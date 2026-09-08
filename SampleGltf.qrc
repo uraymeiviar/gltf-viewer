@@ -1,0 +1,5 @@
+<RCC>
+	<qresource prefix="/">
+		<file>resources/sampleGltf/HelloCube.glb</file>
+	</qresource>
+</RCC>

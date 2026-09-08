@@ -1,0 +1,404 @@
+$
+$ $ marks a comment
+$ <some variable declaration>	$ Comment in the same line is possible as well.
+$
+$ @ variables can be used in CSS.
+$ @ variables can reference @ variables.
+$   If so, the referenced @ variable has to be defined later.
+$
+
+$
+$ Colors mapped to specific uses in the UI
+$ 
+
+$ global
+
+@mainWindowBackground @background0
+@widgetBackground @background0
+@widgetFontColor @font3
+
+@widgetBorderGradientA @borderA
+@widgetBorderGradientB @border9
+
+@menuBarSelection @selection0
+@menuItemSelection @selection4
+@menuItemHover @hover1
+@menuFontColor @font0
+@menuFontDisabledColor @font5
+@menuBackground @background5
+
+@messageBoxBackground @background5
+@messageBoxFontColor @font0
+
+@buttonFontColorEnabled @font3
+@buttonFontColorDisabled #A0A0A0
+@buttonBackgroundGradientA @background6
+@buttonBackgroundGradientB @background7
+@buttonHoverBackgroundGradientA @background8
+@buttonHoverBackgroundGradientB @background6
+@buttonDisabledBackgroundGradientA #434343
+@buttonDisabledBackgroundGradientB #434343
+@buttonBorderLightColor @border9
+@buttonBorderDarkColor @border7
+@buttonBorderDarkHoverColor @border8
+@buttonBorderDefaultColor @border6
+
+@propertyPreviewBorder @border5
+
+@spinBoxBackground @background3
+@spinBoxFontColorEnabled @font3
+@spinBoxFontColorDisabled @font1
+@spinBoxBorderDarkColor @border0
+@spinBoxBorderLightColor @borderB
+@spinBoxSelection @selection2
+@spinBoxButtonColor @background4
+
+@lineEditBackground @background3
+@lineEditFontColorEnabled @font3
+@lineEditFontColorDisabled @font1
+@lineEditBorderDarkColor @border0
+@lineEditBorderLightColor @borderB
+@lineEditSelection @selection2
+
+@lineColor @background0
+
+@listItemSelected @selection1
+@listItemFontColor @font3
+
+@scrollBarBackground @background2
+@scrollBarHandleBackground @background4
+@scrollBarButtons @background4
+@sliderHandleBorderColor @border0
+
+@sliderHandleBackground @background6
+@sliderPageDisabledColor @disabled0
+
+@comboBoxBackground @background4
+@comboBoxBorderColor @border4
+@comboBoxFontColor @font3
+
+$ per view
+
+@titleWidgetBackground @background0
+@titleWidgetTab @background3
+@titleWidgetButtonGroupBorderColorPressed @border1
+@titleWidgetButtonGroupBackgroundPressedA @background4
+@titleWidgetButtonGroupBackgroundPressedB @background2
+@titleWidgetButtonGroupBorderColorUnpressed @border0
+@titleWidgetButtonGroupBackgroundUnpressedA @background6
+@titleWidgetButtonGroupBackgroundUnpressedB @backgroundA
+@titleTabBorderColor @background4
+
+@dockWidgetBackground @background1
+@dockWidgetBorderColor @border2
+
+$ per specfic view
+
+@inspectorAreaBackground @background2
+@inspectorAreaBorderColor @border0
+@inspectorLineColor @background1
+
+@hierarchyBackground @background1
+@hierarchyHeaderBackground @background3
+@hierarchyHeaderBorderColor @borderC
+@hierarchyFontColor @font3
+@hiearchySceneFontColor @font4
+@hierarchyHoverColor @hover0
+
+@contentBorderColor @border3
+@contentLineColor @background0
+@contentSelection @selection2
+
+@collapsibleHeaderBackground @background9
+@collapsibleHeaderBorderA @borderD
+@collapsibleHeaderBorderB @borderE
+
+$
+$ Categorized and sorted colors used in the editor.
+$
+
+@background0 @UX3D_GREY1
+@background1 @UX3D_GREY3
+@background2 @UX3D_GREY5
+@background3 @UX3D_GREY7
+@background4 @UX3D_GREY8
+@background5 @UX3D_GREY9
+@background6 @UX3D_GREYC
+@background7 @UX3D_GREYD
+@background8 @UX3D_GREYE
+@background9 @UX3D_GREYJ
+@backgroundA @UX3D_GREYG
+
+@disabled0 @UX3D_GREYN
+
+@border0 @UX3D_GREY0
+@border1 @UX3D_GREY3
+@border2 @UX3D_GREY6
+@border3 @UX3D_GREY8
+@border4 @GREY
+@border5 @WHITE
+@border6 @UX3D_GREEN3
+@border7 @UX3D_GREYF
+@border8 @UX3D_GREYG
+@border9 @UX3D_GREYH
+@borderA @BLACK
+@borderB @UX3D_GREY9
+@borderC @UX3D_GREYI
+@borderD @UX3D_GREYK
+@borderE @UX3D_GREYL
+
+@selection0 @UX3D_GREEN0
+@selection1 @UX3D_GREEN1
+@selection2 @UX3D_GREEN2
+@selection3 @UX3D_GREEN3
+@selection4 @UX3D_GREEN4
+
+@hover0 @UX3D_GREY2
+@hover1 @UX3D_GREYL
+
+@font0 @BLACK
+@font1 @UX3D_GREYA
+@font2 @SILVER
+@font3 @UX3D_GREYB
+@font4 @WHITE
+@font5 @UX3D_GREYD
+
+$
+$ Used colors - if possible - give them an official name (see https://htmlcolorcodes.com/color-names/).
+$ 
+
+@RED #FF0000
+@YELLOW #FFFF00
+@LIME #00FF00
+@GREEN #008000
+@CYAN #00FFFF
+@BLUE #0000FF
+@MAGENTA #FF00FF
+
+@PINK #FFC0CB
+@DEEPPINK #FF1493
+
+@PURPLE #800080
+
+@BLACK #000000
+@UX3D_GREY0 #111111
+@UX3D_GREY1 #252525
+@UX3D_GREY2 #2A2A2A
+@UX3D_GREY3 #363636
+@UX3D_GREY4 #444444
+@UX3D_GREY5 #464646
+@UX3D_GREY6 #505050
+@UX3D_GREY7 #545454
+@UX3D_GREY8 #676767
+@GREY #808080
+@UX3D_GREY9 #959595
+@UX3D_GREYA #9B9B9B
+@SILVER #C0C0C0
+@UX3D_GREYB #E1E1E1
+@UX3D_GREYC #777777
+@UX3D_GREYD #5f5f5f
+@UX3D_GREYE #929292
+@UX3D_GREYF #404040
+@UX3D_GREYG #606060
+@UX3D_GREYH #B0B0B0
+@UX3D_GREYI #282828
+@UX3D_GREYJ #636363
+@UX3D_GREYK #2B2B2B
+@UX3D_GREYL #898989
+@UX3D_GREYM #4E4E4E
+@UX3D_GREYN #2D2D2E
+@UX3D_GREYO #D3D3D3
+@WHITE #FFFFFF
+
+@UX3D_ALPHA_GREY2 #802A2A2A
+
+@UX3D_GREEN0 #485F21
+@UX3D_GREEN1 #52692C
+@UX3D_GREEN2 #647A3E
+@UX3D_GREEN3 #7cb41e
+@UX3D_GREEN4 #8ba165
+
+@UX3D_ALPHA_GREEN0 #8052692C
+@UX3D_ALPHA_GREEN1 #80657b3f
+@UX3D_ALPHA_GREEN2 #808ba165
+@UX3D_ALPHA_GREEN3 #807cb41e
+
+$ ------------------------------------------------------------------------
+
+$
+$ Sizes mapped to specific uses in the UI
+$ 
+
+$ general
+
+@generalFontSize @UX3D_FONTSIZE0
+
+@buttonWidth @UX3D_SIZEC
+@buttonHeight @UX3D_SIZE3
+@buttonMenuArrowSize 8px
+
+@squareButtonSize @UX3D_SIZE6
+
+@colorPreviewSize @UX3D_SIZE0
+@propertyPreviewSize @UX3D_SIZE2
+
+@backPathHeight @UX3D_SIZE1
+@backPathWidth @UX3D_SIZED
+
+@spinBoxHeight @UX3D_SIZE3
+@spinBoxMinWidth @UX3D_SIZEF
+@spinBoxMaxWidth @UX3D_SIZEF
+@spinBoxButtonsWidth @UX3D_SIZEE
+
+@lineEditHeight @UX3D_SIZE3
+
+@scrollHandleHeight @UX3D_SIZE4
+@scrollBarButtonHeight @UX3D_SIZE5
+@scrollBarArrowHeight @UX3D_SIZE6
+
+@sliderHandleMargin 4px
+@sliderHandleRadius 5px
+@sliderHandleWidth 10px
+@sliderHandleHeight 16px
+@sliderGrooveHeight 4px
+@sliderPageRadius 2px
+
+@comboBoxHeight @UX3D_SIZE3
+
+@titleTabIconSize 17px
+
+@menuIconSize 12px
+
+$ per view
+
+@titleWidgetHeight @UX3D_SIZE0
+@titleTabWidth @UX3D_SIZEA
+@titleWidgetButtonGroupSize @UX3D_SIZE3
+@titleWidgetToolButtonGroupSize 28px
+@titleWidgetCheckBoxSize @UX3D_SIZE0
+@titleWidgetCheckBoxIconSize @UX3D_SIZE3
+@titleWidgetButtonSoloWidth @UX3D_SIZE1
+@titleWidgetButtonSoloHeight @UX3D_SIZE5
+
+@comboBoxArrowWidth 8px
+
+@ReferenceSlotDropdownWidth 120px
+
+@dockWidgetHeight @UX3D_SIZEF
+
+@propertiesHeaderFontSize @UX3D_FONTSIZE1
+@propertiesAreaLineWidth @UX3D_SIZE8
+
+@CollapsibleCheckBoxSize @UX3D_SIZE6
+
+@hierarchyArrowPadding 6px
+
+$ per specific view
+
+@contentLineWidth @UX3D_SIZEG
+@rendererLineWidth @UX3D_SIZE7
+@contentElementsListMinWidth @UX3D_SIZE9
+@contentPropertyPreviewSize @UX3D_SIZE3
+
+@ReferenceSlotButtonSize 15px
+
+@renderviewComboBoxHeight @UX3D_SIZE3
+
+$
+$ Size definitions
+$
+
+@UX3D_FONTSIZE0 11px
+@UX3D_FONTSIZE1 15px
+
+@UX3D_SIZE0 22px
+@UX3D_SIZE1 28px
+@UX3D_SIZE2 30px
+@UX3D_SIZE3 16px
+@UX3D_SIZE4 13px
+@UX3D_SIZE5 11px
+@UX3D_SIZE6 8px
+@UX3D_SIZE7 4px
+@UX3D_SIZE8 1px
+@UX3D_SIZE9 180px
+@UX3D_SIZEA 130px
+@UX3D_SIZEB 80px
+@UX3D_SIZEC 48px
+@UX3D_SIZED 118px
+@UX3D_SIZEE 12px
+@UX3D_SIZEF 56px
+@UX3D_SIZEG 2px
+
+$ ------------------------------------------------------------------------
+
+$
+$ paddings and margins mapped to specific uses in the UI
+$
+
+$ general
+
+@squareButtonPadding 2px
+@buttonPadding 2px 5px 2px 5px
+@lineEditPadding 1px 5px 1px 6px
+@comboBoxPadding 1px 5px 1px 6px
+@comboBoxArrowPadding 3px 4px 0px 0px
+@spinBoxPadding 0px 0px 0px 5px
+@labelMargin 2px 5px 2px 5px
+
+$ per view
+
+@propertiesAreaPadding 3px 0px 0px 0px
+
+@titleWidgetCheckBoxPadding 0px 0px 0px 5px
+
+@collapsibleCheckBoxRightMargin -6px
+
+$ per specific view
+
+@hierarchyHeaderPadding 1px 1px 1px 3px
+
+@contentElementsListPadding 0px 0px 0px 3px
+
+@loggerListPadding 0px 0px 0px 3px
+@loggerItemMargin 2px 0px 2px 0px
+
+$ ------------------------------------------------------------------------
+
+$
+$ border thickness & radii mapped to specific uses in the UI
+$
+
+$ general
+
+@buttonBorderWidth 1px
+@buttonBorderRadius 10px
+
+@spinBoxBorderWidth 1px
+
+@lineEditBorderWidth 1px
+@lineEditBorderRadius 9px
+
+@spinBoxBorderRadius 8px
+@scrollBarHandleBorderRadius 6px
+
+@sliderHandleBorderWidth 1px
+
+@comboBoxBorderWidth 1px
+
+$ per view
+
+@titleTabBorderWidth 1px
+@comboBoxBorderRadius 8px
+@titleTabBorderRadius 10px
+
+@dockWidgetBorderWidth 1px
+
+@titleWidgetButtonGroupBorderWidth 1px
+@titleWidgetButtonGroupBorderRadius 11px
+
+$ per specific view
+
+@inspectorAreaBorderWidth 1px
+@inspectorAreaBorderRadius 10px
+
+@contentBorderWidth 1px

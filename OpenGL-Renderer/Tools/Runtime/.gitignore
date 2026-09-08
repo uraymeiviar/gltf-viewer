@@ -1,0 +1,17 @@
+
+/build
+/build-*
+/build_*
+/cmake-build-*
+.DS_Store
+
+.idea
+.vscode
+.vs
+
+.project
+.cproject
+
+*.exe
+*.dll
+*.a

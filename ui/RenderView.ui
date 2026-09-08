@@ -1,0 +1,519 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>dockWidget_renderView</class>
+ <widget class="QDockWidget" name="dockWidget_renderView">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>200</width>
+    <height>305</height>
+   </rect>
+  </property>
+  <property name="sizePolicy">
+   <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+    <horstretch>0</horstretch>
+    <verstretch>0</verstretch>
+   </sizepolicy>
+  </property>
+  <widget class="QWidget" name="dockWidgetContents_container">
+   <layout class="QVBoxLayout" name="verticalLayout">
+    <property name="spacing">
+     <number>3</number>
+    </property>
+    <property name="leftMargin">
+     <number>0</number>
+    </property>
+    <property name="topMargin">
+     <number>0</number>
+    </property>
+    <property name="rightMargin">
+     <number>0</number>
+    </property>
+    <property name="bottomMargin">
+     <number>0</number>
+    </property>
+    <item>
+      <widget class="QWidget" name="dockWidgetContents_top" native="true">
+        <layout class="QVBoxLayout" name="horizontalLayout_top">
+          <property name="spacing">
+            <number>2</number>
+          </property>
+          <property name="leftMargin">
+            <number>0</number>
+          </property>
+          <property name="topMargin">
+            <number>0</number>
+          </property>
+          <property name="rightMargin">
+            <number>12</number>
+          </property>
+          <property name="bottomMargin">
+            <number>0</number>
+          </property>
+          <item>
+            <widget class="QWidget" native="true" name="horizontalLayout_top_general">
+              <layout class="QHBoxLayout" name="horizontalLayout_top_general_layout">
+                <property name="spacing">
+                  <number>2</number>
+                </property>
+                <property name="leftMargin">
+                  <number>2</number>
+                </property>
+                <property name="topMargin">
+                  <number>0</number>
+                </property>
+                <property name="rightMargin">
+                  <number>0</number>
+                </property>
+                <property name="bottomMargin">
+                  <number>0</number>
+                </property>
+                <!-- Viewport mode button -->
+                <item>
+                  <widget class="QWidget" name="viewportModeWidget" native="true">
+                    <layout class="QHBoxLayout" name="horizontalLayout_editorMode">
+                      <property name="spacing">
+                        <number>10</number>
+                      </property>
+                      <property name="leftMargin">
+                        <number>8</number>
+                      </property>
+                      <property name="topMargin">
+                        <number>0</number>
+                      </property>
+                      <property name="rightMargin">
+                        <number>8</number>
+                      </property>
+                      <property name="bottomMargin">
+                        <number>0</number>
+                      </property>
+                      <item>
+                        <widget class="QPushButton" name="pushButton_viewportMode">
+                          <property name="text">
+                          <string>Edit Mode</string>
+                          </property>
+                        </widget>
+                      </item>
+                    </layout>
+                  </widget>
+                </item>
+                <!-- Camera selection -->
+                <item>
+                  <widget class="ux3d::editor::GltfPropertyPairComboBox" name="comboBox_cameras">
+                    <property name="minimumSize">
+                      <size>
+                      <width>200</width>
+                      <height></height>
+                      </size>
+                    </property>
+                  </widget>
+                </item>
+                <!-- Interaction gizmo selection -->
+                <item>
+                  <widget class="QWidget" name="toolsWidget" native="true">
+                    <property name="sizePolicy">
+                      <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
+                      <horstretch>0</horstretch>
+                      <verstretch>0</verstretch>
+                      </sizepolicy>
+                    </property>
+                    <layout class="QHBoxLayout" name="horizontalLayout_2">
+                      <property name="spacing">
+                        <number>0</number>
+                      </property>
+                        <property name="topMargin">
+                      <number>3</number>
+                      </property>
+                      <property name="bottomMargin">
+                        <number>3</number>
+                      </property>
+                      <item>
+                        <widget class="ux3d::editor::CustomToolButton" name="toolButton_select">
+                          <property name="sizePolicy">
+                            <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
+                              <horstretch>0</horstretch>
+                              <verstretch>0</verstretch>
+                            </sizepolicy>
+                          </property>
+                          <property name="text">
+                            <string>...</string>
+                          </property>
+                          <property name="iconSize">
+                            <size>
+                              <width>100</width>
+                              <height>100</height>
+                            </size>
+                          </property>
+                        </widget>
+                      </item>
+                      <item>
+                        <widget class="ux3d::editor::CustomToolButton" name="toolButton_move">
+                          <property name="sizePolicy">
+                            <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
+                              <horstretch>0</horstretch>
+                              <verstretch>0</verstretch>
+                            </sizepolicy>
+                          </property>
+                          <property name="text">
+                            <string>...</string>
+                          </property>
+                          <property name="iconSize">
+                            <size>
+                              <width>100</width>
+                              <height>100</height>
+                            </size>
+                          </property>
+                        </widget>
+                      </item>
+                      <item>
+                        <widget class="ux3d::editor::CustomToolButton" name="toolButton_rotate">
+                          <property name="sizePolicy">
+                            <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
+                              <horstretch>0</horstretch>
+                              <verstretch>0</verstretch>
+                            </sizepolicy>
+                          </property>
+                          <property name="text">
+                            <string>...</string>
+                          </property>
+                          <property name="iconSize">
+                            <size>
+                              <width>100</width>
+                              <height>100</height>
+                            </size>
+                          </property>
+                        </widget>
+                      </item>
+                      <item>
+                        <widget class="ux3d::editor::CustomToolButton" name="toolButton_scale">
+                          <property name="sizePolicy">
+                            <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
+                              <horstretch>0</horstretch>
+                              <verstretch>0</verstretch>
+                            </sizepolicy>
+                          </property>
+                          <property name="text">
+                            <string>...</string>
+                          </property>
+                          <property name="iconSize">
+                            <size>
+                              <width>100</width>
+                              <height>100</height>
+                            </size>
+                          </property>
+                        </widget>
+                      </item>
+                    </layout>
+                  </widget>
+                </item>
+                <!-- gizmo space -->
+                <item>
+                  <layout class="QHBoxLayout" name="leftLayout">
+                    <property name="leftMargin">
+                      <number>0</number>
+                    </property>
+                    <property name="topMargin">
+                      <number>0</number>
+                      </property>
+                      <property name="bottomMargin">
+                      <number>0</number>
+                    </property>
+                    <item>
+                      <widget class="QToolButton" name="toolButton_gizmoSpace">
+                        <property name="sizePolicy">
+                          <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+                          <horstretch>0</horstretch>
+                          <verstretch>0</verstretch>
+                          </sizepolicy>
+                        </property>
+                        <property name="iconSize">
+                          <size>
+                            <width>100</width>
+                            <height>100</height>
+                          </size>
+                          </property>
+                        <property name="text">
+                          <string>...</string>
+                        </property>
+                      </widget>
+                    </item>
+                  </layout>
+                </item>
+                <!-- grid, view mode, take render, shading mode -->
+                <item>
+                  <layout class="QHBoxLayout" name="rightLayout">
+                  <property name="spacing">
+                    <number>2</number>
+                  </property>
+                  <item>
+                    <layout class="QHBoxLayout" name="horizontalLayout_4">
+                    <property name="spacing">
+                      <number>0</number>
+                    </property>
+                    <item>
+                      <widget class="QToolButton" name="toolButton_grid">
+                      <property name="sizePolicy">
+                        <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
+                        <horstretch>0</horstretch>
+                        <verstretch>0</verstretch>
+                        </sizepolicy>
+                      </property>
+                      <property name="text">
+                        <string>...</string>
+                      </property>
+                      </widget>
+                    </item>
+                    <item>
+                      <widget class="QToolButton" name="toolButton_projection">
+                      <property name="sizePolicy">
+                        <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
+                        <horstretch>0</horstretch>
+                        <verstretch>0</verstretch>
+                        </sizepolicy>
+                      </property>
+                      <property name="text">
+                        <string>Perspective</string>
+                      </property>
+                      </widget>
+                    </item>
+                    </layout>
+                  </item>
+                  <item>
+                    <widget class="QPushButton" name="pushButton_takeRender">
+                      <property name="leftMargin">
+                        <number>2</number>
+                      </property>
+                      <property name="sizePolicy">
+                        <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                        <horstretch>0</horstretch>
+                        <verstretch>0</verstretch>
+                        </sizepolicy>
+                      </property>
+                      <property name="text">
+                        <string>Render</string>
+                      </property>
+                    </widget>
+                  </item>
+                  <item>
+                    <widget class="QPushButton" name="pushButton_RenderMode">
+                    <property name="sizePolicy">
+                      <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                      <horstretch>0</horstretch>
+                      <verstretch>0</verstretch>
+                      </sizepolicy>
+                    </property>
+                    <property name="text">
+                      <string>Default shaded</string>
+                    </property>
+                    </widget>
+                  </item>
+                  </layout>
+                </item>
+              </layout>
+            </widget>
+          </item>
+          <item>
+            <widget class="QWidget" native="true" name="animationWidget">
+              <layout class="QHBoxLayout" name="horizontalLayout_top_animation">
+                <property name="spacing">
+                  <number>0</number>
+                </property>
+                <property name="leftMargin">
+                  <number>2</number>
+                </property>
+                <property name="topMargin">
+                  <number>0</number>
+                </property>
+                <property name="rightMargin">
+                  <number>0</number>
+                </property>
+                <property name="bottomMargin">
+                  <number>0</number>
+                </property>
+                <!-- animation settings -->
+                <item>
+                  <widget class="ux3d::editor::CustomToolButton" name="toolButton_selectAnimation">
+                    <property name="sizePolicy">
+                      <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
+                      <horstretch>0</horstretch>
+                      <verstretch>0</verstretch>
+                      </sizepolicy>
+                    </property>
+                    <property name="text">
+                      <string>...</string>
+                    </property>
+                    <property name="iconSize">
+                      <size>
+                      <width>100</width>
+                      <height>100</height>
+                      </size>
+                    </property>
+                    <property name="arrowType">
+                      <enum>Qt::NoArrow</enum>
+                    </property>
+                  </widget>
+                </item>
+                <item>
+                  <spacer name="horizontalSpacer_2">
+                    <property name="orientation">
+                    <enum>Qt::Horizontal</enum>
+                    </property>
+                    <property name="sizeType">
+                    <enum>QSizePolicy::Fixed</enum>
+                    </property>
+                    <property name="sizeHint" stdset="0">
+                      <size>
+                        <width>10</width>
+                        <height>0</height>
+                      </size>
+                    </property>
+                  </spacer>
+                </item>
+                <item>
+                  <widget class="ux3d::editor::CustomToolButton" name="toolButton_resetBack">
+                    <property name="sizePolicy">
+                    <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
+                      <horstretch>0</horstretch>
+                      <verstretch>0</verstretch>
+                    </sizepolicy>
+                    </property>
+                    <property name="text">
+                    <string>...</string>
+                    </property>
+                  </widget>
+                </item>
+                <item>
+                  <widget class="ux3d::editor::CustomToolButton" name="toolButton_stop">
+                    <property name="sizePolicy">
+                      <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
+                        <horstretch>0</horstretch>
+                        <verstretch>0</verstretch>
+                      </sizepolicy>
+                    </property>
+                    <property name="text">
+                      <string>...</string>
+                    </property>
+                  </widget>
+                </item>
+                <item>
+                  <widget class="ux3d::editor::CustomToolButton" name="toolButton_playPause">
+                    <property name="sizePolicy">
+                      <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
+                        <horstretch>0</horstretch>
+                        <verstretch>0</verstretch>
+                      </sizepolicy>
+                    </property>
+                    <property name="text">
+                      <string>...</string>
+                    </property>
+                  </widget>
+                </item>
+                <item>
+                  <widget class="ux3d::editor::CustomToolButton" name="toolButton_resetForward">
+                    <property name="sizePolicy">
+                      <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
+                        <horstretch>0</horstretch>
+                        <verstretch>0</verstretch>
+                      </sizepolicy>
+                    </property>
+                    <property name="text">
+                      <string>...</string>
+                    </property>
+                  </widget>
+                </item>
+                <item>
+                  <spacer name="horizontalSpacer">
+                    <property name="orientation">
+                      <enum>Qt::Horizontal</enum>
+                    </property>
+                    <property name="sizeType">
+                      <enum>QSizePolicy::Fixed</enum>
+                    </property>
+                    <property name="sizeHint" stdset="0">
+                      <size>
+                        <width>10</width>
+                        <height>0</height>
+                      </size>
+                    </property>
+                  </spacer>
+                </item>
+                <item>
+                  <widget class="ux3d::editor::Slider" name="horizontalSlider_animationTime">
+                    <property name="orientation">
+                      <enum>Qt::Horizontal</enum>
+                    </property>
+                  </widget>
+                </item>
+              </layout>
+            </widget>
+          </item>
+        </layout>
+      </widget>
+    </item>
+    <item>
+     <widget class="QWidget" name="dockWidgetContents_bottom" native="true">
+      <layout class="QHBoxLayout" name="horizontalLayout_bottom">
+       <property name="spacing">
+        <number>0</number>
+       </property>
+       <property name="leftMargin">
+        <number>0</number>
+       </property>
+       <property name="topMargin">
+        <number>0</number>
+       </property>
+       <property name="rightMargin">
+        <number>0</number>
+       </property>
+       <property name="bottomMargin">
+        <number>0</number>
+       </property>
+       <item>
+        <widget class="ux3d::editor::GLTFEditorWidget" name="openGLWidget">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+ </widget>
+ <customwidgets>
+  <customwidget>
+   <class>ux3d::editor::GLTFRendererWidget</class>
+   <extends>QOpenGLWidget</extends>
+   <header>widgets/GLTFRendererWidget.h</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>ux3d::editor::GLTFEditorWidget</class>
+   <extends>ux3d::editor::GLTFRendererWidget</extends>
+   <header>widgets/GLTFEditorWidget.h</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>ux3d::editor::GltfPropertyPairComboBox</class>
+   <extends>QComboBox</extends>
+   <header>promoters/GltfPropertyPairComboBox.h</header>
+  </customwidget>
+  <customwidget>
+   <class>ux3d::editor::Slider</class>
+   <extends>QSlider</extends>
+   <header>promoters/Slider.h</header>
+  </customwidget>
+  <customwidget>
+   <class>ux3d::editor::CustomToolButton</class>
+   <extends>QToolButton</extends>
+   <header location="global">promoters/CustomToolButton.h</header>
+  </customwidget>
+ </customwidgets>
+ <resources/>
+ <connections/>
+</ui>

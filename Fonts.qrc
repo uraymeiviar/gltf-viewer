@@ -1,0 +1,6 @@
+<RCC>
+    <qresource prefix="/">
+        <file>resources/fonts/OpenSans-Bold.ttf</file>
+        <file>resources/fonts/OpenSans-Regular.ttf</file>
+    </qresource>
+</RCC>

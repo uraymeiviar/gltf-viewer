@@ -1,0 +1,265 @@
+<RCC>
+  <qresource prefix="/">
+    <file>inspector.qml</file>
+    <file>statistics.qml</file>
+    <file>preferences.qml</file>
+    <file>viewportSettings.qml</file>
+    <file>logger.qml</file>
+    <file>messageBox.qml</file>
+    <file>hierarchy.qml</file>
+    <file>card.qml</file>
+    <file>Popups/AboutGestaltor.qml</file>
+    <file>Popups/MITLicense.qml</file>
+    <file>Popups/ThirdParties.qml</file>
+    <file>Popups/AnonymousUsageStatisticsApproval.qml</file>
+    <file>Popups/PopupTemplate.qml</file>
+    <file>Popups/BakeAOMapPopup.qml</file>
+    <file>Popups/ClusterVerticiesPopup.qml</file>
+    <file>Popups/ConvertImagePopup.qml</file>
+    <file>Popups/ConvertStorageTypePopup.qml</file>
+    <file>Popups/CreateAnimation.qml</file>
+    <file>Popups/CreateMesh.qml</file>
+    <file>Popups/DracoPopup.qml</file>
+    <file>Popups/DracoAll.qml</file>
+    <file>Popups/GenerateTexCoordPopup.qml</file> 
+    <file>Popups/ReduceTrianglesPopup.qml</file> 
+    <file>Popups/ManageMaterialVariants.qml</file> 
+
+
+    <file alias="Colors.js">Colors.js</file>
+    <file>Style/qmldir</file>
+    <file>Style/Button.qml</file>
+    <file>Style/CheckBox.qml</file>
+    <file>Style/Switch.qml</file>
+    <file>Style/ApplicationWindow.qml</file>
+    <file>Style/BusyIndicator.qml</file>
+    <file>Style/CheckDelegate.qml</file>
+    <file>Style/ComboBox.qml</file>
+    <file>Style/DelayButton.qml</file>
+    <file>Style/Dial.qml</file>
+    <file>Style/Dialog.qml</file>
+    <file>Style/DialogButtonBox.qml</file>
+    <file>Style/Drawer.qml</file>
+    <file>Style/Frame.qml</file>
+    <file>Style/GroupBox.qml</file>
+    <file>Style/HorizontalHeaderView.qml</file>
+    <file>Style/ItemDelegate.qml</file>
+    <file>Style/Label.qml</file>
+    <file>Style/Menu.qml</file>
+    <file>Style/MenuBar.qml</file>
+    <file>Style/MenuBarItem.qml</file>
+    <file>Style/MenuItem.qml</file>
+    <file>Style/MenuSeparator.qml</file>
+    <file>Style/Page.qml</file>
+    <file>Style/PageIndicator.qml</file>
+    <file>Style/Pane.qml</file>
+    <file>Style/Popup.qml</file>
+    <file>Style/ProgressBar.qml</file>
+    <file>Style/RadioButton.qml</file>
+    <file>Style/RadioDelegate.qml</file>
+    <file>Style/RangeSlider.qml</file>
+    <file>Style/RoundButton.qml</file>
+    <file>Style/ScrollBar.qml</file>
+    <file>Style/ScrollIndicator.qml</file>
+    <file>Style/Slider.qml</file>
+    <file>Style/SpinBox.qml</file>
+    <file>Style/SplitView.qml</file>
+    <file>Style/StackView.qml</file>
+    <file>Style/SwipeDelegate.qml</file>
+    <file>Style/SwipeView.qml</file>
+    <file>Style/SwitchDelegate.qml</file>
+    <file>Style/TabBar.qml</file>
+    <file>Style/TabButton.qml</file>
+    <file>Style/TextArea.qml</file>
+    <file>Style/TextField.qml</file>
+    <file>Style/ToolBar.qml</file>
+    <file>Style/ToolButton.qml</file>
+    <file>Style/ToolSeparator.qml</file>
+    <file>Style/ToolTip.qml</file>
+    <file>Style/Tumbler.qml</file>
+    <file>Style/VerticalHeaderView.qml</file>
+    <file>js/thirdparty.qml.mjs</file>
+    <file>js/GlobalFunctions.js</file>
+    <file>Style/ScrollView.qml</file>
+    <file>Style/SelectionRectangle.qml</file>
+    <file>Style/impl/SwitchIndicator.qml</file>
+    <file>Style/impl/CheckIndicator.qml</file>
+    <file>Style/impl/CursorDelegate.qml</file>
+    <file>Style/impl/ElevationEffect.qml</file>
+    <file>Style/impl/qmldir</file>
+    <file>Style/impl/RadioIndicator.qml</file>
+    <file>Style/impl/RectangularGlow.qml</file>
+    <file>Style/impl/SliderHandle.qml</file>
+    <file>Style/impl/BoxShadow.qml</file>
+    <file>Style/impl/Colors.qml</file>
+
+    <file>Components/inspectorTypes/qmldir</file>
+    <file>Components/inspectorTypes/ListRow.qml</file>
+    <file>Components/inspectorTypes/LabelRow.qml</file>
+    <file>Components/inspectorTypes/EnumComboRow.qml</file>
+    <file>Components/inspectorTypes/PointerComboRow.qml</file>
+    <file>Components/inspectorTypes/ButtonRow.qml</file>
+    <file>Components/inspectorTypes/PopupContent.qml</file>
+    <file>Components/inspectorTypes/SliderPopupRow.qml</file>
+    <file>Components/inspectorTypes/ArrayInputRow.qml</file>
+    <file>Components/inspectorTypes/StringInputRow.qml</file>
+    <file>Components/inspectorTypes/NumberInputRow.qml</file>
+    <file>Components/inspectorTypes/MatrixRow.qml</file>
+    <file>Components/inspectorTypes/Spacer.qml</file>
+    <file>Components/inspectorTypes/ObjectRow.qml</file>
+    <file>Components/inspectorTypes/BooleanRow.qml</file>
+    <file>Components/inspectorTypes/ImagePreviewRow.qml</file>
+    <file>Components/inspectorTypes/IndicatorToolTip.qml</file>
+  </qresource>
+
+  <qresource prefix="/Components">
+    <file alias="CollapsibleComp.qml">Components/CollapsibleComp.qml</file>
+    <file alias="PrefPanelRowComp.qml">Components/PrefPanelRowComp.qml</file>
+    <file alias="HierarchyTreeView.qml">Components/HierarchyTreeView.qml</file>
+    <file alias="HierarchyCollapsibleLineComp.qml">Components/HierarchyCollapsibleLineComp.qml</file>
+    <file alias="HierarchyContextMenu.qml">Components/HierarchyContextMenu.qml</file>
+    <file alias="AddChildNodeSubMenu.qml">Components/AddChildNodeSubMenu.qml</file>
+    <file alias="ReplaceMaterialSubMenu.qml">Components/ReplaceMaterialSubMenu.qml</file>
+    <file alias="InspectorTreeView.qml">Components/InspectorTreeView.qml</file>
+    <file alias="ValidationCard.qml">Components/ValidationCard.qml</file>
+  </qresource>
+
+  <qresource prefix="/Model">
+    <file alias="Observables.qml">Model/Observables.qml</file>
+    <file alias="Operations.qml">Model/Operations.qml</file>
+    <file alias="qmldir">Model/qmldir</file>
+  </qresource>
+
+  <qresource prefix="/Project">
+    <file alias="Actions.qml">Project/Actions.qml</file>
+    <file alias="qmldir">Project/qmldir</file>
+  </qresource>
+  <qresource prefix="/icons">
+    <file alias="Icon_refresh_20px.svg">icons/Icon_refresh_20px.svg</file>
+    <file alias="Icon_right_16px.svg">icons/Icon_right_16px.svg</file>
+
+    <file alias="glTF_500px_June16.png">icons/glTF_500px_June16.png</file>
+    <file alias="Navigation_down_20px.svg">icons/Navigation_down_20px.svg</file>
+
+    <file alias="Icon_logger_alert_error.svg">icons/Icon_logger_alert_error.svg</file>
+    <file alias="Icon_logger_alert_warning.svg">icons/Icon_logger_alert_warning.svg</file>
+    <file alias="Icon_logger_alert_information.svg">icons/Icon_logger_alert_information.svg</file>
+    <file alias="Icon_logger_alert_information_dark.svg">icons/Icon_logger_alert_information_dark.svg</file>
+    <file alias="Icon_Success.svg">icons/Icon_Success.svg</file>
+
+    <file alias="Icon_close_20px_dark.svg">icons/Icon_close_20px_dark.svg</file>
+
+    <file alias="3DCommerce_Certified.png">icons/3DCommerce_Certified.png</file>
+
+    <file alias="ViewportSettings_HDR_add.svg">icons/ViewportSettings_HDR_add.svg</file>
+    <file alias="ViewportSettings_HDR_trash.svg">icons/ViewportSettings_HDR_trash.svg</file>
+
+    <file alias="Icon_Export.svg">icons/Icon_Export.svg</file>
+    <file alias="Icon_CopyToClipboard.svg">icons/Icon_CopyToClipboard.svg</file>
+    <file alias="Icon_Add.svg">icons/Icon_Add.svg</file>
+    <file alias="Icon_AddGreen.svg">icons/Icon_AddGreen.svg</file>
+    <file alias="Icon_down_20px.svg">icons/Icon_down_20px.svg</file>
+    <file alias="Hierarchy_Import.svg">icons/Hierarchy_Import.svg</file>
+
+    <file alias="Icon_Hierarchy_Filter.svg">icons/Icon_Hierarchy_Filter.svg</file>
+    <file alias="Icon_Content_XMP.svg">icons/Icon_Content_XMP.svg</file>
+
+    <file alias="Icon_Content_Accessor.svg">icons/Icon_Content_Accessor.svg</file>
+    <file alias="Icon_Content_Animation.svg">icons/Icon_Content_Animation.svg</file>
+
+    <file alias="Icon_Content_Animations.svg">icons/Icon_Content_Animations.svg</file>
+    <file alias="Icon_Content_Buffer.svg">icons/Icon_Content_Buffer.svg</file>
+
+    <file alias="Icon_Content_BufferView.svg">icons/Icon_Content_BufferView.svg</file>
+    <file alias="Icon_Content_Camera.svg">icons/Icon_Content_Camera.svg</file>
+
+    <file alias="Icon_Content_Cameras.svg">icons/Icon_Content_Cameras.svg</file>
+    <file alias="Icon_Content_empty.svg">icons/Icon_Content_empty.svg</file>
+
+    <file alias="Icon_Content_Extension.svg">icons/Icon_Content_Extension.svg</file>
+    <file alias="Icon_Content_Extras.svg">icons/Icon_Content_Extras.svg</file>
+
+    <file alias="Icon_Content_Image.svg">icons/Icon_Content_Image.svg</file>
+    <file alias="Icon_Content_Images.svg">icons/Icon_Content_Images.svg</file>
+
+    <file alias="Icon_Content_Light.svg">icons/Icon_Content_Light.svg</file>
+    <file alias="Icon_Content_Lights.svg">icons/Icon_Content_Lights.svg</file>
+
+    <file alias="Icon_Content_Material.svg">icons/Icon_Content_Material.svg</file>
+    <file alias="Icon_Content_MaterialGreen.svg">icons/Icon_Content_MaterialGreen.svg</file>
+    <file alias="Icon_Content_Materials.svg">icons/Icon_Content_Materials.svg</file>
+
+    <file alias="Icon_Content_MaterialVariant.svg">icons/Icon_Content_MaterialVariant.svg</file>
+    <file alias="Icon_Content_MaterialVariants.svg">icons/Icon_Content_MaterialVariants.svg</file>
+
+    <file alias="Icon_Content_Mesh.svg">icons/Icon_Content_Mesh.svg</file>
+    <file alias="Icon_Content_Meshes.svg">icons/Icon_Content_Meshes.svg</file>
+
+    <file alias="Icon_Content_Node.svg">icons/Icon_Content_Node.svg</file>
+    <file alias="Icon_Content_Nodes.svg">icons/Icon_Content_Nodes.svg</file>
+
+    <file alias="Icon_Content_Nothing.svg">icons/Icon_Content_Nothing.svg</file>
+
+    <file alias="Icon_Content_Primitive.svg">icons/Icon_Content_Primitive.svg</file>
+    <file alias="Icon_Content_Sampler.svg">icons/Icon_Content_Sampler.svg</file>
+
+    <file alias="Icon_Content_Scene.svg">icons/Icon_Content_Scene.svg</file>
+    <file alias="Icon_Content_Scenes.svg">icons/Icon_Content_Scenes.svg</file>
+
+    <file alias="Icon_Content_Texture.svg">icons/Icon_Content_Texture.svg</file>
+    <file alias="Icon_Content_Textures.svg">icons/Icon_Content_Textures.svg</file>
+
+    <file alias="Icon_Content_Skin.svg">icons/Icon_Content_Skin.svg</file>
+    <file alias="Icon_Content_Skins.svg">icons/Icon_Content_Skins.svg</file>
+
+    <file alias="Icon_Hierarchy_Hide.svg">icons/Icon_Hierarchy_Hide.svg</file>
+    <file alias="Icon_Hierarchy_Show.svg">icons/Icon_Hierarchy_Show.svg</file>
+
+    <file alias="Icon_Hierarchy_Hide.svg">icons/Icon_Hierarchy_Hide.svg</file>
+    <file alias="Icon_Hierarchy_Show.svg">icons/Icon_Hierarchy_Show.svg</file>
+
+    <file alias="Icon_Content_SceneGreen.svg">icons/Icon_Content_SceneGreen.svg</file>
+    <file alias="Icon_Remove.svg">icons/Icon_Remove.svg</file>
+
+    <file alias="Icon_Viewport_DefaultShaded.svg">icons/Icon_Viewport_DefaultShaded.svg</file>
+    <file alias="Icon_Viewport_wireframe.svg">icons/Icon_Viewport_wireframe.svg</file>
+
+    <file alias="Icon_More.svg">icons/Icon_More.svg</file>
+    <file alias="Icon_menu.svg">icons/Icon_menu.svg</file>
+    <file alias="Icon_tick.svg">icons/Icon_tick.svg</file>
+
+    <file alias="Icon_Override.svg">icons/Icon_Override.svg</file>
+    <file alias="Icon_trash.svg">icons/Icon_trash.svg</file>
+    <file alias="Icon_Label_Pro.svg">icons/Icon_Label_Pro.svg</file>
+
+    <file alias="Tooltip_Rectangle.svg">icons/Tooltip_Rectangle.svg</file>
+    <file alias="Icon_Search.svg">icons/Icon_Search.svg</file>
+
+    <file alias="Icon_Content_Samplers.svg">icons/Icon_Content_Samplers.svg</file>
+    <file alias="Icon_Content_Accessors.svg">icons/Icon_Content_Accessors.svg</file>
+
+    <file alias="Icon_Close.svg">icons/Icon_Close.svg</file>
+    <file alias="Add_Down.svg">icons/Add_Down.svg</file>
+    <file alias="Icon_Alert_Information.svg">icons/Icon_Alert_Information.svg</file>
+
+    <file alias="Icon_info.svg">icons/Icon_info.svg</file>
+    <file alias="Icon_error.svg">icons/Icon_error.svg</file>
+
+     <file alias="Icon_Label_KHR.svg">icons/Icon_Label_KHR.svg</file>
+    <file alias="Icon-Label-KHR-Disable.svg">icons/Icon-Label-KHR-Disable.svg</file>
+
+    <file alias="Gestaltor_AppIcon_1024.png">icons/Gestaltor_AppIcon_1024.png</file>
+    <file alias="Icon_Back.svg">icons/Icon_Back.svg</file>
+
+    <file alias="Icon_Left.svg">icons/Icon_Left.svg</file>
+    <file alias="image_not_available.svg">icons/image_not_available.svg</file>
+    <file alias="image_cant_be_displayed.svg">icons/image_cant_be_displayed.svg</file>
+
+    <file alias="Mouse_right_click.svg">icons/Mouse_right_click.svg</file>
+    
+    <file alias="Icon_Rotation_Euler.svg">icons/Icon_Rotation_Euler.svg</file>
+    <file alias="Icon_Rotation_Quaternion.svg">icons/Icon_Rotation_Quaternion.svg</file>
+
+
+  </qresource>
+</RCC>

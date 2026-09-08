@@ -1,0 +1,27 @@
+function(cmake_option option description default)
+	option(${option} description ${default})
+	if (NOT ${UX3D_TOOLS_DEFINES_PRINTED})
+		if(${option})
+			message(STATUS "'${option}' is TRUE")
+		else()
+			message(STATUS "'${option}' is FALSE")
+		endif()
+	endif()
+endfunction()
+
+function(compiler_define define description default)
+	cmake_option("${define}" "${description}" "${default}")
+	if(${define})
+		add_definitions(-D${define})
+	endif()
+endfunction()
+
+if (NOT ${UX3D_TOOLS_DEFINES_PRINTED})
+	message(STATUS)
+	message(STATUS "UX3D_Tools CMake options:")
+endif()
+
+cmake_option(UX3D_TEST_LOGGING "" OFF)
+cmake_option(UX3D_TOOLS_TESTING "" ON)
+
+set(UX3D_TOOLS_DEFINES_PRINTED TRUE CACHE INTERNAL "")

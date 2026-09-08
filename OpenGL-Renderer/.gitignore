@@ -1,0 +1,7 @@
+.idea
+/cmake-build-*
+/build
+.vs/
+.DS_Store
+cmake-build-debug-visual-studio
+out/

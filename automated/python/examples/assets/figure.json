@@ -1,0 +1,18 @@
+{
+  "output_path": "figure.glb",
+  "parts": [
+    {
+      "node": 0,
+      "path": "assets/figure/head_surprised_origin.gltf",
+      "translation": [-0.285, 5.6, 0.5]
+    },
+    {
+      "node": 14,
+      "path": "assets/figure/torso.gltf"
+    },
+    {
+      "node": 3,
+      "path": "assets/figure/legs.gltf"
+    }
+  ]
+}

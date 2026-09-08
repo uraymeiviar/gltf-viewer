@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>mainWindow</class>
+ <widget class="QMainWindow" name="mainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1280</width>
+    <height>720</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string/>
+  </property>
+  <property name="dockOptions">
+   <set>QMainWindow::AllowNestedDocks|QMainWindow::AnimatedDocks</set>
+  </property>
+  <widget class="QWidget" name="widget_central"/>
+  <widget class="QMenuBar" name="menubar">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>0</y>
+     <width>1280</width>
+     <height>21</height>
+    </rect>
+   </property>
+   <property name="nativeMenuBar">
+    <bool>true</bool>
+   </property>
+   <widget class="QMenu" name="menuFile">
+    <property name="title">
+     <string>&amp;File</string>
+    </property>
+   </widget>
+   <widget class="QMenu" name="menuEdit">
+    <property name="title">
+     <string>&amp;Edit</string>
+    </property>
+   </widget>
+   <widget class="QMenu" name="menuView">
+    <property name="title">
+     <string>&amp;View</string>
+    </property>
+   </widget>
+   <widget class="QMenu" name="menuDeveloper">
+    <property name="title">
+     <string>&amp;Developer</string>
+    </property>
+   </widget>
+   <widget class="QMenu" name="menuHelp">
+    <property name="title">
+     <string>&amp;Help</string>
+    </property>
+   </widget>
+   <widget class="QMenu" name="menuCreate">
+    <property name="title">
+     <string>&amp;Create</string>
+    </property>
+   </widget>
+   <widget class="QMenu" name="menuViewport">
+    <property name="title">
+     <string>&amp;Viewport</string>
+    </property>
+   </widget>
+   <widget class="QMenu" name="menuAutomation">
+    <property name="title">
+     <string>&amp;Automation</string>
+    </property>
+   </widget>
+   <addaction name="menuFile"/>
+   <addaction name="menuEdit"/>
+   <addaction name="menuCreate"/>
+   <addaction name="menuViewport"/>
+   <addaction name="menuAutomation"/>
+   <addaction name="menuView"/>
+   <addaction name="menuHelp"/>
+   <addaction name="menuDeveloper"/>
+  </widget>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

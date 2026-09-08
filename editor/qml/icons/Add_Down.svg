@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="33px" height="20px" viewBox="0 0 33 20" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>Icon/ add/ 3</title>
+    <defs>
+        <path d="M11,4 C11.3313708,4 11.6,4.26862915 11.6,4.6 L11.6,9.4 L16.4,9.4 C16.7313708,9.4 17,9.66862915 17,10 C17,10.3313708 16.7313708,10.6 16.4,10.6 L11.6,10.6 L11.6,15.4 C11.6,15.7313708 11.3313708,16 11,16 C10.6686292,16 10.4,15.7313708 10.4,15.4 L10.4,10.6 L5.6,10.6 C5.26862915,10.6 5,10.3313708 5,10 C5,9.66862915 5.26862915,9.4 5.6,9.4 L10.4,9.4 L10.4,4.6 C10.4,4.26862915 10.6686292,4 11,4 Z M28,8 L25,12 L22,8 L28,8 Z" id="path-1"></path>
+    </defs>
+    <g id="Icon/-add/-3" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <rect id="Rectangle" x="0" y="0" width="33" height="20"></rect>
+        <rect id="Rectangle" x="0" y="0" width="33" height="20" rx="2"></rect>
+        <g id="Combined-Shape">
+            <use fill="#FFFFFF" xlink:href="#path-1"></use>
+            <use fill="#FFFFFF" xlink:href="#path-1"></use>
+        </g>
+    </g>
+</svg>

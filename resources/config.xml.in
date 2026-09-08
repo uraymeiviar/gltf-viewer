@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Installer>
+    <Name>${UX3D_PROJECT_NAME}</Name>
+    <Version>${UX3D_VERSION}</Version>
+    <Title>${UX3D_PROJECT_NAME}</Title>
+    <Publisher>UX3D GmbH</Publisher>
+    <!-- Directory name is used in installscript.qs -->
+    <StartMenuDir>UX3D</StartMenuDir>
+    <TargetDir>${UX3D_INSTALLATION_DIR}</TargetDir>
+</Installer>

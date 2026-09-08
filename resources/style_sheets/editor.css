@@ -1,0 +1,1082 @@
+
+/* Global */
+/* this margin is needed so that the resize cursors are shown */
+QDockWidget {
+    margin: 5px;
+}
+
+QWidget
+{
+	border:    	no;
+	font: 		@generalFontSize 'Open Sans';
+}
+
+QMessageBox
+{
+	background:						@messageBoxBackground;
+	messagebox-warning-icon:		url(:/resources/png/Icons_Console/Icon_Console_Warning_256.png);
+	messagebox-critical-icon:		url(:/resources/png/Icons_Console/Icon_Console_Error_256.png);
+	messagebox-information-icon:	url(:/resources/png/Icons_Console/Icon_Console_Message_256.png);
+}
+
+QMessageBox QLabel
+{
+	color:		@messageBoxFontColor;
+	margin:		15px 0 10px 0px;
+}
+
+QDialog
+{
+	background: @messageBoxBackground;
+}
+
+QDialog QLabel
+{
+	color: @messageBoxFontColor;
+}
+
+QTextBrowser
+{
+	color: @messageBoxFontColor;
+}
+
+/* Menu* */
+
+QMenu
+{
+	icon-size:	@menuIconSize;
+	color:		@menuFontColor;
+	background: @menuBackground;
+	border-top:	2px solid QLinearGradient(x1: 0, y1: 0.49, x2: 0, y2: 0.51, 
+		stop: 0 @widgetBorderGradientA, stop: 1 @widgetBorderGradientB);
+	border-left:2px solid QLinearGradient(x1: 0.49, y1: 0, x2: 0.51, y2: 0, 
+		stop: 0 @widgetBorderGradientA, stop: 1 @widgetBorderGradientB);
+	border-bottom:2px solid QLinearGradient(x1: 0, y1: 0.51, x2: 0, y2: 0.49, 
+		stop: 0 @widgetBorderGradientA, stop: 1 @widgetBorderGradientB);
+	border-right:2px solid QLinearGradient(x1: 0.51, y1: 0, x2: 0.49, y2: 0, 
+		stop: 0 @widgetBorderGradientA, stop: 1 @widgetBorderGradientB);
+}
+
+QMenuBar::item:selected
+{
+	background-color: @menuBarSelection;
+}
+
+QMenuBar::item:!enabled
+{
+	color: @menuFontDisabledColor;
+}
+
+QMenu::item:selected
+{
+	background-color: @menuItemSelection;
+}
+
+QMenu::item:!enabled
+{
+	color: @menuFontDisabledColor;
+}
+
+/* Buttons */
+
+QPushButton#removeReferenceButton
+{
+	background: transparent;
+	border: none;
+	image: url(:/resources/png/Assets/Icon_Entry_Delete.png);
+	padding: @buttonPadding;
+	min-width: @squareButtonSize;
+	max-width: @squareButtonSize;
+	min-height: @squareButtonSize;
+	max-height: @squareButtonSize;
+}
+
+QPushButton#addReferenceButton,
+QPushButton#addListItemButton
+{
+	background: transparent;
+	border: none;
+	image: url(:/resources/png/Assets/Icon_Entry_Add.png);
+	padding: @buttonPadding;
+	min-width: @squareButtonSize;
+	max-width: @squareButtonSize;
+	min-height: @squareButtonSize;
+	max-height: @squareButtonSize;
+}
+
+QPushButton#addReferenceButton::menu-indicator,
+QPushButton#addListItemButton::menu-indicator
+{
+	width: 0px
+}
+
+QPushButton 
+{
+	background:		QLinearGradient(x1: 0, y1: 0, x2: 0, y2: 1, 
+		stop: 0 @buttonBackgroundGradientA, stop: 1 @buttonBackgroundGradientB);
+	border-radius:	@buttonBorderRadius;
+	border-top:		1px solid @buttonBorderLightColor;
+	border-bottom:	1px solid @buttonBorderDarkColor;
+	border-left:	1px solid @buttonBackgroundGradientA;
+	border-right:	1px solid @buttonBackgroundGradientA;
+	color: 			@buttonFontColorEnabled;
+	padding: 		@buttonPadding;
+	min-width: 		@buttonWidth;
+	min-height:		@buttonHeight;
+	max-height:		@buttonHeight;
+}
+
+QPushButton:hover
+{
+	background:		QLinearGradient(x1: 0, y1: 0, x2: 0, y2: 1, 
+		stop: 0 @buttonHoverBackgroundGradientA, stop: 1 @buttonHoverBackgroundGradientB);
+	border-top:		1px solid @buttonBorderLightColor;
+	border-bottom:	1px solid @buttonBorderDarkHoverColor;
+	border-left:	1px solid @buttonHoverBackgroundGradientA;
+	border-right:	1px solid @buttonHoverBackgroundGradientA;
+}
+
+QPushButton:pressed
+{
+	background:		QLinearGradient(x1: 0, y1: 0, x2: 0, y2: 1, 
+		stop: 0 @buttonBackgroundGradientB, stop: 1 @buttonBackgroundGradientA);
+	border-top:		1px solid @buttonBorderDarkColor;
+	border-bottom:	1px solid @buttonBorderLightColor;
+	border-left:	1px solid @buttonBackgroundGradientA;
+	border-right:	1px solid @buttonBackgroundGradientA;
+}
+
+QPushButton:disabled
+{
+	background:		QLinearGradient(x1: 0, y1: 0, x2: 0, y2: 1, 
+		stop: 0 @buttonDisabledBackgroundGradientA, stop: 1 @buttonDisabledBackgroundGradientB);
+	color: 			@buttonFontColorDisabled;
+	border-top:		0px solid;
+	border-bottom:	0px solid;
+	border-left:	0px solid;
+	border-right:	0px solid;
+}
+
+QPushButton:default
+{
+	border: @buttonBorderWidth solid @buttonBorderDefaultColor;
+}
+
+QPushButton::menu-indicator
+{
+	image: url(:/resources/png/Icons_Generic/Icon_Collapse.png);
+	width: @buttonMenuArrowSize;
+	subcontrol-position: top right;
+}
+
+QToolButton 
+{
+	min-width: @titleWidgetToolButtonGroupSize;
+	max-width: @titleWidgetToolButtonGroupSize;
+	border: @titleWidgetButtonGroupBorderWidth solid @titleWidgetButtonGroupBorderColorUnpressed;
+	background: QLinearGradient(x1: 0, y1: 0, x2: 0, y2: 1, 
+		stop: 0 @titleWidgetButtonGroupBackgroundUnpressedA, stop: 1 @titleWidgetButtonGroupBackgroundUnpressedB);
+	border-right: none;
+}
+
+QToolButton:checked, QToolButton:pressed, QToolButton:disabled
+{
+	border: @titleWidgetButtonGroupBorderWidth solid @titleWidgetButtonGroupBorderColorPressed;
+	background: QLinearGradient(x1: 0, y1: 0, x2: 0, y2: 1, 
+		stop: 0 @titleWidgetButtonGroupBackgroundPressedA, stop: 1 @titleWidgetButtonGroupBackgroundPressedB);
+	border-right: none;
+}
+
+ux3d--editor--CollapsibleWidget 
+{
+	background-color: transparent;
+}
+
+ux3d--editor--CollapsibleEntry QCheckBox::indicator
+{
+	width: @CollapsibleCheckBoxSize;
+	height: @CollapsibleCheckBoxSize;
+}
+
+ux3d--editor--CollapsibleEntry QCheckBox::indicator:unchecked 
+{
+	image: url(:/resources/png/Interactibles/Checkbox_Object_Off_32.png);
+}
+
+ux3d--editor--CollapsibleEntry QCheckBox::indicator:checked 
+{
+	image: url(:/resources/png/Interactibles/Checkbox_Object_On_32.png);
+}
+
+ux3d--editor--CollapsibleWidget QCheckBox#checkBox::indicator
+{
+	width: @CollapsibleCheckBoxSize;
+	height: @CollapsibleCheckBoxSize;
+}
+
+ux3d--editor--CollapsibleWidget QCheckBox#checkBox::indicator:unchecked
+{
+	image: url(:/resources/png/Interactibles/Checkbox_Object_Off_32.png);
+}
+
+ux3d--editor--CollapsibleWidget QCheckBox#checkBox::indicator:checked
+{
+	image: url(:/resources/png/Interactibles/Checkbox_Object_On_32.png);
+}
+
+ux3d--editor--CollapsibleWidget > QWidget#widget_header
+{
+	background-color: @collapsibleHeaderBackground;
+}
+
+ux3d--editor--CollapsibleWidget > QWidget
+{
+	background-color: transparent;
+}
+
+ux3d--editor--CollapsibleWidget[isChildOfCollapsible="true"] > QWidget#widget_header
+{
+	background-color: transparent;
+}
+
+ux3d--editor--PushButton_Color
+{
+	min-width:		@colorPreviewSize;
+	max-width:		@colorPreviewSize;
+	min-height:		@colorPreviewSize;
+	max-height:		@colorPreviewSize;
+	border: 		no;
+	border-radius:	no;
+	padding: 		no;
+}
+
+ux3d--editor--PushButton_Color:hover
+{
+	border: no;
+}
+
+ux3d--editor--PushButton_Preview
+{
+	background-color: 	transparent;
+	min-height:			@propertyPreviewSize;
+	min-width:			@propertyPreviewSize;
+	max-height:			@propertyPreviewSize;
+	max-width:			@propertyPreviewSize;
+	icon-size:			@propertyPreviewSize;
+	border-style: 		normal;
+	border: 			@buttonBorderWidth solid @propertyPreviewBorder;
+	border-radius:		no;
+	padding: 			no;
+	margin: 			no;
+}
+
+ux3d--editor--PushButton_Preview:hover
+{
+	border: @buttonBorderWidth solid @propertyPreviewBorder;
+}
+
+ux3d--editor--PushButton_BackPath
+{
+	background-image: 	url(:/resources/png/Assets/Inspector_Link_Tab_Inactive.png);
+	background-color: 	transparent;
+	border: 			no;
+	border-radius:		no;
+	background-repeat: 	no;
+	max-width: 			@backPathWidth;
+	min-width: 			@backPathWidth;
+	min-height: 		@backPathHeight;
+	max-height: 		@backPathHeight;
+}
+
+ux3d--editor--PushButton_BackPath[lastElement="true"] 
+{
+	background-image: url(:/resources/png/Assets/Inspector_Link_Tab_Active.png);
+	background-repeat: no;
+}
+
+ux3d--editor--PushButton_BackPath:hover
+{
+	background-image: 	url(:/resources/png/Assets/Inspector_Link_Tab_Inactive.png);
+	background-color: 	transparent;
+	background-repeat: 	no;
+	border: 			no;
+}
+
+ux3d--editor--PushButton_BackPath[lastElement="true"]:hover
+{
+	background-image: url(:/resources/png/Assets/Inspector_Link_Tab_Active.png);
+	background-repeat: no;
+}
+
+QDoubleSpinBox 
+{
+	background: 				@spinBoxBackground;
+	color: 						@spinBoxFontColorEnabled;
+	border-radius: 				@spinBoxBorderRadius;
+	border-top:					1px solid @spinBoxBorderDarkColor;
+	border-bottom:				1px solid @spinBoxBorderLightColor;
+	padding:					@spinBoxPadding;
+	selection-background-color:	@spinBoxSelection;
+	min-height: 				@spinBoxHeight;
+	max-height: 				@spinBoxHeight;
+	min-width: 					@spinBoxMinWidth;
+	max-width: 					@spinBoxMaxWidth;
+}
+
+QDoubleSpinBox:disabled
+{
+    color: @spinBoxFontColorDisabled;
+}
+
+QDoubleSpinBox::up-button, QDoubleSpinBox::down-button
+{
+	width: 				@spinBoxButtonsWidth;
+	background: 		@spinBoxButtonColor;
+    subcontrol-origin: 	border;
+    border-top: 		1px solid @spinBoxBorderLightColor;
+    border-bottom: 		1px solid @spinBoxBorderDarkColor;
+}
+
+QDoubleSpinBox::up-button:disabled, QDoubleSpinBox::down-button:disabled
+{
+        background:		QLinearGradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                stop: 0 @buttonDisabledBackgroundGradientA, stop: 1 @buttonDisabledBackgroundGradientB);
+        color: 			@buttonFontColorDisabled;
+}
+
+QDoubleSpinBox::up-button
+{
+    subcontrol-position: top right;
+}
+
+QDoubleSpinBox::down-button
+{
+    subcontrol-position: bottom right;
+}
+
+QDoubleSpinBox::up-arrow, QDoubleSpinBox::down-arrow
+{
+    width: 7px;
+    height: 4px;
+}
+
+QDoubleSpinBox::up-arrow:enabled
+{
+    image: url(:/resources/png/Assets/Icon_SliderBox_up.png);
+}
+
+QDoubleSpinBox::down-arrow:enabled
+{
+    image: url(:/resources/png/Assets/Icon_SliderBox_down.png);
+
+}
+
+QDoubleSpinBox::up-arrow:disabled
+{
+    image: url(:/resources/png/Assets/Icon_SliderBox_up_Inactive.png);
+}
+
+QDoubleSpinBox::down-arrow:disabled
+{
+    image: url(:/resources/png/Assets/Icon_SliderBox_down_Inactive.png);
+
+}
+
+QLineEdit
+{
+	background-color:			@lineEditBackground;
+	color: 						@lineEditFontColorEnabled;
+	border-radius: 				@lineEditBorderRadius;
+	border-top:					1px solid @lineEditBorderDarkColor;
+	border-bottom:				1px solid @lineEditBorderLightColor;
+	padding: 					@lineEditPadding;
+	selection-background-color:	@lineEditSelection;
+	min-height: 				@lineEditHeight;
+	max-height: 				@lineEditHeight;
+}
+
+QLineEdit:disabled
+{
+	color: 						@lineEditFontColorDisabled;
+}
+
+/* 4 = horizontal line, 5 = vertical line */
+QFrame[frameShape="4"],
+QFrame[frameShape="5"]
+{
+    border: none;
+	background: @lineColor;
+}
+
+QListWidget::item
+{
+	color: @listItemFontColor;
+}
+
+QListWidget::item:selected, QListWidget::item:hover
+{
+	background: @listItemSelected;
+}
+
+QListWidget::item:hover:!selected
+{
+	background: transparent;
+}
+
+QListView
+{
+	outline: 0; /* removes the dotted outline around selected items */
+}
+
+QTableWidget QHeaderView::section
+{
+	background: transparent;
+	border: none;
+}
+
+QTableWidget QWidget
+{
+	background: transparent;
+}
+
+QScrollBar:vertical
+{
+	background: @scrollBarBackground;
+	margin: @scrollBarButtonHeight 0px @scrollBarButtonHeight 0px;
+}
+
+QScrollBar::handle:vertical
+{
+	border-radius: @scrollBarHandleBorderRadius;
+	background: @scrollBarHandleBackground;
+	min-height: @scrollHandleHeight;
+}
+
+QScrollBar::add-line:vertical 
+{
+	background: @scrollBarButtons;
+	height: @scrollBarButtonHeight;
+	subcontrol-position: bottom;
+	subcontrol-origin: margin;
+}
+
+QScrollBar::sub-line:vertical 
+{
+	background: @scrollBarButtons;
+	height: @scrollBarButtonHeight;
+	subcontrol-position: top;
+	subcontrol-origin: margin;
+}
+
+QScrollBar::sub-page:vertical 
+{
+        background: @scrollBarBackground;
+}
+
+QScrollBar::add-page:vertical 
+{
+        background: @scrollBarBackground;
+}
+
+QScrollBar::up-arrow:vertical
+{
+	image: url(:/resources/png/Assets/ScrollBar_Arrow_Up.png);
+	width: @scrollBarArrowHeight;
+}
+
+QScrollBar::down-arrow:vertical
+{
+	image: url(:/resources/png/Assets/ScrollBar_Arrow_Down.png);
+	width: @scrollBarArrowHeight;
+}
+
+QScrollBar:horizontal
+{
+	background: @scrollBarBackground;
+	margin: 0px @scrollBarButtonHeight 0px @scrollBarButtonHeight;
+}
+
+QScrollBar::handle:horizontal
+{
+	border-radius: @scrollBarHandleBorderRadius;
+	background: @scrollBarHandleBackground;
+	min-width: @scrollHandleHeight;
+}
+
+QScrollBar::add-line:horizontal 
+{
+	background: @scrollBarButtons;
+	width: @scrollBarButtonHeight;
+	subcontrol-position: right;
+	subcontrol-origin: margin;
+}
+
+QScrollBar::sub-line:horizontal 
+{
+	background: @scrollBarButtons;
+	width: @scrollBarButtonHeight;
+	subcontrol-position: left;
+	subcontrol-origin: margin;
+}
+
+QScrollBar::sub-page:horizontal 
+{
+    background: @scrollBarBackground;
+}
+
+QScrollBar::add-page:horizontal 
+{
+    background: @scrollBarBackground;
+}
+
+QScrollBar::left-arrow:horizontal
+{
+	image: url(:/resources/png/Assets/ScrollBar_Arrow_Left.png);
+	height: @scrollBarArrowHeight;
+}
+
+QScrollBar::right-arrow:horizontal
+{
+	image: url(:/resources/png/Assets/ScrollBar_Arrow_Right.png);
+	height: @scrollBarArrowHeight;
+}
+
+QScrollArea > QWidget > QWidget
+{
+	background: transparent;
+}
+
+QSlider
+{    
+	background: transparent;
+	min-height: @sliderHandleHeight;
+	max-height: @sliderHandleHeight;
+}
+
+QSlider::handle 
+{
+	background: @sliderHandleBackground;
+	border: @sliderHandleBorderWidth solid @sliderHandleBorderColor;
+	width: @sliderHandleWidth;
+	margin-top: -@sliderHandleMargin;
+	margin-bottom: -@sliderHandleMargin;
+	border-radius: @sliderHandleRadius;
+}
+
+QSlider::handle:disabled 
+{
+	background: QLinearGradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 @buttonDisabledBackgroundGradientA, stop: 1 @buttonDisabledBackgroundGradientB);
+	color: @buttonFontColorDisabled;
+}
+
+QSlider::groove:horizontal
+{
+    border: none;
+    height: @sliderGrooveHeight;
+}
+
+/* left part of the slider */
+QSlider::sub-page:disabled 
+{
+	background-color: @UX3D_GREY34;
+}
+
+QSlider::sub-page
+{
+    background: @UX3D_GREY7;
+	border-radius: @sliderPageRadius;
+}
+
+/* right part of the slider */
+QSlider::add-page 
+{
+    background: @UX3D_GREY7;
+	border-radius: @sliderPageRadius;
+}
+
+QSlider::add-page:disabled 
+{
+	background-color: @UX3D_GREY4;
+}
+
+QComboBox
+{
+	background: 	@comboBoxBackground;
+	border: 		@comboBoxBorderWidth solid @comboBoxBorderColor;
+	border-style: 	outset;
+	color: 			@comboBoxFontColor;
+	border-radius: 	@comboBoxBorderRadius;
+	padding: 		@comboBoxPadding;
+	min-height: 	@comboBoxHeight;
+	max-height: 	@comboBoxHeight;
+}
+
+QComboBox#entryComboBox
+{
+	background: 	@background3;
+	border: 		none;
+	border-radius: 	0;
+}
+
+QComboBox QListView
+{
+	color:		@menuFontColor;
+	background: @menuBackground;
+	border-top:	2px solid QLinearGradient(x1: 0, y1: 0.5, x2: 0, y2: 0.51, 
+		stop: 0 @widgetBorderGradientA, stop: 1 @widgetBorderGradientB);
+	border-left:2px solid QLinearGradient(x1: 0.5, y1: 0, x2: 0.51, y2: 0, 
+		stop: 0 @widgetBorderGradientA, stop: 1 @widgetBorderGradientB);
+	border-bottom:2px solid QLinearGradient(x1: 0, y1: 0.51, x2: 0, y2: 0.5, 
+		stop: 0 @widgetBorderGradientA, stop: 1 @widgetBorderGradientB);
+	border-right:2px solid QLinearGradient(x1: 0.51, y1: 0, x2: 0.5, y2: 0, 
+		stop: 0 @widgetBorderGradientA, stop: 1 @widgetBorderGradientB);
+	selection-background-color: @menuItemSelection;
+	selection-color: @menuFontColor;
+}
+
+QComboBox::drop-down
+{
+	image: 		url(:/resources/png/Icons_Generic/Icon_Collapse.png);
+	width: @comboBoxArrowWidth;
+	padding: @comboBoxArrowPadding;
+}
+
+QComboBox QListView::item:selected, QComboBox QListView::item:hover
+{
+	background: @menuItemSelection;
+}
+
+QCheckBox::indicator
+{
+	image:	url(:/resources/png/Assets/CheckBox_Off_small.png);
+}
+
+QCheckBox::indicator:checked
+{
+	image:	url(:/resources/png/Assets/CheckBox_On_small.png);
+}
+
+QRadioButton::indicator
+{
+	image: 	url(:/resources/png/Assets/RadioButton_Off_dark.png);
+}
+
+QRadioButton::indicator:checked
+{
+	image: url(:/resources/png/Assets/RadioButton_On_dark.png);
+}
+
+/* ----------------------------------------------------------------------------- */
+
+/* Title Widgets */
+
+QFrame#frame_titleWidget
+{
+	background: @UX3D_GREYK;
+	min-height: @titleWidgetHeight;
+	max-height: @titleWidgetHeight;
+	padding: 	no;
+}
+
+QFrame#frame_titleTab
+{
+	min-width: @titleTabWidth;
+	max-width: @titleTabWidth;
+	background-color: @UX3D_GREYK;
+	border-bottom: none;
+}
+
+QFrame#frame_titleTab QLabel#label_title
+{
+	font-weight: 700;
+	line-height: 18;
+	font-size: @UX3D_SIZE5;
+	color: @UX3D_GREYO;
+}
+
+QFrame#frame_titleTab QLabel#label_icon
+{
+	min-width: @titleTabIconSize;
+	min-height: @titleTabIconSize;
+	max-width: @titleTabIconSize;
+	max-height: @titleTabIconSize;
+}
+
+QFrame#frame_titleWidget QPushButton
+{
+	border: 	no;
+	background: transparent;
+}
+
+QFrame#frame_titleWidget QPushButton#pushButton_close
+{
+	image: url(:/resources/png/Assets/Icon_Window_Close.png);
+	min-height: @titleWidgetButtonSoloHeight;
+	max-height: @titleWidgetButtonSoloHeight;
+	min-width: @titleWidgetButtonSoloHeight;
+	max-width: @titleWidgetButtonSoloHeight;
+}
+
+QFrame#frame_titleWidget QPushButton#pushButton_maximize
+{
+	image: url(:/resources/png/Assets/Icon_Window_Maximize.png);
+	min-height: @titleWidgetButtonSoloHeight;
+	max-height: @titleWidgetButtonSoloHeight;
+	min-width: @titleWidgetButtonSoloHeight;
+	max-width: @titleWidgetButtonSoloHeight;
+}
+
+/* Dock Widget */
+
+QWidget#dockWidgetContents_container
+{
+	background-color: @widgetBackground;
+}
+
+QWidget#dockWidgetContents_top
+{
+	background-color: @UX3D_GREYK;
+	
+	min-height: @dockWidgetHeight;
+	max-height: @dockWidgetHeight;
+}
+
+QWidget#dockWidgetContents_top QPushButton
+{
+	min-width:	@titleWidgetButtonGroupSize;
+	max-width:	@titleWidgetButtonGroupSize;
+	min-height: @titleWidgetButtonGroupSize;	
+	max-height: @titleWidgetButtonGroupSize;
+	border: @titleWidgetButtonGroupBorderWidth solid @titleWidgetButtonGroupBorderColorUnpressed;
+	background: @titleWidgetButtonGroupBackgroundUnpressed;
+	border-radius: no;
+}
+
+QWidget#dockWidgetContents_top QPushButton:pressed
+{
+	border: @titleWidgetButtonGroupBorderWidth solid @titleWidgetButtonGroupBorderColorPressed;
+	background: @titleWidgetButtonGroupBackgroundPressed;
+}
+
+QWidget#dockWidgetContents_top QCheckBox
+{
+	min-width: 	@titleWidgetCheckBoxSize;
+	max-width: 	@titleWidgetCheckBoxSize;
+	min-height: @titleWidgetCheckBoxSize;
+	max-height: @titleWidgetCheckBoxSize;
+
+	padding: @titleWidgetCheckBoxPadding;
+}
+
+QWidget#dockWidgetContents_top QCheckBox::indicator
+{
+	min-width:	@titleWidgetCheckBoxIconSize;
+	max-width:	@titleWidgetCheckBoxIconSize;
+	min-height: @titleWidgetCheckBoxIconSize;	
+	max-height: @titleWidgetCheckBoxIconSize;
+}
+
+QWidget#dockWidgetContents_top QCheckBox:checked
+{
+	border: @titleWidgetButtonGroupBorderWidth solid @titleWidgetButtonGroupBorderColorPressed;
+	background: @titleWidgetButtonGroupBackgroundPressed;
+}
+
+QWidget#dockWidgetContents_top QCheckBox:unchecked
+{
+	border: @titleWidgetButtonGroupBorderWidth solid @titleWidgetButtonGroupBorderColorUnpressed;
+	background: @titleWidgetButtonGroupBackgroundUnpressed;
+}
+
+QWidget#dockWidgetContents_bottom
+{
+	background-color: @dockWidgetBackground;
+
+	margin: no;
+        border: no;
+	padding: no;
+
+	border-bottom: @dockWidgetBorderWidth solid @dockWidgetBorderColor;
+	border-left: @dockWidgetBorderWidth solid @dockWidgetBorderColor;
+        border-right: @dockWidgetBorderWidth solid @dockWidgetBorderColor;
+}
+
+/* Property.ui */
+
+QFrame#frame_glTF_property QLabel, QFrame, QCheckBox
+{
+	background: transparent;
+}
+
+QFrame#frame_glTF_property QLabel#label_header
+{
+	font-size: @propertiesHeaderFontSize;
+}
+
+QFrame#subFrame_glTF_property
+{
+	background-color: 	@inspectorAreaBackground;
+	border-radius: 		@inspectorAreaBorderRadius;
+	border:				@inspectorAreaBorderWidth inset @inspectorAreaBorderColor;
+}
+
+QFrame#subFrame_glTF_property > QFrame
+{
+	padding: @propertiesAreaPadding; /* padding between items */
+}
+
+QFrame#subFrame_glTF_property QWidget#line 
+{
+	min-width: @propertiesAreaLineWidth;
+	max-width: @propertiesAreaLineWidth;
+	background-color: @inspectorLineColor
+}
+
+
+/* Statistics.ui*/
+QDockWidget#StatisticsDockWidget QWidget#dockWidgetContents_bottom QWidget#line 
+{
+	min-width: @propertiesAreaLineWidth;
+	max-width: @propertiesAreaLineWidth;
+	background-color: @lineColor;
+}
+
+/* Popup.ui*/
+QWidget#Popup_Widget QWidget#line 
+{
+	min-width: @propertiesAreaLineWidth;
+	max-width: @propertiesAreaLineWidth;
+	background-color: @lineColor;
+}
+
+QFrame#Popup_Frame
+{
+	background-color: @inspectorAreaBackground;
+	border: @inspectorAreaBorderWidth inset @inspectorAreaBorderColor;
+}
+
+QWidget#Popup_Widget QPushButton:disabled {
+	background: #545454;
+	color: @buttonFontColorDisabled;
+	border-top: 0px solid;
+	border-bottom: 0px solid;
+	border-left: 0px solid;
+	border-right: 0px solid;
+}
+
+/* Preferences */
+
+QDockWidget#preferences QWidget#line
+{
+    min-width: @propertiesAreaLineWidth;
+    max-width: @propertiesAreaLineWidth;
+	background-color: @lineColor;
+}
+
+/* RenderView */
+
+QDockWidget#renderview QWidget#dockWidgetContents_top QComboBox
+{
+	background: transparent;
+	border: 	no;
+	min-height: @renderviewComboBoxHeight;
+	max-height: @renderviewComboBoxHeight;
+}
+
+QDockWidget#renderview QWidget#dockWidgetContents_top QWidget#viewportModeWidget
+{
+	background: @titleWidgetTab;
+	/* TODO these values are @titleTabWidth + @rendererLineWidth. Find a way to represent this through a variable */
+	min-width:	100px;
+	max-width:	100px;
+}
+
+QDockWidget#renderview QPushButton#pushButton_viewportMode
+{
+	background: transparent;
+	border: no;
+	min-width: 	@titleWidgetButtonSoloWidth;
+	min-height: @titleWidgetButtonSoloHeight;
+	max-width: 	100000px;
+	min-height: @titleWidgetButtonSoloHeight;
+	max-height: @titleWidgetButtonSoloHeight;
+	text-align:	left;
+}
+
+QDockWidget#renderview QPushButton#pushButton_projection 
+{
+	border-radius: @titleWidgetButtonGroupBorderRadius;
+	background: QLinearGradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 @buttonBackgroundGradientA, stop: 1 @buttonBackgroundGradientB);
+	border: @titleWidgetButtonGroupBorderWidth solid @titleWidgetButtonGroupBorderColorPressed;
+}
+
+QDockWidget#renderview QPushButton#pushButton_projection:pressed 
+{
+	border: @titleWidgetButtonGroupBorderWidth solid @titleWidgetButtonGroupBorderColorUnpressed;
+	background: @titleWidgetButtonGroupBackgroundUnpressed;
+}
+
+QDockWidget#renderview QPushButton#pushButton_takeRender {
+	border-radius: @titleWidgetButtonGroupBorderRadius;
+	background: QLinearGradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 @buttonBackgroundGradientA, stop: 1 @buttonBackgroundGradientB);
+	border: @titleWidgetButtonGroupBorderWidth solid @titleWidgetButtonGroupBorderColorPressed;
+}
+
+QDockWidget#renderview QPushButton#pushButton_takeRender:hover {
+	background: QLinearGradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 @buttonHoverBackgroundGradientA, stop: 1 @buttonHoverBackgroundGradientB);
+	border-top: 1px solid @buttonBorderLightColor;
+	border-bottom: 1px solid @buttonBorderDarkHoverColor;
+	border-left: 1px solid @buttonHoverBackgroundGradientA;
+	border-right: 1px solid @buttonHoverBackgroundGradientA;
+}
+
+QDockWidget#renderview QPushButton#pushButton_RenderMode
+{
+	background: transparent;
+	border: no;
+	min-width: @titleWidgetButtonSoloWidth;
+	max-width: 100000px;
+	min-height: @titleWidgetButtonSoloHeight;
+	max-height: @titleWidgetButtonSoloHeight;
+	text-align: left;
+}
+
+QDockWidget#renderview QWidget#toolsWidget
+{
+	background: transparent;
+}
+
+QDockWidget#renderview QToolButton#toolButton_select 
+{
+	border-bottom-left-radius: @titleWidgetButtonGroupBorderRadius;
+	border-top-left-radius: @titleWidgetButtonGroupBorderRadius;
+	min-height: @UX3D_SIZE0;
+	max-height: @UX3D_SIZE0;
+}
+QDockWidget#renderview QToolButton#toolButton_move 
+{
+	min-height: @UX3D_SIZE0;
+	max-height: @UX3D_SIZE0;
+}
+QDockWidget#renderview QToolButton#toolButton_rotate 
+{
+	min-height: @UX3D_SIZE0;
+	max-height: @UX3D_SIZE0;
+}
+
+QDockWidget#renderview QToolButton#toolButton_scale 
+{
+	border-bottom-right-radius: @titleWidgetButtonGroupBorderRadius;
+	border-top-right-radius: @titleWidgetButtonGroupBorderRadius;
+	border-right: @titleWidgetButtonGroupBorderWidth solid titleWidgetButtonGroupBorderColorUnpressed;
+	min-height: @UX3D_SIZE0;
+	max-height: @UX3D_SIZE0;
+}
+
+QDockWidget#renderview QToolButton#toolButton_scale:checked, QDockWidget#renderview QToolButton#toolButton_scale:pressed
+{
+	border-right: @titleWidgetButtonGroupBorderWidth solid @titleWidgetButtonGroupBorderColorPressed;
+}
+
+QDockWidget#renderview QWidget#timelineWidget
+{
+	background: transparent;
+}
+
+QDockWidget#renderview QToolButton#toolButton_resetBack
+{
+	border-bottom-left-radius: @titleWidgetButtonGroupBorderRadius;
+	border-top-left-radius: @titleWidgetButtonGroupBorderRadius;
+}
+
+QDockWidget#renderview QToolButton#toolButton_resetForward
+{
+	border-bottom-right-radius: @titleWidgetButtonGroupBorderRadius;
+	border-top-right-radius: @titleWidgetButtonGroupBorderRadius;
+	border-right: @titleWidgetButtonGroupBorderWidth solid @titleWidgetButtonGroupBorderColorUnpressed;
+}
+
+QDockWidget#renderview QToolButton#toolButton_resetForward:pressed
+{
+	border-right: @titleWidgetButtonGroupBorderWidth solid @titleWidgetButtonGroupBorderColorPressed;
+}
+
+QDockWidget#renderview QToolButton#toolButton_selectAnimation {
+	border: transparent;
+	background-color: transparent;
+}
+
+QDockWidget#renderview QToolButton#toolButton_selectAnimation:hover
+{
+	background: #363636;
+}
+
+QDockWidget#renderview QToolButton#toolButton_grid 
+{
+	border: transparent;
+	background-color: transparent;
+	margin-top: 4px;
+	margin-bottom: 4px;
+}
+
+QDockWidget#renderview QToolButton#toolButton_grid:hover 
+{
+	background: #363636;
+}
+
+QDockWidget#renderview QToolButton#toolButton_gizmoSpace 
+{
+	border: transparent;
+	background-color: transparent;
+	margin-top: 4px;
+	margin-bottom: 4px;
+}
+
+QDockWidget#renderview QToolButton#toolButton_gizmoSpace:hover 
+{
+	background: #363636;
+}
+
+QDockWidget#renderview QToolButton#toolButton_projection 
+{
+	border-bottom-left-radius: @titleWidgetButtonGroupBorderRadius;
+	border-top-left-radius: @titleWidgetButtonGroupBorderRadius;
+	border-bottom-right-radius: @titleWidgetButtonGroupBorderRadius;
+	border-top-right-radius: @titleWidgetButtonGroupBorderRadius;
+	border: transparent;
+	background-color: transparent;
+}
+
+QDockWidget#renderview QToolButton#toolButton_projection
+{
+	border: transparent;
+	background-color: transparent;
+	margin-top: 4px;
+	margin-bottom: 4px;
+}
+
+QDockWidget#renderview QToolButton#toolButton_projection:hover
+{
+	background: #363636;
+}
+
+QWidget#AnimationPopup QLabel
+{
+	margin-bottom: 8px;
+}
+
+QWidget#AnimationPopup QLabel#AnimationPopup_Settings, QWidget#AnimationPopup QLabel#AnimationPopup_Animations
+{
+	font-weight: 500;
+}
+
+QLabel#AnimationPopup_Explanation
+{
+	margin-top: 8px;
+}
+
+QFrame#AnimationPopup_Line
+{
+	min-height: @propertiesAreaLineWidth;
+	max-height: @propertiesAreaLineWidth;
+}

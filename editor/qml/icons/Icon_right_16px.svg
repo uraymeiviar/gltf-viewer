@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="16px" height="16px" viewBox="0 0 16 16" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>Icon/ Navigation/ right_20px</title>
+    <defs>
+        <path d="M3.90898751,4.70588235 L0.286044556,8.2017045 C0.018733811,8.45963592 0.018733811,8.87782538 0.286044556,9.1357568 C0.553355301,9.39368822 0.986751651,9.39368822 1.2540624,9.1357568 L5.36101427,5.1729085 C5.62832501,4.91497708 5.62832501,4.49678762 5.36101427,4.2388562 L1.2540624,0.276007905 C0.986751651,0.0180764843 0.553355301,0.0180764843 0.286044556,0.276007905 C0.018733811,0.533939326 0.018733811,0.952128786 0.286044556,1.21006021 L3.90898751,4.70588235 Z" id="path-1"></path>
+    </defs>
+    <g id="Icon/-Navigation/-right_20px" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="Group-4">
+            <rect id="Rectangle" x="0" y="0" width="16" height="16"></rect>
+            <g id="chevron-right" transform="translate(5.176471, 3.294118)">
+                <mask id="mask-2" fill="white">
+                    <use xlink:href="#path-1"></use>
+                </mask>
+                <use id="Shape" fill="#FFFFFF" xlink:href="#path-1"></use>
+            </g>
+        </g>
+    </g>
+</svg>

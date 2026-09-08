@@ -1,0 +1,17 @@
+module InspectorTypes
+BooleanRow 1.0 BooleanRow.qml
+ButtonRow 1.0 ButtonRow.qml
+LabelRow 1.0 LabelRow.qml
+ListRow 1.0 ListRow.qml
+MatrixRow 1.0 MatrixRow.qml
+EnumComboRow 1.0 EnumComboRow.qml
+PointerComboRow 1.0 PointerComboRow.qml
+PopupContent 1.0 PopupContent.qml
+SliderPopupRow 1.0 SliderPopupRow.qml
+ArrayInputRow 1.0 ArrayInputRow.qml
+NumberInoutRow 1.0 NumberInoutRow.qml
+StringInputRow 1.0 StringInputRow.qml
+Spacer 1.0 Spacer.qml
+ObjectRow 1.0 ObjectRow.qml
+ImagePreviewRow 1.0 ImagePreviewRow.qml
+IndicatorToolTip 1.0 IndicatorToolTip.qml

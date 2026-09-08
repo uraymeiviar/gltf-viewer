@@ -1,0 +1,158 @@
+{
+	"accessors": [
+		{
+			"componentType": 5126,
+			"count": 406,
+			"type": "VEC2"
+		},
+		{
+			"componentType": 5126,
+			"count": 406,
+			"type": "VEC3"
+		},
+		{
+			"componentType": 5126,
+			"count": 406,
+			"type": "VEC4"
+		},
+		{
+			"componentType": 5126,
+			"count": 406,
+			"max": [
+				0.0212792307138443,
+				0.0628480613231659,
+				0.013809406198561192
+			],
+			"min": [
+				-0.021280910819768906,
+				-4.7738551074871793e-05,
+				-0.01380900014191866
+			],
+			"type": "VEC3"
+		},
+		{
+			"componentType": 5123,
+			"count": 2046,
+			"type": "SCALAR"
+		}
+	],
+	"asset": {
+		"extras": {
+			"created": "Tue Mar 15 13:35:43 2022"
+		},
+		"generator": "Gestaltor 2022.1.0  Development (internal) (dev-be14d09*)",
+		"version": "2.0"
+	},
+	"bufferViews": [
+		{
+			"buffer": 0,
+			"byteLength": 5682,
+			"byteOffset": 0
+		}
+	],
+	"buffers": [
+		{
+			"byteLength": 5682,
+			"uri": "Avocado.bin"
+		}
+	],
+	"extensionsRequired": [
+		"KHR_draco_mesh_compression"
+	],
+	"extensionsUsed": [
+		"KHR_draco_mesh_compression"
+	],
+	"images": [
+		{
+			"mimeType": "image/jpeg",
+			"name": "Avocado_baseColor",
+			"uri": "Avocado_baseColor.jpg"
+		},
+		{
+			"mimeType": "image/jpeg",
+			"name": "Avocado_roughnessMetallic",
+			"uri": "Avocado_roughnessMetallic.jpg"
+		},
+		{
+			"mimeType": "image/jpeg",
+			"name": "Avocado_normal",
+			"uri": "Avocado_normal.jpg"
+		}
+	],
+	"materials": [
+		{
+			"name": "2256_Avocado_d",
+			"normalTexture": {
+				"index": 2
+			},
+			"pbrMetallicRoughness": {
+				"baseColorTexture": {
+					"index": 0
+				},
+				"metallicRoughnessTexture": {
+					"index": 1
+				}
+			}
+		}
+	],
+	"meshes": [
+		{
+			"name": "Avocado",
+			"primitives": [
+				{
+					"attributes": {
+						"NORMAL": 1,
+						"POSITION": 3,
+						"TANGENT": 2,
+						"TEXCOORD_0": 0
+					},
+					"extensions": {
+						"KHR_draco_mesh_compression": {
+							"attributes": {
+								"NORMAL": 0,
+								"POSITION": 1,
+								"TANGENT": 2,
+								"TEXCOORD_0": 3
+							},
+							"bufferView": 0
+						}
+					},
+					"indices": 4,
+					"material": 0,
+					"mode": 4
+				}
+			]
+		}
+	],
+	"nodes": [
+		{
+			"mesh": 0,
+			"name": "Avocado",
+			"rotation": [
+				0.0,
+				1.0,
+				0.0,
+				0.0
+			]
+		}
+	],
+	"scene": 0,
+	"scenes": [
+		{
+			"nodes": [
+				0
+			]
+		}
+	],
+	"textures": [
+		{
+			"source": 0
+		},
+		{
+			"source": 1
+		},
+		{
+			"source": 2
+		}
+	]
+}

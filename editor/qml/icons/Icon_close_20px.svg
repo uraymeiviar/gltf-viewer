@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="20px" height="20px" viewBox="0 0 20 20" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>Icon/ close_20px</title>
+    <g id="Icon/-close_20px" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <path d="M9.9,4 C10.2313708,4 10.5,4.26862915 10.5,4.6 L10.499,9.4 L15.4,9.4 C15.7313708,9.4 16,9.66862915 16,10 C16,10.3313708 15.7313708,10.6 15.4,10.6 L10.499,10.6 L10.5,15.4 C10.5,15.7313708 10.2313708,16 9.9,16 C9.56862915,16 9.3,15.7313708 9.3,15.4 L9.299,10.6 L4.6,10.6 C4.26862915,10.6 4,10.3313708 4,10 C4,9.66862915 4.26862915,9.4 4.6,9.4 L9.299,9.4 L9.3,4.6 C9.3,4.26862915 9.56862915,4 9.9,4 Z" id="Combined-Shape" fill="#F4F4F4" transform="translate(10.000000, 10.000000) rotate(45.000000) translate(-10.000000, -10.000000) "></path>
+    </g>
+</svg>

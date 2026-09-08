@@ -1,0 +1,21 @@
+
+/build
+/build-*
+/build_*
+*/build/
+/cmake-build-*
+.DS_Store
+
+# Visual Studio CMake
+CMakeSettings.json
+
+.idea
+.vscode
+.vs
+
+.project
+.cproject
+
+*.exe
+*.dll
+*.a

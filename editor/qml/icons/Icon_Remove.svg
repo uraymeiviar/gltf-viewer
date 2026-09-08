@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="20px" height="20px" viewBox="0 0 20 20" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>Icon/ remove_20px</title>
+    <g id="Inspector" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="Icon/-remove_20px" transform="translate(0.000000, 0.000000)">
+            <rect id="Rectangle" x="0" y="0" width="20" height="20"></rect>
+            <path d="M10,2 C14.418278,2 18,5.581722 18,10 C18,14.418278 14.418278,18 10,18 C5.581722,18 2,14.418278 2,10 C2,5.581722 5.581722,2 10,2 Z M10,3 C6.13400675,3 3,6.13400675 3,10 C3,13.8659932 6.13400675,17 10,17 C13.8659932,17 17,13.8659932 17,10 C17,6.13400675 13.8659932,3 10,3 Z M14.5,9.4 C14.8313708,9.4 15.1,9.66862915 15.1,10 C15.1,10.3313708 14.8313708,10.6 14.5,10.6 L5.7,10.6 C5.36862915,10.6 5.1,10.3313708 5.1,10 C5.1,9.66862915 5.36862915,9.4 5.7,9.4 L14.5,9.4 Z" id="Combined-Shape" fill="#FF6868"></path>
+        </g>
+    </g>
+</svg>

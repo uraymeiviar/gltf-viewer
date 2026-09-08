@@ -1,0 +1,226 @@
+{
+	"accessors": [
+		{
+			"bufferView": 0,
+			"byteOffset": 0,
+			"componentType": 5123,
+			"count": 36,
+			"max": [
+				23.0
+			],
+			"min": [
+				0.0
+			],
+			"type": "SCALAR"
+		},
+		{
+			"bufferView": 1,
+			"byteOffset": 0,
+			"componentType": 5126,
+			"count": 24,
+			"max": [
+				1.0,
+				1.0,
+				1.0
+			],
+			"min": [
+				-1.0,
+				-1.0,
+				-1.0
+			],
+			"type": "VEC3"
+		},
+		{
+			"bufferView": 2,
+			"byteOffset": 0,
+			"componentType": 5126,
+			"count": 24,
+			"max": [
+				0.5,
+				0.5,
+				0.5
+			],
+			"min": [
+				-0.5,
+				-0.5,
+				-0.5
+			],
+			"type": "VEC3"
+		}
+	],
+	"asset": {
+		"extensions": {
+			"KHR_xmp_json_ld": {
+				"packet": 0
+			}
+		},
+		"version": "2.0"
+	},
+	"bufferViews": [
+		{
+			"buffer": 0,
+			"byteLength": 72,
+			"byteOffset": 0,
+			"target": 34963
+		},
+		{
+			"buffer": 0,
+			"byteLength": 288,
+			"byteOffset": 72,
+			"byteStride": 12,
+			"target": 34962
+		},
+		{
+			"buffer": 0,
+			"byteLength": 288,
+			"byteOffset": 360,
+			"byteStride": 12,
+			"target": 34962
+		}
+	],
+	"buffers": [
+		{
+			"byteLength": 648,
+			"uri": "CustomXmpModel.bin"
+		}
+	],
+	"extensions": {
+		"KHR_xmp_json_ld": {
+			"packets": [
+				{
+			        "@context": {
+						"dc": "http://purl.org/dc/elements/1.1/",
+			          	"rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+			        },
+			        "@id": "",
+			        "dc:contributor": {
+			          	"@set": [
+			            	"Creator1Name",
+			            	"Creator2Email@email.com",
+			            	"Creator3Name<Email@email.com>"
+			          	]
+			        },
+		        	"dc:coverage": "Bay Area, California, United States",
+			        "dc:creator": {
+			          	"@list": ["CreatorName", "CreatorEmail@email.com"]
+			        },
+			        "dc:date": {
+			          	"@list": ["1997-07-16T19:20:30+01:00"]
+			        },
+			        "dc:description": {
+			          	"@type": "rdf:Alt",
+			          	"rdf:_1": {
+			            	"@language": "en-us",
+			            	"@value": "text"
+			          	}
+			        },
+			        "dc:format": "model/gltf-binary",
+			        "dc:identifier": "urn:stock-id:292930",
+			        "dc:language": {
+			          	"@set": ["en"]
+			        },
+			        "dc:publisher": {
+			          	"@set": ["Company"]
+			        },
+			        "dc:relation": {
+			          	"@set": ["https://www.khronos.org/"]
+			        },
+			        "dc:rights": {
+			          	"@type": "rdf:Alt",
+			          	"rdf:_1": {
+			            	"@language": "en-us",
+			            	"@value": "BSD"
+			          	}
+			        },
+			        "dc:source": "http://related_resource.org/derived_from_this.gltf",
+			        "dc:subject": {
+			          	"@set": ["architecture"]
+			        },
+			        "dc:type": {
+			          	"@set": ["Physical Object"]
+		        	}
+		      	}
+			]
+		}
+	},
+	"extensionsUsed": [
+		"KHR_xmp_json_ld"
+	],
+	"extensionsRequired": [
+	],
+	"materials": [
+		{
+			"name": "Material",
+			"extensions": {
+				"KHR_xmp_json_ld": {
+					"packet": 0
+				}
+			},
+			"pbrMetallicRoughness": {
+				"baseColorFactor": [
+					0.3,
+					0.7,
+					0.2,
+					1.0
+				],
+				"metallicFactor": 0.0
+			}
+		}
+	],
+	"meshes": [
+		{
+			"name": "Mesh",
+			"extensions": {
+				"KHR_xmp_json_ld": {
+					"packet": 0
+				}
+			},
+			"primitives": [
+				{
+					"attributes": {
+						"NORMAL": 1,
+						"POSITION": 2
+					},
+					"indices": 0,
+					"material": 0,
+					"mode": 4
+				}
+			]
+		}
+	],
+	"nodes": [
+		{
+			"name": "Node 1",
+			"children": [
+				1
+			],
+			"translation": [
+				0.0,
+				2.0,
+				0.0
+			]
+		},
+		{
+			"name": "Node 2",
+			"extensions": {
+				"KHR_xmp_json_ld": {
+					"packet": 0
+				}
+			},
+			"mesh": 0
+		}
+	],
+	"scene": 0,
+	"scenes": [
+		{
+			"nodes": [
+				0
+			],
+			"extensions": {
+				"KHR_xmp_json_ld": {
+					"packet": 0
+				}
+			}
+		}
+	]
+}

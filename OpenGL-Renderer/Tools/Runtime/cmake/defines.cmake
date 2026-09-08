@@ -1,0 +1,66 @@
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+function(cmake_option option description default)
+	option(${option} description ${default})
+	if (NOT ${UX3D_DEFINES_PRINTED})
+		if(${option})
+			message(STATUS "'${option}' is TRUE")
+		else()
+			message(STATUS "'${option}' is FALSE")
+		endif()
+	endif()
+endfunction()
+
+function(compiler_define define description default)
+	cmake_option("${define}" "${description}" "${default}")
+	if(${define})
+		add_definitions(-D${define})
+	endif()
+endfunction()
+
+set(UX3D_CPP_VERSION 20 CACHE STRING "")
+
+if (NOT ${UX3D_DEFINES_PRINTED})
+	message(STATUS "Minimum C++ version specified by 'defines.cmake': ${UX3D_CPP_VERSION}")
+	message(STATUS)
+	message(STATUS "Compiler definitions added by 'defines.cmake':")
+endif()
+
+compiler_define(UX3D_NO_LOG "" OFF)
+compiler_define(UX3D_NO_ASSERT "" OFF)
+compiler_define(UX3D_NO_DEBUG_HEAP "" OFF)
+compiler_define(UX3D_SERIAL_LOOPS "" OFF)
+
+compiler_define(GLM_FORCE_SWIZZLE "" OFF)
+compiler_define(GLM_FORCE_LEFT_HANDED "" ON)
+
+if (NOT ${UX3D_DEFINES_PRINTED})
+	message(STATUS)
+	message(STATUS "CMake options added by 'defines.cmake':")
+endif()
+
+cmake_option(UX3D_RUNTIME_TESTING "" ON)
+cmake_option(UX3D_NO_EXCEPT "" OFF)
+cmake_option(UX3D_USE_CLANG_TIDY "" OFF)
+cmake_option(UX3D_USE_IWYU "" OFF)
+cmake_option(UX3D_MODULE_GPU "" OFF)
+
+if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
+add_definitions(-DUX3D_IS_APPLE=1 )
+elseif(${CMAKE_SYSTEM_NAME} MATCHES "Windows")
+add_definitions(-DUX3D_IS_WINDOWS=1 )
+elseif(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+add_definitions(-DUX3D_IS_LINUX=1 )
+endif()
+
+if (UX3D_NO_EXCEPT)
+	if (${CMAKE_SYSTEM_NAME} MATCHES "Windows")
+		add_definitions(-D__EXCEPTIONS=0)
+	endif()
+endif()
+
+add_compile_options($<$<CXX_COMPILER_ID:MSVC>:/MP>)
+
+set(UX3D_DEFINES_PRINTED TRUE CACHE INTERNAL "")

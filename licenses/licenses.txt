@@ -1,0 +1,12 @@
+Licenses:
+Qt:			https://doc.qt.io/qt-5/licenses-used-in-qt.html
+			LGPL v3
+GLEW:		MIT
+glslang:	3-clause BSD
+			mit prerpocessor NVIDIA license (?)
+json:		MIT
+stb:		public domain or MIT
+Catch2:		Boost
+glm:		MIT (with or without happy bunny)
+spriv reflect: Apache v2
+vulkan memory allocator: MIT

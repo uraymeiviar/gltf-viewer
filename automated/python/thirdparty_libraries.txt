@@ -1,0 +1,93 @@
+
+
+
+Qt  
+ https://www.qt.io   
+ LPGL v3    
+ https://doc.qt.io/qt-6/lgpl.html   
+
+
+JSON for Modern C++   
+ https://nlohmann.github.io/json/   
+ MIT    
+ https://github.com/nlohmann/json/blob/develop/LICENSE.MIT   
+
+
+stb      
+ https://github.com/nothings/stb   
+ (Public domain)     
+
+glm  
+ https://glm.g-truc.net/0.9.9/index.html   
+ MIT    
+ https://github.com/g-truc/glm/blob/master/copying.txt   
+
+
+SPIRV-Reflect  
+ https://github.com/chaoticbob/SPIRV-Reflect   
+ Apache 2.0    
+ https://www.apache.org/licenses/LICENSE-2.0   
+
+
+KTX-Software  
+ https://github.com/KhronosGroup/KTX-Software   
+ Apache 2.0    
+ https://github.com/KhronosGroup/KTX-Software/blob/master/LICENSE.md   
+
+
+USD  
+ https://github.com/PixarAnimationStudios/USD   
+ Apache 2.0    
+ https://github.com/PixarAnimationStudios/USD/blob/release/LICENSE.txt   
+
+
+USD from glTF  
+ https://github.com/google/usd_from_gltf   
+ Apache 2.0    
+ https://github.com/google/usd_from_gltf/blob/master/LICENSE   
+
+
+Draco  
+ https://github.com/google/draco   
+ Apache 2.0    
+ https://github.com/google/draco/blob/master/LICENSE   
+
+
+Open Asset Import Library  
+ https://github.com/assimp/assimp   
+ 3-clause BSD    
+ https://github.com/assimp/assimp/blob/master/LICENSE   
+
+
+Fast-Quadric-Mesh-Simplification  
+ https://github.com/sp4cerat/Fast-Quadric-Mesh-Simplification   
+ MIT    
+ https://github.com/sp4cerat/Fast-Quadric-Mesh-Simplification/blob/master/LICENSE.md   
+
+
+MikkTSpace   
+ https://github.com/mmikk/MikkTSpace   
+
+OpenSSL  
+ https://github.com/openssl/openssl   
+ Apache 2.0    
+ https://github.com/openssl/openssl/blob/master/LICENSE.txt   
+
+
+LibreSSL  
+ https://github.com/libressl-portable/portable   
+ Apache 2.0    
+ https://github.com/libressl-portable/openbsd/blob/master/src/lib/libssl/LICENSE   
+
+
+minimp3  
+ https://github.com/lieff/minimp3   
+ CC0    
+ https://github.com/lieff/minimp3/blob/master/LICENSE   
+
+
+OpenAL  
+ https://www.openal.org/   
+ GNU    
+ https://github.com/kcat/openal-soft/blob/master/COPYING   
+

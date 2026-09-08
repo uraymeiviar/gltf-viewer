@@ -1,0 +1,216 @@
+{
+	"accessors": [
+		{
+			"bufferView": 1,
+			"byteOffset": 0,
+			"componentType": 5126,
+			"count": 4704,
+			"max": [
+				0.9775372743606567,
+				2.2075142860412598,
+				0.9776041507720947
+			],
+			"min": [
+				-0.976149320602417,
+				0.0031518936157226563,
+				-0.9760822057723999
+			],
+			"type": "VEC3"
+		},
+		{
+			"bufferView": 2,
+			"byteOffset": 0,
+			"componentType": 5126,
+			"count": 4704,
+			"max": [
+				1.0,
+				1.0,
+				1.0
+			],
+			"min": [
+				-1.0,
+				-1.0,
+				-0.9999999403953552
+			],
+			"type": "VEC3"
+		},
+		{
+			"bufferView": 3,
+			"byteOffset": 0,
+			"componentType": 5126,
+			"count": 4704,
+			"max": [
+				0.9580909013748169,
+				0.9259782433509827
+			],
+			"min": [
+				-0.961023211479187,
+				0.05779224634170532
+			],
+			"type": "VEC2"
+		},
+		{
+			"bufferView": 4,
+			"byteOffset": 0,
+			"componentType": 5125,
+			"count": 26496,
+			"type": "SCALAR"
+		},
+		{
+			"bufferView": 5,
+			"byteOffset": 0,
+			"componentType": 5123,
+			"count": 4704,
+			"type": "VEC4"
+		},
+		{
+			"bufferView": 6,
+			"byteOffset": 0,
+			"componentType": 5126,
+			"count": 4704,
+			"max": [
+				1.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"min": [
+				1.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"type": "VEC4"
+		}
+	],
+	"asset": {
+		"extras": {
+			"author": "Ben Shaffer (https://sketchfab.com/BentheCreator)",
+			"created": "Wed Aug 17 14:22:23 2022",
+			"license": "CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)",
+			"source": "https://sketchfab.com/3d-models/lego-minifigure-animated-ce3274a82ee74249901010d93fce3853",
+			"title": "LEGO Minifigure (Animated)"
+		},
+		"generator": "Gestaltor 2022.3.3 Linguine Professional",
+		"version": "2.0"
+	},
+	"bufferViews": [
+		{
+			"buffer": 0,
+			"byteLength": 27720,
+			"byteOffset": 0
+		},
+		{
+			"buffer": 0,
+			"byteLength": 56448,
+			"byteOffset": 27720,
+			"byteStride": 12
+		},
+		{
+			"buffer": 0,
+			"byteLength": 56448,
+			"byteOffset": 84168,
+			"byteStride": 12
+		},
+		{
+			"buffer": 0,
+			"byteLength": 37632,
+			"byteOffset": 140616,
+			"byteStride": 8,
+			"target": 34962
+		},
+		{
+			"buffer": 0,
+			"byteLength": 105984,
+			"byteOffset": 178248,
+			"target": 34963
+		},
+		{
+			"buffer": 0,
+			"byteLength": 37632,
+			"byteOffset": 284232,
+			"byteStride": 8,
+			"target": 34962
+		},
+		{
+			"buffer": 0,
+			"byteLength": 75264,
+			"byteOffset": 321864,
+			"byteStride": 16,
+			"target": 34962
+		}
+	],
+	"buffers": [
+		{
+			"byteLength": 397128,
+			"uri": "head_surprised_origin.bin"
+		}
+	],
+	"images": [
+		{
+			"bufferView": 0,
+			"mimeType": "image/jpeg"
+		}
+	],
+	"materials": [
+		{
+			"doubleSided": true,
+			"name": "Head_Dead",
+			"pbrMetallicRoughness": {
+				"baseColorTexture": {
+					"index": 0
+				},
+				"metallicFactor": 0.0,
+				"roughnessFactor": 0.6
+			}
+		}
+	],
+	"meshes": [
+		{
+			"name": "Head02_Head_Dead_0",
+			"primitives": [
+				{
+					"attributes": {
+						"JOINTS_0": 4,
+						"NORMAL": 1,
+						"POSITION": 0,
+						"TEXCOORD_0": 2,
+						"WEIGHTS_0": 5
+					},
+					"indices": 3,
+					"material": 0,
+					"mode": 4
+				}
+			]
+		}
+	],
+	"nodes": [
+		{
+			"mesh": 0,
+			"name": "Head Surprised"
+		}
+	],
+	"samplers": [
+		{
+			"magFilter": 9729,
+			"minFilter": 9987,
+			"wrapS": 10497,
+			"wrapT": 10497
+		}
+	],
+	"scene": 0,
+	"scenes": [
+		{
+			"name": "Sketchfab_Scene",
+			"nodes": [
+				0
+			]
+		}
+	],
+	"textures": [
+		{
+			"sampler": 0,
+			"source": 0
+		}
+	]
+}

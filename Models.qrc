@@ -1,0 +1,8 @@
+<RCC>
+    <qresource prefix="/">
+        <file>resources/models/Gizmo_Transform_Translation.glb</file>
+        <file>resources/models/Gizmo_Transform_Scale.glb</file>
+        <file>resources/models/Gizmo_Transform_Rotation.glb</file>
+        <file>resources/models/orientation_gizmo.glb</file>
+    </qresource>
+</RCC>

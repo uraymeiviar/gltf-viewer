@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="20px" height="20px" viewBox="0 0 20 20" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>Icon/ add_20px</title>
+    <g id="Icon/-add_20px" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <rect id="Rectangle" x="0" y="0" width="20" height="20"></rect>
+        <rect id="Rectangle" x="0" y="0" width="20" height="20" rx="1"></rect>
+        <path d="M10,4 C10.3313708,4 10.6,4.26862915 10.6,4.6 L10.599,9.4 L15.5,9.4 C15.8313708,9.4 16.1,9.66862915 16.1,10 C16.1,10.3313708 15.8313708,10.6 15.5,10.6 L10.599,10.6 L10.6,15.4 C10.6,15.7313708 10.3313708,16 10,16 C9.66862915,16 9.4,15.7313708 9.4,15.4 L9.399,10.6 L4.7,10.6 C4.36862915,10.6 4.1,10.3313708 4.1,10 C4.1,9.66862915 4.36862915,9.4 4.7,9.4 L9.399,9.4 L9.4,4.6 C9.4,4.26862915 9.66862915,4 10,4 Z" id="Combined-Shape" fill="#F4F4F4"></path>
+    </g>
+</svg>

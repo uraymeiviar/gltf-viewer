@@ -1,0 +1,93 @@
+{
+    "defaultScenario": {
+        "clearcolor": "#FFFFFFFF",
+        "height": 1024,
+        "lighting": "models/Neutral.hdr",
+        "camera": 0
+    },
+    "scenarios": [
+        {
+            "model": "models/AnalyticalCubes/glTF/AnalyticalCubes.gltf",
+            "name": "AnalyticalCubes"
+        },
+        {
+            "model": "models/AnalyticalGrayscale/glTF/AnalyticalGrayscale.gltf",
+            "name": "AnalyticalGrayscale"
+        },
+        {
+            "model": "models/AnalyticalSpheres/glTF/AnalyticalSpheres.gltf",
+            "name": "AnalyticalSpheres"
+        },
+        {
+            "model": "models/AnalyticalSpheres/glTF/AnalyticalSpheres.gltf",
+            "lighting": "models/Cannon_Exterior.hdr",
+            "name": "AnalyticalSpheres-Cannon"
+        },
+        {
+            "model": "models/AnalyticalSpheres/glTF/AnalyticalSpheres.gltf",
+            "lighting": "models/Wide_Street.hdr",
+            "name": "AnalyticalSpheres-Street"
+        },
+        {
+            "model": "models/AnalyticalSpheres/glTF/AnalyticalSpheres.gltf",
+            "lighting": "models/Colorful_Studio.hdr",
+            "name": "AnalyticalSpheres-Studio"
+        },
+        {
+            "model": "models/GreenChair/glTF/GreenChair.gltf"
+        },
+        {
+            "model": "models/Mixer/glTF/Mixer.gltf"
+        },
+        {
+            "model": "models/Shoe/glTF/Shoe.gltf"
+        },
+        {
+            "model": "models/TennisRacquet/glTF/TennisRacquet.gltf"
+        },
+        {
+            "model": "models/WickerChair/glTF/WickerChair.gltf"
+        },
+        {
+            "model": "models/GreenChair/glTF/GreenChair.gltf",
+            "camera": 1
+        },
+        {
+            "model": "models/Mixer/glTF/Mixer.gltf",
+            "camera": 1
+        },
+        {
+            "model": "models/Shoe/glTF/Shoe.gltf",
+            "camera": 1
+        },
+        {
+            "model": "models/TennisRacquet/glTF/TennisRacquet.gltf",
+            "camera": 1
+        },
+        {
+            "model": "models/WickerChair/glTF/WickerChair.gltf",
+            "camera": 1
+        },
+        {
+            "model": "models/GreenChair/glTF/GreenChair.gltf",
+            "camera": 2
+        },
+        {
+            "model": "models/Mixer/glTF/Mixer.gltf",
+            "camera": 2
+        },
+        {
+            "model": "models/Shoe/glTF/Shoe.gltf",
+            "camera": 2
+        },
+        {
+            "model": "models/TennisRacquet/glTF/TennisRacquet.gltf",
+            "camera": 2
+        },
+        {
+            "model": "models/WickerChair/glTF/WickerChair.gltf",
+            "camera": 2
+        }
+        
+    ]
+}

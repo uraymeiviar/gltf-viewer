@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=${UX3D_PROJECT_NAME}
+Exec=${UX3D_OUTPUT_NAME}
+Terminal=false
+Categories=Graphics;
+Icon=Gestaltor_AppIcon_1024

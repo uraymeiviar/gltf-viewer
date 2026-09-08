@@ -1,0 +1,32 @@
+<RCC>
+    <qresource prefix="/">
+        <file>OpenGL-Renderer/resources/shaders/animation.glsl</file>
+        <file>OpenGL-Renderer/resources/shaders/fullscreen.vert</file>
+        <file>OpenGL-Renderer/resources/shaders/outline.frag</file>
+        <file>OpenGL-Renderer/resources/shaders/functions.glsl</file>
+        <file>OpenGL-Renderer/resources/shaders/ibl.glsl</file>
+        <file>OpenGL-Renderer/resources/shaders/iridescence.glsl</file>
+        <file>OpenGL-Renderer/resources/shaders/punctual.glsl</file>
+        <file>OpenGL-Renderer/resources/shaders/brdf.glsl</file>
+        <file>OpenGL-Renderer/resources/shaders/pbr.frag</file>
+        <file>OpenGL-Renderer/resources/shaders/primitive.vert</file>
+        <file>OpenGL-Renderer/resources/shaders/textures.glsl</file>
+        <file>OpenGL-Renderer/resources/shaders/tonemapping.glsl</file>
+        <file>OpenGL-Renderer/resources/shaders/gizmo_material.frag</file>
+        <file>OpenGL-Renderer/resources/shaders/sampletexture.frag</file>
+        <file>OpenGL-Renderer/resources/shaders/cubemap.frag</file>
+        <file>OpenGL-Renderer/resources/shaders/cubemap.vert</file>
+        <file>OpenGL-Renderer/resources/shaders/generic_helper.frag</file>
+        <file>OpenGL-Renderer/resources/shaders/generic_helper.vert</file>
+        <file>OpenGL-Renderer/resources/shaders/grid.frag</file>
+        <file>OpenGL-Renderer/resources/shaders/grid.vert</file>
+        <file>OpenGL-Renderer/resources/shaders/ibl_sampler/ibl_filtering.frag</file>
+        <file>OpenGL-Renderer/resources/shaders/ibl_sampler/ibl_panorama_to_cubemap.frag</file>
+        <file>OpenGL-Renderer/resources/shaders/ibl_sampler/ibl_fullscreen.vert</file>
+        <file>OpenGL-Renderer/resources/shaders/cameralighting.frag</file>
+        <file>OpenGL-Renderer/resources/shaders/gizmo.vert</file>
+        <file>OpenGL-Renderer/resources/shaders/picking.frag</file>
+        <file>OpenGL-Renderer/resources/shaders/material_info.glsl</file>
+        <file>OpenGL-Renderer/resources/shaders/wireframe_material.frag</file>
+    </qresource>
+</RCC>
