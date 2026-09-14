@@ -56,12 +56,3 @@ SrcDir refers to the base directory.
 BuildDir refers to the build directory (i.e. root/build/).
 
 ExeFileDir refers to %BuildDir%\bin\Debug
-
-
-# Architecture
-
-## Current Dependency Graph
-
-Gestaltor currently has a complex network of dependencies that you can understand from the following figure. Note that this graph is automatically updated as dependencies change in Gestaltor. [Legend for node shapes and edges](documentation/dependencies/dependencies.dot.svg)
-
-![](documentation/dependencies/Gestaltor.svg)
