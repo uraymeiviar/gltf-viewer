@@ -6,14 +6,32 @@
 
 namespace ux3d::imgui {
 
-// Fullscreen triangle vertex shader (no VBO needed)
-static const char* s_fullscreenVS = R"(#version 410 core
+struct QuadVertex {
+    float x, y;
+    float u, v;
+};
+
+static const QuadVertex s_quadVertices[6] = {
+    // Triangle 1
+    { -1.0f, -1.0f, 0.0f, 0.0f },
+    {  1.0f, -1.0f, 1.0f, 0.0f },
+    {  1.0f,  1.0f, 1.0f, 1.0f },
+
+    // Triangle 2
+    { -1.0f, -1.0f, 0.0f, 0.0f },
+    {  1.0f,  1.0f, 1.0f, 1.0f },
+    { -1.0f,  1.0f, 0.0f, 1.0f }
+};
+
+static const char* s_quadVS = R"(#version 410 core
+layout(location = 0) in vec2 aPos;
+layout(location = 1) in vec2 aTexCoord;
+
 out vec2 v_TexCoord;
+
 void main() {
-    float x = -1.0 + float((gl_VertexID & 1) << 2);
-    float y = -1.0 + float((gl_VertexID & 2) << 1);
-    v_TexCoord = vec2(x * 0.5 + 0.5, y * 0.5 + 0.5);
-    gl_Position = vec4(x, y, 0.0, 1.0);
+    v_TexCoord = aTexCoord;
+    gl_Position = vec4(aPos, 0.0, 1.0);
 }
 )";
 
@@ -93,7 +111,7 @@ void main() {
 
     for (int y = -1; y <= 1; ++y) {
         for (int x = -1; x <= 1; ++x) {
-            vec3 neighbor = texture(u_CurrentTexture, v_TexCoord + vec2(x, y) * u_TexelSize).rgb;
+            vec3 neighbor = texture(u_CurrentTexture, v_TexCoord + vec2(float(x), float(y)) * u_TexelSize).rgb;
             minColor = min(minColor, neighbor);
             maxColor = max(maxColor, neighbor);
         }
@@ -167,17 +185,32 @@ void AntiAliasing::init()
 {
     cleanup();
 
+    // Create Quad VAO and VBO
     glGenVertexArrays(1, &m_quadVao);
+    glGenBuffers(1, &m_quadVbo);
+
+    glBindVertexArray(m_quadVao);
+    glBindBuffer(GL_ARRAY_BUFFER, m_quadVbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(s_quadVertices), s_quadVertices, GL_STATIC_DRAW);
+
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(QuadVertex), reinterpret_cast<void*>(offsetof(QuadVertex, x)));
+
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(QuadVertex), reinterpret_cast<void*>(offsetof(QuadVertex, u)));
+
+    glBindVertexArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
 
     // Compile FXAA program
-    m_fxaaProgram = linkProgram(s_fullscreenVS, s_fxaaFS);
+    m_fxaaProgram = linkProgram(s_quadVS, s_fxaaFS);
     if (m_fxaaProgram) {
         m_fxaaTexLoc = glGetUniformLocation(m_fxaaProgram, "u_Texture");
         m_fxaaTexelSizeLoc = glGetUniformLocation(m_fxaaProgram, "u_TexelSize");
     }
 
     // Compile TAA program
-    m_taaProgram = linkProgram(s_fullscreenVS, s_taaFS);
+    m_taaProgram = linkProgram(s_quadVS, s_taaFS);
     if (m_taaProgram) {
         m_taaCurrTexLoc = glGetUniformLocation(m_taaProgram, "u_CurrentTexture");
         m_taaHistTexLoc = glGetUniformLocation(m_taaProgram, "u_HistoryTexture");
@@ -188,6 +221,10 @@ void AntiAliasing::init()
 
 void AntiAliasing::cleanup()
 {
+    if (m_quadVbo) {
+        glDeleteBuffers(1, &m_quadVbo);
+        m_quadVbo = 0;
+    }
     if (m_quadVao) {
         glDeleteVertexArrays(1, &m_quadVao);
         m_quadVao = 0;
@@ -295,6 +332,11 @@ void AntiAliasing::ensureBuffers(int width, int height)
     glBindFramebuffer(GL_FRAMEBUFFER, m_fxaaFbo);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_fxaaTexture, 0);
 
+    GLenum fxaaStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    if (fxaaStatus != GL_FRAMEBUFFER_COMPLETE) {
+        std::fprintf(stderr, "FXAA Framebuffer incomplete! Status: 0x%X\n", fxaaStatus);
+    }
+
     // 2. Setup TAA Ping-Pong FBOs and Textures
     for (int i = 0; i < 2; ++i) {
         if (m_taaTexture[i]) glDeleteTextures(1, &m_taaTexture[i]);
@@ -311,6 +353,11 @@ void AntiAliasing::ensureBuffers(int width, int height)
         glGenFramebuffers(1, &m_taaFbo[i]);
         glBindFramebuffer(GL_FRAMEBUFFER, m_taaFbo[i]);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_taaTexture[i], 0);
+
+        GLenum taaStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        if (taaStatus != GL_FRAMEBUFFER_COMPLETE) {
+            std::fprintf(stderr, "TAA Framebuffer [%d] incomplete! Status: 0x%X\n", i, taaStatus);
+        }
     }
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -326,19 +373,27 @@ GLuint AntiAliasing::render(AntiAliasingMode mode,
     if (mode == AntiAliasingMode::None ||
         mode == AntiAliasingMode::MSAA_2x ||
         mode == AntiAliasingMode::MSAA_4x ||
-        mode == AntiAliasingMode::MSAA_8x) {
+        mode == AntiAliasingMode::MSAA_8x ||
+        inputColorTexture == 0) {
         return inputColorTexture;
     }
 
     ensureBuffers(width, height);
 
-    // Disable depth testing and blending for fullscreen post-processing
+    // Explicitly configure all render state for 2D post-processing pass
     glDisable(GL_DEPTH_TEST);
+    glDepthMask(GL_FALSE);
+    glDisable(GL_CULL_FACE);
     glDisable(GL_BLEND);
+    glDisable(GL_SCISSOR_TEST);
+    glDisable(GL_STENCIL_TEST);
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     glViewport(0, 0, width, height);
 
     if (mode == AntiAliasingMode::FXAA) {
-        if (!m_fxaaProgram || !m_fxaaFbo) {
+        if (!m_fxaaProgram || !m_fxaaFbo || !m_quadVao) {
+            glDepthMask(GL_TRUE);
             return inputColorTexture;
         }
 
@@ -351,16 +406,23 @@ GLuint AntiAliasing::render(AntiAliasingMode mode,
         glUniform2f(m_fxaaTexelSizeLoc, 1.0f / static_cast<float>(width), 1.0f / static_cast<float>(height));
 
         glBindVertexArray(m_quadVao);
-        glDrawArrays(GL_TRIANGLES, 0, 3);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
         glBindVertexArray(0);
+
+        // Always restore texture unit 0 before returning to ImGui
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, 0);
 
         glUseProgram(0);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glDepthMask(GL_TRUE);
+
         return m_fxaaTexture;
     }
 
     if (mode == AntiAliasingMode::TAA) {
-        if (!m_taaProgram || !m_taaFbo[0] || !m_taaFbo[1]) {
+        if (!m_taaProgram || !m_taaFbo[0] || !m_taaFbo[1] || !m_quadVao) {
+            glDepthMask(GL_TRUE);
             return inputColorTexture;
         }
 
@@ -392,11 +454,18 @@ GLuint AntiAliasing::render(AntiAliasingMode mode,
         glUniform1f(m_taaBlendFactorLoc, blendFactor);
 
         glBindVertexArray(m_quadVao);
-        glDrawArrays(GL_TRIANGLES, 0, 3);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
         glBindVertexArray(0);
+
+        // Always restore active texture unit to GL_TEXTURE0 before returning to ImGui
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, 0);
 
         glUseProgram(0);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glDepthMask(GL_TRUE);
 
         m_historyValid = true;
         m_frameIndex++;
@@ -405,6 +474,7 @@ GLuint AntiAliasing::render(AntiAliasingMode mode,
         return m_taaTexture[cur];
     }
 
+    glDepthMask(GL_TRUE);
     return inputColorTexture;
 }
 

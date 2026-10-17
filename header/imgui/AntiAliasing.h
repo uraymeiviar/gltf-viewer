@@ -47,8 +47,9 @@ public:
 private:
     void ensureBuffers(int width, int height);
 
-    // Quad VAO
+    // Quad VAO & VBO
     GLuint m_quadVao = 0;
+    GLuint m_quadVbo = 0;
 
     // FXAA resources
     GLuint m_fxaaProgram = 0;
