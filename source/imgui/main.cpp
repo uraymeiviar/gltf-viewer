@@ -171,6 +171,72 @@ static void renderNodeHierarchy(ux3d::gltf::Node* node,
     }
 }
 
+// Recent Files Persistence
+static std::vector<std::string> s_recentFiles;
+
+static std::string getRecentFilesConfigPath() {
+    const char* appData = std::getenv("APPDATA");
+    if (appData != nullptr && std::strlen(appData) > 0) {
+        std::filesystem::path dir = std::filesystem::path(appData) / "Gestaltor";
+        std::error_code ec;
+        std::filesystem::create_directories(dir, ec);
+        return (dir / "recent_files.txt").string();
+    }
+    return "recent_files.txt";
+}
+
+static std::vector<std::string> loadRecentFiles() {
+    std::vector<std::string> files;
+    std::ifstream in(getRecentFilesConfigPath());
+    if (!in.is_open()) return files;
+    std::string line;
+    while (std::getline(in, line)) {
+        while (!line.empty() && (line.back() == '\r' || line.back() == '\n' || line.back() == ' ')) line.pop_back();
+        while (!line.empty() && (line.front() == ' ')) line.erase(line.begin());
+        if (!line.empty()) {
+            files.push_back(line);
+        }
+    }
+    return files;
+}
+
+static void saveRecentFiles(const std::vector<std::string>& files) {
+    std::ofstream out(getRecentFilesConfigPath());
+    if (!out.is_open()) return;
+    for (const auto& path : files) {
+        out << path << "\n";
+    }
+}
+
+static void addRecentFile(std::vector<std::string>& files, const std::string& path) {
+    if (path.empty()) return;
+    std::string normPath = path;
+    for (char& c : normPath) {
+        if (c == '\\') c = '/';
+    }
+    files.erase(std::remove_if(files.begin(), files.end(), [&](const std::string& f) {
+        return f == normPath;
+    }), files.end());
+
+    files.insert(files.begin(), normPath);
+    if (files.size() > 10) {
+        files.resize(10);
+    }
+    saveRecentFiles(files);
+}
+
+static void updateWindowTitle(GLFWwindow* window, const std::string& currentFilePath) {
+    if (window == nullptr) return;
+    std::string title = "Gestaltor 2.2.7 - ";
+    if (currentFilePath.empty()) {
+        title += "untitled.glb";
+    } else {
+        std::filesystem::path p(currentFilePath);
+        title += p.filename().string();
+    }
+    glfwSetWindowTitle(window, title.c_str());
+}
+
 // glTF loader helper
 static bool loadGltfModel(const std::string& filePath,
                           ux3d::gltf::Gltf& gltfModel,
@@ -228,11 +294,46 @@ static bool loadGltfModel(const std::string& filePath,
 
         sceneDirty = true;
         logMessage("Loaded successfully: " + filePath, ImVec4(0.2f, 1.0f, 0.4f, 1.0f));
+        if (filePath != "resources/sampleGltf/HelloCube.glb" && !filePath.empty()) {
+            addRecentFile(s_recentFiles, filePath);
+        }
         return true;
     } else {
         logMessage("Failed to load: " + filePath, ImVec4(1.0f, 0.3f, 0.3f, 1.0f));
         return false;
     }
+}
+
+// glTF creator helper
+static void newEmptyGltf(ux3d::gltf::Gltf& gltfModel,
+                         ux3d::gltf::Scene*& activeScene,
+                         ux3d::imgui::SelectionState& selection,
+                         std::string& currentFilePath,
+                         ux3d::imgui::OrbitCamera& camera,
+                         ux3d::renderer::GltfRenderLayer* gltfLayer,
+                         ux3d::imgui::AnimationPlayer& animPlayer,
+                         bool& sceneDirty)
+{
+    gltfModel.reset();
+    auto* scene = gltfModel.create<ux3d::gltf::Scene>();
+    if (scene != nullptr) {
+        scene->setName("Scene");
+        gltfModel.setDefaultScene(*scene);
+    }
+    activeScene = scene;
+    selection = ux3d::imgui::SelectionState();
+    currentFilePath = "untitled.glb";
+    if (gltfLayer != nullptr) {
+        gltfLayer->updateGltf(gltfModel);
+        if (activeScene != nullptr) {
+            gltfLayer->updateScene(gltfModel, *activeScene);
+        }
+    }
+    animPlayer.reset();
+    animPlayer.setModel(gltfModel, gltfLayer);
+    camera.reset();
+    sceneDirty = true;
+    logMessage("Created new empty glTF", ImVec4(0.4f, 1.0f, 0.4f, 1.0f));
 }
 
 // glTF saver helper
@@ -251,6 +352,7 @@ static bool saveGltfModel(const std::string& filePath,
     if (result.derived == ux3d::gltf::GltfToFileResult::Success) {
         currentFilePath = filePath;
         logMessage("Saved successfully: " + filePath, ImVec4(0.2f, 1.0f, 0.4f, 1.0f));
+        addRecentFile(s_recentFiles, filePath);
         return true;
     } else {
         logMessage("Failed to save: " + filePath, ImVec4(1.0f, 0.3f, 0.3f, 1.0f));
@@ -361,7 +463,7 @@ static void setupDefaultDockLayout(ImGuiID dockspaceId, ImVec2 size, bool force 
         ImGui::DockBuilderDockWindow("Inspector", dock_right);
 
         ImGui::DockBuilderDockWindow("Viewport Settings", dock_bottom);
-        ImGui::DockBuilderDockWindow("Console", dock_bottom);
+        ImGui::DockBuilderDockWindow("Logger", dock_bottom);
         ImGui::DockBuilderDockWindow("Statistics", dock_bottom);
 
         ImGui::DockBuilderFinish(dockspaceId);
@@ -512,13 +614,25 @@ int main(int argc, char** argv)
         }
     }
 
+    s_recentFiles = loadRecentFiles();
+
     if (ux3d::imgui::StdFileSystem::instance().isFile(ux3d::imgui::StdFileSystem::instance().toFile(modelToLoad.c_str()))) {
         loadGltfModel(modelToLoad, gltfModel, activeScene, selection, currentFilePath, orbitCamera, gltfLayer.get(), animationPlayer, isSceneDirty);
+        updateWindowTitle(window, currentFilePath);
+    } else {
+        updateWindowTitle(window, "untitled.glb");
     }
 
     // UI state
     bool showDemoWindow = false;
-    bool showAboutPopup = false;
+    static bool showInspector = true;
+    static bool showHierarchy = true;
+    static bool showViewport = true;
+    static bool showResources = true;
+    static bool showLogger = true;
+    static bool showViewportSettings = true;
+    static bool showStatistics = true;
+
     ImGuizmo::OPERATION currentGizmoOp = ImGuizmo::TRANSLATE;
     ImGuizmo::MODE currentGizmoMode = ImGuizmo::LOCAL;
 
@@ -617,30 +731,100 @@ int main(int argc, char** argv)
             setupDefaultDockLayout(dockspaceId, mainViewport->WorkSize, false);
         }
 
+        // Global Keyboard Shortcuts (File & View)
+        if (!io.WantTextInput && io.KeyCtrl && !io.KeyShift && !io.KeyAlt) {
+            if (ImGui::IsKeyPressed(ImGuiKey_N)) {
+                newEmptyGltf(gltfModel, activeScene, selection, currentFilePath, orbitCamera, gltfLayer.get(), animationPlayer, isSceneDirty);
+                updateWindowTitle(window, currentFilePath);
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_O)) {
+                auto openResult = pfd::open_file("Open glTF / GLB", "", { "glTF files (*.gltf *.glb)", "*.gltf *.glb" }).result();
+                if (!openResult.empty()) {
+                    loadGltfModel(openResult[0], gltfModel, activeScene, selection, currentFilePath, orbitCamera, gltfLayer.get(), animationPlayer, isSceneDirty);
+                    updateWindowTitle(window, currentFilePath);
+                }
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_S) && !currentFilePath.empty() && currentFilePath != "untitled.glb") {
+                saveGltfModel(currentFilePath, gltfModel, currentFilePath);
+                updateWindowTitle(window, currentFilePath);
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_1)) showInspector = !showInspector;
+            if (ImGui::IsKeyPressed(ImGuiKey_2)) showHierarchy = !showHierarchy;
+            if (ImGui::IsKeyPressed(ImGuiKey_3)) showViewport = !showViewport;
+            if (ImGui::IsKeyPressed(ImGuiKey_4)) showResources = !showResources;
+            if (ImGui::IsKeyPressed(ImGuiKey_5)) showLogger = !showLogger;
+            if (ImGui::IsKeyPressed(ImGuiKey_6)) showViewportSettings = !showViewportSettings;
+            if (ImGui::IsKeyPressed(ImGuiKey_7)) showStatistics = !showStatistics;
+            if (ImGui::IsKeyPressed(ImGuiKey_L)) {
+                showInspector = showHierarchy = showViewport = showResources = showLogger = showViewportSettings = showStatistics = true;
+                setupDefaultDockLayout(dockspaceId, mainViewport->WorkSize, true);
+            }
+        }
+
         // Menu Bar
         if (ImGui::BeginMenuBar()) {
             if (ImGui::BeginMenu("File")) {
-                if (ImGui::MenuItem("Open...", "Ctrl+O")) {
+                if (ImGui::MenuItem("New Empty glTF", "Ctrl+N")) {
+                    newEmptyGltf(gltfModel, activeScene, selection, currentFilePath, orbitCamera, gltfLayer.get(), animationPlayer, isSceneDirty);
+                    updateWindowTitle(window, currentFilePath);
+                }
+                if (ImGui::MenuItem("New Sample glTF")) {
+                    loadGltfModel("resources/sampleGltf/HelloCube.glb", gltfModel, activeScene, selection, currentFilePath, orbitCamera, gltfLayer.get(), animationPlayer, isSceneDirty);
+                    updateWindowTitle(window, currentFilePath);
+                }
+                ImGui::Separator();
+                if (ImGui::MenuItem("Open ...", "Ctrl+O")) {
                     auto openResult = pfd::open_file("Open glTF / GLB", "", { "glTF files (*.gltf *.glb)", "*.gltf *.glb" }).result();
                     if (!openResult.empty()) {
                         loadGltfModel(openResult[0], gltfModel, activeScene, selection, currentFilePath, orbitCamera, gltfLayer.get(), animationPlayer, isSceneDirty);
+                        updateWindowTitle(window, currentFilePath);
                     }
                 }
-                if (ImGui::MenuItem("Open Sample (HelloCube.glb)")) {
-                    loadGltfModel("resources/sampleGltf/HelloCube.glb", gltfModel, activeScene, selection, currentFilePath, orbitCamera, gltfLayer.get(), animationPlayer, isSceneDirty);
+                if (ImGui::BeginMenu("Open Recent")) {
+                    if (s_recentFiles.empty()) {
+                        ImGui::MenuItem("(No Recent Files)", nullptr, false, false);
+                    } else {
+                        std::string fileToOpen = "";
+                        for (const auto& recentPath : s_recentFiles) {
+                            if (ImGui::MenuItem(recentPath.c_str())) {
+                                fileToOpen = recentPath;
+                            }
+                        }
+                        ImGui::Separator();
+                        if (ImGui::MenuItem("Clear Menu")) {
+                            s_recentFiles.clear();
+                            saveRecentFiles(s_recentFiles);
+                        }
+                        if (!fileToOpen.empty()) {
+                            loadGltfModel(fileToOpen, gltfModel, activeScene, selection, currentFilePath, orbitCamera, gltfLayer.get(), animationPlayer, isSceneDirty);
+                            updateWindowTitle(window, currentFilePath);
+                        }
+                    }
+                    ImGui::EndMenu();
                 }
                 ImGui::Separator();
-                if (ImGui::MenuItem("Save", "Ctrl+S", false, !currentFilePath.empty())) {
+                if (ImGui::MenuItem("Save", "Ctrl+S", false, !currentFilePath.empty() && currentFilePath != "untitled.glb")) {
                     saveGltfModel(currentFilePath, gltfModel, currentFilePath);
+                    updateWindowTitle(window, currentFilePath);
                 }
-                if (ImGui::MenuItem("Save As...", "Ctrl+Shift+S", false, activeScene != nullptr)) {
+                if (ImGui::MenuItem("Save As ...", nullptr, false, activeScene != nullptr)) {
                     auto dest = pfd::save_file("Save glTF / GLB", "", { "glTF files (*.gltf)", "*.gltf", "Binary glTF (*.glb)", "*.glb" }).result();
                     if (!dest.empty()) {
                         saveGltfModel(dest, gltfModel, currentFilePath);
+                        updateWindowTitle(window, currentFilePath);
                     }
                 }
+                if (ImGui::MenuItem("Save Minified As ...", nullptr, false, false)) {}
                 ImGui::Separator();
-                if (ImGui::MenuItem("Exit", "Alt+F4")) {
+                if (ImGui::MenuItem("Import Image ...", "Ctrl+Shift+I", false, false)) {}
+                if (ImGui::MenuItem("Import Texture ...", "Ctrl+Shift+T", false, false)) {}
+                if (ImGui::MenuItem("Import Material ...", "Ctrl+Shift+M", false, false)) {}
+                if (ImGui::MenuItem("Import XMP Packet ...", nullptr, false, false)) {}
+                if (ImGui::MenuItem("Import 3D Model ...", "Ctrl+Shift+O", false, false)) {}
+                ImGui::Separator();
+                if (ImGui::MenuItem("Export USDZ ...", nullptr, false, false)) {}
+                ImGui::Separator();
+                if (ImGui::MenuItem("Exit")) {
                     glfwSetWindowShouldClose(window, GLFW_TRUE);
                 }
                 ImGui::EndMenu();
@@ -676,22 +860,21 @@ int main(int argc, char** argv)
             }
 
             if (ImGui::BeginMenu("View")) {
-                ImGui::MenuItem("Show Grid", nullptr, &viewportSettings.showGrid);
+                ImGui::MenuItem("Show Inspector", "Ctrl+1", &showInspector);
+                ImGui::MenuItem("Show Hierarchy", "Ctrl+2", &showHierarchy);
+                ImGui::MenuItem("Show Viewport", "Ctrl+3", &showViewport);
+                ImGui::MenuItem("Show Resources", "Ctrl+4", &showResources);
+                ImGui::MenuItem("Show Logger", "Ctrl+5", &showLogger);
+                ImGui::MenuItem("Show Viewport Settings", "Ctrl+6", &showViewportSettings);
+                ImGui::MenuItem("Show Statistics", "Ctrl+7", &showStatistics);
                 ImGui::Separator();
-                if (ImGui::MenuItem("Reset Default Layout")) {
+                if (ImGui::MenuItem("Reset Layout", "Ctrl+L")) {
+                    showInspector = showHierarchy = showViewport = showResources = showLogger = showViewportSettings = showStatistics = true;
                     setupDefaultDockLayout(dockspaceId, mainViewport->WorkSize, true);
                 }
-                ImGui::Separator();
-                ImGui::MenuItem("ImGui Demo Window", nullptr, &showDemoWindow);
                 ImGui::EndMenu();
             }
 
-            if (ImGui::BeginMenu("Help")) {
-                if (ImGui::MenuItem("About Gestaltor")) {
-                    showAboutPopup = true;
-                }
-                ImGui::EndMenu();
-            }
             ImGui::EndMenuBar();
         }
 
@@ -700,9 +883,10 @@ int main(int argc, char** argv)
         // -------------------------------------------------------------
         // 3D Viewport Panel
         // -------------------------------------------------------------
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-        ImGui::Begin("3D Viewport");
-        ImGui::PopStyleVar();
+        if (showViewport) {
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+            ImGui::Begin("3D Viewport", &showViewport);
+            ImGui::PopStyleVar();
 
         // Animation Player Toolbar at top of viewport
         animationPlayer.renderToolbar(gltfModel, gltfLayer.get(), isSceneDirty);
@@ -1118,98 +1302,102 @@ int main(int argc, char** argv)
             }
         }
 
-        ImGui::End(); // End 3D Viewport
+            ImGui::End(); // End 3D Viewport
+        }
 
         // -------------------------------------------------------------
         // Hierarchy Panel
         // -------------------------------------------------------------
-        ImGui::Begin("Scene Hierarchy");
-        if (activeScene != nullptr) {
-            std::string sceneTitle = activeScene->hasName() ? activeScene->getName().c_str() : ("Scene " + std::to_string(activeScene->m_ID));
-            if (ImGui::TreeNodeEx(sceneTitle.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
-                for (auto* rootNode : activeScene->getNodes()) {
-                    renderNodeHierarchy(rootNode, selection, gltfModel, orbitCamera, antiAliasing, isSceneDirty);
+        if (showHierarchy) {
+            if (ImGui::Begin("Scene Hierarchy", &showHierarchy)) {
+                if (activeScene != nullptr) {
+                    std::string sceneTitle = activeScene->hasName() ? activeScene->getName().c_str() : ("Scene " + std::to_string(activeScene->m_ID));
+                    if (ImGui::TreeNodeEx(sceneTitle.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
+                        for (auto* rootNode : activeScene->getNodes()) {
+                            renderNodeHierarchy(rootNode, selection, gltfModel, orbitCamera, antiAliasing, isSceneDirty);
+                        }
+                        ImGui::TreePop();
+                    }
+                } else {
+                    ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "No active glTF scene.");
+                    if (ImGui::Button("Open File...")) {
+                        auto openRes = pfd::open_file("Open glTF / GLB", "", { "glTF files (*.gltf *.glb)", "*.gltf *.glb" }).result();
+                        if (!openRes.empty()) {
+                            loadGltfModel(openRes[0], gltfModel, activeScene, selection, currentFilePath, orbitCamera, gltfLayer.get(), animationPlayer, isSceneDirty);
+                            updateWindowTitle(window, currentFilePath);
+                        }
+                    }
                 }
-                ImGui::TreePop();
             }
-        } else {
-            ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "No active glTF scene.");
-            if (ImGui::Button("Open File...")) {
-                auto openRes = pfd::open_file("Open glTF / GLB", "", { "glTF files (*.gltf *.glb)", "*.gltf *.glb" }).result();
-                if (!openRes.empty()) {
-                    loadGltfModel(openRes[0], gltfModel, activeScene, selection, currentFilePath, orbitCamera, gltfLayer.get(), animationPlayer, isSceneDirty);
-                }
-            }
+            ImGui::End();
         }
-        ImGui::End();
 
         // -------------------------------------------------------------
         // Resources Panel
         // -------------------------------------------------------------
-        ImGui::Begin("Resources");
-        ux3d::imgui::ResourcesPanel::render(gltfModel, selection, gltfLayer.get(), &isSceneDirty);
-        ImGui::End();
+        if (showResources) {
+            if (ImGui::Begin("Resources", &showResources)) {
+                ux3d::imgui::ResourcesPanel::render(gltfModel, selection, gltfLayer.get(), &isSceneDirty);
+            }
+            ImGui::End();
+        }
 
         // -------------------------------------------------------------
         // Inspector Panel
         // -------------------------------------------------------------
-        ImGui::Begin("Inspector");
-        ux3d::imgui::ElementInspector::render(selection, gltfModel, isSceneDirty, &animationPlayer);
-        ImGui::End();
+        if (showInspector) {
+            if (ImGui::Begin("Inspector", &showInspector)) {
+                ux3d::imgui::ElementInspector::render(selection, gltfModel, isSceneDirty, &animationPlayer);
+            }
+            ImGui::End();
+        }
 
         // -------------------------------------------------------------
         // Viewport Settings Panel
         // -------------------------------------------------------------
-        ImGui::Begin("Viewport Settings");
-        ux3d::imgui::ViewportSettingsPanel::render(viewportSettings, commandGenerator.get(), gltfLayer.get(), orbitCamera, isSceneDirty, &gltfModel);
-        ImGui::End();
+        if (showViewportSettings) {
+            if (ImGui::Begin("Viewport Settings", &showViewportSettings)) {
+                ux3d::imgui::ViewportSettingsPanel::render(viewportSettings, commandGenerator.get(), gltfLayer.get(), orbitCamera, isSceneDirty, &gltfModel);
+            }
+            ImGui::End();
+        }
 
         // -------------------------------------------------------------
         // Statistics Panel
         // -------------------------------------------------------------
-        ImGui::Begin("Statistics");
-        ux3d::imgui::StatisticsPanel::render(gltfModel, currentFilePath);
-        ImGui::End();
+        if (showStatistics) {
+            if (ImGui::Begin("Statistics", &showStatistics)) {
+                ux3d::imgui::StatisticsPanel::render(gltfModel, currentFilePath);
+            }
+            ImGui::End();
+        }
 
         // -------------------------------------------------------------
-        // Console Panel
+        // Logger Panel
         // -------------------------------------------------------------
-        ImGui::Begin("Console");
-        if (ImGui::Button("Clear")) {
-            s_consoleLogs.clear();
+        if (showLogger) {
+            if (ImGui::Begin("Logger", &showLogger)) {
+                if (ImGui::Button("Clear")) {
+                    s_consoleLogs.clear();
+                }
+                ImGui::SameLine();
+                ImGui::Text("Messages: %zu", s_consoleLogs.size());
+                ImGui::Separator();
+                ImGui::BeginChild("LoggerScrollArea");
+                for (const auto& entry : s_consoleLogs) {
+                    ImGui::TextColored(entry.color, "%s", entry.text.c_str());
+                }
+                if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY()) {
+                    ImGui::SetScrollHereY(1.0f);
+                }
+                ImGui::EndChild();
+            }
+            ImGui::End();
         }
-        ImGui::SameLine();
-        ImGui::Text("Messages: %zu", s_consoleLogs.size());
-        ImGui::Separator();
-        ImGui::BeginChild("ConsoleScrollArea");
-        for (const auto& entry : s_consoleLogs) {
-            ImGui::TextColored(entry.color, "%s", entry.text.c_str());
-        }
-        if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY()) {
-            ImGui::SetScrollHereY(1.0f);
-        }
-        ImGui::EndChild();
-        ImGui::End();
 
         // Demo Window (for debug/testing)
         if (showDemoWindow) {
             ImGui::ShowDemoWindow(&showDemoWindow);
-        }
-
-        // About Popup
-        if (showAboutPopup) {
-            ImGui::OpenPopup("About Gestaltor");
-            showAboutPopup = false;
-        }
-        if (ImGui::BeginPopupModal("About Gestaltor", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-            ImGui::Text("Gestaltor - glTF 2.0 Visual Editor");
-            ImGui::Text("Migrated to Dear ImGui + GLFW + GLAD");
-            ImGui::Text("Standalone executable with zero runtime dependencies!");
-            ImGui::Separator();
-            if (ImGui::Button("OK", ImVec2(120, 0))) {
-                ImGui::CloseCurrentPopup();
-            }
-            ImGui::EndPopup();
         }
 
         // Rendering main window
