@@ -43,7 +43,15 @@ public:
     glm::vec3 getEyePosition() const;
 
     const glm::vec3& getTarget() const { return m_target; }
+    void setTarget(const glm::vec3& target) { m_target = target; }
     float getDistance() const { return m_distance; }
+    void setDistance(float distance) {
+        m_distance = std::clamp(distance, 0.001f, 100000.0f);
+        if (m_autoClip) {
+            m_zNear = std::clamp(m_distance * 0.002f, 0.0005f, 0.05f);
+            m_zFar = std::max(2000.0f, m_distance * 30.0f);
+        }
+    }
     float getYaw() const { return m_yaw; }
     float getPitch() const { return m_pitch; }
     float getFoVY() const { return m_fovY; }

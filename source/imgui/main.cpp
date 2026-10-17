@@ -126,19 +126,91 @@ static void glfw_error_callback(int error, const char* description)
     std::fprintf(stderr, "GLFW Error %d: %s\n", error, description);
 }
 
-// Recursive scene hierarchy node renderer with double-click to frame
+static bool s_scrollToSelectedNode = false;
+
+static bool isAncestorOf(const ux3d::gltf::Node* parent, const ux3d::gltf::Node* target)
+{
+    if (parent == nullptr || target == nullptr) return false;
+    for (const auto* child : parent->getChildren()) {
+        if (child == target || isAncestorOf(child, target)) return true;
+    }
+    return false;
+}
+
+static ux3d::gltf::Extends getNodeExtends(ux3d::gltf::Node* node,
+                                          const ux3d::gltf::Gltf* gltfModel,
+                                          const ux3d::renderer::GltfRenderLayer* gltfLayer)
+{
+    if (node == nullptr || gltfModel == nullptr) {
+        return ux3d::gltf::Extends();
+    }
+    ux3d::math::dmat4 parentTransform = (gltfLayer != nullptr)
+        ? ux3d::math::dmat4(gltfLayer->getParentWorldTransform(node))
+        : ux3d::math::identity<ux3d::math::dmat4>();
+    return ux3d::gltf::utils::getExtends({ node }, gltfModel, parentTransform);
+}
+
+// Focus and look at node with bounding box filling ~50% of the screen area
+static void focusCameraOnNode(ux3d::gltf::Node* node,
+                              ux3d::gltf::Gltf& gltfModel,
+                              ux3d::renderer::GltfRenderLayer* gltfLayer,
+                              ux3d::imgui::OrbitCamera& camera,
+                              ux3d::imgui::AntiAliasing& antiAliasing,
+                              bool& sceneDirty)
+{
+    if (node == nullptr) return;
+    ux3d::gltf::Extends ext = getNodeExtends(node, &gltfModel, gltfLayer);
+    glm::vec3 minB(ext.min.x, ext.min.y, ext.min.z);
+    glm::vec3 maxB(ext.max.x, ext.max.y, ext.max.z);
+    glm::vec3 center = (minB + maxB) * 0.5f;
+    glm::vec3 size = maxB - minB;
+    float maxDim = std::max({ size.x, size.y, size.z });
+
+    if (maxDim <= 0.0001f || std::isinf(maxDim) || std::isnan(maxDim)) {
+        glm::mat4 nodeWorld = gltfLayer ? glm::mat4(gltfLayer->getWorldTransform(node)) : glm::mat4(node->getTransformMatrix());
+        center = glm::vec3(nodeWorld[3]);
+        maxDim = 0.5f;
+    }
+
+    float fovRad = glm::radians(camera.getFoVY());
+    float dimFactor = std::tan(fovRad * 0.5f) * std::min(1.0f, camera.getAspectRatio());
+    if (dimFactor < 0.01f) dimFactor = 0.4142f;
+
+    // To fill ~50% of screen: maxDim / (2 * distance * tan(fov/2)) = 0.5 => distance = maxDim / dimFactor
+    float distance = maxDim / dimFactor;
+    distance = std::clamp(distance, 0.01f, 50000.0f);
+
+    camera.setTarget(center);
+    camera.setDistance(distance);
+    antiAliasing.resetHistory();
+    sceneDirty = true;
+}
+
+// Recursive scene hierarchy node renderer with single-click focus/orbit
 static void renderNodeHierarchy(ux3d::gltf::Node* node,
                                 ux3d::imgui::SelectionState& selection,
                                 ux3d::gltf::Gltf& gltfModel,
+                                ux3d::renderer::GltfRenderLayer* gltfLayer,
                                 ux3d::imgui::OrbitCamera& camera,
                                 ux3d::imgui::AntiAliasing& antiAliasing,
                                 bool& sceneDirty)
 {
     if (!node) return;
 
+    // Auto-expand parents if selected node is a descendant
+    if (selection.type == ux3d::imgui::SelectionType::Node && selection.selectedNode != nullptr) {
+        if (isAncestorOf(node, selection.selectedNode)) {
+            ImGui::SetNextItemOpen(true);
+        }
+    }
+
     ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick | ImGuiTreeNodeFlags_SpanAvailWidth;
     if (selection.type == ux3d::imgui::SelectionType::Node && selection.selectedNode == node) {
         flags |= ImGuiTreeNodeFlags_Selected;
+        if (s_scrollToSelectedNode) {
+            ImGui::SetScrollHereY(0.5f);
+            s_scrollToSelectedNode = false;
+        }
     }
     if (node->getChildren().empty()) {
         flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
@@ -154,18 +226,16 @@ static void renderNodeHierarchy(ux3d::gltf::Node* node,
     bool open = ImGui::TreeNodeEx(reinterpret_cast<void*>(static_cast<intptr_t>(node->m_ID)), flags, "%s", label.c_str());
     if (ImGui::IsItemClicked()) {
         selection.selectNode(node);
+        focusCameraOnNode(node, gltfModel, gltfLayer, camera, antiAliasing, sceneDirty);
     }
     if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
         selection.selectNode(node);
-        ux3d::gltf::Extends ext = ux3d::gltf::utils::getExtends({ node }, &gltfModel);
-        camera.fitToBounds(glm::vec3(ext.min.x, ext.min.y, ext.min.z),
-                           glm::vec3(ext.max.x, ext.max.y, ext.max.z));
-        antiAliasing.resetHistory();
+        focusCameraOnNode(node, gltfModel, gltfLayer, camera, antiAliasing, sceneDirty);
     }
 
     if (open && !node->getChildren().empty()) {
         for (auto* child : node->getChildren()) {
-            renderNodeHierarchy(child, selection, gltfModel, camera, antiAliasing, sceneDirty);
+            renderNodeHierarchy(child, selection, gltfModel, gltfLayer, camera, antiAliasing, sceneDirty);
         }
         ImGui::TreePop();
     }
@@ -358,6 +428,198 @@ static bool saveGltfModel(const std::string& filePath,
         logMessage("Failed to save: " + filePath, ImVec4(1.0f, 0.3f, 0.3f, 1.0f));
         return false;
     }
+}
+
+struct PickCandidate {
+    ux3d::gltf::Node* node = nullptr;
+    float distance = 0.0f;
+    float volume = 0.0f;
+};
+
+static bool rayIntersectsAABB(const glm::vec3& rayOrigin, const glm::vec3& rayDir,
+                              const glm::vec3& boxMin, const glm::vec3& boxMax, float& tHit)
+{
+    float tmin = -1e30f;
+    float tmax = 1e30f;
+    for (int i = 0; i < 3; ++i) {
+        if (std::abs(rayDir[i]) < 1e-7f) {
+            if (rayOrigin[i] < boxMin[i] || rayOrigin[i] > boxMax[i]) return false;
+        } else {
+            float ood = 1.0f / rayDir[i];
+            float t1 = (boxMin[i] - rayOrigin[i]) * ood;
+            float t2 = (boxMax[i] - rayOrigin[i]) * ood;
+            if (t1 > t2) std::swap(t1, t2);
+            tmin = std::max(tmin, t1);
+            tmax = std::min(tmax, t2);
+            if (tmin > tmax) return false;
+        }
+    }
+    if (tmax < 0.0f) return false;
+    tHit = (tmin >= 0.0f) ? tmin : tmax;
+    return true;
+}
+
+static ux3d::gltf::Node* pickNodeFromRay(const glm::vec3& rayOrigin,
+                                         const glm::vec3& rayDir,
+                                         const ux3d::gltf::Scene* activeScene,
+                                         ux3d::renderer::GltfRenderLayer* gltfLayer)
+{
+    if (activeScene == nullptr) return nullptr;
+
+    std::unordered_map<ux3d::gltf::Node*, PickCandidate> bestHits;
+
+    std::function<void(ux3d::gltf::Node*)> checkNodeRecursive;
+    checkNodeRecursive = [&](ux3d::gltf::Node* node) {
+        if (node == nullptr || !node->getVisible()) return;
+
+        const auto* mesh = node->getMesh();
+        if (mesh != nullptr && mesh->getVisible()) {
+            glm::mat4 nodeWorld = gltfLayer ? glm::mat4(gltfLayer->getWorldTransform(node)) : glm::mat4(node->getTransformMatrix());
+            glm::mat4 invWorld = glm::inverse(nodeWorld);
+
+            glm::vec3 localOrigin = glm::vec3(invWorld * glm::vec4(rayOrigin, 1.0f));
+            glm::vec3 localDir = glm::normalize(glm::vec3(invWorld * glm::vec4(rayDir, 0.0f)));
+
+            for (const auto& prim : mesh->getPrimitives()) {
+                if (!prim.getVisible()) continue;
+                for (const auto& attr : prim.getAttributes()) {
+                    if (attr.getName() == "POSITION") {
+                        const auto* acc = attr.getAccessor();
+                        if (acc != nullptr && acc->getMin().size() >= 3 && acc->getMax().size() >= 3) {
+                            glm::vec3 bMin(acc->getMin()[0], acc->getMin()[1], acc->getMin()[2]);
+                            glm::vec3 bMax(acc->getMax()[0], acc->getMax()[1], acc->getMax()[2]);
+
+                            // If ray origin is inside this box (e.g. outer cockpit closure box), ignore it
+                            if (localOrigin.x >= bMin.x && localOrigin.x <= bMax.x &&
+                                localOrigin.y >= bMin.y && localOrigin.y <= bMax.y &&
+                                localOrigin.z >= bMin.z && localOrigin.z <= bMax.z) {
+                                continue;
+                            }
+
+                            float tHit = 0.0f;
+                            if (rayIntersectsAABB(localOrigin, localDir, bMin, bMax, tHit)) {
+                                if (tHit >= 0.0f) {
+                                    glm::vec3 localHitPt = localOrigin + localDir * tHit;
+                                    glm::vec3 worldHitPt = glm::vec3(nodeWorld * glm::vec4(localHitPt, 1.0f));
+                                    float worldDist = glm::length(worldHitPt - rayOrigin);
+                                    glm::vec3 sz = bMax - bMin;
+                                    float vol = std::abs(sz.x * sz.y * sz.z);
+                                    auto it = bestHits.find(node);
+                                    if (it == bestHits.end()) {
+                                        bestHits[node] = { node, worldDist, vol };
+                                    } else {
+                                        if (worldDist < it->second.distance) {
+                                            it->second.distance = worldDist;
+                                        }
+                                        it->second.volume += vol;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        for (auto* child : node->getChildren()) {
+            checkNodeRecursive(child);
+        }
+    };
+
+    for (auto* root : activeScene->getNodes()) {
+        checkNodeRecursive(root);
+    }
+
+    if (bestHits.empty()) return nullptr;
+
+    std::vector<PickCandidate> candidates;
+    candidates.reserve(bestHits.size());
+    for (auto& [n, cand] : bestHits) {
+        candidates.push_back(cand);
+    }
+
+    std::sort(candidates.begin(), candidates.end(), [](const PickCandidate& a, const PickCandidate& b) {
+        float diff = std::abs(a.distance - b.distance);
+        float threshold = std::max(0.015f, 0.03f * std::min(a.distance, b.distance));
+        if (diff < threshold) {
+            return a.volume < b.volume;
+        }
+        return a.distance < b.distance;
+    });
+
+    return candidates.front().node;
+}
+
+static void drawNodeCoordinateGizmo(ImDrawList* drawList,
+                                    const glm::mat4& nodeWorld,
+                                    const glm::mat4& viewProj,
+                                    const ImVec2& vpPos,
+                                    const ImVec2& vpSize,
+                                    const glm::vec3& camEye)
+{
+    glm::vec3 origin = glm::vec3(nodeWorld[3]);
+    float distToCam = glm::length(origin - camEye);
+    float axisWorldLen = std::max(0.002f, distToCam * 0.085f);
+
+    glm::vec3 xDir = glm::length(glm::vec3(nodeWorld[0])) > 1e-5f ? glm::normalize(glm::vec3(nodeWorld[0])) : glm::vec3(1, 0, 0);
+    glm::vec3 yDir = glm::length(glm::vec3(nodeWorld[1])) > 1e-5f ? glm::normalize(glm::vec3(nodeWorld[1])) : glm::vec3(0, 1, 0);
+    glm::vec3 zDir = glm::length(glm::vec3(nodeWorld[2])) > 1e-5f ? glm::normalize(glm::vec3(nodeWorld[2])) : glm::vec3(0, 0, 1);
+
+    glm::vec3 xEnd = origin + xDir * axisWorldLen;
+    glm::vec3 yEnd = origin + yDir * axisWorldLen;
+    glm::vec3 zEnd = origin + zDir * axisWorldLen;
+
+    auto project = [&](const glm::vec3& p, ImVec2& outPt, float& outZ) -> bool {
+        glm::vec4 clip = viewProj * glm::vec4(p, 1.0f);
+        if (clip.w <= 0.0001f) return false;
+        glm::vec3 ndc = glm::vec3(clip) / clip.w;
+        if (ndc.z < -1.0f || ndc.z > 1.0f) return false;
+        outPt.x = vpPos.x + (ndc.x * 0.5f + 0.5f) * vpSize.x;
+        outPt.y = vpPos.y + (1.0f - (ndc.y * 0.5f + 0.5f)) * vpSize.y;
+        outZ = ndc.z;
+        return true;
+    };
+
+    ImVec2 ptOrigin;
+    float zOrigin;
+    if (!project(origin, ptOrigin, zOrigin)) return;
+
+    struct AxisItem {
+        ImVec2 endPt;
+        ImU32 color;
+        float z;
+    };
+    std::vector<AxisItem> axes;
+
+    ImVec2 ptX, ptY, ptZ;
+    float zX, zY, zZ;
+    if (project(xEnd, ptX, zX)) axes.push_back({ ptX, IM_COL32(235, 45, 45, 255), zX });
+    if (project(yEnd, ptY, zY)) axes.push_back({ ptY, IM_COL32(45, 215, 45, 255), zY });
+    if (project(zEnd, ptZ, zZ)) axes.push_back({ ptZ, IM_COL32(45, 120, 245, 255), zZ });
+
+    std::sort(axes.begin(), axes.end(), [](const AxisItem& a, const AxisItem& b) {
+        return a.z > b.z;
+    });
+
+    for (const auto& axis : axes) {
+        drawList->AddLine(ptOrigin, axis.endPt, axis.color, 3.0f);
+        glm::vec2 dir(axis.endPt.x - ptOrigin.x, axis.endPt.y - ptOrigin.y);
+        float len = glm::length(dir);
+        if (len > 5.0f) {
+            dir /= len;
+            glm::vec2 perp(-dir.y, dir.x);
+            float arrowSize = 11.0f;
+            ImVec2 tip = axis.endPt;
+            ImVec2 p1(axis.endPt.x - dir.x * arrowSize + perp.x * (arrowSize * 0.45f),
+                      axis.endPt.y - dir.y * arrowSize + perp.y * (arrowSize * 0.45f));
+            ImVec2 p2(axis.endPt.x - dir.x * arrowSize - perp.x * (arrowSize * 0.45f),
+                      axis.endPt.y - dir.y * arrowSize - perp.y * (arrowSize * 0.45f));
+            drawList->AddTriangleFilled(tip, p1, p2, axis.color);
+        }
+    }
+
+    drawList->AddCircleFilled(ptOrigin, 4.5f, IM_COL32(255, 255, 255, 255));
+    drawList->AddCircle(ptOrigin, 4.5f, IM_COL32(30, 30, 30, 255), 0, 1.5f);
 }
 
 static ux3d::filesystem::Path resolveRendererResourcesDir()
@@ -1145,11 +1407,11 @@ int main(int argc, char** argv)
                               glm::vec4(1.0f, 0.85f, 0.2f, 0.85f),
                               viewProj);
         }
-        if (viewportSettings.showSelectedBoundingBox && selection.type == ux3d::imgui::SelectionType::Node && selection.selectedNode != nullptr) {
-            ux3d::gltf::Extends ext = ux3d::gltf::utils::getExtends({ selection.selectedNode }, &gltfModel);
+        if (selection.type == ux3d::imgui::SelectionType::Node && selection.selectedNode != nullptr) {
+            ux3d::gltf::Extends ext = getNodeExtends(selection.selectedNode, &gltfModel, gltfLayer.get());
             bboxRenderer.draw(glm::vec3(ext.min.x, ext.min.y, ext.min.z),
                               glm::vec3(ext.max.x, ext.max.y, ext.max.z),
-                              glm::vec4(0.2f, 0.85f, 1.0f, 0.9f),
+                              glm::vec4(0.72f, 0.95f, 0.15f, 0.95f),
                               viewProj);
         }
 
@@ -1184,6 +1446,8 @@ int main(int argc, char** argv)
                 }
             }
         }
+
+        bool clickedCompass = false;
 
         // 3D Viewport Orientation Compass / Navigation Gizmo
         if (viewportSettings.showOrientationGizmo) {
@@ -1231,6 +1495,10 @@ int main(int argc, char** argv)
 
             ImVec2 mousePos = io.MousePos;
             bool clicked = ImGui::IsMouseClicked(ImGuiMouseButton_Left);
+            float distCenterSq = (mousePos.x - center.x) * (mousePos.x - center.x) + (mousePos.y - center.y) * (mousePos.y - center.y);
+            if (distCenterSq <= (radius + 6.0f) * (radius + 6.0f)) {
+                clickedCompass = true;
+            }
 
             for (const auto& pa : projAxes) {
                 bool isPositive = (pa.def->name[0] != '-');
@@ -1258,9 +1526,12 @@ int main(int argc, char** argv)
             }
         }
 
-        // Handle Mouse Camera Controls when hovering Viewport (Default Blender style)
-        bool isViewportHovered = ImGui::IsItemHovered();
-        if (isViewportHovered && !ImGuizmo::IsUsing()) {
+        // Viewport mouse interaction & Picking
+        bool isMouseInViewport = (io.MousePos.x >= viewportPos.x && io.MousePos.x <= viewportPos.x + viewportSize.x &&
+                                  io.MousePos.y >= viewportPos.y && io.MousePos.y <= viewportPos.y + viewportSize.y);
+        bool isViewportHovered = isMouseInViewport && ImGui::IsWindowHovered();
+
+        if (isViewportHovered && !clickedCompass) {
             // [3] Mouse scroll to zoom
             if (io.MouseWheel != 0.0f) {
                 orbitCamera.zoom(io.MouseWheel);
@@ -1279,27 +1550,44 @@ int main(int argc, char** argv)
                     orbitCamera.rotate(io.MouseDelta.x * 0.4f, io.MouseDelta.y * 0.4f);
                 }
             }
+
+            // Left-click 3D mesh picking
+            if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::IsMouseDragging(ImGuiMouseButton_Left, 4.0f)) {
+                float ndcX = ((io.MousePos.x - viewportPos.x) / viewportSize.x) * 2.0f - 1.0f;
+                float ndcY = 1.0f - ((io.MousePos.y - viewportPos.y) / viewportSize.y) * 2.0f;
+
+                glm::mat4 invVP = glm::inverse(proj * view);
+                glm::vec4 nearNdc(ndcX, ndcY, -1.0f, 1.0f);
+                glm::vec4 farNdc(ndcX, ndcY, 1.0f, 1.0f);
+                glm::vec4 nearWorld = invVP * nearNdc;
+                glm::vec4 farWorld = invVP * farNdc;
+
+                if (std::abs(nearWorld.w) > 1e-6f && std::abs(farWorld.w) > 1e-6f) {
+                    glm::vec3 pNear = glm::vec3(nearWorld) / nearWorld.w;
+                    glm::vec3 pFar = glm::vec3(farWorld) / farWorld.w;
+                    glm::vec3 rayOrigin = orbitCamera.isOrthographic() ? pNear : orbitCamera.getEyePosition();
+                    glm::vec3 rayDir = glm::normalize(pFar - pNear);
+
+                    auto* pickedNode = pickNodeFromRay(rayOrigin, rayDir, activeScene, gltfLayer.get());
+                    if (pickedNode != nullptr) {
+                        selection.selectNode(pickedNode);
+                        s_scrollToSelectedNode = true;
+                        if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+                            focusCameraOnNode(pickedNode, gltfModel, gltfLayer.get(), orbitCamera, antiAliasing, isSceneDirty);
+                        }
+                    } else {
+                        selection = ux3d::imgui::SelectionState();
+                    }
+                }
+            }
         }
 
-        // ImGuizmo 3D Transform Gizmo
+        // 3D Coordinate Gizmo (non-transforming visual indicator for selected node)
         if (selection.type == ux3d::imgui::SelectionType::Node && selection.selectedNode != nullptr && sceneFbo.isValid()) {
-            ImGuizmo::SetOrthographic(false);
-            ImGuizmo::SetDrawlist();
-            ImGuizmo::SetRect(viewportPos.x, viewportPos.y, viewportSize.x, viewportSize.y);
-
             auto* node = selection.selectedNode;
             glm::mat4 nodeWorld = gltfLayer ? glm::mat4(gltfLayer->getWorldTransform(node)) : glm::mat4(node->getTransformMatrix());
-            float matrix[16];
-            std::memcpy(matrix, glm::value_ptr(nodeWorld), sizeof(matrix));
-
-            if (ImGuizmo::Manipulate(glm::value_ptr(view), glm::value_ptr(proj), currentGizmoOp, currentGizmoMode, matrix)) {
-                glm::mat4 manipulatedWorld = glm::make_mat4(matrix);
-                glm::mat4 parentWorld = gltfLayer ? glm::mat4(gltfLayer->getParentWorldTransform(node)) : glm::mat4(1.0f);
-                glm::mat4 newLocal = glm::inverse(parentWorld) * manipulatedWorld;
-
-                node->decomposeTransformMatrix(ux3d::math::dmat4x4(newLocal));
-                isSceneDirty = true;
-            }
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            drawNodeCoordinateGizmo(drawList, nodeWorld, viewProj, viewportPos, viewportSize, orbitCamera.getEyePosition());
         }
 
             ImGui::End(); // End 3D Viewport
@@ -1314,7 +1602,7 @@ int main(int argc, char** argv)
                     std::string sceneTitle = activeScene->hasName() ? activeScene->getName().c_str() : ("Scene " + std::to_string(activeScene->m_ID));
                     if (ImGui::TreeNodeEx(sceneTitle.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
                         for (auto* rootNode : activeScene->getNodes()) {
-                            renderNodeHierarchy(rootNode, selection, gltfModel, orbitCamera, antiAliasing, isSceneDirty);
+                            renderNodeHierarchy(rootNode, selection, gltfModel, gltfLayer.get(), orbitCamera, antiAliasing, isSceneDirty);
                         }
                         ImGui::TreePop();
                     }
