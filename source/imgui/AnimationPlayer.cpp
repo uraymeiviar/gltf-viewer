@@ -1,11 +1,13 @@
 // Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
 
 #include "imgui/AnimationPlayer.h"
+#include "gltf/animation/AnimationPath.h"
 #include <imgui.h>
 #include <cmath>
 #include <cstdio>
 #include <string>
 #include <vector>
+#include <algorithm>
 
 namespace ux3d::imgui {
 
@@ -17,34 +19,180 @@ void AnimationPlayer::reset()
     m_activeAnimationIdx = 0;
 }
 
-void AnimationPlayer::setModel(ux3d::gltf::Gltf& gltfModel)
+void AnimationPlayer::setModel(ux3d::gltf::Gltf& gltfModel, ux3d::renderer::GltfRenderLayer* gltfLayer)
 {
     reset();
-    calculateMaxDuration(gltfModel);
+    selectAllPossibleAnimations(true, gltfModel, gltfLayer);
 }
 
-void AnimationPlayer::calculateMaxDuration(ux3d::gltf::Gltf& gltfModel)
+bool AnimationPlayer::checkConflict(const ux3d::gltf::Animation& animA, const ux3d::gltf::Animation& animB) const
+{
+    for (const auto& chA : animA.getChannels()) {
+        const ux3d::gltf::ChildOfRoot* nodeA = chA.getTarget().getNode();
+        std::string pathA = ux3d::gltf::animationPathToString(chA.getTarget().getPath()).c_str();
+        if (chA.getTarget().m_animationPointer.has_value()) {
+            nodeA = std::get<0>(chA.getTarget().m_animationPointer.value());
+            pathA = std::get<1>(chA.getTarget().m_animationPointer.value());
+        }
+
+        for (const auto& chB : animB.getChannels()) {
+            const ux3d::gltf::ChildOfRoot* nodeB = chB.getTarget().getNode();
+            std::string pathB = ux3d::gltf::animationPathToString(chB.getTarget().getPath()).c_str();
+            if (chB.getTarget().m_animationPointer.has_value()) {
+                nodeB = std::get<0>(chB.getTarget().m_animationPointer.value());
+                pathB = std::get<1>(chB.getTarget().m_animationPointer.value());
+            }
+
+            if (nodeA == nodeB && pathA == pathB && (nodeA != nullptr || !pathA.empty())) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool AnimationPlayer::isAnimationConflictingWithActive(size_t index, const ux3d::gltf::Gltf& gltfModel) const
+{
+    const auto& animations = gltfModel.getElements<ux3d::gltf::Animation>();
+    if (index >= animations.size()) return false;
+
+    const auto& animToCheck = animations.at(index);
+    for (size_t i = 0; i < animations.size(); ++i) {
+        if (i == index) continue;
+        const auto& activeAnim = animations.at(i);
+        if (activeAnim.isPlaying()) {
+            if (checkConflict(animToCheck, activeAnim)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool AnimationPlayer::areAllPossibleAnimationsSelected(const ux3d::gltf::Gltf& gltfModel) const
+{
+    const auto& animations = gltfModel.getElements<ux3d::gltf::Animation>();
+    if (animations.empty()) return false;
+
+    for (size_t i = 0; i < animations.size(); ++i) {
+        const auto& anim = animations.at(i);
+        if (!anim.isPlaying()) {
+            if (!isAnimationConflictingWithActive(i, gltfModel)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+void AnimationPlayer::calculateMaxDuration(ux3d::gltf::Gltf& gltfModel, ux3d::renderer::GltfRenderLayer* gltfLayer)
 {
     m_maxDuration = 0.0f;
-    auto& anims = gltfModel.getElements<ux3d::gltf::Animation>();
-    if (anims.empty()) return;
-
-    if (m_activeAnimationIdx < 0 || m_activeAnimationIdx >= static_cast<int>(anims.size())) {
-        m_activeAnimationIdx = 0;
+    if (gltfLayer != nullptr) {
+        m_maxDuration = gltfLayer->getAnimationDuration();
     }
-
-    auto& anim = anims.at(m_activeAnimationIdx);
-
-    for (const auto& ch : anim.getChannels()) {
-        if (ch.getSampler() != nullptr && ch.getSampler()->getInputAccessor() != nullptr) {
-            auto* acc = ch.getSampler()->getInputAccessor();
-            if (!acc->getMax().empty()) {
-                float t = static_cast<float>(acc->getMax()[0]);
-                if (t > m_maxDuration) {
-                    m_maxDuration = t;
+    if (m_maxDuration <= 0.0f) {
+        auto& anims = gltfModel.getElements<ux3d::gltf::Animation>();
+        for (const auto& anim : anims) {
+            for (const auto& ch : anim.getChannels()) {
+                if (ch.getSampler() != nullptr && ch.getSampler()->getInputAccessor() != nullptr) {
+                    auto* acc = ch.getSampler()->getInputAccessor();
+                    if (!acc->getMax().empty()) {
+                        float t = static_cast<float>(acc->getMax()[0]);
+                        if (t > m_maxDuration) {
+                            m_maxDuration = t;
+                        }
+                    }
                 }
             }
         }
+    }
+}
+
+void AnimationPlayer::selectAllPossibleAnimations(bool select, ux3d::gltf::Gltf& gltfModel, ux3d::renderer::GltfRenderLayer* gltfLayer)
+{
+    auto& animations = gltfModel.getElements<ux3d::gltf::Animation>();
+    if (animations.empty()) return;
+
+    if (select) {
+        std::vector<const ux3d::gltf::Animation*> activeAnimations;
+        for (auto& anim : animations) {
+            bool canPlay = true;
+            for (const auto* activeAnim : activeAnimations) {
+                if (checkConflict(anim, *activeAnim)) {
+                    canPlay = false;
+                    break;
+                }
+            }
+            anim.setPlaying(canPlay);
+            if (canPlay) {
+                activeAnimations.push_back(&anim);
+            }
+        }
+    } else {
+        for (auto& anim : animations) {
+            anim.setPlaying(false);
+        }
+    }
+
+    if (gltfLayer != nullptr) {
+        gltfLayer->m_animationMapping.update(gltfModel.getAnimations());
+        calculateMaxDuration(gltfModel, gltfLayer);
+        gltfLayer->applyAnimationTime(m_currentTime);
+    }
+}
+
+void AnimationPlayer::toggleAnimation(size_t index, bool playing, ux3d::gltf::Gltf& gltfModel, ux3d::renderer::GltfRenderLayer* gltfLayer)
+{
+    auto& animations = gltfModel.getElements<ux3d::gltf::Animation>();
+    if (index >= animations.size()) return;
+
+    if (playing) {
+        if (!isAnimationConflictingWithActive(index, gltfModel)) {
+            animations.at(index).setPlaying(true);
+        }
+    } else {
+        animations.at(index).setPlaying(false);
+    }
+
+    if (gltfLayer != nullptr) {
+        gltfLayer->m_animationMapping.update(gltfModel.getAnimations());
+        calculateMaxDuration(gltfModel, gltfLayer);
+        gltfLayer->applyAnimationTime(m_currentTime);
+    }
+}
+
+void AnimationPlayer::setActiveAnimationIndex(int idx, ux3d::gltf::Gltf& gltfModel, ux3d::renderer::GltfRenderLayer* gltfLayer)
+{
+    auto& animations = gltfModel.getElements<ux3d::gltf::Animation>();
+    if (idx < 0 || idx >= static_cast<int>(animations.size())) return;
+
+    m_activeAnimationIdx = idx;
+    for (size_t i = 0; i < animations.size(); ++i) {
+        animations.at(i).setPlaying(static_cast<int>(i) == idx);
+    }
+
+    if (gltfLayer != nullptr) {
+        gltfLayer->m_animationMapping.update(gltfModel.getAnimations());
+        calculateMaxDuration(gltfModel, gltfLayer);
+        gltfLayer->applyAnimationTime(m_currentTime);
+    }
+}
+
+void AnimationPlayer::stop(ux3d::renderer::GltfRenderLayer* gltfLayer)
+{
+    m_isPlaying = false;
+    m_currentTime = 0.0f;
+    if (gltfLayer != nullptr) {
+        gltfLayer->applyAnimationTime(0.0f);
+    }
+}
+
+void AnimationPlayer::setCurrentTime(float t, ux3d::renderer::GltfRenderLayer* gltfLayer)
+{
+    m_currentTime = t;
+    if (gltfLayer != nullptr) {
+        gltfLayer->applyAnimationTime(m_currentTime);
     }
 }
 
@@ -60,14 +208,13 @@ void AnimationPlayer::update(float deltaTime, ux3d::renderer::GltfRenderLayer* g
                 m_isPlaying = false;
             }
         }
-    }
-
-    if (gltfLayer != nullptr) {
-        gltfLayer->applyAnimationTime(m_currentTime);
+        if (gltfLayer != nullptr) {
+            gltfLayer->applyAnimationTime(m_currentTime);
+        }
     }
 }
 
-void AnimationPlayer::renderToolbar(ux3d::gltf::Gltf& gltfModel)
+void AnimationPlayer::renderToolbar(ux3d::gltf::Gltf& gltfModel, ux3d::renderer::GltfRenderLayer* gltfLayer, bool& isSceneDirty)
 {
     auto& anims = gltfModel.getElements<ux3d::gltf::Animation>();
     if (anims.empty()) {
@@ -75,33 +222,117 @@ void AnimationPlayer::renderToolbar(ux3d::gltf::Gltf& gltfModel)
     }
 
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.14f, 0.14f, 0.17f, 0.90f));
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.13f, 0.14f, 0.17f, 0.95f));
     ImGui::BeginChild("AnimationToolbar", ImVec2(0, 36), true, ImGuiWindowFlags_NoScrollbar);
 
-    // Play / Pause button
+    // 1. Animations Popup Menu Button (matching Gestaltor)
+    size_t activeCount = 0;
+    for (const auto& a : anims) {
+        if (a.isPlaying()) ++activeCount;
+    }
+    char animBtnLabel[64];
+    std::snprintf(animBtnLabel, sizeof(animBtnLabel), "Animations (%zu/%zu) ##Btn", activeCount, anims.size());
+    if (ImGui::Button(animBtnLabel)) {
+        ImGui::OpenPopup("AnimationsMenuPopup");
+    }
+
+    if (ImGui::BeginPopup("AnimationsMenuPopup")) {
+        ImGui::TextDisabled("ANIMATIONS");
+        ImGui::Separator();
+
+        bool allSelected = areAllPossibleAnimationsSelected(gltfModel);
+        if (ImGui::Checkbox("Select all non-conflicting", &allSelected)) {
+            selectAllPossibleAnimations(allSelected, gltfModel, gltfLayer);
+            isSceneDirty = true;
+        }
+
+        ImGui::Separator();
+
+        float listHeight = std::min(260.0f, static_cast<float>(anims.size() * 26.0f));
+        ImGui::BeginChild("AnimScrollList", ImVec2(300, listHeight), true);
+        for (size_t i = 0; i < anims.size(); ++i) {
+            auto& a = anims.at(i);
+            bool isPlaying = a.isPlaying();
+            bool conflict = !isPlaying && isAnimationConflictingWithActive(i, gltfModel);
+
+            std::string name = a.hasName() ? a.getName().c_str() : ("Animation_" + std::to_string(i));
+
+            if (conflict) {
+                ImGui::BeginDisabled();
+            }
+            if (ImGui::Checkbox((name + "##" + std::to_string(i)).c_str(), &isPlaying)) {
+                toggleAnimation(i, isPlaying, gltfModel, gltfLayer);
+                isSceneDirty = true;
+            }
+            if (conflict) {
+                ImGui::EndDisabled();
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                    ImGui::SetTooltip("Conflicts with an already playing animation");
+                }
+            }
+        }
+        ImGui::EndChild();
+
+        ImGui::TextDisabled("You can only select non-conflicting animations.");
+        ImGui::Separator();
+
+        ImGui::TextDisabled("SETTINGS");
+        if (gltfLayer != nullptr) {
+            if (ImGui::Checkbox("Skinning", &gltfLayer->renderSettings.enableSkinning)) {
+                isSceneDirty = true;
+            }
+            if (ImGui::Checkbox("Morphing", &gltfLayer->renderSettings.enableMorphing)) {
+                isSceneDirty = true;
+            }
+        }
+
+        ImGui::EndPopup();
+    }
+
+    ImGui::SameLine();
+    ImGui::TextDisabled("|");
+    ImGui::SameLine();
+
+    // 2. Playback control buttons: |<, Play/Pause, Stop, >|
+    if (ImGui::Button("|<", ImVec2(32, 0))) {
+        setCurrentTime(0.0f, gltfLayer);
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Rewind to start (0.0s)");
+
+    ImGui::SameLine();
     if (m_isPlaying) {
-        if (ImGui::Button("Pause ||", ImVec2(70, 0))) {
-            m_isPlaying = false;
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.85f, 0.45f, 0.15f, 1.0f));
+        if (ImGui::Button("Pause ||", ImVec2(68, 0))) {
+            pause();
         }
+        ImGui::PopStyleColor();
     } else {
-        if (ImGui::Button("Play >", ImVec2(70, 0))) {
-            m_isPlaying = true;
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.65f, 0.35f, 1.0f));
+        if (ImGui::Button("Play >", ImVec2(68, 0))) {
+            play();
         }
+        ImGui::PopStyleColor();
     }
 
     ImGui::SameLine();
-    if (ImGui::Button("Stop []", ImVec2(60, 0))) {
-        m_isPlaying = false;
-        m_currentTime = 0.0f;
+    if (ImGui::Button("Stop []", ImVec2(58, 0))) {
+        stop(gltfLayer);
     }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Stop & Reset (0.0s)");
 
     ImGui::SameLine();
-    // Loop toggle
-    if (ImGui::Checkbox("Loop", &m_isLooping)) {}
+    if (ImGui::Button(">|", ImVec2(32, 0))) {
+        setCurrentTime(m_maxDuration, gltfLayer);
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Jump to end");
 
     ImGui::SameLine();
-    // Playback Speed
-    ImGui::SetNextItemWidth(75);
+    // 3. Loop checkbox
+    ImGui::Checkbox("Loop", &m_isLooping);
+
+    ImGui::SameLine();
+    // 4. Playback speed
+    ImGui::SetNextItemWidth(72);
     const char* speedOptions[] = { "0.25x", "0.5x", "1.0x", "1.5x", "2.0x" };
     static int speedIdx = 2;
     if (ImGui::Combo("##Speed", &speedIdx, speedOptions, 5)) {
@@ -113,45 +344,27 @@ void AnimationPlayer::renderToolbar(ux3d::gltf::Gltf& gltfModel)
     }
 
     ImGui::SameLine();
-    // Time formatted display
+    // 5. Time formatted display
     char timeBuf[64];
     std::snprintf(timeBuf, sizeof(timeBuf), "%.2f / %.2fs", m_currentTime, m_maxDuration);
     ImGui::Text("%s", timeBuf);
 
     ImGui::SameLine();
-    // Scrubber timeline slider
-    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - (anims.size() > 1 ? 160 : 0));
-    if (m_maxDuration > 0.0f) {
-        if (ImGui::SliderFloat("##Scrubber", &m_currentTime, 0.0f, m_maxDuration, "%.2fs")) {
-            // User scrubbing
-        }
-    }
-
-    // Active animation selector (if more than 1 animation)
-    if (anims.size() > 1) {
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(150);
-        std::string currentAnimName = "Clip " + std::to_string(m_activeAnimationIdx);
-        if (m_activeAnimationIdx >= 0 && m_activeAnimationIdx < static_cast<int>(anims.size())) {
-            auto& a = anims.at(m_activeAnimationIdx);
-            if (a.hasName()) {
-                currentAnimName = a.getName().c_str();
-            }
-        }
-
-        if (ImGui::BeginCombo("##ActiveAnim", currentAnimName.c_str())) {
-            int idx = 0;
-            for (auto& a : anims) {
-                bool isSel = (idx == m_activeAnimationIdx);
-                std::string aName = a.hasName() ? a.getName().c_str() : ("Clip " + std::to_string(idx));
-                if (ImGui::Selectable(aName.c_str(), isSel)) {
-                    m_activeAnimationIdx = idx;
-                    m_currentTime = 0.0f;
-                    calculateMaxDuration(gltfModel);
+    // 6. Timeline Scrubber slider
+    float availW = ImGui::GetContentRegionAvail().x;
+    if (availW > 40.0f) {
+        ImGui::SetNextItemWidth(availW);
+        if (m_maxDuration > 0.0f) {
+            float t = m_currentTime;
+            if (ImGui::SliderFloat("##Scrubber", &t, 0.0f, m_maxDuration, "%.2fs")) {
+                m_currentTime = t;
+                if (gltfLayer != nullptr) {
+                    gltfLayer->applyAnimationTime(m_currentTime);
                 }
-                ++idx;
             }
-            ImGui::EndCombo();
+        } else {
+            float dummy = 0.0f;
+            ImGui::SliderFloat("##Scrubber", &dummy, 0.0f, 0.0f, "0.00s");
         }
     }
 

@@ -172,7 +172,7 @@ static bool loadGltfModel(const std::string& filePath,
             }
         }
 
-        animPlayer.setModel(gltfModel);
+        animPlayer.setModel(gltfModel, gltfLayer);
 
         size_t nodeCount = gltfModel.getElements<ux3d::gltf::Node>().size();
         size_t meshCount = gltfModel.getElements<ux3d::gltf::Mesh>().size();
@@ -657,7 +657,7 @@ int main(int argc, char** argv)
         ImGui::PopStyleVar();
 
         // Animation Player Toolbar at top of viewport
-        animationPlayer.renderToolbar(gltfModel);
+        animationPlayer.renderToolbar(gltfModel, gltfLayer.get(), isSceneDirty);
 
         // Quick Navigation & Inspection Toolbar Strip
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(5.0f, 2.0f));
