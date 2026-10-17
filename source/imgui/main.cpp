@@ -375,7 +375,7 @@ static bool loadGltfModel(const std::string& filePath,
 }
 
 // glTF creator helper
-static void newEmptyGltf(ux3d::gltf::Gltf& gltfModel,
+[[maybe_unused]] static void newEmptyGltf(ux3d::gltf::Gltf& gltfModel,
                          ux3d::gltf::Scene*& activeScene,
                          ux3d::imgui::SelectionState& selection,
                          std::string& currentFilePath,
@@ -407,7 +407,7 @@ static void newEmptyGltf(ux3d::gltf::Gltf& gltfModel,
 }
 
 // glTF saver helper
-static bool saveGltfModel(const std::string& filePath,
+[[maybe_unused]] static bool saveGltfModel(const std::string& filePath,
                           const ux3d::gltf::Gltf& gltfModel,
                           std::string& currentFilePath)
 {
@@ -995,20 +995,12 @@ int main(int argc, char** argv)
 
         // Global Keyboard Shortcuts (File & View)
         if (!io.WantTextInput && io.KeyCtrl && !io.KeyShift && !io.KeyAlt) {
-            if (ImGui::IsKeyPressed(ImGuiKey_N)) {
-                newEmptyGltf(gltfModel, activeScene, selection, currentFilePath, orbitCamera, gltfLayer.get(), animationPlayer, isSceneDirty);
-                updateWindowTitle(window, currentFilePath);
-            }
             if (ImGui::IsKeyPressed(ImGuiKey_O)) {
                 auto openResult = pfd::open_file("Open glTF / GLB", "", { "glTF files (*.gltf *.glb)", "*.gltf *.glb" }).result();
                 if (!openResult.empty()) {
                     loadGltfModel(openResult[0], gltfModel, activeScene, selection, currentFilePath, orbitCamera, gltfLayer.get(), animationPlayer, isSceneDirty);
                     updateWindowTitle(window, currentFilePath);
                 }
-            }
-            if (ImGui::IsKeyPressed(ImGuiKey_S) && !currentFilePath.empty() && currentFilePath != "untitled.glb") {
-                saveGltfModel(currentFilePath, gltfModel, currentFilePath);
-                updateWindowTitle(window, currentFilePath);
             }
             if (ImGui::IsKeyPressed(ImGuiKey_1)) showInspector = !showInspector;
             if (ImGui::IsKeyPressed(ImGuiKey_2)) showHierarchy = !showHierarchy;
@@ -1026,15 +1018,6 @@ int main(int argc, char** argv)
         // Menu Bar
         if (ImGui::BeginMenuBar()) {
             if (ImGui::BeginMenu("File")) {
-                if (ImGui::MenuItem("New Empty glTF", "Ctrl+N")) {
-                    newEmptyGltf(gltfModel, activeScene, selection, currentFilePath, orbitCamera, gltfLayer.get(), animationPlayer, isSceneDirty);
-                    updateWindowTitle(window, currentFilePath);
-                }
-                if (ImGui::MenuItem("New Sample glTF")) {
-                    loadGltfModel("resources/sampleGltf/HelloCube.glb", gltfModel, activeScene, selection, currentFilePath, orbitCamera, gltfLayer.get(), animationPlayer, isSceneDirty);
-                    updateWindowTitle(window, currentFilePath);
-                }
-                ImGui::Separator();
                 if (ImGui::MenuItem("Open ...", "Ctrl+O")) {
                     auto openResult = pfd::open_file("Open glTF / GLB", "", { "glTF files (*.gltf *.glb)", "*.gltf *.glb" }).result();
                     if (!openResult.empty()) {
@@ -1064,27 +1047,6 @@ int main(int argc, char** argv)
                     }
                     ImGui::EndMenu();
                 }
-                ImGui::Separator();
-                if (ImGui::MenuItem("Save", "Ctrl+S", false, !currentFilePath.empty() && currentFilePath != "untitled.glb")) {
-                    saveGltfModel(currentFilePath, gltfModel, currentFilePath);
-                    updateWindowTitle(window, currentFilePath);
-                }
-                if (ImGui::MenuItem("Save As ...", nullptr, false, activeScene != nullptr)) {
-                    auto dest = pfd::save_file("Save glTF / GLB", "", { "glTF files (*.gltf)", "*.gltf", "Binary glTF (*.glb)", "*.glb" }).result();
-                    if (!dest.empty()) {
-                        saveGltfModel(dest, gltfModel, currentFilePath);
-                        updateWindowTitle(window, currentFilePath);
-                    }
-                }
-                if (ImGui::MenuItem("Save Minified As ...", nullptr, false, false)) {}
-                ImGui::Separator();
-                if (ImGui::MenuItem("Import Image ...", "Ctrl+Shift+I", false, false)) {}
-                if (ImGui::MenuItem("Import Texture ...", "Ctrl+Shift+T", false, false)) {}
-                if (ImGui::MenuItem("Import Material ...", "Ctrl+Shift+M", false, false)) {}
-                if (ImGui::MenuItem("Import XMP Packet ...", nullptr, false, false)) {}
-                if (ImGui::MenuItem("Import 3D Model ...", "Ctrl+Shift+O", false, false)) {}
-                ImGui::Separator();
-                if (ImGui::MenuItem("Export USDZ ...", nullptr, false, false)) {}
                 ImGui::Separator();
                 if (ImGui::MenuItem("Exit")) {
                     glfwSetWindowShouldClose(window, GLFW_TRUE);
