@@ -52,10 +52,42 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <memory>
 #include <string>
 #include <vector>
 #include <utility>
+
+static void saveBmp(const char* filename, int width, int height, const uint8_t* rgba) {
+    std::ofstream out(filename, std::ios::binary);
+    if (!out.is_open()) return;
+    uint32_t rowSize = ((width * 3 + 3) / 4) * 4;
+    uint32_t imageSize = rowSize * height;
+    uint32_t fileSize = 54 + imageSize;
+    uint8_t header[54] = {
+        'B', 'M',
+        (uint8_t)(fileSize), (uint8_t)(fileSize >> 8), (uint8_t)(fileSize >> 16), (uint8_t)(fileSize >> 24),
+        0, 0, 0, 0,
+        54, 0, 0, 0,
+        40, 0, 0, 0,
+        (uint8_t)(width), (uint8_t)(width >> 8), (uint8_t)(width >> 16), (uint8_t)(width >> 24),
+        (uint8_t)(height), (uint8_t)(height >> 8), (uint8_t)(height >> 16), (uint8_t)(height >> 24),
+        1, 0, 24, 0,
+        0, 0, 0, 0,
+        (uint8_t)(imageSize), (uint8_t)(imageSize >> 8), (uint8_t)(imageSize >> 16), (uint8_t)(imageSize >> 24),
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    };
+    out.write(reinterpret_cast<const char*>(header), 54);
+    std::vector<uint8_t> row(rowSize, 0);
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            row[x * 3 + 0] = rgba[(y * width + x) * 4 + 2]; // B
+            row[x * 3 + 1] = rgba[(y * width + x) * 4 + 1]; // G
+            row[x * 3 + 2] = rgba[(y * width + x) * 4 + 0]; // R
+        }
+        out.write(reinterpret_cast<const char*>(row.data()), rowSize);
+    }
+}
 
 // Log console message history
 struct LogEntry {
@@ -463,9 +495,25 @@ int main(int argc, char** argv)
     gltfLayer->renderSettings.enableIOR = true;
     gltfLayer->renderSettings.enableSpecular = true;
 
-    std::string defaultSample = resolveSampleModelPath();
-    if (ux3d::imgui::StdFileSystem::instance().isFile(ux3d::imgui::StdFileSystem::instance().toFile(defaultSample.c_str()))) {
-        loadGltfModel(defaultSample, gltfModel, activeScene, selection, currentFilePath, orbitCamera, gltfLayer.get(), animationPlayer, isSceneDirty);
+    std::string modelToLoad = resolveSampleModelPath();
+    std::string dumpFramePath = "";
+    int dumpFrameCountdown = -1;
+    bool exitAfterDump = false;
+
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--dump-frame" && i + 1 < argc) {
+            dumpFramePath = argv[++i];
+            dumpFrameCountdown = 8;
+        } else if (arg == "--exit-after-dump") {
+            exitAfterDump = true;
+        } else if (!arg.empty() && arg[0] != '-') {
+            modelToLoad = arg;
+        }
+    }
+
+    if (ux3d::imgui::StdFileSystem::instance().isFile(ux3d::imgui::StdFileSystem::instance().toFile(modelToLoad.c_str()))) {
+        loadGltfModel(modelToLoad, gltfModel, activeScene, selection, currentFilePath, orbitCamera, gltfLayer.get(), animationPlayer, isSceneDirty);
     }
 
     // UI state
@@ -839,7 +887,8 @@ int main(int argc, char** argv)
                         det = ux3d::math::determinant(nodeIt->second->getWorldTransform());
                     }
                     bool baseClockwise = (det < 0.0f);
-                    bool isClockwise = baseClockwise ^ viewportSettings.invertWinding;
+                    bool useInvertedWinding = !viewportSettings.invertWinding;
+                    bool isClockwise = baseClockwise ^ useInvertedWinding;
                     renMesh->frontFace = isClockwise ? ux3d::renderer::gl::Winding::Clockwise : ux3d::renderer::gl::Winding::CounterClockwise;
 
                     renMesh->polygonMode = (mode == ux3d::renderer::RenderMode::Wireframe)
@@ -935,6 +984,21 @@ int main(int argc, char** argv)
                          viewportSize,
                          ImVec2(0.0f, 1.0f),
                          ImVec2(1.0f, 0.0f));
+        }
+
+        if (dumpFrameCountdown > 0) {
+            dumpFrameCountdown--;
+            if (dumpFrameCountdown == 0 && !dumpFramePath.empty()) {
+                std::vector<uint8_t> pixels(vpW * vpH * 4);
+                glBindTexture(GL_TEXTURE_2D, displayTexture != 0 ? displayTexture : sceneFbo.getColorTexture());
+                glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+                glBindTexture(GL_TEXTURE_2D, 0);
+                saveBmp(dumpFramePath.c_str(), vpW, vpH, pixels.data());
+                std::printf("Dumped viewport frame to %s\n", dumpFramePath.c_str());
+                if (exitAfterDump) {
+                    glfwSetWindowShouldClose(window, GLFW_TRUE);
+                }
+            }
         }
 
         // 3D Viewport Orientation Compass / Navigation Gizmo
