@@ -895,9 +895,6 @@ int main(int argc, char** argv)
     static bool showViewportSettings = true;
     static bool showStatistics = true;
 
-    ImGuizmo::OPERATION currentGizmoOp = ImGuizmo::TRANSLATE;
-    ImGuizmo::MODE currentGizmoMode = ImGuizmo::LOCAL;
-
     double lastFrameTime = glfwGetTime();
 
     // Main Loop
@@ -919,12 +916,6 @@ int main(int argc, char** argv)
 
         // Keyboard shortcuts
         if (!io.WantTextInput) {
-            if (ImGui::IsKeyPressed(ImGuiKey_W)) currentGizmoOp = ImGuizmo::TRANSLATE;
-            if (ImGui::IsKeyPressed(ImGuiKey_E)) currentGizmoOp = ImGuizmo::ROTATE;
-            if (ImGui::IsKeyPressed(ImGuiKey_R)) currentGizmoOp = ImGuizmo::SCALE;
-            if (ImGui::IsKeyPressed(ImGuiKey_Q)) {
-                currentGizmoMode = (currentGizmoMode == ImGuizmo::LOCAL) ? ImGuizmo::WORLD : ImGuizmo::LOCAL;
-            }
             if (ImGui::IsKeyPressed(ImGuiKey_Home)) {
                 orbitCamera.reset();
                 antiAliasing.resetHistory();
@@ -1070,16 +1061,6 @@ int main(int argc, char** argv)
                                                 glm::vec3(extends.max.x, extends.max.y, extends.max.z));
                     }
                 }
-                ImGui::EndMenu();
-            }
-
-            if (ImGui::BeginMenu("Gizmo")) {
-                if (ImGui::MenuItem("Translate", "W", currentGizmoOp == ImGuizmo::TRANSLATE)) currentGizmoOp = ImGuizmo::TRANSLATE;
-                if (ImGui::MenuItem("Rotate", "E", currentGizmoOp == ImGuizmo::ROTATE)) currentGizmoOp = ImGuizmo::ROTATE;
-                if (ImGui::MenuItem("Scale", "R", currentGizmoOp == ImGuizmo::SCALE)) currentGizmoOp = ImGuizmo::SCALE;
-                ImGui::Separator();
-                if (ImGui::MenuItem("Local Space", nullptr, currentGizmoMode == ImGuizmo::LOCAL)) currentGizmoMode = ImGuizmo::LOCAL;
-                if (ImGui::MenuItem("World Space", nullptr, currentGizmoMode == ImGuizmo::WORLD)) currentGizmoMode = ImGuizmo::WORLD;
                 ImGui::EndMenu();
             }
 
