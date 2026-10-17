@@ -48,8 +48,16 @@ public:
     float getPitch() const { return m_pitch; }
     float getFoVY() const { return m_fovY; }
     float getAspectRatio() const { return m_aspectRatio; }
-    float getZNear() const { return m_zNear; }
-    float getZFar() const { return m_zFar; }
+    float getZNear() const;
+    float getZFar() const;
+
+    float getRawZNear() const { return m_zNear; }
+    float getRawZFar() const { return m_zFar; }
+    void setZNear(float zNear) { m_zNear = std::max(0.0001f, zNear); }
+    void setZFar(float zFar) { m_zFar = std::max(m_zNear + 0.1f, zFar); }
+
+    bool isAutoClip() const { return m_autoClip; }
+    void setAutoClip(bool autoClip) { m_autoClip = autoClip; }
 
 private:
     glm::vec3 m_target = glm::vec3(0.0f, 0.0f, 0.0f);
@@ -60,7 +68,8 @@ private:
     float m_fovY = 45.0f;
     float m_aspectRatio = 16.0f / 9.0f;
     float m_zNear = 0.01f;
-    float m_zFar = 1000.0f;
+    float m_zFar = 2000.0f;
+    bool m_autoClip = true;
     bool m_isOrtho = false;
 };
 

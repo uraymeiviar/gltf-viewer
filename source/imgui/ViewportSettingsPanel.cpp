@@ -275,6 +275,33 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
                 }
             }
 
+            ImGui::Separator();
+            ImGui::Text("Frustum Clipping Planes:");
+
+            bool autoClip = camera.isAutoClip();
+            if (ImGui::Checkbox("Auto Near / Far Clip Planes", &autoClip)) {
+                camera.setAutoClip(autoClip);
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("(?)");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Automatically adapts near clipping plane when zooming in so close-up objects (like cockpits) are not sliced off.");
+            }
+
+            if (autoClip) {
+                ImGui::Text("Near Plane: %.4f m (Auto)", camera.getZNear());
+                ImGui::Text("Far Plane: %.1f m (Auto)", camera.getZFar());
+            } else {
+                float nearVal = camera.getRawZNear();
+                if (ImGui::DragFloat("Near Plane (m)", &nearVal, 0.002f, 0.0001f, 10.0f, "%.4f")) {
+                    camera.setZNear(nearVal);
+                }
+                float farVal = camera.getRawZFar();
+                if (ImGui::DragFloat("Far Plane (m)", &farVal, 10.0f, 1.0f, 100000.0f, "%.1f")) {
+                    camera.setZFar(farVal);
+                }
+            }
+
             ImGui::Text("Camera Presets:");
             if (ImGui::Button("Front (Num 1)")) camera.setPresetView(PresetView::Front);
             ImGui::SameLine();

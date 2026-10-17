@@ -839,8 +839,7 @@ int main(int argc, char** argv)
                         det = ux3d::math::determinant(nodeIt->second->getWorldTransform());
                     }
                     bool baseClockwise = (det < 0.0f);
-                    bool useInvertedWinding = !viewportSettings.invertWinding;
-                    bool isClockwise = baseClockwise ^ useInvertedWinding;
+                    bool isClockwise = baseClockwise ^ viewportSettings.invertWinding;
                     renMesh->frontFace = isClockwise ? ux3d::renderer::gl::Winding::Clockwise : ux3d::renderer::gl::Winding::CounterClockwise;
 
                     renMesh->polygonMode = (mode == ux3d::renderer::RenderMode::Wireframe)

@@ -16,7 +16,27 @@ void OrbitCamera::reset()
     m_yaw = 45.0f;
     m_pitch = 25.0f;
     m_zNear = 0.01f;
-    m_zFar = 1000.0f;
+    m_zFar = 2000.0f;
+    m_autoClip = true;
+}
+
+float OrbitCamera::getZNear() const
+{
+    if (m_autoClip) {
+        // Dynamically scale near plane with camera distance so close inspection never slices geometry:
+        // - Clamped between 0.001f (1 mm) and 0.05f (5 cm).
+        // - At distance = 1.0m (cockpit zoom), zNear is ~0.002m (2 mm).
+        return std::clamp(m_distance * 0.002f, 0.001f, 0.05f);
+    }
+    return m_zNear;
+}
+
+float OrbitCamera::getZFar() const
+{
+    if (m_autoClip) {
+        return std::max(2000.0f, m_distance * 30.0f);
+    }
+    return m_zFar;
 }
 
 void OrbitCamera::setViewportSize(float width, float height)
@@ -82,8 +102,8 @@ void OrbitCamera::fitToBounds(const glm::vec3& minBounds, const glm::vec3& maxBo
 
     float fovRad = glm::radians(m_fovY);
     m_distance = (maxDim * 0.5f) / std::sin(fovRad * 0.5f) * 1.5f;
-    m_zNear = std::max(0.001f, m_distance * 0.005f);
-    m_zFar = std::max(1000.0f, m_distance * 20.0f);
+    m_zNear = std::clamp(m_distance * 0.002f, 0.001f, 0.05f);
+    m_zFar = std::max(2000.0f, m_distance * 30.0f);
 }
 
 glm::vec3 OrbitCamera::getEyePosition() const
@@ -141,12 +161,14 @@ void OrbitCamera::setPresetView(PresetView view)
 
 glm::mat4 OrbitCamera::getProjectionMatrix() const
 {
+    float znear = getZNear();
+    float zfar = getZFar();
     if (m_isOrtho) {
         float halfH = m_distance * std::tan(glm::radians(m_fovY * 0.5f));
         float halfW = halfH * m_aspectRatio;
-        return glm::ortho(-halfW, halfW, -halfH, halfH, m_zNear, m_zFar);
+        return glm::ortho(-halfW, halfW, -halfH, halfH, znear, zfar);
     }
-    return glm::perspective(glm::radians(m_fovY), m_aspectRatio, m_zNear, m_zFar);
+    return glm::perspective(glm::radians(m_fovY), m_aspectRatio, znear, zfar);
 }
 
 } // namespace ux3d::imgui
