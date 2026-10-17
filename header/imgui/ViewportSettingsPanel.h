@@ -28,6 +28,13 @@ struct ViewportSettingsState {
     bool forceDoubleSided = false; // Disable backface culling globally
     bool invertWinding = false;    // Invert front/back face winding order (CW vs CCW)
     int antiAliasingIdx = 2;       // 0=None, 1=MSAA 2x, 2=MSAA 4x (Default), 3=MSAA 8x, 4=FXAA, 5=TAA
+
+    // Visual Inspection & Diagnostics
+    bool showSceneBoundingBox = false;     // Yellow AABB box for entire scene
+    bool showSelectedBoundingBox = false;  // Cyan AABB box for selected node
+    bool turntable = false;                // Auto-rotate turntable
+    float turntableSpeed = 30.0f;          // deg/sec
+    bool showOrientationGizmo = true;      // 3D navigation axes compass in viewport corner
 };
 
 class ViewportSettingsPanel {

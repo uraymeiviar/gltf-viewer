@@ -196,10 +196,55 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
         // Tab 4: Camera & Helpers
         // -------------------------------------------------------------
         if (ImGui::BeginTabItem("Camera & Helpers")) {
+            ImGui::Text("Viewport Display:");
             ImGui::Checkbox("Show Ground Grid", &state.showGrid);
+            ImGui::SameLine();
+            ImGui::Checkbox("Show 3D View Compass", &state.showOrientationGizmo);
 
             ImGui::Separator();
+            ImGui::Text("Bounding Box Visualizers:");
+            ImGui::Checkbox("Scene Bounding Box (Yellow)", &state.showSceneBoundingBox);
+            ImGui::SameLine();
+            ImGui::Checkbox("Selected Node Bounds (Cyan)", &state.showSelectedBoundingBox);
 
+            ImGui::Separator();
+            ImGui::Text("Turntable Auto-Rotate:");
+            ImGui::Checkbox("Enable Turntable", &state.turntable);
+            if (state.turntable) {
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(150.0f);
+                ImGui::SliderFloat("Speed (deg/s)", &state.turntableSpeed, -180.0f, 180.0f, "%.1f");
+            }
+
+            ImGui::Separator();
+            ImGui::Text("Camera Settings:");
+
+            bool isOrtho = camera.isOrthographic();
+            if (ImGui::Checkbox("Orthographic Projection", &isOrtho)) {
+                camera.setOrthographic(isOrtho);
+            }
+
+            if (!isOrtho) {
+                float fov = camera.getFoVY();
+                if (ImGui::SliderFloat("Field of View (FoV)", &fov, 15.0f, 120.0f, "%.1f deg")) {
+                    camera.setFoVY(fov);
+                }
+            }
+
+            ImGui::Text("Camera Presets:");
+            if (ImGui::Button("Front (Num 1)")) camera.setPresetView(PresetView::Front);
+            ImGui::SameLine();
+            if (ImGui::Button("Back (Ctrl+1)")) camera.setPresetView(PresetView::Back);
+            ImGui::SameLine();
+            if (ImGui::Button("Right (Num 3)")) camera.setPresetView(PresetView::Right);
+            ImGui::SameLine();
+            if (ImGui::Button("Left (Ctrl+3)")) camera.setPresetView(PresetView::Left);
+            ImGui::SameLine();
+            if (ImGui::Button("Top (Num 7)")) camera.setPresetView(PresetView::Top);
+            ImGui::SameLine();
+            if (ImGui::Button("Iso")) camera.setPresetView(PresetView::Isometric);
+
+            ImGui::Separator();
             ImGui::Text("Camera Distance: %.2f", camera.getDistance());
             ImGui::Text("Yaw: %.1f deg, Pitch: %.1f deg", camera.getYaw(), camera.getPitch());
             auto target = camera.getTarget();

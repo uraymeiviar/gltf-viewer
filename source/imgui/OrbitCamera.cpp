@@ -105,8 +105,47 @@ glm::mat4 OrbitCamera::getViewMatrix() const
     return glm::lookAt(getEyePosition(), m_target, glm::vec3(0.0f, 1.0f, 0.0f));
 }
 
+void OrbitCamera::setPresetView(PresetView view)
+{
+    switch (view) {
+        case PresetView::Front:
+            m_yaw = 0.0f;
+            m_pitch = 0.0f;
+            break;
+        case PresetView::Back:
+            m_yaw = 180.0f;
+            m_pitch = 0.0f;
+            break;
+        case PresetView::Right:
+            m_yaw = 90.0f;
+            m_pitch = 0.0f;
+            break;
+        case PresetView::Left:
+            m_yaw = 270.0f;
+            m_pitch = 0.0f;
+            break;
+        case PresetView::Top:
+            m_yaw = 0.0f;
+            m_pitch = 89.0f;
+            break;
+        case PresetView::Bottom:
+            m_yaw = 0.0f;
+            m_pitch = -89.0f;
+            break;
+        case PresetView::Isometric:
+            m_yaw = 45.0f;
+            m_pitch = 30.0f;
+            break;
+    }
+}
+
 glm::mat4 OrbitCamera::getProjectionMatrix() const
 {
+    if (m_isOrtho) {
+        float halfH = m_distance * std::tan(glm::radians(m_fovY * 0.5f));
+        float halfW = halfH * m_aspectRatio;
+        return glm::ortho(-halfW, halfW, -halfH, halfH, m_zNear, m_zFar);
+    }
     return glm::perspective(glm::radians(m_fovY), m_aspectRatio, m_zNear, m_zFar);
 }
 

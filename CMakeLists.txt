@@ -971,6 +971,8 @@ if (GESTALTOR_BUILD_IMGUI)
 		"header/imgui/AnimationPlayer.h"
 		"source/imgui/AntiAliasing.cpp"
 		"header/imgui/AntiAliasing.h"
+		"source/imgui/BoundingBoxRenderer.cpp"
+		"header/imgui/BoundingBoxRenderer.h"
 	)
 
 	add_executable(${IMGUI_APP_NAME} ${IMGUI_SOURCES})

@@ -41,6 +41,7 @@
 #include "imgui/ElementInspector.h"
 #include "imgui/AnimationPlayer.h"
 #include "imgui/AntiAliasing.h"
+#include "imgui/BoundingBoxRenderer.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -93,8 +94,13 @@ static void glfw_error_callback(int error, const char* description)
     std::fprintf(stderr, "GLFW Error %d: %s\n", error, description);
 }
 
-// Recursive scene hierarchy node renderer
-static void renderNodeHierarchy(ux3d::gltf::Node* node, ux3d::imgui::SelectionState& selection, bool& sceneDirty)
+// Recursive scene hierarchy node renderer with double-click to frame
+static void renderNodeHierarchy(ux3d::gltf::Node* node,
+                                ux3d::imgui::SelectionState& selection,
+                                ux3d::gltf::Gltf& gltfModel,
+                                ux3d::imgui::OrbitCamera& camera,
+                                ux3d::imgui::AntiAliasing& antiAliasing,
+                                bool& sceneDirty)
 {
     if (!node) return;
 
@@ -117,10 +123,17 @@ static void renderNodeHierarchy(ux3d::gltf::Node* node, ux3d::imgui::SelectionSt
     if (ImGui::IsItemClicked()) {
         selection.selectNode(node);
     }
+    if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+        selection.selectNode(node);
+        ux3d::gltf::Extends ext = ux3d::gltf::utils::getExtends({ node }, &gltfModel);
+        camera.fitToBounds(glm::vec3(ext.min.x, ext.min.y, ext.min.z),
+                           glm::vec3(ext.max.x, ext.max.y, ext.max.z));
+        antiAliasing.resetHistory();
+    }
 
     if (open && !node->getChildren().empty()) {
         for (auto* child : node->getChildren()) {
-            renderNodeHierarchy(child, selection, sceneDirty);
+            renderNodeHierarchy(child, selection, gltfModel, camera, antiAliasing, sceneDirty);
         }
         ImGui::TreePop();
     }
@@ -403,6 +416,8 @@ int main(int argc, char** argv)
     gridRenderer.init(10.0f, 1.0f);
     ux3d::imgui::AntiAliasing antiAliasing;
     antiAliasing.init();
+    ux3d::imgui::BoundingBoxRenderer bboxRenderer;
+    bboxRenderer.init();
 
     ux3d::gltf::Gltf gltfModel;
     ux3d::gltf::Scene* activeScene = nullptr;
@@ -473,6 +488,11 @@ int main(int argc, char** argv)
         // Update animation player
         animationPlayer.update(deltaTime, gltfLayer.get());
 
+        // Turntable Auto-Rotate
+        if (viewportSettings.turntable && !ImGui::IsMouseDragging(ImGuiMouseButton_Middle)) {
+            orbitCamera.rotate(viewportSettings.turntableSpeed * deltaTime, 0.0f);
+        }
+
         // Keyboard shortcuts
         if (!io.WantTextInput) {
             if (ImGui::IsKeyPressed(ImGuiKey_W)) currentGizmoOp = ImGuizmo::TRANSLATE;
@@ -481,8 +501,30 @@ int main(int argc, char** argv)
             if (ImGui::IsKeyPressed(ImGuiKey_Q)) {
                 currentGizmoMode = (currentGizmoMode == ImGuizmo::LOCAL) ? ImGuizmo::WORLD : ImGuizmo::LOCAL;
             }
-            if (ImGui::IsKeyPressed(ImGuiKey_Home)) orbitCamera.reset();
-            if (ImGui::IsKeyPressed(ImGuiKey_F)) {
+            if (ImGui::IsKeyPressed(ImGuiKey_Home)) {
+                orbitCamera.reset();
+                antiAliasing.resetHistory();
+            }
+
+            // Numpad Camera Presets (Blender style)
+            if (ImGui::IsKeyPressed(ImGuiKey_Keypad1)) {
+                orbitCamera.setPresetView(io.KeyCtrl ? ux3d::imgui::PresetView::Back : ux3d::imgui::PresetView::Front);
+                antiAliasing.resetHistory();
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_Keypad3)) {
+                orbitCamera.setPresetView(io.KeyCtrl ? ux3d::imgui::PresetView::Left : ux3d::imgui::PresetView::Right);
+                antiAliasing.resetHistory();
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_Keypad7)) {
+                orbitCamera.setPresetView(io.KeyCtrl ? ux3d::imgui::PresetView::Bottom : ux3d::imgui::PresetView::Top);
+                antiAliasing.resetHistory();
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_Keypad5)) {
+                orbitCamera.toggleProjection();
+                antiAliasing.resetHistory();
+            }
+
+            if (ImGui::IsKeyPressed(ImGuiKey_F) || ImGui::IsKeyPressed(ImGuiKey_KeypadDecimal)) {
                 if (selection.type == ux3d::imgui::SelectionType::Node && selection.selectedNode != nullptr) {
                     ux3d::gltf::Extends extends = ux3d::gltf::utils::getExtends({ selection.selectedNode }, &gltfModel);
                     orbitCamera.fitToBounds(glm::vec3(extends.min.x, extends.min.y, extends.min.z),
@@ -492,6 +534,7 @@ int main(int argc, char** argv)
                     orbitCamera.fitToBounds(glm::vec3(extends.min.x, extends.min.y, extends.min.z),
                                             glm::vec3(extends.max.x, extends.max.y, extends.max.z));
                 }
+                antiAliasing.resetHistory();
             }
         }
 
@@ -616,6 +659,48 @@ int main(int argc, char** argv)
         // Animation Player Toolbar at top of viewport
         animationPlayer.renderToolbar(gltfModel);
 
+        // Quick Navigation & Inspection Toolbar Strip
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(5.0f, 2.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4.0f, 2.0f));
+        ImGui::BeginGroup();
+        if (ImGui::SmallButton("Front")) { orbitCamera.setPresetView(ux3d::imgui::PresetView::Front); antiAliasing.resetHistory(); }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Back")) { orbitCamera.setPresetView(ux3d::imgui::PresetView::Back); antiAliasing.resetHistory(); }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Right")) { orbitCamera.setPresetView(ux3d::imgui::PresetView::Right); antiAliasing.resetHistory(); }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Left")) { orbitCamera.setPresetView(ux3d::imgui::PresetView::Left); antiAliasing.resetHistory(); }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Top")) { orbitCamera.setPresetView(ux3d::imgui::PresetView::Top); antiAliasing.resetHistory(); }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Iso")) { orbitCamera.setPresetView(ux3d::imgui::PresetView::Isometric); antiAliasing.resetHistory(); }
+        ImGui::SameLine();
+        ImGui::TextDisabled("|");
+        ImGui::SameLine();
+        const char* projLabel = orbitCamera.isOrthographic() ? "Ortho" : "Persp";
+        if (ImGui::SmallButton(projLabel)) { orbitCamera.toggleProjection(); antiAliasing.resetHistory(); }
+        ImGui::SameLine();
+        if (ImGui::SmallButton(viewportSettings.turntable ? "[Turntable ON]" : "Turntable")) {
+            viewportSettings.turntable = !viewportSettings.turntable;
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Focus (F)")) {
+            if (selection.type == ux3d::imgui::SelectionType::Node && selection.selectedNode != nullptr) {
+                auto ext = ux3d::gltf::utils::getExtends({ selection.selectedNode }, &gltfModel);
+                orbitCamera.fitToBounds(glm::vec3(ext.min.x, ext.min.y, ext.min.z), glm::vec3(ext.max.x, ext.max.y, ext.max.z));
+            } else if (activeScene != nullptr && !activeScene->getNodes().empty()) {
+                auto ext = ux3d::gltf::utils::getExtends(activeScene->getNodes(), &gltfModel);
+                orbitCamera.fitToBounds(glm::vec3(ext.min.x, ext.min.y, ext.min.z), glm::vec3(ext.max.x, ext.max.y, ext.max.z));
+            }
+            antiAliasing.resetHistory();
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton(viewportSettings.showSceneBoundingBox ? "[BBox ON]" : "BBox")) {
+            viewportSettings.showSceneBoundingBox = !viewportSettings.showSceneBoundingBox;
+        }
+        ImGui::EndGroup();
+        ImGui::PopStyleVar(2);
+
         ImVec2 viewportSize = ImGui::GetContentRegionAvail();
         ImVec2 windowPos = ImGui::GetWindowPos();
         ImVec2 contentMin = ImGui::GetWindowContentRegionMin();
@@ -673,7 +758,13 @@ int main(int argc, char** argv)
             rendererCamera.setViewportResolution(vpW, vpH);
             glm::mat4 cameraWorld = glm::inverse(view);
             rendererCamera.setTransform(ux3d::math::mat4x4(cameraWorld));
-            rendererCamera.setPerspective(orbitCamera.getAspectRatio(), glm::radians(orbitCamera.getFoVY()), orbitCamera.getZNear(), orbitCamera.getZFar());
+            if (orbitCamera.isOrthographic()) {
+                float halfH = orbitCamera.getDistance() * std::tan(glm::radians(orbitCamera.getFoVY() * 0.5f));
+                float halfW = halfH * orbitCamera.getAspectRatio();
+                rendererCamera.setOrthographic(halfW, halfH, orbitCamera.getZNear(), orbitCamera.getZFar());
+            } else {
+                rendererCamera.setPerspective(orbitCamera.getAspectRatio(), glm::radians(orbitCamera.getFoVY()), orbitCamera.getZNear(), orbitCamera.getZFar());
+            }
             rendererCamera.setProjection(ux3d::math::mat4x4(jitteredProj));
             gltfLayer->setActiveCamera(&rendererCamera);
 
@@ -746,9 +837,25 @@ int main(int argc, char** argv)
             gridRenderer.draw(viewProj);
         }
 
+        // 3. Render bounding boxes
+        if (viewportSettings.showSceneBoundingBox && activeScene != nullptr && !activeScene->getNodes().empty()) {
+            ux3d::gltf::Extends ext = ux3d::gltf::utils::getExtends(activeScene->getNodes(), &gltfModel);
+            bboxRenderer.draw(glm::vec3(ext.min.x, ext.min.y, ext.min.z),
+                              glm::vec3(ext.max.x, ext.max.y, ext.max.z),
+                              glm::vec4(1.0f, 0.85f, 0.2f, 0.85f),
+                              viewProj);
+        }
+        if (viewportSettings.showSelectedBoundingBox && selection.type == ux3d::imgui::SelectionType::Node && selection.selectedNode != nullptr) {
+            ux3d::gltf::Extends ext = ux3d::gltf::utils::getExtends({ selection.selectedNode }, &gltfModel);
+            bboxRenderer.draw(glm::vec3(ext.min.x, ext.min.y, ext.min.z),
+                              glm::vec3(ext.max.x, ext.max.y, ext.max.z),
+                              glm::vec4(0.2f, 0.85f, 1.0f, 0.9f),
+                              viewProj);
+        }
+
         sceneFbo.unbind();
 
-        // 3. Post-processing Anti-Aliasing pass (MSAA resolved in FBO; FXAA & TAA resolved here)
+        // 4. Post-processing Anti-Aliasing pass (MSAA resolved in FBO; FXAA & TAA resolved here)
         GLuint displayTexture = antiAliasing.render(aaMode,
                                                     sceneFbo.getColorTexture(),
                                                     vpW, vpH,
@@ -761,6 +868,79 @@ int main(int argc, char** argv)
                          viewportSize,
                          ImVec2(0.0f, 1.0f),
                          ImVec2(1.0f, 0.0f));
+        }
+
+        // 3D Viewport Orientation Compass / Navigation Gizmo
+        if (viewportSettings.showOrientationGizmo) {
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            float radius = 35.0f;
+            ImVec2 center = ImVec2(viewportPos.x + viewportSize.x - radius - 15.0f, viewportPos.y + radius + 15.0f);
+
+            // Background subtle disc
+            drawList->AddCircleFilled(center, radius + 4.0f, IM_COL32(28, 30, 38, 190));
+            drawList->AddCircle(center, radius + 4.0f, IM_COL32(70, 75, 95, 180), 0, 1.5f);
+
+            struct AxisDef {
+                glm::vec3 dir;
+                const char* name;
+                ImU32 color;
+                ImU32 dimColor;
+                ux3d::imgui::PresetView preset;
+            };
+
+            AxisDef axisDefs[] = {
+                { glm::vec3( 1.0f,  0.0f,  0.0f), "X",  IM_COL32(235, 75, 75, 255),   IM_COL32(140, 40, 40, 160), ux3d::imgui::PresetView::Right },
+                { glm::vec3(-1.0f,  0.0f,  0.0f), "-X", IM_COL32(180, 70, 70, 200),  IM_COL32(100, 35, 35, 120), ux3d::imgui::PresetView::Left },
+                { glm::vec3( 0.0f,  1.0f,  0.0f), "Y",  IM_COL32(75, 220, 95, 255),   IM_COL32(40, 130, 50, 160), ux3d::imgui::PresetView::Top },
+                { glm::vec3( 0.0f, -1.0f,  0.0f), "-Y", IM_COL32(70, 170, 85, 200),  IM_COL32(35, 95, 45, 120),  ux3d::imgui::PresetView::Bottom },
+                { glm::vec3( 0.0f,  0.0f,  1.0f), "Z",  IM_COL32(70, 140, 245, 255),  IM_COL32(40, 80, 150, 160), ux3d::imgui::PresetView::Front },
+                { glm::vec3( 0.0f,  0.0f, -1.0f), "-Z", IM_COL32(65, 115, 200, 200), IM_COL32(35, 65, 120, 120), ux3d::imgui::PresetView::Back }
+            };
+
+            glm::mat3 rot = glm::mat3(view);
+
+            struct ProjectedAxis {
+                glm::vec3 v;
+                AxisDef* def;
+                ImVec2 pt;
+            };
+            std::vector<ProjectedAxis> projAxes;
+            for (auto& a : axisDefs) {
+                glm::vec3 v = rot * a.dir;
+                ImVec2 pt = ImVec2(center.x + v.x * radius * 0.82f, center.y - v.y * radius * 0.82f);
+                projAxes.push_back({ v, &a, pt });
+            }
+            std::sort(projAxes.begin(), projAxes.end(), [](const ProjectedAxis& a, const ProjectedAxis& b) {
+                return a.v.z < b.v.z;
+            });
+
+            ImVec2 mousePos = io.MousePos;
+            bool clicked = ImGui::IsMouseClicked(ImGuiMouseButton_Left);
+
+            for (const auto& pa : projAxes) {
+                bool isPositive = (pa.def->name[0] != '-');
+                float dotRadius = isPositive ? 7.0f : 4.5f;
+
+                if (isPositive) {
+                    drawList->AddLine(center, pa.pt, pa.def->color, 2.0f);
+                }
+
+                float distSq = (mousePos.x - pa.pt.x) * (mousePos.x - pa.pt.x) + (mousePos.y - pa.pt.y) * (mousePos.y - pa.pt.y);
+                bool hovered = (distSq <= (dotRadius + 3.0f) * (dotRadius + 3.0f));
+
+                ImU32 col = hovered ? IM_COL32(255, 255, 255, 255) : (pa.v.z >= 0.0f ? pa.def->color : pa.def->dimColor);
+                drawList->AddCircleFilled(pa.pt, dotRadius, col);
+
+                if (isPositive) {
+                    ImVec2 textSize = ImGui::CalcTextSize(pa.def->name);
+                    drawList->AddText(ImVec2(pa.pt.x - textSize.x * 0.5f, pa.pt.y - textSize.y * 0.5f), IM_COL32(20, 20, 25, 255), pa.def->name);
+                }
+
+                if (hovered && clicked) {
+                    orbitCamera.setPresetView(pa.def->preset);
+                    antiAliasing.resetHistory();
+                }
+            }
         }
 
         // Handle Mouse Camera Controls when hovering Viewport (Default Blender style)
@@ -817,7 +997,7 @@ int main(int argc, char** argv)
             std::string sceneTitle = activeScene->hasName() ? activeScene->getName().c_str() : ("Scene " + std::to_string(activeScene->m_ID));
             if (ImGui::TreeNodeEx(sceneTitle.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
                 for (auto* rootNode : activeScene->getNodes()) {
-                    renderNodeHierarchy(rootNode, selection, isSceneDirty);
+                    renderNodeHierarchy(rootNode, selection, gltfModel, orbitCamera, antiAliasing, isSceneDirty);
                 }
                 ImGui::TreePop();
             }
