@@ -81,10 +81,9 @@ static void saveBmp(const char* filename, int width, int height, const uint8_t* 
     std::vector<uint8_t> row(rowSize, 0);
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
-            int srcX = width - 1 - x;
-            row[x * 3 + 0] = rgba[(y * width + srcX) * 4 + 2]; // B
-            row[x * 3 + 1] = rgba[(y * width + srcX) * 4 + 1]; // G
-            row[x * 3 + 2] = rgba[(y * width + srcX) * 4 + 0]; // R
+            row[x * 3 + 0] = rgba[(y * width + x) * 4 + 2]; // B
+            row[x * 3 + 1] = rgba[(y * width + x) * 4 + 1]; // G
+            row[x * 3 + 2] = rgba[(y * width + x) * 4 + 0]; // R
         }
         out.write(reinterpret_cast<const char*>(row.data()), rowSize);
     }
@@ -1372,8 +1371,8 @@ int main(int argc, char** argv)
         if (displayTexture != 0) {
             ImGui::Image(static_cast<ImTextureID>(displayTexture),
                          viewportSize,
-                         ImVec2(1.0f, 1.0f),
-                         ImVec2(0.0f, 0.0f));
+                         ImVec2(0.0f, 1.0f),
+                         ImVec2(1.0f, 0.0f));
         }
 
         if (dumpFrameCountdown > 0) {
