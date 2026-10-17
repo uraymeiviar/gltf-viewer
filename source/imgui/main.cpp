@@ -788,9 +788,9 @@ int main(int argc, char** argv)
         glm::mat4 jitteredProj = jitterMat * proj;
         glm::mat4 viewProj = jitteredProj * view;
 
-        // 1. Render glTF scene
-        if (activeScene != nullptr && gltfLayer != nullptr && glRenderer != nullptr && commandGenerator != nullptr) {
-            if (isSceneDirty) {
+        // 1. Render glTF scene & background skybox
+        if (gltfLayer != nullptr && glRenderer != nullptr && commandGenerator != nullptr) {
+            if (activeScene != nullptr && isSceneDirty) {
                 gltfLayer->updateScene(gltfModel, *activeScene);
                 isSceneDirty = false;
             }
@@ -825,8 +825,8 @@ int main(int argc, char** argv)
             }
 
             // Apply Winding Order override and Render Mode cleanly via meshMapping
-            // Standard glTF 2.0 winding is CounterClockwise for positive transform determinants,
-            // and Clockwise for negative transform determinants (mirrored nodes).
+            // Inverted winding is default as requested by user (so cockpit and exterior hull normals are correct out of the box)
+            // Ticking "Invert Winding Order" in Viewport Settings flips to standard glTF CounterClockwise winding
             for (auto& [gltfTuple, renMesh] : gltfLayer->m_meshMapping.map) {
                 if (renMesh != nullptr) {
                     auto [gltfNode, gltfMesh, gltfPrimitive] = gltfTuple;
@@ -836,7 +836,8 @@ int main(int argc, char** argv)
                         det = ux3d::math::determinant(nodeIt->second->getWorldTransform());
                     }
                     bool baseClockwise = (det < 0.0f);
-                    bool isClockwise = baseClockwise ^ viewportSettings.invertWinding;
+                    bool useInvertedWinding = !viewportSettings.invertWinding;
+                    bool isClockwise = baseClockwise ^ useInvertedWinding;
                     renMesh->frontFace = isClockwise ? ux3d::renderer::gl::Winding::Clockwise : ux3d::renderer::gl::Winding::CounterClockwise;
 
                     renMesh->polygonMode = (mode == ux3d::renderer::RenderMode::Wireframe)
@@ -851,6 +852,7 @@ int main(int argc, char** argv)
             // Re-apply polygonMode and defines for all drawables in the active scene
             auto cubeTuple = gltfLayer->getResourceManager().getCubeMapTuple();
             auto* cubeMesh = std::get<0>(cubeTuple);
+            auto* cubeMaterial = std::get<1>(cubeTuple);
             for (auto& [mesh, material] : scene.drawables) {
                 if (mesh != nullptr && mesh != cubeMesh) {
                     mesh->polygonMode = (mode == ux3d::renderer::RenderMode::Wireframe)
@@ -858,7 +860,7 @@ int main(int argc, char** argv)
                         : ux3d::renderer::gl::PolygonMode::Fill;
                     mesh->defines.define("DEBUG", static_cast<int>(mode));
                 }
-                if (material != nullptr) {
+                if (material != nullptr && material != cubeMaterial) {
                     material->defines.define("DEBUG", static_cast<int>(mode));
                     if (viewportSettings.forceDoubleSided) {
                         material->isDoubleSided = true;

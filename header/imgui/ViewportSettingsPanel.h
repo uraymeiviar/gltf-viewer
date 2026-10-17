@@ -11,7 +11,7 @@
 namespace ux3d::imgui {
 
 struct ViewportSettingsState {
-    bool showBackground = false;
+    bool showBackground = true;
     glm::vec4 clearColor = glm::vec4(0.12f, 0.12f, 0.14f, 1.0f);
     float hdrBlur = 0.0f;
     float hdrIntensity = 1.0f;

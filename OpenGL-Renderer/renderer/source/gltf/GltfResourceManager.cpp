@@ -116,6 +116,7 @@ void GltfResourceManager::initCubeMap()
     m_cubeMapMaterial = createWithGLContext<Material>();
     m_cubeMapMaterial->fragmentShader = "cubemap.frag";
     m_cubeMapMaterial->renderPass = m_opaquePass;
+    m_cubeMapMaterial->isDoubleSided = true;
 }
 
 std::tuple<Mesh*, Material*> GltfResourceManager::getCubeMapTuple() const
