@@ -790,8 +790,11 @@ int main(int argc, char** argv)
 
         // 1. Render glTF scene & background skybox
         if (gltfLayer != nullptr && glRenderer != nullptr && commandGenerator != nullptr) {
-            if (activeScene != nullptr && isSceneDirty) {
-                gltfLayer->updateScene(gltfModel, *activeScene);
+            if (isSceneDirty) {
+                gltfLayer->updateGltf(gltfModel);
+                if (activeScene != nullptr) {
+                    gltfLayer->updateScene(gltfModel, *activeScene);
+                }
                 isSceneDirty = false;
             }
 
