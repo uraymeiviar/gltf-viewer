@@ -17,6 +17,10 @@ void ux3d::renderer::gl::Uniform::write(bool value)
 
 void ux3d::renderer::gl::Uniform::commit(GL* gl, const UniformBinding& binding) const
 {
+    if (m_bytes.empty()) {
+        return;
+    }
+
     const auto* floats = reinterpret_cast<const GLfloat*>(m_bytes.data());
     const auto* ints = reinterpret_cast<const GLint*>(m_bytes.data());
     const auto* uints = reinterpret_cast<const GLuint*>(m_bytes.data());

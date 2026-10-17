@@ -1,0 +1,79 @@
+// Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
+
+#pragma once
+
+#include <glad/glad.h>
+#include <glm/glm.hpp>
+#include <cstdint>
+
+namespace ux3d::imgui {
+
+enum class AntiAliasingMode {
+    None = 0,
+    MSAA_2x = 1,
+    MSAA_4x = 2, // Recommended default
+    MSAA_8x = 3,
+    FXAA = 4,
+    TAA = 5
+};
+
+class AntiAliasing {
+public:
+    AntiAliasing();
+    ~AntiAliasing();
+
+    AntiAliasing(const AntiAliasing&) = delete;
+    AntiAliasing& operator=(const AntiAliasing&) = delete;
+
+    void init();
+    void cleanup();
+
+    // Returns required hardware multisample count for Framebuffer
+    static int getSampleCount(AntiAliasingMode mode);
+
+    // Get subpixel projection jitter for TAA
+    glm::vec2 getJitter(AntiAliasingMode mode, int width, int height);
+
+    // Execute post-processing AA passes (FXAA or TAA).
+    // For MSAA or None, directly returns inputColorTexture.
+    GLuint render(AntiAliasingMode mode,
+                  GLuint inputColorTexture,
+                  int width, int height,
+                  const glm::mat4& currentViewProj,
+                  bool sceneDirty);
+
+    void resetHistory();
+
+private:
+    void ensureBuffers(int width, int height);
+
+    // Quad VAO
+    GLuint m_quadVao = 0;
+
+    // FXAA resources
+    GLuint m_fxaaProgram = 0;
+    GLint m_fxaaTexLoc = -1;
+    GLint m_fxaaTexelSizeLoc = -1;
+    GLuint m_fxaaFbo = 0;
+    GLuint m_fxaaTexture = 0;
+
+    // TAA Ping-Pong resources
+    GLuint m_taaProgram = 0;
+    GLint m_taaCurrTexLoc = -1;
+    GLint m_taaHistTexLoc = -1;
+    GLint m_taaTexelSizeLoc = -1;
+    GLint m_taaBlendFactorLoc = -1;
+
+    GLuint m_taaFbo[2] = { 0, 0 };
+    GLuint m_taaTexture[2] = { 0, 0 };
+    int m_taaCurrentIndex = 0;
+    bool m_historyValid = false;
+
+    int m_width = 0;
+    int m_height = 0;
+
+    uint32_t m_frameIndex = 0;
+    glm::mat4 m_lastViewProj = glm::mat4(1.0f);
+};
+
+} // namespace ux3d::imgui

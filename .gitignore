@@ -95,3 +95,6 @@ node_modules
 /tests/Results
 /Deployment/Gestaltor.app
 /xcode_build
+
+# Dear ImGui runtime window state
+imgui.ini

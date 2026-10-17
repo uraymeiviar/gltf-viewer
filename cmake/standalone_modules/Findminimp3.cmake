@@ -1,0 +1,7 @@
+if (TARGET minimp3::minimp3 OR TARGET minimp3)
+    set(minimp3_FOUND TRUE)
+    if (NOT TARGET minimp3::minimp3 AND TARGET minimp3)
+        add_library(minimp3::minimp3 ALIAS minimp3)
+    endif()
+    return()
+endif()

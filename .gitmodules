@@ -1,12 +1,13 @@
-[submodule "Runtime/glm"]
+[submodule "OpenGL-Renderer/Tools/Runtime/thirdparty/glm"]
 	path = OpenGL-Renderer/Tools/Runtime/thirdparty/glm
 	url = https://github.com/g-truc/glm.git
-[submodule "Runtime/catch2"]
+[submodule "OpenGL-Renderer/Tools/Runtime/thirdparty/catch2"]
 	path = OpenGL-Renderer/Tools/Runtime/thirdparty/catch2
 	url = https://github.com/catchorg/Catch2.git
+	branch = v2.x
 [submodule "thirdparty/gltf-schema"]
 	path = thirdparty/gltf-schema
-	url = git@github.com:ux3d/glTF-Schema.git
+	url = https://github.com/ux3d/glTF-Schema.git
 [submodule "thirdparty/oneTBB"]
 	path = thirdparty/oneTBB
 	url = https://github.com/oneapi-src/oneTBB.git

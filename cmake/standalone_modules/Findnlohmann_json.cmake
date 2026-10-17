@@ -1,0 +1,7 @@
+if (TARGET nlohmann_json::nlohmann_json OR TARGET nlohmann_json)
+    set(nlohmann_json_FOUND TRUE)
+    if (NOT TARGET nlohmann_json::nlohmann_json AND TARGET nlohmann_json)
+        add_library(nlohmann_json::nlohmann_json ALIAS nlohmann_json)
+    endif()
+    return()
+endif()

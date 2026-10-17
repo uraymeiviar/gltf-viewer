@@ -16,7 +16,10 @@ ux3d::renderer::CommandGenerator::CommandGenerator(gl::GL* gl, const filesystem:
     , m_environmentMapBlurNormalizedUniform("u_EnvBlurNormalized")
     , m_lights(gl)
 {
-    m_exposureUniform.write(0.0f);
+    setEnvironmentMapRotation(0.0f);
+    setEnvironmentMapBlurNormalized(0.0f);
+    setEnvironmentMapIntensity(1.0f);
+    setExposure(0.0f);
 }
 
 void ux3d::renderer::CommandGenerator::update(const RendererScene& scene)

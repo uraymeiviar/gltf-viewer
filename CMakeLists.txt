@@ -19,7 +19,15 @@ include("${Renderer_DIR}/defines.cmake")
 include("cmake/defines.cmake")
 include(cmake/helpers.cmake)
 include(cmake/gather_frameworks.cmake)
-include(cmake/conan.cmake)
+include(cmake/GroupSourcesByFolder.cmake)
+
+option(GESTALTOR_BUILD_IMGUI "Build standalone Dear ImGui application" ON)
+option(GESTALTOR_BUILD_QT "Build legacy Qt 6 GUI application" OFF)
+
+if (GESTALTOR_BUILD_QT)
+	include(cmake/conan.cmake)
+endif()
+
 
 #Add multithreading to msvc
 if(MSVC)
@@ -28,6 +36,9 @@ if(MSVC)
 	string(REPLACE "/RTC1" "" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
 	# Enable inlining level 1 to increase debug performance
 	set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Ob1")
+	if (GESTALTOR_BUILD_IMGUI AND NOT GESTALTOR_BUILD_QT)
+		set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+	endif()
 endif()
 
 # Ensure only one CMake Project is generated
@@ -74,8 +85,13 @@ if(APPLE)
 endif()
 
 # project name
-project("Gestaltor")
+project("Gestaltor" LANGUAGES C CXX)
 set(PROJECT_VERSION ${UX3D_VERSION})
+
+if (NOT GESTALTOR_BUILD_QT)
+	include(cmake/standalone_dependencies.cmake)
+endif()
+
 
 if(${CMAKE_CXX_COMPILER_ID} MATCHES Clang)
 	add_compile_options("-fcolor-diagnostics")
@@ -90,6 +106,7 @@ endif()
 
 add_subdirectory(subprocess)
 
+if (GESTALTOR_BUILD_QT)
 #--------------------------------------------------------------------------------
 # run and configure conan
 # https://github.com/conan-io/cmake-conan
@@ -355,15 +372,30 @@ set(qt_plugins
 	"${QTBASE_PATH}/plugins/styles"
 	"${QTBASE_PATH}/plugins/tls"
 )
+endif() # GESTALTOR_BUILD_QT
 
-include(thirdparty/usd_from_gltf.cmake)
-include(thirdparty/gltf-validator.cmake)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/usd_from_gltf.cmake")
+	include(thirdparty/usd_from_gltf.cmake)
+endif()
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/gltf-validator.cmake")
+	include(thirdparty/gltf-validator.cmake)
+endif()
+
+set(UX3D_RESOURCES_ROOT_DIR "${PROJECT_SOURCE_DIR}" CACHE INTERNAL "" FORCE)
+set(UX3D_EDITOR_RESOURCES_DIR "${UX3D_RESOURCES_ROOT_DIR}/resources" CACHE INTERNAL "" FORCE)
+set(UX3D_RENDERER_RESOURCES_DIR "${UX3D_RESOURCES_ROOT_DIR}/OpenGL-Renderer/resources" CACHE INTERNAL "" FORCE)
+
+add_definitions(-DUX3D_EDITOR_RESOURCES_DIR="${UX3D_EDITOR_RESOURCES_DIR}")
+add_definitions(-DUX3D_RENDERER_RESOURCES_DIR="${UX3D_RENDERER_RESOURCES_DIR}")
 
 add_subdirectory("OpenGL-Renderer")
 add_subdirectory("editor")
 add_subdirectory("thirdparty")
-add_subdirectory("automated")
+if (GESTALTOR_BUILD_QT)
+	add_subdirectory("automated")
+endif()
 
+if (GESTALTOR_BUILD_QT)
 # add all relevant project files to cmake variables
 add_sources("source/*.cpp" "sources")
 if (APPLE)
@@ -904,6 +936,97 @@ if(WIN32)
 	if(NOT ${CMAKE_BUILD_TYPE} STREQUAL "Debug" OR(NOT EXISTS "${CMAKE_BINARY_DIR}/bin/Qt6QuickWidgetsd.dll" AND NOT EXISTS "${CMAKE_BINARY_DIR}/bin/Debug/Qt6QuickWidgetsd.dll"))
 		add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD COMMAND "${CMAKE_BINARY_DIR}/qt/bin/windeployqt.exe" "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${CMAKE_CFG_INTDIR}/${UX3D_OUTPUT_NAME}.exe" "-qmldir=${PROJECT_SOURCE_DIR}/editor/qml" VERBATIM)
 	endif()
+endif()
+endif() # GESTALTOR_BUILD_QT
+
+#--------------------------------------------------------------------------------
+# Standalone Dear ImGui Target
+#--------------------------------------------------------------------------------
+if (GESTALTOR_BUILD_IMGUI)
+	set(IMGUI_APP_NAME "Gestaltor-ImGui")
+
+	set(IMGUI_SOURCES
+		"source/imgui/main.cpp"
+		"source/imgui/GladGL.cpp"
+		"header/imgui/GladGL.h"
+		"source/imgui/Framebuffer.cpp"
+		"header/imgui/Framebuffer.h"
+		"source/imgui/OrbitCamera.cpp"
+		"header/imgui/OrbitCamera.h"
+		"source/imgui/StdFileSystem.cpp"
+		"header/imgui/StdFileSystem.h"
+		"source/imgui/GridRenderer.cpp"
+		"header/imgui/GridRenderer.h"
+		"source/imgui/MaterialInspector.cpp"
+		"header/imgui/MaterialInspector.h"
+		"source/imgui/ViewportSettingsPanel.cpp"
+		"header/imgui/ViewportSettingsPanel.h"
+		"source/imgui/StatisticsPanel.cpp"
+		"header/imgui/StatisticsPanel.h"
+		"source/imgui/ResourcesPanel.cpp"
+		"header/imgui/ResourcesPanel.h"
+		"source/imgui/ElementInspector.cpp"
+		"header/imgui/ElementInspector.h"
+		"source/imgui/AnimationPlayer.cpp"
+		"header/imgui/AnimationPlayer.h"
+		"source/imgui/AntiAliasing.cpp"
+		"header/imgui/AntiAliasing.h"
+	)
+
+	add_executable(${IMGUI_APP_NAME} ${IMGUI_SOURCES})
+
+	target_include_directories(${IMGUI_APP_NAME} PRIVATE
+		"header"
+		"header/imgui"
+		"source"
+		"${PROJECT_SOURCE_DIR}/OpenGL-Renderer/renderer/include"
+		"${PROJECT_SOURCE_DIR}/OpenGL-Renderer/Tools/tools/filesystem/include"
+		"${PROJECT_SOURCE_DIR}/OpenGL-Renderer/Tools/tools/gltf/include"
+		"${PROJECT_SOURCE_DIR}/OpenGL-Renderer/Tools/Runtime/runtime/core/include"
+		"${PROJECT_SOURCE_DIR}/OpenGL-Renderer/Tools/Runtime/runtime/math/include"
+		"${PROJECT_SOURCE_DIR}/OpenGL-Renderer/Tools/Runtime/thirdparty/glm"
+	)
+
+	target_link_libraries(${IMGUI_APP_NAME} PRIVATE
+		imgui
+		imguizmo
+		pfd
+		glad
+		glfw
+		OpenGL-Renderer
+		Gltf
+		Filesystem
+		ImageFormats
+		Utils
+		Mementos
+		DataStorage
+		Reactor
+		Audio
+		Core
+		Math
+		Logging
+		subprocess
+		draco::draco
+		nlohmann_json::nlohmann_json
+		TBB::tbb
+		opengl32
+	)
+
+	set_target_properties(${IMGUI_APP_NAME} PROPERTIES
+		OUTPUT_NAME "Gestaltor"
+		CXX_STANDARD 20
+		CXX_STANDARD_REQUIRED ON
+	)
+
+	add_custom_command(TARGET ${IMGUI_APP_NAME} POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E copy_directory
+			"${PROJECT_SOURCE_DIR}/OpenGL-Renderer/resources"
+			"$<TARGET_FILE_DIR:${IMGUI_APP_NAME}>/resources"
+		COMMAND ${CMAKE_COMMAND} -E copy_directory
+			"${PROJECT_SOURCE_DIR}/resources"
+			"$<TARGET_FILE_DIR:${IMGUI_APP_NAME}>/resources"
+		COMMENT "Copying runtime resources next to Gestaltor executable"
+	)
 endif()
 
 

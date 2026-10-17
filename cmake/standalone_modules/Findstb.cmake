@@ -1,0 +1,7 @@
+if (TARGET stb::stb OR TARGET stb)
+    set(stb_FOUND TRUE)
+    if (NOT TARGET stb::stb AND TARGET stb)
+        add_library(stb::stb ALIAS stb)
+    endif()
+    return()
+endif()

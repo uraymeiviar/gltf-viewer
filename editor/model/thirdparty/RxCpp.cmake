@@ -1,5 +1,9 @@
 include(FetchContent)
 
+if(TARGET RxCpp)
+    return()
+endif()
+
 FetchContent_Declare(RxCpp
   GIT_REPOSITORY https://github.com/ReactiveX/RxCpp.git
   GIT_TAG v4.1.1
@@ -10,7 +14,9 @@ if(NOT RxCpp_POPULATED)
   FetchContent_Populate(RxCpp)
 endif()
 
-add_library(RxCpp INTERFACE)
-target_include_directories(RxCpp INTERFACE ${rxcpp_SOURCE_DIR}/Rx/v2/src/)
-message(STATUS "RxCpp source dir ${rxcpp_SOURCE_DIR}")
+if(NOT TARGET RxCpp)
+  add_library(RxCpp INTERFACE)
+  target_include_directories(RxCpp INTERFACE ${rxcpp_SOURCE_DIR}/Rx/v2/src/)
+  message(STATUS "RxCpp source dir ${rxcpp_SOURCE_DIR}")
+endif()
 

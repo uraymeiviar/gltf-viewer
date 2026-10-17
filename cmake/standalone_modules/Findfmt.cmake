@@ -1,0 +1,8 @@
+if (TARGET fmt::fmt OR TARGET fmt)
+    set(fmt_FOUND TRUE)
+    set(FMT_FOUND TRUE)
+    if (NOT TARGET fmt::fmt AND TARGET fmt)
+        add_library(fmt::fmt ALIAS fmt)
+    endif()
+    return()
+endif()

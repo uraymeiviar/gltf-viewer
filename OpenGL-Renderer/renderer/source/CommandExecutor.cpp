@@ -60,15 +60,22 @@ void ux3d::renderer::CommandExecutor::draw(const Command& command)
     }
 
     for (const auto& uniform : command.uniforms) {
-        command.program->commitUniform(*uniform);
+        if (uniform != nullptr) {
+            command.program->commitUniform(*uniform);
+        }
     }
 
     for (const auto& block : command.uniformBlocks) {
-        command.program->commitUniformBlock(*block);
+        if (block != nullptr) {
+            command.program->commitUniformBlock(*block);
+        }
     }
 
     for (GLint i = 0; i < command.samplers.size(); ++i) {
         const auto& sampler = command.samplers[i];
+        if (sampler == nullptr) {
+            continue;
+        }
         if (i >= m_maxTextureUnits) {
             core::logError("Using too many textures, ignoring %s", sampler->name.data());
             break;
@@ -126,7 +133,7 @@ bool ux3d::renderer::CommandExecutor::bindFrameBuffer(const Command& command) co
 
 void ux3d::renderer::CommandExecutor::setupVertexArray(const Command& command)
 {
-    if (command.vertexLayout->handle != m_activeVertexArray) {
+    if (command.vertexLayout != nullptr && command.vertexLayout->handle != m_activeVertexArray) {
         m_activeVertexArray = command.vertexLayout->handle;
         m_gl->bindVertexArray(m_activeVertexArray);
     }

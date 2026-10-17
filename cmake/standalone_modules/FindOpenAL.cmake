@@ -1,0 +1,8 @@
+if (TARGET OpenAL::OpenAL OR TARGET OpenAL)
+    set(OpenAL_FOUND TRUE)
+    set(OPENAL_FOUND TRUE)
+    if (NOT TARGET OpenAL::OpenAL AND TARGET OpenAL)
+        add_library(OpenAL::OpenAL ALIAS OpenAL)
+    endif()
+    return()
+endif()
