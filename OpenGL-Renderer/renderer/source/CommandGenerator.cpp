@@ -19,7 +19,7 @@ ux3d::renderer::CommandGenerator::CommandGenerator(gl::GL* gl, const filesystem:
     setEnvironmentMapRotation(0.0f);
     setEnvironmentMapBlurNormalized(0.0f);
     setEnvironmentMapIntensity(1.0f);
-    setExposure(0.0f);
+    setExposure(1.0f);
 }
 
 void ux3d::renderer::CommandGenerator::update(const RendererScene& scene)

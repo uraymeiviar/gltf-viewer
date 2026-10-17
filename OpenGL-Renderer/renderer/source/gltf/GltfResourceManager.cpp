@@ -176,18 +176,21 @@ EnvironmentMap* GltfResourceManager::loadEnvironmentMap(const IBLSampler& _iblSa
     samplerState.magFilter = renderer::gl::TextureMagFilter::Linear;
     samplerState.wrapS = renderer::gl::TextureWrap::ClampToEdge;
     samplerState.wrapT = renderer::gl::TextureWrap::ClampToEdge;
+    samplerState.wrapR = renderer::gl::TextureWrap::ClampToEdge;
     envMap.setDiffuse(lambertianTexture, create<renderer::gl::SamplerState>(samplerState));
 
     samplerState.minFilter = renderer::gl::TextureMinFilter::LinearMipmapLinear;
     samplerState.magFilter = renderer::gl::TextureMagFilter::Linear;
     samplerState.wrapS = renderer::gl::TextureWrap::ClampToEdge;
     samplerState.wrapT = renderer::gl::TextureWrap::ClampToEdge;
+    samplerState.wrapR = renderer::gl::TextureWrap::ClampToEdge;
     envMap.setSpecular(ggxTexture, create<renderer::gl::SamplerState>(samplerState), _iblSampler.getMipmapLevels());
 
     samplerState.minFilter = renderer::gl::TextureMinFilter::LinearMipmapLinear;
     samplerState.magFilter = renderer::gl::TextureMagFilter::Linear;
     samplerState.wrapS = renderer::gl::TextureWrap::ClampToEdge;
     samplerState.wrapT = renderer::gl::TextureWrap::ClampToEdge;
+    samplerState.wrapR = renderer::gl::TextureWrap::ClampToEdge;
     envMap.setSheen(sheenTexture, create<renderer::gl::SamplerState>(samplerState), _iblSampler.getMipmapLevels());
 
     samplerState.minFilter = renderer::gl::TextureMinFilter::Linear;

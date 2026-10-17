@@ -413,7 +413,7 @@ int main(int argc, char** argv)
     ux3d::imgui::Framebuffer sceneFbo;
     ux3d::imgui::OrbitCamera orbitCamera;
     ux3d::imgui::GridRenderer gridRenderer;
-    gridRenderer.init(10.0f, 1.0f);
+    gridRenderer.init();
     ux3d::imgui::AntiAliasing antiAliasing;
     antiAliasing.init();
     ux3d::imgui::BoundingBoxRenderer bboxRenderer;
@@ -825,8 +825,8 @@ int main(int argc, char** argv)
             }
 
             // Apply Winding Order override and Render Mode cleanly via meshMapping
-            // Inverted winding is default (so cockpit and inverted hull normals are correct out of the box)
-            // Ticking invertWinding in viewport settings reverts to standard glTF winding
+            // Standard glTF 2.0 winding is CounterClockwise for positive transform determinants,
+            // and Clockwise for negative transform determinants (mirrored nodes).
             for (auto& [gltfTuple, renMesh] : gltfLayer->m_meshMapping.map) {
                 if (renMesh != nullptr) {
                     auto [gltfNode, gltfMesh, gltfPrimitive] = gltfTuple;
@@ -836,12 +836,8 @@ int main(int argc, char** argv)
                         det = ux3d::math::determinant(nodeIt->second->getWorldTransform());
                     }
                     bool baseClockwise = (det < 0.0f);
-                    bool useInvertedWinding = !viewportSettings.invertWinding;
-                    if (useInvertedWinding) {
-                        renMesh->frontFace = baseClockwise ? ux3d::renderer::gl::Winding::CounterClockwise : ux3d::renderer::gl::Winding::Clockwise;
-                    } else {
-                        renMesh->frontFace = baseClockwise ? ux3d::renderer::gl::Winding::Clockwise : ux3d::renderer::gl::Winding::CounterClockwise;
-                    }
+                    bool isClockwise = baseClockwise ^ viewportSettings.invertWinding;
+                    renMesh->frontFace = isClockwise ? ux3d::renderer::gl::Winding::Clockwise : ux3d::renderer::gl::Winding::CounterClockwise;
 
                     renMesh->polygonMode = (mode == ux3d::renderer::RenderMode::Wireframe)
                         ? ux3d::renderer::gl::PolygonMode::Line
@@ -870,6 +866,14 @@ int main(int argc, char** argv)
                 }
             }
 
+            // Continuously synchronize viewport lighting, exposure, and environment parameters
+            commandGenerator->setExposure(std::pow(2.0f, viewportSettings.exposureEV));
+            commandGenerator->setEnvironmentMapIntensity(viewportSettings.hdrIntensity);
+            commandGenerator->setEnvironmentMapRotation(viewportSettings.hdrRotation);
+            commandGenerator->setEnvironmentMapBlurNormalized(viewportSettings.hdrBlur);
+            commandGenerator->setIBLEnabled(viewportSettings.iblEnabled);
+            commandGenerator->setPunctualLightsEnabled(viewportSettings.punctualLightsEnabled);
+
             commandGenerator->update(scene);
             glRenderer->draw({ commandGenerator.get() });
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
@@ -891,9 +895,9 @@ int main(int argc, char** argv)
             }
         }
 
-        // 2. Render ground grid
+        // 2. Render ground grid (infinite fading ground plane)
         if (viewportSettings.showGrid) {
-            gridRenderer.draw(viewProj);
+            gridRenderer.draw(view, proj, orbitCamera.getEyePosition(), orbitCamera.getDistance());
         }
 
         // 3. Render bounding boxes
