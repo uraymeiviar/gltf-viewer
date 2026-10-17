@@ -11,6 +11,12 @@
 #include "gltf/Texture.h"
 #include "gltf/Image.h"
 #include "gltf/Animation.h"
+#include "gltf/Skin.h"
+#include "gltf/MaterialVariant.h"
+
+namespace ux3d::renderer {
+class GltfRenderLayer;
+}
 
 namespace ux3d::imgui {
 
@@ -23,7 +29,9 @@ enum class SelectionType {
     Light,
     Texture,
     Image,
-    Animation
+    Animation,
+    Skin,
+    MaterialVariant
 };
 
 struct SelectionState {
@@ -36,10 +44,12 @@ struct SelectionState {
     ux3d::gltf::Texture* selectedTexture = nullptr;
     ux3d::gltf::Image* selectedImage = nullptr;
     ux3d::gltf::Animation* selectedAnimation = nullptr;
+    ux3d::gltf::Skin* selectedSkin = nullptr;
+    ux3d::gltf::MaterialVariant* selectedVariant = nullptr;
 
-    void selectNode(ux3d::gltf::Node* node) {
+    void selectNode(const ux3d::gltf::Node* node) {
         type = SelectionType::Node;
-        selectedNode = node;
+        selectedNode = const_cast<ux3d::gltf::Node*>(node);
     }
 
     void selectMaterial(ux3d::gltf::Material* mat) {
@@ -76,11 +86,24 @@ struct SelectionState {
         type = SelectionType::Animation;
         selectedAnimation = anim;
     }
+
+    void selectSkin(ux3d::gltf::Skin* skin) {
+        type = SelectionType::Skin;
+        selectedSkin = skin;
+    }
+
+    void selectVariant(ux3d::gltf::MaterialVariant* variant) {
+        type = SelectionType::MaterialVariant;
+        selectedVariant = variant;
+    }
 };
 
 class ResourcesPanel {
 public:
-    static void render(ux3d::gltf::Gltf& gltfModel, SelectionState& selection);
+    static void render(ux3d::gltf::Gltf& gltfModel,
+                       SelectionState& selection,
+                       ux3d::renderer::GltfRenderLayer* gltfLayer = nullptr,
+                       bool* isSceneDirty = nullptr);
 };
 
 } // namespace ux3d::imgui

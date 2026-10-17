@@ -12,7 +12,8 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
                                    ux3d::renderer::CommandGenerator* commandGenerator,
                                    ux3d::renderer::GltfRenderLayer* gltfLayer,
                                    ux3d::imgui::OrbitCamera& camera,
-                                   bool& isSceneDirty)
+                                   bool& isSceneDirty,
+                                   ux3d::gltf::Gltf* gltfModel)
 {
     if (ImGui::BeginTabBar("ViewportSettingsTabs")) {
         // -------------------------------------------------------------
@@ -187,7 +188,50 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
             if (ImGui::Checkbox("Invert Winding Order (Flip Front / Back Faces)", &state.invertWinding)) {
                 isSceneDirty = true;
             }
-            ImGui::TextDisabled("Front faces are inverted by default for correct cockpit/hull normals. Check to flip back to standard glTF winding.");
+            ImGui::Separator();
+            ImGui::Text("Wireframe:");
+            if (ImGui::Checkbox("Wireframe Overlay", &state.wireframeOverlay)) {
+                isSceneDirty = true;
+            }
+            ImGui::TextDisabled("Superimposes wireframe mesh edges on top of shaded materials.");
+
+            // Material Variants (KHR_materials_variants)
+            if (gltfModel != nullptr && gltfModel->hasMaterialVariants()) {
+                ImGui::Separator();
+                ImGui::Text("Material Variants (KHR_materials_variants):");
+                auto& variants = gltfModel->getMaterialVariants();
+                std::string curVarName = "Default / Original";
+                if (gltfLayer && gltfLayer->getMaterialVariant().has_value()) {
+                    uint32_t activeVarId = gltfLayer->getMaterialVariant().value();
+                    for (const auto& v : variants) {
+                        if (v.m_ID == activeVarId) {
+                            curVarName = v.hasName() ? v.getName().c_str() : ("Variant " + std::to_string(v.m_ID));
+                            break;
+                        }
+                    }
+                }
+
+                if (ImGui::BeginCombo("Active Variant", curVarName.c_str())) {
+                    bool isDef = !gltfLayer || !gltfLayer->getMaterialVariant().has_value();
+                    if (ImGui::Selectable("Default / Original", isDef)) {
+                        if (gltfLayer) {
+                            gltfLayer->setMaterialVariant(std::nullopt);
+                            isSceneDirty = true;
+                        }
+                    }
+                    for (const auto& v : variants) {
+                        bool isSel = (gltfLayer && gltfLayer->getMaterialVariant().has_value() && gltfLayer->getMaterialVariant().value() == v.m_ID);
+                        std::string vLabel = v.hasName() ? v.getName().c_str() : ("Variant " + std::to_string(v.m_ID));
+                        if (ImGui::Selectable(vLabel.c_str(), isSel)) {
+                            if (gltfLayer) {
+                                gltfLayer->setMaterialVariant(v.m_ID);
+                                isSceneDirty = true;
+                            }
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+            }
 
             ImGui::EndTabItem();
         }

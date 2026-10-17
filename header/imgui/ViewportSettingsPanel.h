@@ -30,6 +30,7 @@ struct ViewportSettingsState {
     int antiAliasingIdx = 2;       // 0=None, 1=MSAA 2x, 2=MSAA 4x (Default), 3=MSAA 8x, 4=FXAA, 5=TAA
 
     // Visual Inspection & Diagnostics
+    bool wireframeOverlay = false;         // Overlay wireframe mesh edges on top of shaded model
     bool showSceneBoundingBox = false;     // Yellow AABB box for entire scene
     bool showSelectedBoundingBox = false;  // Cyan AABB box for selected node
     bool turntable = false;                // Auto-rotate turntable
@@ -43,7 +44,8 @@ public:
                        ux3d::renderer::CommandGenerator* commandGenerator,
                        ux3d::renderer::GltfRenderLayer* gltfLayer,
                        ux3d::imgui::OrbitCamera& camera,
-                       bool& isSceneDirty);
+                       bool& isSceneDirty,
+                       ux3d::gltf::Gltf* gltfModel = nullptr);
 };
 
 } // namespace ux3d::imgui

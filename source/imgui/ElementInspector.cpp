@@ -1,17 +1,23 @@
-// Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
-
 #include "imgui/ElementInspector.h"
 #include "imgui/MaterialInspector.h"
+#include "imgui/AnimationPlayer.h"
 #include "imageformats/imageformats.h"
+#include "gltf/GlTypes.h"
+#include "gltf/AttributeType.h"
 #include <imgui.h>
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/quaternion.hpp>
 #include <cstring>
 #include <cmath>
+#include <string>
+#include <vector>
 
 namespace ux3d::imgui {
 
-void ElementInspector::render(SelectionState& selection, ux3d::gltf::Gltf& gltfModel, bool& isSceneDirty)
+void ElementInspector::render(SelectionState& selection,
+                              ux3d::gltf::Gltf& gltfModel,
+                              bool& isSceneDirty,
+                              AnimationPlayer* animationPlayer)
 {
     if (selection.type == SelectionType::None) {
         ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Select an element from the Hierarchy or Resources panel.");
@@ -114,6 +120,37 @@ void ElementInspector::render(SelectionState& selection, ux3d::gltf::Gltf& gltfM
                 selection.selectLight(node->getLight());
             }
         }
+
+        if (node->getSkin() != nullptr) {
+            ImGui::Separator();
+            auto* skin = node->getSkin();
+            std::string skinLabel = skin->hasName() ? skin->getName().c_str() : ("Skin " + std::to_string(skin->m_ID));
+            ImGui::Text("Attached Skin: %s", skinLabel.c_str());
+            if (ImGui::Button("Inspect Attached Skin")) {
+                selection.selectSkin(skin);
+            }
+        }
+
+        if (!node->getChildren().empty()) {
+            ImGui::Separator();
+            std::string chHdr = "Children (" + std::to_string(node->getChildren().size()) + ")";
+            if (ImGui::TreeNode(chHdr.c_str())) {
+                int cIdx = 0;
+                for (auto* ch : node->getChildren()) {
+                    if (ch != nullptr) {
+                        std::string cName = ch->hasName() ? ch->getName().c_str() : ("Node " + std::to_string(ch->m_ID));
+                        ImGui::Text("[%d] %s", cIdx, cName.c_str());
+                        ImGui::SameLine();
+                        std::string btnLabel = "Select##Ch" + std::to_string(cIdx);
+                        if (ImGui::SmallButton(btnLabel.c_str())) {
+                            selection.selectNode(ch);
+                        }
+                    }
+                    ++cIdx;
+                }
+                ImGui::TreePop();
+            }
+        }
     }
 
     // -----------------------------------------------------------------
@@ -154,20 +191,65 @@ void ElementInspector::render(SelectionState& selection, ux3d::gltf::Gltf& gltfM
         for (auto& prim : prims) {
             std::string primTitle = "Primitive " + std::to_string(idx);
             if (ImGui::TreeNode(primTitle.c_str())) {
+                // Primitive Topology Mode
+                const char* modeStr = "Triangles";
+                switch (prim.getPrimitiveMode()) {
+                    case ux3d::gltf::PrimitiveMode::Points: modeStr = "Points"; break;
+                    case ux3d::gltf::PrimitiveMode::Lines: modeStr = "Lines"; break;
+                    case ux3d::gltf::PrimitiveMode::LineLoop: modeStr = "LineLoop"; break;
+                    case ux3d::gltf::PrimitiveMode::LineStrip: modeStr = "LineStrip"; break;
+                    case ux3d::gltf::PrimitiveMode::Triangles: modeStr = "Triangles"; break;
+                    case ux3d::gltf::PrimitiveMode::TriangleStrip: modeStr = "TriangleStrip"; break;
+                    case ux3d::gltf::PrimitiveMode::TriangleFan: modeStr = "TriangleFan"; break;
+                    default: break;
+                }
+                ImGui::Text("Topology Mode: %s", modeStr);
+
                 // Indices & vertices
                 if (prim.getIndicesAccessor() != nullptr) {
                     ImGui::Text("Triangles: %u", prim.getIndicesAccessor()->getCount() / 3);
-                    ImGui::Text("Indices: %u", prim.getIndicesAccessor()->getCount());
+                    ImGui::Text("Indices: %u (Accessor ID: %u)", prim.getIndicesAccessor()->getCount(), prim.getIndicesAccessor()->m_ID);
                 }
 
                 // Attributes
                 if (ImGui::TreeNode("Vertex Attributes")) {
                     for (const auto& attr : prim.getAttributes()) {
                         std::string attrName = attr.getName().c_str();
-                        uint32_t count = attr.getAccessor() ? attr.getAccessor()->getCount() : 0;
-                        ImGui::BulletText("%s (%u vertices)", attrName.c_str(), count);
+                        auto* acc = attr.getAccessor();
+                        if (acc != nullptr) {
+                            std::string typeStr = ux3d::gltf::attributeTypeToString(acc->getType()).c_str();
+                            std::string compStr = ux3d::gltf::GlTypes::componentTypeToString(acc->getComponentType()).c_str();
+                            ImGui::BulletText("%s: %u verts [%s %s]", attrName.c_str(), acc->getCount(), typeStr.c_str(), compStr.c_str());
+                            if (!acc->getMin().empty() && !acc->getMax().empty() && acc->getMin().size() >= 3 && acc->getMax().size() >= 3) {
+                                ImGui::Indent(15.0f);
+                                ImGui::TextDisabled("Min: [%.2f, %.2f, %.2f] Max: [%.2f, %.2f, %.2f]",
+                                    acc->getMin()[0], acc->getMin()[1], acc->getMin()[2],
+                                    acc->getMax()[0], acc->getMax()[1], acc->getMax()[2]);
+                                ImGui::Unindent(15.0f);
+                            }
+                        } else {
+                            ImGui::BulletText("%s (no accessor)", attrName.c_str());
+                        }
                     }
                     ImGui::TreePop();
+                }
+
+                // Morph Targets
+                if (!prim.getTargets().empty()) {
+                    if (ImGui::TreeNode("Morph Targets")) {
+                        int targetIdx = 0;
+                        for (const auto& target : prim.getTargets()) {
+                            auto mapping = target.getAccessorMapping();
+                            ImGui::Text("Target #%d (%zu displacement attributes)", targetIdx, mapping.size());
+                            for (const auto& [attrName, acc] : mapping) {
+                                if (acc != nullptr) {
+                                    ImGui::BulletText("Displacement %s (%u values)", attrName.c_str(), acc->getCount());
+                                }
+                            }
+                            ++targetIdx;
+                        }
+                        ImGui::TreePop();
+                    }
                 }
 
                 // Material selector for primitive
@@ -188,6 +270,29 @@ void ElementInspector::render(SelectionState& selection, ux3d::gltf::Gltf& gltfM
 
                 if (mat != nullptr && ImGui::Button("Inspect Material")) {
                     selection.selectMaterial(mat);
+                }
+
+                // Material Variants Mapping on this primitive
+                if (prim.hasMaterialVariantsMapping()) {
+                    auto& map = prim.getMaterialVariantsMapping().value();
+                    if (ImGui::TreeNode("Material Variants Mapping")) {
+                        for (auto& var : gltfModel.getMaterialVariants()) {
+                            if (map.hasVariant(var.m_ID)) {
+                                auto* altMat = map.getMaterial(var.m_ID);
+                                std::string varName = var.hasName() ? var.getName().c_str() : ("Variant " + std::to_string(var.m_ID));
+                                std::string altMatName = altMat ? (altMat->hasName() ? altMat->getName().c_str() : ("Material " + std::to_string(altMat->m_ID))) : "None";
+                                ImGui::BulletText("%s -> %s", varName.c_str(), altMatName.c_str());
+                                if (altMat != nullptr) {
+                                    ImGui::SameLine();
+                                    std::string btnId = "Inspect##AltMat" + std::to_string(var.m_ID);
+                                    if (ImGui::SmallButton(btnId.c_str())) {
+                                        selection.selectMaterial(altMat);
+                                    }
+                                }
+                            }
+                        }
+                        ImGui::TreePop();
+                    }
                 }
 
                 ImGui::TreePop();
@@ -312,17 +417,224 @@ void ElementInspector::render(SelectionState& selection, ux3d::gltf::Gltf& gltfM
             anim->setName(nameBuf);
         }
 
-        ImGui::Separator();
-        ImGui::Text("Channels: %zu", anim->getChannels().size());
-        ImGui::Text("Samplers: %zu", anim->getSamplers().size());
+        // Find this animation index in gltfModel
+        int animIdx = 0;
+        int foundIdx = -1;
+        float animDuration = 0.0f;
+        for (const auto& a : gltfModel.getElements<ux3d::gltf::Animation>()) {
+            if (&a == anim) {
+                foundIdx = animIdx;
+            }
+            ++animIdx;
+        }
 
-        if (ImGui::TreeNode("Channels")) {
+        // Calculate duration of this specific animation
+        for (const auto& ch : anim->getChannels()) {
+            if (ch.getSampler() != nullptr && ch.getSampler()->getInputAccessor() != nullptr) {
+                auto* acc = ch.getSampler()->getInputAccessor();
+                if (!acc->getMax().empty()) {
+                    float t = static_cast<float>(acc->getMax()[0]);
+                    if (t > animDuration) animDuration = t;
+                }
+            }
+        }
+
+        ImGui::Separator();
+        ImGui::Text("Duration: %.2f seconds", animDuration);
+        ImGui::Text("Channels: %zu | Samplers: %zu", anim->getChannels().size(), anim->getSamplers().size());
+
+        // Quick playback controls right in the inspector!
+        if (animationPlayer != nullptr && foundIdx >= 0) {
+            bool isActiveClip = (animationPlayer->getActiveAnimationIndex() == foundIdx);
+            bool isPlaying = isActiveClip && animationPlayer->isPlaying();
+
+            if (isPlaying) {
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.4f, 0.1f, 1.0f));
+                if (ImGui::Button("Pause ||", ImVec2(90, 0))) {
+                    animationPlayer->pause();
+                }
+                ImGui::PopStyleColor();
+            } else {
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.6f, 0.3f, 1.0f));
+                if (ImGui::Button("Play >", ImVec2(90, 0))) {
+                    animationPlayer->setActiveAnimationIndex(foundIdx, gltfModel);
+                    animationPlayer->play();
+                }
+                ImGui::PopStyleColor();
+            }
+
+            ImGui::SameLine();
+            if (ImGui::Button("Stop []", ImVec2(70, 0))) {
+                animationPlayer->setActiveAnimationIndex(foundIdx, gltfModel);
+                animationPlayer->pause();
+                animationPlayer->setCurrentTime(0.0f);
+            }
+
+            if (isActiveClip) {
+                ImGui::SameLine();
+                ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.4f, 1.0f), "[Playing: %.2fs]", animationPlayer->getCurrentTime());
+            }
+        }
+
+        ImGui::Separator();
+
+        // Channels detailed tree
+        if (ImGui::TreeNodeEx("Channels", ImGuiTreeNodeFlags_DefaultOpen)) {
+            int chIdx = 0;
             for (const auto& ch : anim->getChannels()) {
-                std::string targetNode = ch.getTarget().getNode() ? (ch.getTarget().getNode()->hasName() ? ch.getTarget().getNode()->getName().c_str() : ("Node " + std::to_string(ch.getTarget().getNode()->m_ID))) : "Unknown";
-                ImGui::BulletText("Target: %s", targetNode.c_str());
+                auto* targetNode = ch.getTarget().getNode();
+                std::string targetNodeName = targetNode ? (targetNode->hasName() ? targetNode->getName().c_str() : ("Node " + std::to_string(targetNode->m_ID))) : "Unbound";
+
+                const char* pathStr = "Unknown";
+                switch (ch.getTarget().getPath()) {
+                    case ux3d::gltf::AnimationPath::Translation: pathStr = "Translation"; break;
+                    case ux3d::gltf::AnimationPath::Rotation: pathStr = "Rotation"; break;
+                    case ux3d::gltf::AnimationPath::Scale: pathStr = "Scale"; break;
+                    case ux3d::gltf::AnimationPath::Weights: pathStr = "Weights"; break;
+                    default: break;
+                }
+
+                std::string chLabel = "Channel #" + std::to_string(chIdx) + " (" + pathStr + ")";
+                if (ImGui::TreeNode(chLabel.c_str())) {
+                    ImGui::Text("Target Node: %s", targetNodeName.c_str());
+                    if (targetNode != nullptr) {
+                        ImGui::SameLine();
+                        std::string selBtn = "Inspect Node##Ch" + std::to_string(chIdx);
+                        if (ImGui::SmallButton(selBtn.c_str())) {
+                            selection.selectNode(targetNode);
+                        }
+                    }
+
+                    ImGui::Text("Target Property: %s", pathStr);
+
+                    if (ch.getSampler() != nullptr) {
+                        auto* sampler = ch.getSampler();
+                        const char* interpStr = "Linear";
+                        if (sampler->getInterpolation() == ux3d::gltf::AnimationInterpolation::Step) interpStr = "Step";
+                        else if (sampler->getInterpolation() == ux3d::gltf::AnimationInterpolation::CubicSpline) interpStr = "CubicSpline";
+
+                        ImGui::Text("Interpolation: %s", interpStr);
+                        if (sampler->getInputAccessor() != nullptr) {
+                            auto* inAcc = sampler->getInputAccessor();
+                            float tMin = inAcc->getMin().empty() ? 0.0f : static_cast<float>(inAcc->getMin()[0]);
+                            float tMax = inAcc->getMax().empty() ? 0.0f : static_cast<float>(inAcc->getMax()[0]);
+                            ImGui::Text("Keyframes: %u (range: [%.2fs .. %.2fs])", inAcc->getCount(), tMin, tMax);
+                        }
+                        if (sampler->getOutputAccessor() != nullptr) {
+                            auto* outAcc = sampler->getOutputAccessor();
+                            std::string tStr = ux3d::gltf::attributeTypeToString(outAcc->getType()).c_str();
+                            std::string cStr = ux3d::gltf::GlTypes::componentTypeToString(outAcc->getComponentType()).c_str();
+                            ImGui::Text("Values: %u [%s %s]", outAcc->getCount(), tStr.c_str(), cStr.c_str());
+                        }
+                    }
+
+                    ImGui::TreePop();
+                }
+                ++chIdx;
             }
             ImGui::TreePop();
         }
+
+        // Samplers detailed tree
+        if (ImGui::TreeNode("Samplers")) {
+            int sIdx = 0;
+            for (const auto& sampler : anim->getSamplers()) {
+                const char* interpStr = "Linear";
+                if (sampler.getInterpolation() == ux3d::gltf::AnimationInterpolation::Step) interpStr = "Step";
+                else if (sampler.getInterpolation() == ux3d::gltf::AnimationInterpolation::CubicSpline) interpStr = "CubicSpline";
+
+                std::string sLabel = "Sampler #" + std::to_string(sIdx) + " [" + interpStr + "]";
+                if (ImGui::TreeNode(sLabel.c_str())) {
+                    ImGui::Text("Interpolation: %s", interpStr);
+                    if (sampler.getInputAccessor() != nullptr) {
+                        auto* inAcc = sampler.getInputAccessor();
+                        float tMin = inAcc->getMin().empty() ? 0.0f : static_cast<float>(inAcc->getMin()[0]);
+                        float tMax = inAcc->getMax().empty() ? 0.0f : static_cast<float>(inAcc->getMax()[0]);
+                        ImGui::Text("Input Time Accessor ID: %u (%u keys, [%.2fs - %.2fs])", inAcc->m_ID, inAcc->getCount(), tMin, tMax);
+                    }
+                    if (sampler.getOutputAccessor() != nullptr) {
+                        auto* outAcc = sampler.getOutputAccessor();
+                        std::string tStr = ux3d::gltf::attributeTypeToString(outAcc->getType()).c_str();
+                        std::string cStr = ux3d::gltf::GlTypes::componentTypeToString(outAcc->getComponentType()).c_str();
+                        ImGui::Text("Output Values Accessor ID: %u (%u values, %s %s)", outAcc->m_ID, outAcc->getCount(), tStr.c_str(), cStr.c_str());
+                    }
+                    ImGui::TreePop();
+                }
+                ++sIdx;
+            }
+            ImGui::TreePop();
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // Skin Inspector
+    // -----------------------------------------------------------------
+    else if (selection.type == SelectionType::Skin && selection.selectedSkin != nullptr) {
+        auto* skin = selection.selectedSkin;
+        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Skin ID: %u", skin->m_ID);
+
+        char nameBuf[256] = {};
+        if (skin->hasName()) {
+            std::strncpy(nameBuf, skin->getName().c_str(), sizeof(nameBuf) - 1);
+        }
+        if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf))) {
+            skin->setName(nameBuf);
+        }
+
+        ImGui::Separator();
+
+        // Skeleton Root
+        if (skin->getSkeletonRoot() != nullptr) {
+            auto* root = skin->getSkeletonRoot();
+            std::string rootName = root->hasName() ? root->getName().c_str() : ("Node " + std::to_string(root->m_ID));
+            ImGui::Text("Skeleton Root: %s", rootName.c_str());
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Select Root")) {
+                selection.selectNode(root);
+            }
+        } else {
+            ImGui::Text("Skeleton Root: Default (Scene Root)");
+        }
+
+        // Inverse Bind Matrices
+        if (skin->getInverseBindMatricesAccessor() != nullptr) {
+            auto* ibm = skin->getInverseBindMatricesAccessor();
+            ImGui::Text("Inverse Bind Matrices: Accessor %u (%u matrices)", ibm->m_ID, ibm->getCount());
+        } else {
+            ImGui::Text("Inverse Bind Matrices: Identity");
+        }
+
+        // Joints
+        auto& joints = skin->getJoints();
+        std::string jointsHeader = "Joints (" + std::to_string(joints.size()) + ")";
+        if (ImGui::TreeNodeEx(jointsHeader.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
+            int jIdx = 0;
+            for (auto* jointNode : joints) {
+                if (jointNode != nullptr) {
+                    std::string jName = jointNode->hasName() ? jointNode->getName().c_str() : ("Node " + std::to_string(jointNode->m_ID));
+                    ImGui::Text("[%d] %s", jIdx, jName.c_str());
+                    ImGui::SameLine();
+                    std::string selBtn = "Select##Joint" + std::to_string(jIdx);
+                    if (ImGui::SmallButton(selBtn.c_str())) {
+                        selection.selectNode(jointNode);
+                    }
+                }
+                ++jIdx;
+            }
+            ImGui::TreePop();
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // Material Variant Inspector
+    // -----------------------------------------------------------------
+    else if (selection.type == SelectionType::MaterialVariant && selection.selectedVariant != nullptr) {
+        auto* var = selection.selectedVariant;
+        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Material Variant ID: %u", var->m_ID);
+        std::string vName = var->hasName() ? var->getName().c_str() : ("Variant " + std::to_string(var->m_ID));
+        ImGui::Text("Variant Name: %s", vName.c_str());
+        ImGui::Separator();
+        ImGui::TextWrapped("This variant is defined under KHR_materials_variants extension. You can switch to it using the Material Variants section in the Resources or Viewport Settings panel.");
     }
 }
 

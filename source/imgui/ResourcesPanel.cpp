@@ -1,12 +1,14 @@
-// Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
-
 #include "imgui/ResourcesPanel.h"
+#include "renderer/gltf/GltfRenderLayer.h"
 #include <imgui.h>
 #include <string>
 
 namespace ux3d::imgui {
 
-void ResourcesPanel::render(ux3d::gltf::Gltf& gltfModel, SelectionState& selection)
+void ResourcesPanel::render(ux3d::gltf::Gltf& gltfModel,
+                            SelectionState& selection,
+                            ux3d::renderer::GltfRenderLayer* gltfLayer,
+                            bool* isSceneDirty)
 {
     // Search / Filter box
     static char filterBuf[128] = "";
@@ -173,6 +175,71 @@ void ResourcesPanel::render(ux3d::gltf::Gltf& gltfModel, SelectionState& selecti
             }
         }
         ImGui::TreePop();
+    }
+
+    // -----------------------------------------------------------------
+    // Skins
+    // -----------------------------------------------------------------
+    auto& skins = gltfModel.getElements<ux3d::gltf::Skin>();
+    std::string skinHeader = "Skins (" + std::to_string(skins.size()) + ")";
+    if (ImGui::TreeNodeEx(skinHeader.c_str())) {
+        for (auto& skin : skins) {
+            std::string name = skin.hasName() ? skin.getName().c_str() : ("Skin " + std::to_string(skin.m_ID));
+            name += " [" + std::to_string(skin.getJoints().size()) + " joints]";
+            if (!matchesFilter(name)) continue;
+
+            bool isSelected = (selection.type == SelectionType::Skin && selection.selectedSkin == &skin);
+            ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+            if (isSelected) flags |= ImGuiTreeNodeFlags_Selected;
+
+            ImGui::TreeNodeEx(reinterpret_cast<void*>(static_cast<intptr_t>(skin.m_ID + 800000)), flags, "%s", name.c_str());
+            if (ImGui::IsItemClicked()) {
+                selection.selectSkin(&skin);
+            }
+        }
+        ImGui::TreePop();
+    }
+
+    // -----------------------------------------------------------------
+    // Material Variants (KHR_materials_variants)
+    // -----------------------------------------------------------------
+    if (gltfModel.hasMaterialVariants()) {
+        auto& variants = gltfModel.getMaterialVariants();
+        std::string varHeader = "Material Variants (" + std::to_string(variants.size()) + ")";
+        if (ImGui::TreeNodeEx(varHeader.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
+            // Default / Original variant option
+            bool isDefaultSelected = gltfLayer && !gltfLayer->getMaterialVariant().has_value();
+            ImGuiTreeNodeFlags defFlags = ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+            if (isDefaultSelected) defFlags |= ImGuiTreeNodeFlags_Selected;
+
+            ImGui::TreeNodeEx(reinterpret_cast<void*>(static_cast<intptr_t>(999999)), defFlags, "Default / Original");
+            if (ImGui::IsItemClicked()) {
+                if (gltfLayer) {
+                    gltfLayer->setMaterialVariant(std::nullopt);
+                    if (isSceneDirty) *isSceneDirty = true;
+                }
+            }
+
+            for (auto& var : variants) {
+                std::string name = var.hasName() ? var.getName().c_str() : ("Variant " + std::to_string(var.m_ID));
+                if (!matchesFilter(name)) continue;
+
+                bool isSelected = (selection.type == SelectionType::MaterialVariant && selection.selectedVariant == &var) ||
+                                  (gltfLayer && gltfLayer->getMaterialVariant().has_value() && gltfLayer->getMaterialVariant().value() == var.m_ID);
+                ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+                if (isSelected) flags |= ImGuiTreeNodeFlags_Selected;
+
+                ImGui::TreeNodeEx(reinterpret_cast<void*>(static_cast<intptr_t>(var.m_ID + 900000)), flags, "%s", name.c_str());
+                if (ImGui::IsItemClicked()) {
+                    selection.selectVariant(&var);
+                    if (gltfLayer) {
+                        gltfLayer->setMaterialVariant(var.m_ID);
+                        if (isSceneDirty) *isSceneDirty = true;
+                    }
+                }
+            }
+            ImGui::TreePop();
+        }
     }
 }
 

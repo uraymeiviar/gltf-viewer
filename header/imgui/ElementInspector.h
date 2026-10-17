@@ -7,9 +7,14 @@
 
 namespace ux3d::imgui {
 
+class AnimationPlayer;
+
 class ElementInspector {
 public:
-    static void render(SelectionState& selection, ux3d::gltf::Gltf& gltfModel, bool& isSceneDirty);
+    static void render(SelectionState& selection,
+                       ux3d::gltf::Gltf& gltfModel,
+                       bool& isSceneDirty,
+                       AnimationPlayer* animationPlayer = nullptr);
 };
 
 } // namespace ux3d::imgui

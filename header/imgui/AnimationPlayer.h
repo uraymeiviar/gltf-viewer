@@ -21,6 +21,17 @@ public:
     bool isPlaying() const { return m_isPlaying; }
     float getCurrentTime() const { return m_currentTime; }
     float getMaxDuration() const { return m_maxDuration; }
+    int getActiveAnimationIndex() const { return m_activeAnimationIdx; }
+
+    void setActiveAnimationIndex(int idx, ux3d::gltf::Gltf& gltfModel) {
+        m_activeAnimationIdx = idx;
+        m_currentTime = 0.0f;
+        calculateMaxDuration(gltfModel);
+    }
+    void play() { m_isPlaying = true; }
+    void pause() { m_isPlaying = false; }
+    void setPlaying(bool play) { m_isPlaying = play; }
+    void setCurrentTime(float t) { m_currentTime = t; }
 
 private:
     void calculateMaxDuration(ux3d::gltf::Gltf& gltfModel);

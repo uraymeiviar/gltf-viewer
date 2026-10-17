@@ -684,6 +684,11 @@ int main(int argc, char** argv)
             viewportSettings.turntable = !viewportSettings.turntable;
         }
         ImGui::SameLine();
+        if (ImGui::SmallButton(viewportSettings.wireframeOverlay ? "[Wire ON]" : "Wire")) {
+            viewportSettings.wireframeOverlay = !viewportSettings.wireframeOverlay;
+            isSceneDirty = true;
+        }
+        ImGui::SameLine();
         if (ImGui::SmallButton("Focus (F)")) {
             if (selection.type == ux3d::imgui::SelectionType::Node && selection.selectedNode != nullptr) {
                 auto ext = ux3d::gltf::utils::getExtends({ selection.selectedNode }, &gltfModel);
@@ -697,6 +702,43 @@ int main(int argc, char** argv)
         ImGui::SameLine();
         if (ImGui::SmallButton(viewportSettings.showSceneBoundingBox ? "[BBox ON]" : "BBox")) {
             viewportSettings.showSceneBoundingBox = !viewportSettings.showSceneBoundingBox;
+        }
+
+        if (gltfModel.hasMaterialVariants()) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("|");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(110.0f);
+            auto& variants = gltfModel.getMaterialVariants();
+            std::string curVarName = "Default";
+            if (gltfLayer && gltfLayer->getMaterialVariant().has_value()) {
+                uint32_t activeVarId = gltfLayer->getMaterialVariant().value();
+                for (const auto& v : variants) {
+                    if (v.m_ID == activeVarId) {
+                        curVarName = v.hasName() ? v.getName().c_str() : ("Var " + std::to_string(v.m_ID));
+                        break;
+                    }
+                }
+            }
+            if (ImGui::BeginCombo("##ToolbarVariant", curVarName.c_str())) {
+                if (ImGui::Selectable("Default", !gltfLayer || !gltfLayer->getMaterialVariant().has_value())) {
+                    if (gltfLayer) {
+                        gltfLayer->setMaterialVariant(std::nullopt);
+                        isSceneDirty = true;
+                    }
+                }
+                for (const auto& v : variants) {
+                    bool isSel = (gltfLayer && gltfLayer->getMaterialVariant().has_value() && gltfLayer->getMaterialVariant().value() == v.m_ID);
+                    std::string vLabel = v.hasName() ? v.getName().c_str() : ("Var " + std::to_string(v.m_ID));
+                    if (ImGui::Selectable(vLabel.c_str(), isSel)) {
+                        if (gltfLayer) {
+                            gltfLayer->setMaterialVariant(v.m_ID);
+                            isSceneDirty = true;
+                        }
+                    }
+                }
+                ImGui::EndCombo();
+            }
         }
         ImGui::EndGroup();
         ImGui::PopStyleVar(2);
@@ -830,6 +872,23 @@ int main(int argc, char** argv)
 
             commandGenerator->update(scene);
             glRenderer->draw({ commandGenerator.get() });
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
+            if (viewportSettings.wireframeOverlay && mode != ux3d::renderer::RenderMode::Wireframe) {
+                glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+                glEnable(GL_POLYGON_OFFSET_LINE);
+                glPolygonOffset(-1.0f, -1.0f);
+                glLineWidth(1.0f);
+                for (auto& [mesh, material] : scene.drawables) {
+                    if (mesh != nullptr && mesh != cubeMesh) {
+                        mesh->polygonMode = ux3d::renderer::gl::PolygonMode::Line;
+                    }
+                }
+                commandGenerator->update(scene);
+                glRenderer->draw({ commandGenerator.get() });
+                glDisable(GL_POLYGON_OFFSET_LINE);
+                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+            }
         }
 
         // 2. Render ground grid
@@ -1016,21 +1075,21 @@ int main(int argc, char** argv)
         // Resources Panel
         // -------------------------------------------------------------
         ImGui::Begin("Resources");
-        ux3d::imgui::ResourcesPanel::render(gltfModel, selection);
+        ux3d::imgui::ResourcesPanel::render(gltfModel, selection, gltfLayer.get(), &isSceneDirty);
         ImGui::End();
 
         // -------------------------------------------------------------
         // Inspector Panel
         // -------------------------------------------------------------
         ImGui::Begin("Inspector");
-        ux3d::imgui::ElementInspector::render(selection, gltfModel, isSceneDirty);
+        ux3d::imgui::ElementInspector::render(selection, gltfModel, isSceneDirty, &animationPlayer);
         ImGui::End();
 
         // -------------------------------------------------------------
         // Viewport Settings Panel
         // -------------------------------------------------------------
         ImGui::Begin("Viewport Settings");
-        ux3d::imgui::ViewportSettingsPanel::render(viewportSettings, commandGenerator.get(), gltfLayer.get(), orbitCamera, isSceneDirty);
+        ux3d::imgui::ViewportSettingsPanel::render(viewportSettings, commandGenerator.get(), gltfLayer.get(), orbitCamera, isSceneDirty, &gltfModel);
         ImGui::End();
 
         // -------------------------------------------------------------
