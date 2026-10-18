@@ -1,11 +1,8 @@
 #include "renderViewInput/CameraActor.h"
-#include "Constants.h"
-#include "Preferences.h"
 #include "gltf/Scene.h"
 #include "gltf/Utils.h"
 #include "math/VectorFunctions.h"
 #include "math/VectorTypes.h"
-#include "model/ProjectManager.h"
 #include "renderer/gltf/GltfRenderLayer.h"
 
 using namespace ux3d;
@@ -42,13 +39,16 @@ void CameraActor::changeCamSpeed(float _increment)
     m_freeCamSpeed *= 1.f + _increment;
 }
 
-void CameraActor::presentFocusNode(const renderer::GltfRenderLayer* renderLayer, const gltf::Node* _node)
+void CameraActor::presentFocusNode(const renderer::GltfRenderLayer* renderLayer, const gltf::Node* _node, const gltf::Gltf* _gltf)
 {
+    if (_node == nullptr || _gltf == nullptr) {
+        return;
+    }
     constexpr float aspectRatio = 1.f;
     constexpr float yFov = math::radians(45.f);
 
-    math::dmat4 parentTransform = renderLayer->getParentWorldTransform(_node);
-    gltf::Extends extends = gltf::utils::getExtends({ const_cast<gltf::Node*>(_node) }, &model::ProjectManager::getInstance()->getGltf(), parentTransform);
+    math::dmat4 parentTransform = (renderLayer != nullptr) ? math::dmat4(renderLayer->getParentWorldTransform(_node)) : math::identity<math::dmat4>();
+    gltf::Extends extends = gltf::utils::getExtends({ const_cast<gltf::Node*>(_node) }, _gltf, parentTransform);
 
     // if extends are singular we need to assume some reasonable extends
     if (extends.min == extends.max) {
@@ -64,26 +64,27 @@ void CameraActor::presentFocusNode(const renderer::GltfRenderLayer* renderLayer,
 
     updateCameraSpeeds(extends, yFov, aspectRatio);
 
-    if (m_pUserCamera->getType() == renderer::Camera::Type::Orthographic) {
+    if (m_pUserCamera != nullptr && m_pUserCamera->getType() == renderer::Camera::Type::Orthographic) {
         auto* camera = m_pUserCamera;
         float ratio = atan(camera->getYFoV() / 2.0f);
         camera->setOrthographic(camera->getAspectRatio() * m_zoom * ratio, m_zoom * ratio);
     }
 }
 
-void CameraActor::fitCameraToScene(const gltf::Scene& _scene)
+void CameraActor::fitCameraToScene(const gltf::Scene& _scene, const gltf::Gltf* _gltf)
 {
-    if (m_pUserCamera == nullptr) {
+    if (m_pUserCamera == nullptr || _gltf == nullptr) {
         return;
     }
 
+    // Gestaltor standard initial rotation: looking at front
     m_rotationX = 0.f;
     m_rotationY = 0.f;
 
     constexpr float aspectRatio = 1.f;
     constexpr float yFov = math::radians(45.f);
 
-    gltf::Extends extends = gltf::utils::getExtends(_scene.getNodes(), &model::ProjectManager::getInstance()->getGltf());
+    gltf::Extends extends = gltf::utils::getExtends(_scene.getNodes(), _gltf);
 
     if (math::distance(extends.max, extends.min) <= 0.00001f) {
         extends.min = extends.center - math::dvec3(1, 1, 1);
@@ -101,6 +102,9 @@ void CameraActor::fitCameraToScene(const gltf::Scene& _scene)
 
 void CameraActor::updateClippingPlanes(const gltf::Extends& extents)
 {
+    if (m_pUserCamera == nullptr) {
+        return;
+    }
     gltf::ClippingPlanes clippingPlanes = gltf::utils::getFittingClippingPlanes(extents, m_zoom);
     clippingPlanes.zNear = math::max(clippingPlanes.zFar, 0.0); // should not be negative
     clippingPlanes.zFar = math::abs(clippingPlanes.zFar);
@@ -109,8 +113,8 @@ void CameraActor::updateClippingPlanes(const gltf::Extends& extents)
     constexpr float clippingPlanesScale = 100.f;
 
     // limit the zooming to the clipping planes
-    m_zoomMax = clippingPlanes.zFar * clippingPlanesScale * 0.5f; // 0.5 ensures most of the grid is still visible
-    m_zoomMin = clippingPlanes.zNear / clippingPlanesScale * 1.1f;
+    m_zoomMax = static_cast<float>(clippingPlanes.zFar) * clippingPlanesScale * 0.5f; // 0.5 ensures most of the grid is still visible
+    m_zoomMin = static_cast<float>(clippingPlanes.zNear) / clippingPlanesScale * 1.1f;
 
     const float ratio = atan(m_pUserCamera->getYFoV() / 2.0f);
     if (m_pUserCamera->getType() == renderer::Camera::Type::Orthographic) {
@@ -131,10 +135,13 @@ void CameraActor::updateCameraSpeeds(gltf::Extends& _extends, const float _yFov,
     float averageDepth = (xDepth + yDepth + zDepth) / 3.f;
     m_zoomBase = static_cast<float>(gltf::utils::getFittingCameraZoom(_extends, _yFov, _aspectRatio));
     setZoom(m_zoomBase);
-    m_zoomSpeed = averageDepth / Preferences::getInstance()->getNavigationSpeedPreferences().zoomSpeedDenominator;
-    m_freeCamSpeedBase = averageDepth / Preferences::getInstance()->getNavigationSpeedPreferences().freeCamSpeedDenominator;
+    constexpr float zoomSpeedDenominator = 2500.f;
+    constexpr float panSpeedBaseDenominator = 1200.f;
+    constexpr float freeCamSpeedDenominator = 2.f;
+    m_zoomSpeed = averageDepth / zoomSpeedDenominator;
+    m_freeCamSpeedBase = averageDepth / freeCamSpeedDenominator;
     m_freeCamSpeed = m_freeCamSpeedBase;
-    m_panSpeedBase = averageDepth / Preferences::getInstance()->getNavigationSpeedPreferences().panSpeedBaseDenomiantor;
+    m_panSpeedBase = averageDepth / panSpeedBaseDenominator;
     m_panSpeed = m_panSpeedBase;
 }
 
@@ -165,10 +172,10 @@ void CameraActor::rotateCamera(int32_t _deltaX, int32_t _deltaY)
     if (m_pUserCamera == nullptr) {
         return;
     }
-    const float rotationSpeed = Preferences::getInstance()->getNavigationSpeedPreferences().rotationSpeed;
-    const float yRotationMax = Preferences::getInstance()->getNavigationSpeedPreferences().yRotationMax;
-    m_rotationX += rotationSpeed * _deltaX;
-    m_rotationY += rotationSpeed * _deltaY;
+    constexpr float rotationSpeed = 1.f / 180.f;
+    constexpr float yRotationMax = math::pi<float>() / 2.f - 0.01f;
+    m_rotationX += rotationSpeed * static_cast<float>(_deltaX);
+    m_rotationY += rotationSpeed * static_cast<float>(_deltaY);
     m_rotationY = math::clamp(m_rotationY, -yRotationMax, yRotationMax);
 
     updateUserCameraTransform();
@@ -185,6 +192,33 @@ void CameraActor::setCameraRotation(float _x, float _y)
     updateUserCameraTransform();
 }
 
+void CameraActor::orientUserCamera(CameraOrientation orientation)
+{
+    switch (orientation) {
+    case CameraOrientation::Top:
+        setCameraRotation(math::pi<float>(), math::pi<float>() / 2.f);
+        break;
+    case CameraOrientation::Bottom:
+        setCameraRotation(math::pi<float>(), -math::pi<float>() / 2.f);
+        break;
+    case CameraOrientation::Right:
+        setCameraRotation(-math::pi<float>() / 2.f, 0.f);
+        break;
+    case CameraOrientation::Left:
+        setCameraRotation(math::pi<float>() / 2.f, 0.f);
+        break;
+    case CameraOrientation::Front:
+        setCameraRotation(0.f, 0.f);
+        break;
+    case CameraOrientation::Back:
+        setCameraRotation(math::pi<float>(), 0.f);
+        break;
+    case CameraOrientation::Isometric:
+        setCameraRotation(math::pi<float>() * 0.25f, math::radians(30.f));
+        break;
+    }
+}
+
 void CameraActor::panCamera(int32_t _deltaX, int32_t _deltaY)
 {
     if (m_pUserCamera == nullptr) {
@@ -192,10 +226,10 @@ void CameraActor::panCamera(int32_t _deltaX, int32_t _deltaY)
     }
     constexpr math::vec3 down = math::vec3(0.f, -1.f, 0.f);
     constexpr math::vec3 right = math::vec3(1.f, 0.f, 0.f);
-    const float userPanSpeedScale = Preferences::getInstance()->getCameraPanSpeedScale();
+    constexpr float userPanSpeedScale = 1.0f;
 
-    m_lookTarget += m_panSpeed * _deltaX * toLocalRotation(right) * userPanSpeedScale;
-    m_lookTarget += m_panSpeed * _deltaY * toLocalRotation(down) * userPanSpeedScale;
+    m_lookTarget += m_panSpeed * static_cast<float>(_deltaX) * toLocalRotation(right) * userPanSpeedScale;
+    m_lookTarget += m_panSpeed * static_cast<float>(_deltaY) * toLocalRotation(down) * userPanSpeedScale;
 
     updateUserCameraTransform();
 }
@@ -205,10 +239,10 @@ void CameraActor::zoomCamera(float _delta)
     if (m_pUserCamera == nullptr) {
         return;
     }
-    const float userZoomSpeedScale = Preferences::getInstance()->getCameraZoomSpeedScale();
+    constexpr float userZoomSpeedScale = 1.0f;
 
     m_zoom -= m_zoomSpeed * _delta * (m_zoom / m_zoomBase) * userZoomSpeedScale;
-    setZoom(math::max(m_zoom, constants::cameraMinZoom));
+    setZoom(math::max(m_zoom, zoomMin));
     m_panSpeed = m_panSpeedBase * (m_zoom / m_zoomBase);
 
     updateUserCameraTransform();
@@ -219,7 +253,7 @@ void CameraActor::zoomCamera(float _delta)
     }
 }
 
-math::vec3 CameraActor::toLocalRotation(const math::vec3& _vector)
+math::vec3 CameraActor::toLocalRotation(const math::vec3& _vector) const
 {
     constexpr math::mat4 identity = math::identity<math::mat4>();
     constexpr math::vec3 up = math::vec3(0.f, 1.f, 0.f);
@@ -231,23 +265,27 @@ math::vec3 CameraActor::toLocalRotation(const math::vec3& _vector)
     return math::vec4(_vector, 1.f) * rotation;
 }
 
+math::vec3 CameraActor::getEyePosition() const
+{
+    const math::vec3 offset = toLocalRotation(math::vec3(0.f, 0.f, m_zoom));
+    return m_lookTarget + offset;
+}
+
 void CameraActor::handleFreeCamera(int32_t _mouseDeltaX, int32_t _mouseDeltaY, const math::vec3& _velocity)
 {
     if (m_pUserCamera == nullptr) {
         return;
     }
-    const float rotationSpeed = Preferences::getInstance()->getNavigationSpeedPreferences().rotationSpeed_handleFreeCamera;
-
-    const float freeCamSpeedScale = Preferences::getInstance()->getFreeCameraSpeedScale();
+    constexpr float rotationSpeed = 0.005f;
+    constexpr float freeCamSpeedScale = 1.0f;
 
     const float newYaw = _mouseDeltaX * rotationSpeed + m_lastCamYaw;
     m_lastCamYaw = newYaw;
     float newPitch = _mouseDeltaY * rotationSpeed + m_lastCamPitch;
 
     // clamp
-    /// A constants bias is introduced to limit the free camera pitch.
-    /// Allowing a pitch of +/- 1/2 pi would destroy the bijectivity of the function (yaw, pitch) -> (position).
-    constexpr float maxPitch = math::pi<float>() / 2.f - constants::freeCameraPitchBias;
+    constexpr float freeCameraPitchBias = 0.1f;
+    constexpr float maxPitch = math::pi<float>() / 2.f - freeCameraPitchBias;
     newPitch = math::clamp(newPitch, -maxPitch, maxPitch);
     m_lastCamPitch = newPitch;
 

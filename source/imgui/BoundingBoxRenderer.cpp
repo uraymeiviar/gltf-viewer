@@ -151,11 +151,23 @@ void BoundingBoxRenderer::draw(const glm::vec3& minBounds, const glm::vec3& maxB
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glDisable(GL_CULL_FACE);
 
+    glEnable(GL_POLYGON_OFFSET_LINE);
+    glPolygonOffset(-1.0f, -1.0f);
+    glLineWidth(1.5f);
+
     glBindVertexArray(m_vao);
     glDrawArrays(GL_LINES, 0, 24);
     glBindVertexArray(0);
 
+    glDisable(GL_POLYGON_OFFSET_LINE);
+    glLineWidth(1.0f);
+
     glUseProgram(0);
+}
+
+void BoundingBoxRenderer::drawOBB(const glm::vec3& localMin, const glm::vec3& localMax, const glm::mat4& modelMatrix, const glm::vec4& color, const glm::mat4& viewProj)
+{
+    draw(localMin, localMax, color, viewProj * modelMatrix);
 }
 
 } // namespace ux3d::imgui

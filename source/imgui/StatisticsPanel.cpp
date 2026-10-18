@@ -16,6 +16,8 @@
 #include "gltf/Skin.h"
 #include "gltf/Texture.h"
 #include <imgui.h>
+#include "imgui/Theme.h"
+#include "imgui/IconsMaterialDesignIcons.h"
 #include <filesystem>
 #include <sstream>
 #include <iomanip>
@@ -99,7 +101,7 @@ void StatisticsPanel::render(const ux3d::gltf::Gltf& gltfModel, const std::strin
     }
 
     // Action Buttons
-    if (ImGui::Button("Copy to Clipboard")) {
+    if (ImGui::Button(ICON_MDI_CONTENT_COPY " Copy to Clipboard")) {
         std::ostringstream ss;
         ss << "File: " << currentFilePath << "\n";
         ss << "File Size: " << formatBytes(fileSizeBytes) << "\n";
@@ -135,7 +137,10 @@ void StatisticsPanel::render(const ux3d::gltf::Gltf& gltfModel, const std::strin
             ImGui::TableNextColumn();
             ImGui::Text("%s", name);
             ImGui::TableNextColumn();
+            ImFont* mono = getMonoFont();
+            if (mono != nullptr) ImGui::PushFont(mono);
             ImGui::Text("%s", val.c_str());
+            if (mono != nullptr) ImGui::PopFont();
         };
 
         addRow("File Size on Disk", formatBytes(fileSizeBytes));

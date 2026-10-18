@@ -1,6 +1,7 @@
 // Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
 
 #include "imgui/AnimationPlayer.h"
+#include "imgui/IconsMaterialDesignIcons.h"
 #include "gltf/animation/AnimationPath.h"
 #include <imgui.h>
 #include <cmath>
@@ -230,8 +231,8 @@ void AnimationPlayer::renderToolbar(ux3d::gltf::Gltf& gltfModel, ux3d::renderer:
     for (const auto& a : anims) {
         if (a.isPlaying()) ++activeCount;
     }
-    char animBtnLabel[64];
-    std::snprintf(animBtnLabel, sizeof(animBtnLabel), "Animations (%zu/%zu) ##Btn", activeCount, anims.size());
+    char animBtnLabel[128];
+    std::snprintf(animBtnLabel, sizeof(animBtnLabel), ICON_MDI_ANIMATION " Animations (%zu/%zu) ##Btn", activeCount, anims.size());
     if (ImGui::Button(animBtnLabel)) {
         ImGui::OpenPopup("AnimationsMenuPopup");
     }
@@ -294,7 +295,7 @@ void AnimationPlayer::renderToolbar(ux3d::gltf::Gltf& gltfModel, ux3d::renderer:
     ImGui::SameLine();
 
     // 2. Playback control buttons: |<, Play/Pause, Stop, >|
-    if (ImGui::Button("|<", ImVec2(32, 0))) {
+    if (ImGui::Button(ICON_MDI_SKIP_BACKWARD "##Rewind", ImVec2(34, 0))) {
         setCurrentTime(0.0f, gltfLayer);
     }
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Rewind to start (0.0s)");
@@ -302,26 +303,26 @@ void AnimationPlayer::renderToolbar(ux3d::gltf::Gltf& gltfModel, ux3d::renderer:
     ImGui::SameLine();
     if (m_isPlaying) {
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.85f, 0.45f, 0.15f, 1.0f));
-        if (ImGui::Button("Pause ||", ImVec2(68, 0))) {
+        if (ImGui::Button(ICON_MDI_PAUSE " Pause", ImVec2(76, 0))) {
             pause();
         }
         ImGui::PopStyleColor();
     } else {
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.65f, 0.35f, 1.0f));
-        if (ImGui::Button("Play >", ImVec2(68, 0))) {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.13f, 0.67f, 0.42f, 1.0f));
+        if (ImGui::Button(ICON_MDI_PLAY " Play", ImVec2(76, 0))) {
             play();
         }
         ImGui::PopStyleColor();
     }
 
     ImGui::SameLine();
-    if (ImGui::Button("Stop []", ImVec2(58, 0))) {
+    if (ImGui::Button(ICON_MDI_STOP " Stop", ImVec2(68, 0))) {
         stop(gltfLayer);
     }
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Stop & Reset (0.0s)");
 
     ImGui::SameLine();
-    if (ImGui::Button(">|", ImVec2(32, 0))) {
+    if (ImGui::Button(ICON_MDI_SKIP_FORWARD "##End", ImVec2(34, 0))) {
         setCurrentTime(m_maxDuration, gltfLayer);
     }
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Jump to end");

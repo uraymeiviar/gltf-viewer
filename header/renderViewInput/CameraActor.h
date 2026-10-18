@@ -7,6 +7,7 @@
 namespace ux3d::gltf {
 class Scene;
 class Node;
+class Gltf;
 struct Extends;
 }
 
@@ -15,6 +16,17 @@ class GltfRenderLayer;
 }
 
 namespace ux3d::editor {
+
+enum class CameraOrientation {
+    Top,
+    Bottom,
+    Right,
+    Left,
+    Front,
+    Back,
+    Isometric
+};
+
 class CameraActor {
 public:
     CameraActor() = default;
@@ -23,13 +35,14 @@ public:
     void changeUserCameraType(renderer::Camera::Type _type);
     renderer::Camera* getUserCamera() const;
 
-    void presentFocusNode(const renderer::GltfRenderLayer* _scene, const gltf::Node* _node);
+    void presentFocusNode(const renderer::GltfRenderLayer* _scene, const gltf::Node* _node, const gltf::Gltf* _gltf);
     void changeCamSpeed(float _increment);
-    void fitCameraToScene(const gltf::Scene& _scene);
+    void fitCameraToScene(const gltf::Scene& _scene, const gltf::Gltf* _gltf);
     void updateClippingPlanes(const gltf::Extends& extents);
     void updateUserCameraTransform();
     void rotateCamera(int32_t _deltaX, int32_t _deltaY);
     void setCameraRotation(float _x, float _y);
+    void orientUserCamera(CameraOrientation orientation);
     void panCamera(int32_t _deltaX, int32_t _deltaY);
     void zoomCamera(float _delta);
     void applyOrbitCamOrientationToFreeCam();
@@ -40,8 +53,14 @@ public:
     //Does not update the transform by itself
     void setTarget(math::vec3 target) { m_lookTarget = target; }
 
+    math::vec3 getEyePosition() const;
+    math::vec3 getLookTarget() const { return m_lookTarget; }
+    float getZoom() const { return m_zoom; }
+    float getRotationX() const { return m_rotationX; }
+    float getRotationY() const { return m_rotationY; }
+
 private:
-    math::vec3 toLocalRotation(const math::vec3& _vector);
+    math::vec3 toLocalRotation(const math::vec3& _vector) const;
     void updateCameraSpeeds(gltf::Extends& _extends, const float _yFov, const float _aspectRatio);
 
     math::vec3 m_lookTarget = math::vec3(0.f, 0.f, 0.f);

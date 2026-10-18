@@ -1,6 +1,7 @@
 // Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
 
 #include "imgui/MaterialInspector.h"
+#include "imgui/Theme.h"
 #include <imgui.h>
 #include <cstring>
 #include <cstdio>
@@ -69,11 +70,13 @@ bool MaterialInspector::renderTextureSlot(const char* label,
 
             // Normal map scale
             if (showScale) {
+                ImGui::PushFont(getMonoFont());
                 float scale = static_cast<float>(texInfo->getScale());
                 if (ImGui::DragFloat("Scale", &scale, 0.02f, -2.0f, 2.0f, "%.2f")) {
                     texInfo->setScale(static_cast<double>(scale));
                     modified = true;
                 }
+                ImGui::PopFont();
                 ImGui::SameLine();
                 if (ImGui::Button("Flip Normal Y")) {
                     scale = -scale;
@@ -84,11 +87,13 @@ bool MaterialInspector::renderTextureSlot(const char* label,
 
             // Occlusion strength
             if (showStrength) {
+                ImGui::PushFont(getMonoFont());
                 float strength = static_cast<float>(texInfo->getStrength());
                 if (ImGui::SliderFloat("Strength", &strength, 0.0f, 2.0f, "%.2f")) {
                     texInfo->setStrength(static_cast<double>(strength));
                     modified = true;
                 }
+                ImGui::PopFont();
             }
         }
 
@@ -174,11 +179,13 @@ bool MaterialInspector::render(ux3d::gltf::Material* material, ux3d::gltf::Gltf&
 
         // Alpha Cutoff (only visible in Mask mode)
         if (alphaMode == 1) {
+            ImGui::PushFont(getMonoFont());
             float cutoff = static_cast<float>(material->getAlphaCutoffOrDefault());
             if (ImGui::SliderFloat("Alpha Cutoff", &cutoff, 0.0f, 1.0f, "%.2f")) {
                 material->setAlphaCutoff(static_cast<double>(cutoff));
                 modified = true;
             }
+            ImGui::PopFont();
         }
 
         // Emissive Factor
@@ -191,11 +198,13 @@ bool MaterialInspector::render(ux3d::gltf::Material* material, ux3d::gltf::Gltf&
 
         // Emissive Strength Extension
         if (material->getEmissiveStrength().has_value()) {
+            ImGui::PushFont(getMonoFont());
             float strength = static_cast<float>(material->getEmissiveStrength()->getEmissiveStrengthOrDefault());
             if (ImGui::DragFloat("Emissive Strength", &strength, 0.1f, 0.0f, 1000.0f, "%.1f")) {
                 material->getEmissiveStrength()->setEmissiveStrength(static_cast<double>(strength));
                 modified = true;
             }
+            ImGui::PopFont();
         }
 
         // Emissive Texture Slot
@@ -240,6 +249,7 @@ bool MaterialInspector::render(ux3d::gltf::Material* material, ux3d::gltf::Gltf&
             }
 
             // Metallic Factor
+            ImGui::PushFont(getMonoFont());
             float metallic = static_cast<float>(mr.getMetallicFactorOrDefault());
             if (ImGui::SliderFloat("Metallic Factor", &metallic, 0.0f, 1.0f, "%.2f")) {
                 mr.setMetallicFactor(static_cast<double>(metallic));
@@ -252,6 +262,7 @@ bool MaterialInspector::render(ux3d::gltf::Material* material, ux3d::gltf::Gltf&
                 mr.setRoughnessFactor(static_cast<double>(roughness));
                 modified = true;
             }
+            ImGui::PopFont();
 
             // Metallic Roughness Texture Slot
             if (renderTextureSlot("Metallic-Roughness Texture", mr.getMetallicRoughnessTextureInfo(), gltfModel)) {

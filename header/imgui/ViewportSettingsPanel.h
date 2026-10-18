@@ -4,9 +4,9 @@
 
 #include "renderer/CommandGenerator.h"
 #include "renderer/gltf/GltfRenderLayer.h"
-#include "imgui/OrbitCamera.h"
-#include <glm/glm.hpp>
-#include <string>
+namespace ux3d::editor {
+class CameraActor;
+}
 
 namespace ux3d::imgui {
 
@@ -32,7 +32,9 @@ struct ViewportSettingsState {
     // Visual Inspection & Diagnostics
     bool wireframeOverlay = false;         // Overlay wireframe mesh edges on top of shaded model
     bool showSceneBoundingBox = false;     // Yellow AABB box for entire scene
-    bool showSelectedBoundingBox = false;  // Cyan AABB box for selected node
+    bool showSelectedBoundingBox = true;   // Orange OBB box for selected node (matching Blender)
+    bool showNodeCoordinateGizmo = true;   // 3D coordinate axis gizmo at selected node origin
+    int gizmoAxisConvention = 0;           // 0 = Blender Source (Z-Up), 1 = glTF Native (Y-Up)
     bool turntable = false;                // Auto-rotate turntable
     float turntableSpeed = 30.0f;          // deg/sec
     bool showOrientationGizmo = true;      // 3D navigation axes compass in viewport corner
@@ -43,7 +45,7 @@ public:
     static void render(ViewportSettingsState& state,
                        ux3d::renderer::CommandGenerator* commandGenerator,
                        ux3d::renderer::GltfRenderLayer* gltfLayer,
-                       ux3d::imgui::OrbitCamera& camera,
+                       ux3d::editor::CameraActor& cameraActor,
                        bool& isSceneDirty,
                        ux3d::gltf::Gltf* gltfModel = nullptr);
 };

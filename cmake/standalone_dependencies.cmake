@@ -163,6 +163,20 @@ if(TARGET draco AND NOT TARGET draco::draco)
     add_library(draco::draco ALIAS draco)
 endif()
 
+# Isolate Draco standalone CLI tools away from distribution bin directory
+foreach(draco_tool draco_encoder draco_decoder draco_transcoder draco_simplifier)
+    if(TARGET ${draco_tool})
+        set_target_properties(${draco_tool} PROPERTIES
+            EXCLUDE_FROM_ALL TRUE
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tools"
+            RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/tools/Release"
+            RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/tools/Debug"
+            RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO "${CMAKE_BINARY_DIR}/tools/RelWithDebInfo"
+            RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL "${CMAKE_BINARY_DIR}/tools/MinSizeRel"
+        )
+    endif()
+endforeach()
+
 
 # 12. OpenAL Soft (Static)
 message(STATUS "[Standalone] Fetching OpenAL Soft (Static)...")

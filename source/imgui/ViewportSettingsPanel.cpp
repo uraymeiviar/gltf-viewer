@@ -2,6 +2,7 @@
 
 #include "imgui/ViewportSettingsPanel.h"
 #include "imgui/StdFileSystem.h"
+#include "renderViewInput/CameraActor.h"
 #include <imgui.h>
 #include <portable-file-dialogs.h>
 #include <cmath>
@@ -11,7 +12,7 @@ namespace ux3d::imgui {
 void ViewportSettingsPanel::render(ViewportSettingsState& state,
                                    ux3d::renderer::CommandGenerator* commandGenerator,
                                    ux3d::renderer::GltfRenderLayer* gltfLayer,
-                                   ux3d::imgui::OrbitCamera& camera,
+                                   ux3d::editor::CameraActor& cameraActor,
                                    bool& isSceneDirty,
                                    ux3d::gltf::Gltf* gltfModel)
 {
@@ -246,10 +247,15 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
             ImGui::Checkbox("Show 3D View Compass", &state.showOrientationGizmo);
 
             ImGui::Separator();
-            ImGui::Text("Bounding Box Visualizers:");
-            ImGui::Checkbox("Scene Bounding Box (Yellow)", &state.showSceneBoundingBox);
-            ImGui::SameLine();
-            ImGui::Checkbox("Selected Node Bounds (Cyan)", &state.showSelectedBoundingBox);
+            ImGui::Text("Selection & Transform Visualizers:");
+            ImGui::Checkbox("Selected Oriented Bounding Box (Orange OBB)", &state.showSelectedBoundingBox);
+            ImGui::Checkbox("Scene Bounding Box (Yellow AABB)", &state.showSceneBoundingBox);
+            ImGui::Checkbox("Show Node Coordinate Gizmo", &state.showNodeCoordinateGizmo);
+            if (state.showNodeCoordinateGizmo) {
+                const char* conventions[] = { "Blender Source (Z-Up: X=Red, Y=Green, Z=Blue)", "glTF Native (Y-Up)" };
+                ImGui::SetNextItemWidth(320.0f);
+                ImGui::Combo("Gizmo Axis Convention", &state.gizmoAxisConvention, conventions, IM_ARRAYSIZE(conventions));
+            }
 
             ImGui::Separator();
             ImGui::Text("Turntable Auto-Rotate:");
@@ -263,66 +269,54 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
             ImGui::Separator();
             ImGui::Text("Camera Settings:");
 
-            bool isOrtho = camera.isOrthographic();
-            if (ImGui::Checkbox("Orthographic Projection", &isOrtho)) {
-                camera.setOrthographic(isOrtho);
-            }
-
-            if (!isOrtho) {
-                float fov = camera.getFoVY();
-                if (ImGui::SliderFloat("Field of View (FoV)", &fov, 15.0f, 120.0f, "%.1f deg")) {
-                    camera.setFoVY(fov);
+            auto* userCam = cameraActor.getUserCamera();
+            if (userCam != nullptr) {
+                bool isOrtho = (userCam->getType() == ux3d::renderer::Camera::Type::Orthographic);
+                if (ImGui::Checkbox("Orthographic Projection", &isOrtho)) {
+                    cameraActor.changeUserCameraType(isOrtho ? ux3d::renderer::Camera::Type::Orthographic : ux3d::renderer::Camera::Type::Perspective);
+                    isSceneDirty = true;
                 }
-            }
 
-            ImGui::Separator();
-            ImGui::Text("Frustum Clipping Planes:");
-
-            bool autoClip = camera.isAutoClip();
-            if (ImGui::Checkbox("Auto Near / Far Clip Planes", &autoClip)) {
-                camera.setAutoClip(autoClip);
-            }
-            ImGui::SameLine();
-            ImGui::TextDisabled("(?)");
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Automatically adapts near clipping plane when zooming in so close-up objects (like cockpits) are not sliced off.");
-            }
-
-            if (autoClip) {
-                ImGui::Text("Near Plane: %.4f m (Auto)", camera.getZNear());
-                ImGui::Text("Far Plane: %.1f m (Auto)", camera.getZFar());
-            } else {
-                float nearVal = camera.getRawZNear();
-                if (ImGui::DragFloat("Near Plane (m)", &nearVal, 0.002f, 0.0001f, 10.0f, "%.4f")) {
-                    camera.setZNear(nearVal);
+                if (!isOrtho) {
+                    float fov = glm::degrees(userCam->getYFoV());
+                    if (ImGui::SliderFloat("Field of View (FoV)", &fov, 15.0f, 120.0f, "%.1f deg")) {
+                        userCam->setPerspective(userCam->getAspectRatio(), glm::radians(fov), userCam->getZNearPlane(), userCam->getZFarPlane());
+                        isSceneDirty = true;
+                    }
                 }
-                float farVal = camera.getRawZFar();
-                if (ImGui::DragFloat("Far Plane (m)", &farVal, 10.0f, 1.0f, 100000.0f, "%.1f")) {
-                    camera.setZFar(farVal);
-                }
+
+                ImGui::Separator();
+                ImGui::Text("Frustum Clipping Planes:");
+                ImGui::Text("Near Plane: %.4f m", userCam->getZNearPlane());
+                ImGui::Text("Far Plane: %.1f m", userCam->getZFarPlane());
             }
 
             ImGui::Text("Camera Presets:");
-            if (ImGui::Button("Front (Num 1)")) camera.setPresetView(PresetView::Front);
+            if (ImGui::Button("Front (Num 1)")) cameraActor.orientUserCamera(ux3d::editor::CameraOrientation::Front);
             ImGui::SameLine();
-            if (ImGui::Button("Back (Ctrl+1)")) camera.setPresetView(PresetView::Back);
+            if (ImGui::Button("Back (Ctrl+1)")) cameraActor.orientUserCamera(ux3d::editor::CameraOrientation::Back);
             ImGui::SameLine();
-            if (ImGui::Button("Right (Num 3)")) camera.setPresetView(PresetView::Right);
+            if (ImGui::Button("Right (Num 3)")) cameraActor.orientUserCamera(ux3d::editor::CameraOrientation::Right);
             ImGui::SameLine();
-            if (ImGui::Button("Left (Ctrl+3)")) camera.setPresetView(PresetView::Left);
+            if (ImGui::Button("Left (Ctrl+3)")) cameraActor.orientUserCamera(ux3d::editor::CameraOrientation::Left);
             ImGui::SameLine();
-            if (ImGui::Button("Top (Num 7)")) camera.setPresetView(PresetView::Top);
+            if (ImGui::Button("Top (Num 7)")) cameraActor.orientUserCamera(ux3d::editor::CameraOrientation::Top);
             ImGui::SameLine();
-            if (ImGui::Button("Iso")) camera.setPresetView(PresetView::Isometric);
+            if (ImGui::Button("Iso")) cameraActor.orientUserCamera(ux3d::editor::CameraOrientation::Isometric);
 
             ImGui::Separator();
-            ImGui::Text("Camera Distance: %.2f", camera.getDistance());
-            ImGui::Text("Yaw: %.1f deg, Pitch: %.1f deg", camera.getYaw(), camera.getPitch());
-            auto target = camera.getTarget();
+            ImGui::Text("Camera Zoom: %.2f", cameraActor.getZoom());
+            ImGui::Text("RotX: %.1f deg, RotY: %.1f deg", glm::degrees(cameraActor.getRotationX()), glm::degrees(cameraActor.getRotationY()));
+            auto target = cameraActor.getLookTarget();
             ImGui::Text("Look Target: [%.2f, %.2f, %.2f]", target.x, target.y, target.z);
 
             if (ImGui::Button("Reset Camera (Home)")) {
-                camera.reset();
+                if (gltfModel != nullptr && gltfLayer != nullptr) {
+                    auto* defScene = gltfModel->getDefaultScene();
+                    if (defScene) {
+                        cameraActor.fitCameraToScene(*defScene, gltfModel);
+                    }
+                }
             }
 
             ImGui::EndTabItem();

@@ -1,6 +1,7 @@
 #include "imgui/ElementInspector.h"
 #include "imgui/MaterialInspector.h"
 #include "imgui/AnimationPlayer.h"
+#include "imgui/Theme.h"
 #include "imageformats/imageformats.h"
 #include "gltf/GlTypes.h"
 #include "gltf/AttributeType.h"
@@ -45,6 +46,7 @@ void ElementInspector::render(SelectionState& selection,
 
         // Transform (TRS)
         if (ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::PushFont(getMonoFont());
             // Translation
             auto t = node->getTranslationOrDefault();
             float trans[3] = { static_cast<float>(t.x), static_cast<float>(t.y), static_cast<float>(t.z) };
@@ -71,6 +73,7 @@ void ElementInspector::render(SelectionState& selection,
                 node->setScale(ux3d::math::dvec3(scale[0], scale[1], scale[2]));
                 isSceneDirty = true;
             }
+            ImGui::PopFont();
 
             if (ImGui::Button("Reset Transform")) {
                 node->setTranslation(ux3d::math::dvec3(0.0));
@@ -318,6 +321,7 @@ void ElementInspector::render(SelectionState& selection,
 
         if (isPerspective && cam->getCameraPerspective().has_value()) {
             auto& p = cam->getCameraPerspective().value();
+            ImGui::PushFont(getMonoFont());
             float fov = static_cast<float>(glm::degrees(p.getYFov()));
             if (ImGui::SliderFloat("Vertical FoV (deg)", &fov, 10.0f, 120.0f, "%.1f")) {
                 p.setYFov(glm::radians(fov));
@@ -333,6 +337,7 @@ void ElementInspector::render(SelectionState& selection,
                 p.setZFar(zfar);
                 isSceneDirty = true;
             }
+            ImGui::PopFont();
         }
     }
 
@@ -351,6 +356,7 @@ void ElementInspector::render(SelectionState& selection,
             isSceneDirty = true;
         }
 
+        ImGui::PushFont(getMonoFont());
         // Intensity
         float intensity = static_cast<float>(light->getIntensityOrDefault());
         if (ImGui::DragFloat("Intensity", &intensity, 0.5f, 0.0f, 100000.0f, "%.1f")) {
@@ -364,6 +370,7 @@ void ElementInspector::render(SelectionState& selection,
             light->setRange(range);
             isSceneDirty = true;
         }
+        ImGui::PopFont();
     }
 
     // -----------------------------------------------------------------

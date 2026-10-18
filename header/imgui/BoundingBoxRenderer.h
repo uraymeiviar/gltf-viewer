@@ -19,6 +19,7 @@ public:
     void cleanup();
 
     void draw(const glm::vec3& minBounds, const glm::vec3& maxBounds, const glm::vec4& color, const glm::mat4& viewProj);
+    void drawOBB(const glm::vec3& localMin, const glm::vec3& localMax, const glm::mat4& modelMatrix, const glm::vec4& color, const glm::mat4& viewProj);
 
 private:
     GLuint m_vao = 0;
