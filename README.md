@@ -85,6 +85,13 @@ build/bin/Release/Gestaltor.exe
 
 ---
 
+## Developer & Agent Guide
+
+For detailed technical architecture, subsystem breakdowns, and onboarding guidelines for human contributors and AI coding agents, please refer to:
+👉 [**Developer & Agent Onboarding Guide (`AGENTS.md`)**](AGENTS.md)
+
+---
+
 ## License
 
 Gestaltor is licensed under the Apache 2.0 License. See the [LICENSE](LICENSE) file for details.
