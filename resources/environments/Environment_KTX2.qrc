@@ -1,5 +1,0 @@
-<RCC>
-    <qresource prefix="/">
-        <file>../../OpenGL-Renderer/resources/environments/footprint_court.hdr</file>
-    </qresource>
-</RCC>

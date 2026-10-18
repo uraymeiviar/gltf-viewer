@@ -14,6 +14,7 @@
 #include "imgui/Framebuffer.h"
 #include "imgui/GridRenderer.h"
 #include "imgui/StdFileSystem.h"
+#include "imgui/EmbeddedVFS.h"
 #include "renderViewInput/CameraActor.h"
 
 #include "gltf/Gltf.h"
@@ -660,6 +661,11 @@ static void drawNodeCoordinateGizmo(ImDrawList* drawList,
 static ux3d::filesystem::Path resolveRendererResourcesDir()
 {
     auto& fs = ux3d::imgui::StdFileSystem::instance();
+    if (fs.isFile(fs.toPath("resources/shaders/primitive.vert")) ||
+        fs.isFile(fs.toPath("shaders/primitive.vert"))) {
+        return fs.toPath("resources");
+    }
+
     auto exeDir = fs.getExecutableDirPath();
     if (fs.isFile(exeDir / "resources" / "shaders" / "primitive.vert")) {
         return exeDir / "resources";
@@ -681,7 +687,7 @@ static ux3d::filesystem::Path resolveRendererResourcesDir()
         return cwdPath / "OpenGL-Renderer" / "resources";
     }
 
-    return compileTimePath;
+    return fs.toPath("resources");
 }
 
 static ux3d::filesystem::Path resolveEnvironmentPath(const ux3d::filesystem::Path& rendererRes)
@@ -690,12 +696,15 @@ static ux3d::filesystem::Path resolveEnvironmentPath(const ux3d::filesystem::Pat
     auto env1 = rendererRes / "environments" / "footprint_court.hdr";
     if (fs.isFile(env1)) return env1;
 
-    auto exeDir = fs.getExecutableDirPath();
-    auto env2 = exeDir / "resources" / "environments" / "footprint_court.hdr";
+    auto env2 = fs.toPath("resources/environments/footprint_court.hdr");
     if (fs.isFile(env2)) return env2;
 
-    auto env3 = fs.toPath("resources/environments/footprint_court.hdr");
+    auto env3 = fs.toPath("environments/footprint_court.hdr");
     if (fs.isFile(env3)) return env3;
+
+    auto exeDir = fs.getExecutableDirPath();
+    auto env4 = exeDir / "resources" / "environments" / "footprint_court.hdr";
+    if (fs.isFile(env4)) return env4;
 
     return env1;
 }
@@ -703,12 +712,15 @@ static ux3d::filesystem::Path resolveEnvironmentPath(const ux3d::filesystem::Pat
 static std::string resolveSampleModelPath()
 {
     auto& fs = ux3d::imgui::StdFileSystem::instance();
-    auto exeDir = fs.getExecutableDirPath();
-    auto p1 = exeDir / "resources" / "sampleGltf" / "HelloCube.glb";
+    auto p1 = fs.toPath("resources/sampleGltf/HelloCube.glb");
     if (fs.isFile(p1)) return p1.toString().c_str();
 
-    auto p2 = fs.toPath("resources/sampleGltf/HelloCube.glb");
+    auto p2 = fs.toPath("sampleGltf/HelloCube.glb");
     if (fs.isFile(p2)) return p2.toString().c_str();
+
+    auto exeDir = fs.getExecutableDirPath();
+    auto p3 = exeDir / "resources" / "sampleGltf" / "HelloCube.glb";
+    if (fs.isFile(p3)) return p3.toString().c_str();
 
     return "resources/sampleGltf/HelloCube.glb";
 }
@@ -786,6 +798,9 @@ static void setupDefaultDockLayout(ImGuiID dockspaceId, ImVec2 size, bool force 
 
 int main(int argc, char** argv)
 {
+    // Initialize embedded Virtual File System (decompresses runtime resources in-memory)
+    ux3d::imgui::EmbeddedVFS::instance().initialize();
+
     glfwSetErrorCallback(glfw_error_callback);
     if (!glfwInit()) {
         std::fprintf(stderr, "Failed to initialize GLFW\n");

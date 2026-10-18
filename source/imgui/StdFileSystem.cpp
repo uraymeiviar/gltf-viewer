@@ -1,12 +1,14 @@
 // Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
 
 #include "imgui/StdFileSystem.h"
+#include "imgui/EmbeddedVFS.h"
 #include "core/Slice.h"
 #include "core/Vector.h"
 
 #include <filesystem>
 #include <fstream>
 #include <cstdlib>
+#include <cstring>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -85,12 +87,18 @@ filesystem::Path StdFileSystem::getExecutableDirPath() const
 
 bool StdFileSystem::isFile(const filesystem::Path& path) const
 {
+    if (EmbeddedVFS::instance().hasFile(path.toString().c_str())) {
+        return true;
+    }
     std::error_code ec;
     return fs::is_regular_file(fs::u8path(path.toString().c_str()), ec);
 }
 
 bool StdFileSystem::isDirectory(const filesystem::Path& path) const
 {
+    if (EmbeddedVFS::instance().hasDirectory(path.toString().c_str())) {
+        return true;
+    }
     std::error_code ec;
     return fs::is_directory(fs::u8path(path.toString().c_str()), ec);
 }
@@ -114,6 +122,9 @@ bool StdFileSystem::isEmpty(const filesystem::Path& path) const
 
 bool StdFileSystem::exists(const filesystem::Path& path) const
 {
+    if (EmbeddedVFS::instance().exists(path.toString().c_str())) {
+        return true;
+    }
     std::error_code ec;
     return fs::exists(fs::u8path(path.toString().c_str()), ec);
 }
@@ -121,6 +132,15 @@ bool StdFileSystem::exists(const filesystem::Path& path) const
 core::Vector<filesystem::Path> StdFileSystem::listContents(const filesystem::Dir& dir) const
 {
     core::Vector<filesystem::Path> contents;
+
+    auto vfsEntries = EmbeddedVFS::instance().listContents(dir.toString().c_str());
+    if (!vfsEntries.empty()) {
+        for (const auto& entry : vfsEntries) {
+            contents.emplace_back(*this, toGeneric(entry));
+        }
+        return contents;
+    }
+
     std::error_code ec;
     fs::path dirPath = fs::u8path(dir.toString().c_str());
 
@@ -151,6 +171,15 @@ filesystem::Path StdFileSystem::getChild(const filesystem::Path& path, const cor
 core::Vector<filesystem::File> StdFileSystem::listFiles(const filesystem::Dir& path) const
 {
     core::Vector<filesystem::File> files;
+
+    auto vfsFiles = EmbeddedVFS::instance().listFiles(path.toString().c_str());
+    if (!vfsFiles.empty()) {
+        for (const auto& f : vfsFiles) {
+            files.emplace_back(*this, toGeneric(f));
+        }
+        return files;
+    }
+
     std::error_code ec;
     fs::path dirPath = fs::u8path(path.toString().c_str());
 
@@ -262,6 +291,17 @@ filesystem::FileSaveResult StdFileSystem::append(const filesystem::File& file, c
 
 filesystem::FileLoadResult StdFileSystem::loadBinary(const char* pPath, core::Vector<uint8_t>& outBuffer) const
 {
+    auto vfsFile = EmbeddedVFS::instance().getFile(pPath);
+    if (vfsFile.isValid()) {
+        if (!outBuffer.resize(vfsFile.size)) {
+            return filesystem::FileLoadResultE::AllocationFailed;
+        }
+        if (vfsFile.size > 0) {
+            std::memcpy(outBuffer.data(), vfsFile.data, vfsFile.size);
+        }
+        return filesystem::FileLoadResult::Success;
+    }
+
     std::ifstream stream(pPath, std::ios::binary | std::ios::ate);
     if (!stream.is_open()) {
         return filesystem::FileLoadResultE::CannotOpenFile;
@@ -286,6 +326,17 @@ filesystem::FileLoadResult StdFileSystem::loadBinary(const char* pPath, core::Ve
 
 filesystem::FileLoadResult StdFileSystem::loadBinary(const char* pPath, core::Slice<uint8_t>& outBuffer) const
 {
+    auto vfsFile = EmbeddedVFS::instance().getFile(pPath);
+    if (vfsFile.isValid()) {
+        if (!outBuffer.resize(vfsFile.size, outBuffer.getAllocator())) {
+            return filesystem::FileLoadResultE::AllocationFailed;
+        }
+        if (vfsFile.size > 0) {
+            std::memcpy(outBuffer.data(), vfsFile.data, vfsFile.size);
+        }
+        return filesystem::FileLoadResult::Success;
+    }
+
     std::ifstream stream(pPath, std::ios::binary | std::ios::ate);
     if (!stream.is_open()) {
         return filesystem::FileLoadResultE::CannotOpenFile;
@@ -310,6 +361,15 @@ filesystem::FileLoadResult StdFileSystem::loadBinary(const char* pPath, core::Sl
 
 filesystem::FileLoadResult StdFileSystem::loadText(const char* pPath, core::string& outString) const
 {
+    auto vfsFile = EmbeddedVFS::instance().getFile(pPath);
+    if (vfsFile.isValid()) {
+        outString.resize(vfsFile.size);
+        if (vfsFile.size > 0) {
+            std::memcpy(outString.data(), vfsFile.data, vfsFile.size);
+        }
+        return filesystem::FileLoadResult::Success;
+    }
+
     std::ifstream stream(pPath, std::ios::binary | std::ios::ate);
     if (!stream.is_open()) {
         return filesystem::FileLoadResultE::CannotOpenFile;

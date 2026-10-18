@@ -86,9 +86,25 @@ set(GESTALTOR_SOURCES
 	"header/renderViewInput/CameraActor.h"
 	"source/imgui/Theme.cpp"
 	"header/imgui/Theme.h"
+	"source/imgui/EmbeddedVFS.cpp"
+	"header/imgui/EmbeddedVFS.h"
+	"source/imgui/EmbeddedResources.cpp"
+	"header/imgui/zstd.h"
 	"header/imgui/IconsMaterialDesignIcons.h"
 	"header/imgui/stb_image_write.h"
 )
+
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if (Python3_Interpreter_FOUND)
+	add_custom_command(
+		OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/source/imgui/EmbeddedResources.cpp"
+		       "${CMAKE_CURRENT_SOURCE_DIR}/resources/resources.vfs.zst"
+		COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/scripts/pack_resources.py"
+		DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/scripts/pack_resources.py"
+		WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+		COMMENT "Packing runtime resources into embedded compressed archive"
+	)
+endif()
 
 if (WIN32)
 	list(APPEND GESTALTOR_SOURCES "resources/Icon_Application.rc")
@@ -140,21 +156,3 @@ if (WIN32 AND MSVC)
 	target_link_options(${APP_NAME} PRIVATE "/ENTRY:mainCRTStartup")
 endif()
 
-add_custom_command(TARGET ${APP_NAME} POST_BUILD
-	COMMAND ${CMAKE_COMMAND} -E copy_directory
-		"${PROJECT_SOURCE_DIR}/OpenGL-Renderer/resources"
-		"$<TARGET_FILE_DIR:${APP_NAME}>/resources"
-	COMMAND ${CMAKE_COMMAND} -E make_directory
-		"$<TARGET_FILE_DIR:${APP_NAME}>/resources/fonts"
-	COMMAND ${CMAKE_COMMAND} -E copy_if_different
-		"${PROJECT_SOURCE_DIR}/resources/fonts/fss-ui.ttf"
-		"${PROJECT_SOURCE_DIR}/resources/fonts/fss-ui-mono.ttf"
-		"$<TARGET_FILE_DIR:${APP_NAME}>/resources/fonts"
-	COMMAND ${CMAKE_COMMAND} -E copy_directory
-		"${PROJECT_SOURCE_DIR}/resources/environments"
-		"$<TARGET_FILE_DIR:${APP_NAME}>/resources/environments"
-	COMMAND ${CMAKE_COMMAND} -E copy_directory
-		"${PROJECT_SOURCE_DIR}/resources/sampleGltf"
-		"$<TARGET_FILE_DIR:${APP_NAME}>/resources/sampleGltf"
-	COMMENT "Copying runtime resources next to Gestaltor executable"
-)

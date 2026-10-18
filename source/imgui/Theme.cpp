@@ -2,6 +2,7 @@
 
 #include "imgui/Theme.h"
 #include "imgui/StdFileSystem.h"
+#include "imgui/EmbeddedVFS.h"
 #include <filesystem>
 
 namespace ux3d::imgui {
@@ -140,17 +141,38 @@ void loadFssFonts(ImGuiIO& io)
     fontConfig.OversampleH = 2;
     fontConfig.OversampleV = 2;
 
-    std::string uiFontPath = resolveFontPath("fss-ui.ttf");
-    if (std::filesystem::exists(uiFontPath)) {
-        s_uiFont = io.Fonts->AddFontFromFileTTF(uiFontPath.c_str(), 16.0f, &fontConfig, s_glyphRanges);
+    auto& vfs = EmbeddedVFS::instance();
+    auto uiFontFile = vfs.getFile("fonts/fss-ui.ttf");
+    if (!uiFontFile.isValid()) {
+        uiFontFile = vfs.getFile("resources/fonts/fss-ui.ttf");
+    }
+
+    if (uiFontFile.isValid()) {
+        fontConfig.FontDataOwnedByAtlas = false;
+        s_uiFont = io.Fonts->AddFontFromMemoryTTF(const_cast<uint8_t*>(uiFontFile.data), static_cast<int>(uiFontFile.size), 16.0f, &fontConfig, s_glyphRanges);
+    } else {
+        std::string uiFontPath = resolveFontPath("fss-ui.ttf");
+        if (std::filesystem::exists(uiFontPath)) {
+            s_uiFont = io.Fonts->AddFontFromFileTTF(uiFontPath.c_str(), 16.0f, &fontConfig, s_glyphRanges);
+        }
     }
     if (s_uiFont == nullptr) {
         s_uiFont = io.Fonts->AddFontDefault();
     }
 
-    std::string monoFontPath = resolveFontPath("fss-ui-mono.ttf");
-    if (std::filesystem::exists(monoFontPath)) {
-        s_monoFont = io.Fonts->AddFontFromFileTTF(monoFontPath.c_str(), 15.0f, &fontConfig, s_glyphRanges);
+    auto monoFontFile = vfs.getFile("fonts/fss-ui-mono.ttf");
+    if (!monoFontFile.isValid()) {
+        monoFontFile = vfs.getFile("resources/fonts/fss-ui-mono.ttf");
+    }
+
+    if (monoFontFile.isValid()) {
+        fontConfig.FontDataOwnedByAtlas = false;
+        s_monoFont = io.Fonts->AddFontFromMemoryTTF(const_cast<uint8_t*>(monoFontFile.data), static_cast<int>(monoFontFile.size), 15.0f, &fontConfig, s_glyphRanges);
+    } else {
+        std::string monoFontPath = resolveFontPath("fss-ui-mono.ttf");
+        if (std::filesystem::exists(monoFontPath)) {
+            s_monoFont = io.Fonts->AddFontFromFileTTF(monoFontPath.c_str(), 15.0f, &fontConfig, s_glyphRanges);
+        }
     }
     if (s_monoFont == nullptr) {
         s_monoFont = s_uiFont;

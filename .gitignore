@@ -98,3 +98,9 @@ node_modules
 
 # Dear ImGui runtime window state
 imgui.ini
+window_state.txt
+recent_files.txt
+
+# Generated VFS zstd binary archives
+*.zst
+
