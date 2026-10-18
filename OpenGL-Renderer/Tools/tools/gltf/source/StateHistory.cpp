@@ -13,7 +13,6 @@
 #include "reactor/Utils.h"
 
 #include <stdexcept>
-#include <tbb/parallel_for_each.h>
 
 using namespace ux3d;
 using namespace ux3d::gltf;
@@ -133,7 +132,7 @@ rxcpp::observable<Gltf*> StateHistory::applyToStateHistory(const nlohmann::json&
 
     std::vector<gltf::Image*> images;
     std::transform(updatedGltf->getImages().begin(), updatedGltf->getImages().end(), std::back_inserter(images), [](gltf::Image& image) { return &image; });
-    tbb::parallel_for_each(images.begin(), images.end(), [&head, this](gltf::Image* newImage) {
+    for (auto* newImage : images) {
         auto uri = newImage->getUri();
 
         core::Vector<uint8_t> encodedData;
@@ -147,7 +146,7 @@ rxcpp::observable<Gltf*> StateHistory::applyToStateHistory(const nlohmann::json&
                 // newImage.setStorageFormat(StorageFormat::BufferView);
             } catch (std::exception e) {
                 newImage->loadAsErrorImage();
-                return;
+                continue;
             }
         } else {
             std::string dataCategory = "";
@@ -162,7 +161,7 @@ rxcpp::observable<Gltf*> StateHistory::applyToStateHistory(const nlohmann::json&
 
             if (!dataLookup.contains(uri)) {
                 newImage->loadAsErrorImage();
-                return;
+                continue;
             }
 
             auto dataId = dataLookup[uri].get<datastorage::DataStorage::ID>();
@@ -177,7 +176,7 @@ rxcpp::observable<Gltf*> StateHistory::applyToStateHistory(const nlohmann::json&
         image::Image image;
         imageformats::decodeImage(*newImage->getEncodedBytes(), image);
         newImage->setData(std::move(image));
-    });
+    }
 
     applyCurrentMeshVisualizationSettings(*updatedGltf);
     applyCurrentNodeVisualizationSettings(*updatedGltf);

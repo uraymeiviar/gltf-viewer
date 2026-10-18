@@ -8,6 +8,3 @@
 [submodule "thirdparty/gltf-schema"]
 	path = thirdparty/gltf-schema
 	url = https://github.com/ux3d/glTF-Schema.git
-[submodule "thirdparty/oneTBB"]
-	path = thirdparty/oneTBB
-	url = https://github.com/oneapi-src/oneTBB.git

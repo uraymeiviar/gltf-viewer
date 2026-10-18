@@ -28,9 +28,6 @@ target_include_directories(${lib_name} PUBLIC "include")
 find_package(nlohmann_json)
 target_link_libraries(${lib_name} PUBLIC nlohmann_json::nlohmann_json)
 
-# TBB is included as a git submodule
-target_link_libraries(${lib_name} PRIVATE TBB::tbb)
-
 target_link_libraries(${lib_name} PUBLIC Core)
 target_link_libraries(${lib_name} PUBLIC Math)
 target_link_libraries(${lib_name} PUBLIC Filesystem)
