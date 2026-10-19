@@ -5,6 +5,10 @@
 #include "gltf/Gltf.h"
 #include "imgui/ResourcesPanel.h"
 
+namespace ux3d::renderer {
+class GltfRenderLayer;
+}
+
 namespace ux3d::imgui {
 
 class AnimationPlayer;
@@ -14,7 +18,8 @@ public:
     static void render(SelectionState& selection,
                        ux3d::gltf::Gltf& gltfModel,
                        bool& isSceneDirty,
-                       AnimationPlayer* animationPlayer = nullptr);
+                       AnimationPlayer* animationPlayer = nullptr,
+                       ux3d::renderer::GltfRenderLayer* gltfLayer = nullptr);
 };
 
 } // namespace ux3d::imgui

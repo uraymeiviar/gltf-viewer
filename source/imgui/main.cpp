@@ -53,6 +53,7 @@
 #include "imgui/AppSettings.h"
 #include "imgui/SearchPathsPanel.h"
 #include "imgui/SceneHierarchyPanel.h"
+#include "imgui/StatusBar.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -96,16 +97,12 @@ static void saveImage(const char* filename, int width, int height, const uint8_t
 }
 
 // Log console message history
-struct LogEntry {
-    std::string text;
-    ImVec4 color;
-};
-
+using ux3d::imgui::LogEntry;
 static std::vector<LogEntry> s_consoleLogs;
 
-static void logMessage(const std::string& msg, ImVec4 color = ImVec4(0.85f, 0.85f, 0.88f, 1.0f))
+static void logMessage(const std::string& msg, ImVec4 color = ImVec4(0.85f, 0.85f, 0.88f, 1.0f), ux3d::core::LogLevel level = ux3d::core::LogLevel::Info)
 {
-    s_consoleLogs.push_back({ msg, color });
+    s_consoleLogs.push_back({ msg, color, level });
     std::fprintf(stderr, "%s\n", msg.c_str());
     std::fflush(stderr);
 }
@@ -123,7 +120,7 @@ public:
         } else if (level == ux3d::core::LogLevel::Info) {
             color = ImVec4(0.5f, 0.85f, 1.0f, 1.0f);
         }
-        logMessage(message, color);
+        logMessage(message, color, level);
     }
 };
 
@@ -902,6 +899,7 @@ int main(int argc, char** argv)
     std::string selectMaterialArg;
     bool showValidationArg = false;
     bool showSearchPathsArg = false;
+    float animTimeArg = -1.0f;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -910,6 +908,8 @@ int main(int argc, char** argv)
             dumpFrameCountdown = 8;
         } else if (arg == "--exit-after-dump") {
             exitAfterDump = true;
+        } else if (arg == "--anim-time" && i + 1 < argc) {
+            animTimeArg = std::stof(argv[++i]);
         } else if (arg == "--select-node" && i + 1 < argc) {
             selectNodeArg = argv[++i];
         } else if (arg == "--hide-node" && i + 1 < argc) {
@@ -968,6 +968,9 @@ int main(int argc, char** argv)
                 }
             }
         }
+        if (animTimeArg >= 0.0f) {
+            animationPlayer.setCurrentTime(animTimeArg, gltfLayer.get());
+        }
     } else {
         updateWindowTitle(window, "untitled.glb");
     }
@@ -978,7 +981,7 @@ int main(int argc, char** argv)
     static bool showHierarchy = true;
     static bool showViewport = true;
     static bool showResources = true;
-    static bool showLogger = true;
+    static bool showLogger = false;
     static bool showViewportSettings = false;
     static bool showStatistics = false;
     static bool showValidation = false;
@@ -1051,12 +1054,14 @@ int main(int argc, char** argv)
         ImGui::NewFrame();
         ImGuizmo::BeginFrame();
 
-        // Main DockSpace covering the whole window
+        // Main DockSpace covering the whole window (minus status bar at bottom)
+        float statusBarHeight = ImGui::GetFrameHeight() + 8.0f;
         ImGuiDockNodeFlags dockspaceFlags = ImGuiDockNodeFlags_None;
         ImGuiWindowFlags windowFlags = ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoDocking;
         const ImGuiViewport* mainViewport = ImGui::GetMainViewport();
+        ImVec2 dockspaceSize = ImVec2(mainViewport->WorkSize.x, mainViewport->WorkSize.y - statusBarHeight);
         ImGui::SetNextWindowPos(mainViewport->WorkPos);
-        ImGui::SetNextWindowSize(mainViewport->WorkSize);
+        ImGui::SetNextWindowSize(dockspaceSize);
         ImGui::SetNextWindowViewport(mainViewport->ID);
         windowFlags |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
         windowFlags |= ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
@@ -1075,7 +1080,7 @@ int main(int argc, char** argv)
             bool force = s_resetLayout;
             s_firstLayout = false;
             s_resetLayout = false;
-            setupDefaultDockLayout(dockspaceId, mainViewport->WorkSize, force);
+            setupDefaultDockLayout(dockspaceId, dockspaceSize, force);
         }
 
         ImGui::DockSpace(dockspaceId, ImVec2(0.0f, 0.0f), dockspaceFlags);
@@ -1098,8 +1103,8 @@ int main(int argc, char** argv)
             if (ImGui::IsKeyPressed(ImGuiKey_7)) showStatistics = !showStatistics;
             if (ImGui::IsKeyPressed(ImGuiKey_8)) showValidation = !showValidation;
             if (ImGui::IsKeyPressed(ImGuiKey_L)) {
-                showInspector = showHierarchy = showViewport = showResources = showLogger = true;
-                showViewportSettings = showStatistics = showValidation = false;
+                showInspector = showHierarchy = showViewport = showResources = true;
+                showLogger = showViewportSettings = showStatistics = showValidation = false;
                 s_resetLayout = true;
             }
         }
@@ -1173,8 +1178,8 @@ int main(int argc, char** argv)
                 ImGui::MenuItem(WND_VALIDATION, "Ctrl+8", &showValidation);
                 ImGui::Separator();
                 if (ImGui::MenuItem(ICON_MDI_REFRESH " Reset Layout", "Ctrl+L")) {
-                    showInspector = showHierarchy = showViewport = showResources = showLogger = true;
-                    showViewportSettings = showStatistics = showValidation = false;
+                    showInspector = showHierarchy = showViewport = showResources = true;
+                    showLogger = showViewportSettings = showStatistics = showValidation = false;
                     s_resetLayout = true;
                 }
                 ImGui::EndMenu();
@@ -1192,9 +1197,6 @@ int main(int argc, char** argv)
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
             ImGui::Begin(WND_VIEWPORT, &showViewport);
             ImGui::PopStyleVar();
-
-        // Animation Player Toolbar at top of viewport
-        animationPlayer.renderToolbar(gltfModel, gltfLayer.get(), isSceneDirty);
 
         // Quick Navigation & Inspection Toolbar Strip
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(5.0f, 2.0f));
@@ -1278,11 +1280,6 @@ int main(int argc, char** argv)
                 ImGui::EndCombo();
             }
         }
-
-        ImGui::SameLine();
-        ImGui::TextDisabled("|");
-        ImGui::SameLine();
-        ux3d::imgui::ValidationPanel::renderStatusBarIndicator(&showValidation);
 
         ImGui::EndGroup();
         ImGui::PopStyleVar(2);
@@ -1369,6 +1366,7 @@ int main(int argc, char** argv)
                 if (activeScene != nullptr) {
                     gltfLayer->updateScene(gltfModel, *activeScene);
                 }
+                gltfLayer->applyAnimationTime(animationPlayer.getCurrentTime());
                 isSceneDirty = false;
             }
 
@@ -1700,7 +1698,7 @@ int main(int argc, char** argv)
         // -------------------------------------------------------------
         if (showInspector) {
             if (ImGui::Begin(WND_INSPECTOR, &showInspector)) {
-                ux3d::imgui::ElementInspector::render(selection, gltfModel, isSceneDirty, &animationPlayer);
+                ux3d::imgui::ElementInspector::render(selection, gltfModel, isSceneDirty, &animationPlayer, gltfLayer.get());
             }
             ImGui::End();
         }
@@ -1802,6 +1800,11 @@ int main(int argc, char** argv)
         if (showDemoWindow) {
             ImGui::ShowDemoWindow(&showDemoWindow);
         }
+
+        // -------------------------------------------------------------
+        // Application Status Bar (Bottom)
+        // -------------------------------------------------------------
+        ux3d::imgui::StatusBar::render(gltfModel, gltfLayer.get(), animationPlayer, isSceneDirty, showLogger, showValidation, s_consoleLogs, &antiAliasing);
 
         // Rendering main window
         ImGui::Render();

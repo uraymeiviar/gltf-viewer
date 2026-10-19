@@ -101,6 +101,8 @@ set(GESTALTOR_SOURCES
 	"header/imgui/AppSettings.h"
 	"source/imgui/SearchPathsPanel.cpp"
 	"header/imgui/SearchPathsPanel.h"
+	"source/imgui/StatusBar.cpp"
+	"header/imgui/StatusBar.h"
 	"header/imgui/TextureUtils.h"
 	"header/imgui/IconsMaterialDesignIcons.h"
 	"header/imgui/stb_image_write.h"

@@ -32,6 +32,13 @@ public:
     void setCurrentTime(float t, ux3d::renderer::GltfRenderLayer* gltfLayer = nullptr);
     void setActiveAnimationIndex(int idx, ux3d::gltf::Gltf& gltfModel, ux3d::renderer::GltfRenderLayer* gltfLayer = nullptr);
 
+    bool isLooping() const { return m_isLooping; }
+    void setLooping(bool loop) { m_isLooping = loop; }
+    int getLoopCount() const { return m_loopCount; }
+    void setLoopCount(int count) { m_loopCount = count; m_currentLoop = 0; }
+    float getPlaybackSpeed() const { return m_playbackSpeed; }
+    void setPlaybackSpeed(float speed) { m_playbackSpeed = speed; }
+
     // Multi-animation non-conflicting selection (matching Gestaltor)
     void selectAllPossibleAnimations(bool select, ux3d::gltf::Gltf& gltfModel, ux3d::renderer::GltfRenderLayer* gltfLayer);
     void toggleAnimation(size_t index, bool playing, ux3d::gltf::Gltf& gltfModel, ux3d::renderer::GltfRenderLayer* gltfLayer);
@@ -44,6 +51,8 @@ public:
 private:
     bool m_isPlaying = false;
     bool m_isLooping = true;
+    int m_loopCount = 0; // 0 = infinite continuous loop
+    int m_currentLoop = 0;
     float m_playbackSpeed = 1.0f;
     float m_currentTime = 0.0f;
     float m_maxDuration = 0.0f;

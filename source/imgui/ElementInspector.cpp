@@ -21,7 +21,8 @@ namespace ux3d::imgui {
 void ElementInspector::render(SelectionState& selection,
                               ux3d::gltf::Gltf& gltfModel,
                               bool& isSceneDirty,
-                              AnimationPlayer* animationPlayer)
+                              AnimationPlayer* animationPlayer,
+                              ux3d::renderer::GltfRenderLayer* gltfLayer)
 {
     if (selection.type == SelectionType::None) {
         ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Select an element from the Hierarchy or Resources panel.");
@@ -509,30 +510,39 @@ void ElementInspector::render(SelectionState& selection,
             bool isPlaying = isActiveClip && animationPlayer->isPlaying();
 
             if (isPlaying) {
-                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.4f, 0.1f, 1.0f));
-                if (ImGui::Button("Pause ||", ImVec2(90, 0))) {
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.85f, 0.45f, 0.15f, 1.0f));
+                if (ImGui::Button(ICON_MDI_PAUSE " Pause", ImVec2(90, 0))) {
                     animationPlayer->pause();
                 }
                 ImGui::PopStyleColor();
             } else {
-                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.6f, 0.3f, 1.0f));
-                if (ImGui::Button("Play >", ImVec2(90, 0))) {
-                    animationPlayer->setActiveAnimationIndex(foundIdx, gltfModel);
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.13f, 0.67f, 0.42f, 1.0f));
+                if (ImGui::Button(ICON_MDI_PLAY " Play", ImVec2(90, 0))) {
+                    animationPlayer->setActiveAnimationIndex(foundIdx, gltfModel, gltfLayer);
                     animationPlayer->play();
                 }
                 ImGui::PopStyleColor();
             }
 
             ImGui::SameLine();
-            if (ImGui::Button("Stop []", ImVec2(70, 0))) {
-                animationPlayer->setActiveAnimationIndex(foundIdx, gltfModel);
-                animationPlayer->pause();
-                animationPlayer->setCurrentTime(0.0f);
+            if (ImGui::Button(ICON_MDI_STOP " Stop", ImVec2(70, 0))) {
+                animationPlayer->setActiveAnimationIndex(foundIdx, gltfModel, gltfLayer);
+                animationPlayer->stop(gltfLayer);
             }
 
             if (isActiveClip) {
                 ImGui::SameLine();
                 ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.4f, 1.0f), "[Playing: %.2fs]", animationPlayer->getCurrentTime());
+            }
+
+            if (animDuration > 0.0f) {
+                float t = isActiveClip ? animationPlayer->getCurrentTime() : 0.0f;
+                if (ImGui::SliderFloat("##AnimInspectorScrubber", &t, 0.0f, animDuration, "%.2fs")) {
+                    if (!isActiveClip) {
+                        animationPlayer->setActiveAnimationIndex(foundIdx, gltfModel, gltfLayer);
+                    }
+                    animationPlayer->setCurrentTime(t, gltfLayer);
+                }
             }
         }
 

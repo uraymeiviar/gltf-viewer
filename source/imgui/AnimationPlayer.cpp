@@ -18,6 +18,7 @@ void AnimationPlayer::reset()
     m_currentTime = 0.0f;
     m_maxDuration = 0.0f;
     m_activeAnimationIdx = 0;
+    m_currentLoop = 0;
 }
 
 void AnimationPlayer::setModel(ux3d::gltf::Gltf& gltfModel, ux3d::renderer::GltfRenderLayer* gltfLayer)
@@ -184,6 +185,7 @@ void AnimationPlayer::stop(ux3d::renderer::GltfRenderLayer* gltfLayer)
 {
     m_isPlaying = false;
     m_currentTime = 0.0f;
+    m_currentLoop = 0;
     if (gltfLayer != nullptr) {
         gltfLayer->applyAnimationTime(0.0f);
     }
@@ -203,7 +205,18 @@ void AnimationPlayer::update(float deltaTime, ux3d::renderer::GltfRenderLayer* g
         m_currentTime += deltaTime * m_playbackSpeed;
         if (m_currentTime > m_maxDuration) {
             if (m_isLooping) {
-                m_currentTime = std::fmod(m_currentTime, m_maxDuration);
+                if (m_loopCount > 0) {
+                    m_currentLoop++;
+                    if (m_currentLoop >= m_loopCount) {
+                        m_currentTime = m_maxDuration;
+                        m_isPlaying = false;
+                        m_currentLoop = 0;
+                    } else {
+                        m_currentTime = std::fmod(m_currentTime, m_maxDuration);
+                    }
+                } else {
+                    m_currentTime = std::fmod(m_currentTime, m_maxDuration);
+                }
             } else {
                 m_currentTime = m_maxDuration;
                 m_isPlaying = false;
