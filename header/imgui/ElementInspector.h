@@ -4,9 +4,13 @@
 
 #include "gltf/Gltf.h"
 #include "imgui/ResourcesPanel.h"
+#include "imgui/ViewportInstance.h"
+#include <vector>
+#include <memory>
 
 namespace ux3d::renderer {
 class GltfRenderLayer;
+class CommandGenerator;
 }
 
 namespace ux3d::imgui {
@@ -19,7 +23,9 @@ public:
                        ux3d::gltf::Gltf& gltfModel,
                        bool& isSceneDirty,
                        AnimationPlayer* animationPlayer = nullptr,
-                       ux3d::renderer::GltfRenderLayer* gltfLayer = nullptr);
+                       ux3d::renderer::GltfRenderLayer* gltfLayer = nullptr,
+                       std::vector<std::unique_ptr<ViewportInstance>>* viewports = nullptr,
+                       ux3d::renderer::CommandGenerator* commandGenerator = nullptr);
 
     static void clearPreviewCache();
 };

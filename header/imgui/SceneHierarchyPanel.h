@@ -4,8 +4,11 @@
 
 #include "imgui/ResourcesPanel.h"
 #include "imgui/AntiAliasing.h"
+#include "imgui/ViewportInstance.h"
 #include "renderViewInput/CameraActor.h"
 #include "gltf/Gltf.h"
+#include <vector>
+#include <memory>
 
 namespace ux3d::renderer {
 class GltfRenderLayer;
@@ -22,7 +25,9 @@ public:
                        ux3d::editor::CameraActor& cameraActor,
                        AntiAliasing& antiAliasing,
                        bool& isSceneDirty,
-                       bool* pOpen = nullptr);
+                       bool* pOpen = nullptr,
+                       std::vector<std::unique_ptr<ViewportInstance>>* viewports = nullptr,
+                       ViewportInstance** activeViewport = nullptr);
 
     static void requestScrollToSelectedNode();
     static void resetSearch();

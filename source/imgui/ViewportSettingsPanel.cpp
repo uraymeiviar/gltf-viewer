@@ -1,7 +1,6 @@
-// Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
-
 #include "imgui/ViewportSettingsPanel.h"
 #include "imgui/StdFileSystem.h"
+#include "imgui/IconsMaterialDesignIcons.h"
 #include "renderViewInput/CameraActor.h"
 #include <imgui.h>
 #include <portable-file-dialogs.h>
@@ -14,8 +13,24 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
                                    ux3d::renderer::GltfRenderLayer* gltfLayer,
                                    ux3d::editor::CameraActor& cameraActor,
                                    bool& isSceneDirty,
-                                   ux3d::gltf::Gltf* gltfModel)
+                                   ux3d::gltf::Gltf* gltfModel,
+                                   bool isAttachedToCamera,
+                                   const std::string& attachedCameraName,
+                                   std::function<void()> onDetachCamera)
 {
+    if (isAttachedToCamera) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.4f, 0.8f, 1.0f, 1.0f));
+        ImGui::Text(ICON_MDI_CAMERA " Attached to glTF Camera: %s", attachedCameraName.empty() ? "(Unnamed)" : attachedCameraName.c_str());
+        ImGui::PopStyleColor();
+        ImGui::TextDisabled("Camera transform and projection follow the glTF scene.");
+        if (onDetachCamera) {
+            if (ImGui::Button(ICON_MDI_CAMERA_OFF " Detach from Camera")) {
+                onDetachCamera();
+            }
+        }
+        ImGui::Separator();
+    }
+
     if (ImGui::BeginTabBar("ViewportSettingsTabs")) {
         // -------------------------------------------------------------
         // Tab 1: Environment

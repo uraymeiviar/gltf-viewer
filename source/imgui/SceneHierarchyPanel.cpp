@@ -421,7 +421,9 @@ void SceneHierarchyPanel::render(ux3d::gltf::Gltf& gltfModel,
                                  ux3d::editor::CameraActor& cameraActor,
                                  AntiAliasing& antiAliasing,
                                  bool& isSceneDirty,
-                                 bool* pOpen)
+                                 bool* pOpen,
+                                 std::vector<std::unique_ptr<ViewportInstance>>* viewports,
+                                 ViewportInstance** activeViewport)
 {
     static const char* const WND_HIERARCHY = ICON_MDI_FILE_TREE " Scene Hierarchy";
 
@@ -508,6 +510,79 @@ void SceneHierarchyPanel::render(ux3d::gltf::Gltf& gltfModel,
     } else {
         ImGui::Spacing();
         ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "No active glTF scene.");
+    }
+
+    // -----------------------------------------------------------------
+    // Viewport List (Root Sibling in Scene Hierarchy)
+    // -----------------------------------------------------------------
+    if (viewports != nullptr && !viewports->empty()) {
+        ImGui::Spacing();
+        std::string lowerFilter = toLowerString(s_searchBuffer);
+
+        std::string vpHeader = std::string(ICON_MDI_MONITOR_MULTIPLE " Viewports (") + std::to_string(viewports->size()) + ")";
+        if (ImGui::TreeNodeEx(vpHeader.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
+            for (auto& vp : *viewports) {
+                if (!lowerFilter.empty()) {
+                    if (toLowerString(vp->name).find(lowerFilter) == std::string::npos) {
+                        continue;
+                    }
+                }
+
+                bool isSelected = (selection.type == SelectionType::Viewport && selection.selectedViewportId == vp->id);
+                ImGuiTreeNodeFlags nodeFlags = ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_SpanAvailWidth;
+                if (isSelected) nodeFlags |= ImGuiTreeNodeFlags_Selected;
+
+                const char* icon = vp->isAttachedToCamera ? ICON_MDI_CAMERA : ICON_MDI_CUBE_SCAN;
+                std::string itemLabel = std::string(icon) + " " + vp->name;
+                if (activeViewport != nullptr && *activeViewport == vp.get()) {
+                    itemLabel += " (Active)";
+                }
+
+                float buttonWidth = 20.0f;
+                float eyePos = ImGui::GetWindowContentRegionMax().x - buttonWidth;
+
+                ImGui::TreeNodeEx((void*)(intptr_t)vp->id, nodeFlags, "%s", itemLabel.c_str());
+
+                if (ImGui::IsItemClicked()) {
+                    selection.selectViewport(vp->id);
+                    if (activeViewport != nullptr) {
+                        *activeViewport = vp.get();
+                    }
+                    vp->requestFocus = true;
+                }
+
+                // Eye toggle button on the right
+                ImGui::SameLine(eyePos);
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.15f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.25f));
+                ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+
+                const char* eyeIcon = vp->isOpen ? ICON_MDI_EYE : ICON_MDI_EYE_OFF_OUTLINE;
+                if (!vp->isOpen) {
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 0.5f));
+                }
+
+                std::string eyeBtnId = std::string(eyeIcon) + "##vp_eye_" + std::to_string(vp->id);
+                if (ImGui::Button(eyeBtnId.c_str(), ImVec2(buttonWidth, ImGui::GetFrameHeight()))) {
+                    vp->isOpen = !vp->isOpen;
+                    if (vp->isOpen) {
+                        vp->requestFocus = true;
+                    }
+                }
+
+                if (!vp->isOpen) {
+                    ImGui::PopStyleColor();
+                }
+                ImGui::PopStyleVar();
+                ImGui::PopStyleColor(3);
+
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip(vp->isOpen ? "Visible (click to hide)" : "Hidden (click to show)");
+                }
+            }
+            ImGui::TreePop();
+        }
     }
 
     ImGui::EndChild();

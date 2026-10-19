@@ -3,6 +3,7 @@
 #include "imgui/ExtensionInspector.h"
 #include "imgui/MaterialInspector.h"
 #include "imgui/AnimationPlayer.h"
+#include "imgui/ViewportSettingsPanel.h"
 #include "imgui/TextureUtils.h"
 #include "imgui/IconsMaterialDesignIcons.h"
 #include "imgui/Theme.h"
@@ -350,7 +351,9 @@ void ElementInspector::render(SelectionState& selection,
                               ux3d::gltf::Gltf& gltfModel,
                               bool& isSceneDirty,
                               AnimationPlayer* animationPlayer,
-                              ux3d::renderer::GltfRenderLayer* gltfLayer)
+                              ux3d::renderer::GltfRenderLayer* gltfLayer,
+                              std::vector<std::unique_ptr<ViewportInstance>>* viewports,
+                              ux3d::renderer::CommandGenerator* commandGenerator)
 {
     if (selection.type == SelectionType::None) {
         ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Select an element from the Hierarchy or Resources panel.");
@@ -1145,6 +1148,51 @@ void ElementInspector::render(SelectionState& selection,
         ImGui::Text("Variant Name: %s", vName.c_str());
         ImGui::Separator();
         ImGui::TextWrapped("This variant is defined under KHR_materials_variants extension. You can switch to it using the Material Variants section in the Resources or Viewport Settings panel.");
+    }
+
+    // -----------------------------------------------------------------
+    // Viewport Inspector
+    // -----------------------------------------------------------------
+    else if (selection.type == SelectionType::Viewport && viewports != nullptr) {
+        ViewportInstance* vp = nullptr;
+        for (auto& v : *viewports) {
+            if (v->id == selection.selectedViewportId) {
+                vp = v.get();
+                break;
+            }
+        }
+
+        if (vp != nullptr) {
+            ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), ICON_MDI_MONITOR " Viewport ID: %u", vp->id);
+
+            char nameBuf[256] = {};
+            std::strncpy(nameBuf, vp->name.c_str(), sizeof(nameBuf) - 1);
+            if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf))) {
+                vp->name = nameBuf;
+            }
+
+            ImGui::Separator();
+
+            ViewportSettingsPanel::render(
+                vp->settings,
+                commandGenerator,
+                gltfLayer,
+                vp->cameraActor,
+                isSceneDirty,
+                &gltfModel,
+                vp->isAttachedToCamera,
+                vp->attachedCameraNodeName,
+                [vp, &isSceneDirty]() {
+                    vp->isAttachedToCamera = false;
+                    vp->attachedCameraNode = nullptr;
+                    vp->attachedCameraNodeId = 0;
+                    vp->attachedCameraNodeName = "";
+                    isSceneDirty = true;
+                }
+            );
+        } else {
+            ImGui::TextDisabled("Viewport (ID %u) not found.", selection.selectedViewportId);
+        }
     }
 }
 

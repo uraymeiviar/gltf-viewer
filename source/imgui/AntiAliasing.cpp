@@ -308,6 +308,10 @@ void AntiAliasing::ensureBuffers(int width, int height)
     if (width < 1) width = 1;
     if (height < 1) height = 1;
 
+    if (!m_quadVao || !m_taaProgram || !m_fxaaProgram) {
+        init();
+    }
+
     if (m_width == width && m_height == height && m_fxaaTexture != 0 && m_taaTexture[0] != 0) {
         return;
     }
@@ -429,14 +433,23 @@ GLuint AntiAliasing::render(AntiAliasingMode mode,
         int cur = m_taaCurrentIndex;
         int prev = 1 - cur;
 
-        bool cameraMoved = (currentViewProj != m_lastViewProj);
+        bool cameraMoved = false;
+        for (int c = 0; c < 4; ++c) {
+            for (int r = 0; r < 4; ++r) {
+                if (std::abs(currentViewProj[c][r] - m_lastViewProj[c][r]) > 1e-4f) {
+                    cameraMoved = true;
+                    break;
+                }
+            }
+            if (cameraMoved) break;
+        }
         m_lastViewProj = currentViewProj;
 
         float blendFactor = 0.10f; // Default stationary accumulation
-        if (!m_historyValid || sceneDirty) {
-            blendFactor = 1.0f; // Discard invalid history completely
-        } else if (cameraMoved) {
-            blendFactor = 0.50f; // Responsive camera motion blend
+        if (!m_historyValid) {
+            blendFactor = 1.0f; // Discard invalid history completely on first frame
+        } else if (cameraMoved || sceneDirty) {
+            blendFactor = 0.50f; // Responsive motion blend
         }
 
         glBindFramebuffer(GL_FRAMEBUFFER, m_taaFbo[cur]);

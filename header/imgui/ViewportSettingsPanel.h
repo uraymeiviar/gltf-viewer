@@ -4,6 +4,9 @@
 
 #include "renderer/CommandGenerator.h"
 #include "renderer/gltf/GltfRenderLayer.h"
+#include "renderer/editor/EditorRenderLayer.h"
+#include <functional>
+
 namespace ux3d::editor {
 class CameraActor;
 }
@@ -23,6 +26,7 @@ struct ViewportSettingsState {
     bool iblEnabled = true;
     bool punctualLightsEnabled = true;
 
+    ux3d::renderer::RenderMode renderMode = ux3d::renderer::RenderMode::None;
     int renderModeIdx = 0; // 0 = None / Shaded
     bool showGrid = true;
     bool forceDoubleSided = false; // Disable backface culling globally
@@ -47,7 +51,10 @@ public:
                        ux3d::renderer::GltfRenderLayer* gltfLayer,
                        ux3d::editor::CameraActor& cameraActor,
                        bool& isSceneDirty,
-                       ux3d::gltf::Gltf* gltfModel = nullptr);
+                       ux3d::gltf::Gltf* gltfModel = nullptr,
+                       bool isAttachedToCamera = false,
+                       const std::string& attachedCameraName = "",
+                       std::function<void()> onDetachCamera = nullptr);
 };
 
 } // namespace ux3d::imgui

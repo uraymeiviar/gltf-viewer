@@ -265,6 +265,7 @@ void StatusBar::render(ux3d::gltf::Gltf& gltfModel,
             if (ImGui::SliderFloat("##StatusBarSlider", &t, 0.0f, maxDuration, "")) {
                 animationPlayer.setCurrentTime(t, gltfLayer);
                 if (antiAliasing != nullptr) antiAliasing->resetHistory();
+                isSceneDirty = true;
             }
         } else {
             float dummy = 0.0f;

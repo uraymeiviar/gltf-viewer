@@ -42,7 +42,8 @@ enum class SelectionType {
     Sampler,
     Accessor,
     BufferView,
-    Buffer
+    Buffer,
+    Viewport
 };
 
 struct SelectionState {
@@ -62,6 +63,12 @@ struct SelectionState {
     ux3d::gltf::Accessor* selectedAccessor = nullptr;
     ux3d::gltf::BufferView* selectedBufferView = nullptr;
     ux3d::gltf::Buffer* selectedBuffer = nullptr;
+    uint32_t selectedViewportId = 0;
+
+    void selectViewport(uint32_t vpId) {
+        type = SelectionType::Viewport;
+        selectedViewportId = vpId;
+    }
 
     void selectNode(const ux3d::gltf::Node* node) {
         type = SelectionType::Node;
