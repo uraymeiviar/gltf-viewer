@@ -1,0 +1,44 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema",
+    "title": "Mesh",
+    "type": "object",
+    "description": "A set of primitives to be rendered.  A node can contain one mesh.  A node's transform places the mesh in the scene.",
+    "allOf": [ { "$ref": "glTFChildOfRootProperty.schema.json" } ],
+    "ux3d_propertyOrdering": {
+        "name": 4,
+        "primitives": 3,
+        "weights": 2,
+        "extensions": 1,
+        "extras": 0
+    },
+    "properties": {
+        "primitives": {
+            "type": "array",
+            "description": "An array of primitives, each defining geometry to be rendered with a material.",
+            "items": {
+                "$ref": "mesh.primitive.schema.json",
+                "ux3d_hierarchy": true
+            },
+            "minItems": 1
+        },
+        "weights": {
+            "type": "array",
+            "description": "Array of weights to be applied to the Morph Targets.",
+            "items": {
+                "type": "number"
+            },
+            "minItems": 1
+        },
+        "name": { },
+        "extensions": {
+            "type": "object",
+            "properties": {
+                "KHR_xmp_json_ld": {
+                    "$ref": "KHR_xmp_json_ld.schema.json"
+                }
+            }
+        },
+        "extras": { }
+    },
+    "required": [ "primitives" ]
+}

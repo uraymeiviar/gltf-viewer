@@ -1,0 +1,28 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema",
+    "title": "KHR_lights_punctual node extension",
+    "type": "object",
+    "allOf": [ { "$ref": "glTFProperty.schema.json" } ],
+    "ux3d_propertyOrdering": {
+        "light": 2,
+        "extensions": 1,
+        "extras": 0
+    },
+    "properties": {
+        "light": {
+            "allOf": [
+                {
+                    "$ref": "glTFid.schema.json"
+                }
+            ],
+            "ux3d_pathPrefix": "/extensions/KHR_lights_punctual/lights",
+            "ux3d_hierarchy": true,
+            "description": "The id of the light referenced by this node."
+        },
+        "extensions": { },
+        "extras": { }
+    },
+    "required": [
+        "light"
+    ]
+}

@@ -1,0 +1,43 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema",
+    "title": "KHR_materials_variants glTF extension",
+    "type": "object",
+    "description": "glTF extension that defines a material variations for mesh primivites",
+    "allOf": [ { "$ref": "glTFProperty.schema.json" } ],
+    "ux3d_propertyOrdering": {
+        "variants": 2,
+        "extensions": 1,
+        "extras": 0
+    },
+    "properties": {
+        "variants": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "allOf": [ { "$ref": "glTFChildOfRootProperty.schema.json" } ],
+                "description": "An object defining a valid material variant",
+                "gltf_detailedDescription": "An object defining a valid material variant",
+                "ux3d_propertyOrdering": {
+                    "name": 2,
+                    "extensions": 1,
+                    "extras": 0
+                },
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "The name of the material variant",
+                        "gltf_detailedDescription": "The name of the material variant."
+                    },
+                    "extras": { },
+                    "extensions": { }
+                },
+                "required": [ "name" ]
+            },
+            "minItems": 1,
+            "ux3d_resources": 4
+        },
+        "extensions": { },
+        "extras": { }
+    },
+    "required": [ "variants" ]
+}

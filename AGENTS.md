@@ -146,6 +146,27 @@ Implemented in [`CameraActor.cpp`](file:///H:/git-repos/gltf-viewer/source/rende
 - Layout reset shortcut: `Ctrl + L`.
 - Window position, dimensions, maximized state, and recent file history are persisted across sessions in `%APPDATA%/Gestaltor/`.
 
+### 3.7 Built-in In-Process glTF 2.0 Validator
+
+Replaces the legacy external `gltf_validator.exe` subprocess with a native, 100% in-process C++ validation engine:
+- **Tier 1 (JSON Schema Validation)**: Uses `nlohmann_json_schema_validator` to validate the loaded asset against official Khronos `glTF.schema.json` and extension schemas embedded directly in `EmbeddedVFS` (`resources/schemas/`).
+- **Tier 2 (Semantic & Buffer Integrity Checks)**: Written in clean standard C++20:
+  - BufferView & Accessor alignment (4-byte alignment, component sizes).
+  - Buffer and BufferView boundary capacity checks (`offset + length <= buffer.length`).
+  - Accessor min/max consistency and component dimension checks.
+  - Geometry attribute parity (count match across all attributes on a primitive).
+  - Out-of-bounds vertex index checks (`index < vertex_count`).
+  - Degenerate (zero-area) triangle detection.
+  - Animation timeline monotonicity ($t_{i+1} > t_i$) and interpolation output count checks.
+  - Scene hierarchy cycle detection (DFS loop checking) and multi-parent rule checks.
+- **Interactive UI (`ValidationPanel`)**:
+  - Filterable issues table with Errors (🔴), Warnings (🟡), and Infos (🔵).
+  - Quick-search filter by code, JSON pointer, or message.
+  - Single-click selects offending element in Element/Material Inspector; double-click frames it in the 3D viewport (`F`).
+  - "Copy Report" exports a complete GitHub-flavored Markdown diagnostic report to clipboard.
+  - Status bar pill badge in the Viewport Toolbar indicates asset compliance at a glance (`[ ✓ glTF Valid ]` or `[ 🔴 N Errors ]`).
+  - Global shortcut: `Ctrl + 8` or **View -> Validation**.
+
 ---
 
 ## 4. Build & Development Workflows

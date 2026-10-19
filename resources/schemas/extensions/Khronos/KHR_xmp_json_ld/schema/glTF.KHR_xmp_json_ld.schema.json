@@ -1,0 +1,37 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema",
+    "title" : "KHR_xmp_json_ld glTF extension",
+    "type": "object",
+    "description": "Metadata about the glTF asset.",
+    "allOf": [ { "$ref": "glTFProperty.schema.json" } ],
+    "ux3d_propertyOrdering": {
+        "packets": 2,
+        "extensions": 1,
+        "extras": 0
+    },
+    "properties": {
+        "packets" : {
+            "type" : "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "@context" : {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string"
+                        },
+                        "description": "Dictionary mapping XMP namespace names to the URI where they are defined"
+                    }
+                },
+                "additionalProperties": true,
+                "description": "Dictionary of XMP metadata properties. Property names take the form `xmp_namespace_name:property_name`",
+                "required": ["@context"]
+            },
+            "minItems": 1,
+            "ux3d_resources": 15
+        },
+        "extensions": { },
+        "extras": { }
+    },
+    "required": ["packets"]
+}

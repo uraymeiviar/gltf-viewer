@@ -1,0 +1,36 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema",
+    "title": "Scene",
+    "type": "object",
+    "description": "The root nodes of a scene.",
+    "allOf": [ { "$ref": "glTFChildOfRootProperty.schema.json" } ],
+    "ux3d_propertyOrdering": {
+        "name": 3,
+        "nodes": 2,
+        "extensions": 1,
+        "extras": 0
+    },
+    "properties": {
+        "nodes": {
+            "type": "array",
+            "description": "The indices of each root node.",
+            "items": {
+                "$ref": "glTFid.schema.json",
+                "ux3d_pathPrefix": "/nodes",
+                "ux3d_hierarchy": true
+            },
+            "uniqueItems": true,
+            "minItems": 1
+        },
+        "name": { },
+        "extensions": {
+            "type": "object",
+            "properties": {
+                "KHR_xmp_json_ld": {
+                    "$ref": "KHR_xmp_json_ld.schema.json"
+                }
+            }
+        },
+        "extras": { }
+    }
+}

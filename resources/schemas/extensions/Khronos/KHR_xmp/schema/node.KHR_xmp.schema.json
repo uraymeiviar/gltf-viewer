@@ -1,0 +1,26 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema",
+    "title": "KHR_xmp node extension",
+    "type": "object",
+    "description": "References an XMP packet listed in `KHR_xmp glTF extension`",
+    "allOf": [ { "$ref": "glTFProperty.schema.json" } ],
+    "ux3d_propertyOrdering": {
+        "packet": 2,
+        "extensions": 1,
+        "extras": 0
+    },
+    "properties": {
+        "packet": {
+            "allOf": [
+                {
+                    "$ref": "glTFid.schema.json"
+                }
+            ],
+            "ux3d_pathPrefix" : "/extensions/KHR_xmp/packets",
+            "description": "The id of the XMP packet referenced by this node."
+        },
+        "extensions": { },
+        "extras": { }
+    },
+    "required": ["packet"]
+}

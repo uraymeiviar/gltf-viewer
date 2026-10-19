@@ -1,0 +1,212 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema",
+    "title": "glTF",
+    "type": "object",
+    "description": "The root object for a glTF asset.",
+    "allOf": [ { "$ref": "glTFProperty.schema.json" } ],
+    "ux3d_propertyOrdering": {
+        "asset": 18,
+        "extensionsRequired": 17,
+        "extensionsUsed": 16,
+        "scene": 15,
+        "scenes": 14,
+        "nodes": 13,
+        "cameras": 12,
+        "meshes": 11,
+        "materials": 10,
+        "images": 9,
+        "textures": 8,
+        "samplers": 7,
+        "accessors": 6,
+        "buffers": 5,
+        "bufferViews": 4,
+        "animations": 3,
+        "skins": 2,
+        "extensions": 1,
+        "extras": 0
+    },
+    "properties": {
+        "extensionsUsed": {
+            "type": "array",
+            "description": "Names of glTF extensions used somewhere in this asset.",
+            "items": {
+                "type": "string"
+            },
+            "uniqueItems": true,
+            "minItems": 1
+        },
+        "extensionsRequired": {
+            "type": "array",
+            "description": "Names of glTF extensions required to properly load this asset.",
+            "items": {
+                "type": "string"
+            },
+            "uniqueItems": true,
+            "minItems": 1
+        },
+        "accessors": {
+            "type": "array",
+            "description": "An array of accessors.",
+            "items": {
+                "$ref": "accessor.schema.json"
+            },
+            "minItems": 1,
+            "gltf_detailedDescription": "An array of accessors.  An accessor is a typed view into a bufferView.",
+            "ux3d_resources": 12
+        },
+        "animations": {
+            "type": "array",
+            "description": "An array of keyframe animations.",
+            "items": {
+                "$ref": "animation.schema.json"
+            },
+            "minItems": 1,
+            "ux3d_resources": 11
+        },
+        "asset": {
+            "allOf": [ { "$ref": "asset.schema.json" } ],
+            "description": "Metadata about the glTF asset."
+        },
+        "buffers": {
+            "type": "array",
+            "description": "An array of buffers.",
+            "items": {
+                "$ref": "buffer.schema.json"
+            },
+            "minItems": 1,
+            "gltf_detailedDescription": "An array of buffers.  A buffer points to binary geometry, animation, or skins.",
+            "ux3d_resources": 14
+        },
+        "bufferViews": {
+            "type": "array",
+            "description": "An array of bufferViews.",
+            "items": {
+                "$ref": "bufferView.schema.json"
+            },
+            "minItems": 1,
+            "gltf_detailedDescription": "An array of bufferViews.  A bufferView is a view into a buffer generally representing a subset of the buffer.",
+            "ux3d_resources": 13
+        },
+        "cameras": {
+            "type": "array",
+            "description": "An array of cameras.",
+            "items": {
+                "$ref": "camera.schema.json"
+            },
+            "minItems": 1,
+            "gltf_detailedDescription": "An array of cameras.  A camera defines a projection matrix.",
+            "ux3d_resources": 2
+        },
+        "images": {
+            "type": "array",
+            "description": "An array of images.",
+            "items": {
+                "$ref": "image.schema.json"
+            },
+            "minItems": 1,
+            "gltf_detailedDescription": "An array of images.  An image defines data used to create a texture.",
+            "ux3d_resources": 8
+        },
+        "materials": {
+            "type": "array",
+            "description": "An array of materials.",
+            "items": {
+                "$ref": "material.schema.json"
+            },
+            "minItems": 1,
+            "gltf_detailedDescription": "An array of materials.  A material defines the appearance of a primitive.",
+            "ux3d_resources": 6
+        },
+        "meshes": {
+            "type": "array",
+            "description": "An array of meshes.",
+            "items": {
+                "$ref": "mesh.schema.json"
+            },
+            "minItems": 1,
+            "gltf_detailedDescription": "An array of meshes.  A mesh is a set of primitives to be rendered.",
+            "ux3d_resources": 5
+        },
+        "nodes": {
+            "type": "array",
+            "description": "An array of nodes.",
+            "items": {
+                "$ref": "node.schema.json"
+            },
+            "minItems": 1,
+            "ux3d_resources": 1
+        },
+        "samplers": {
+            "type": "array",
+            "description": "An array of samplers.",
+            "items": {
+                "$ref": "sampler.schema.json"
+            },
+            "minItems": 1,
+            "gltf_detailedDescription": "An array of samplers.  A sampler contains properties for texture filtering and wrapping modes.",
+            "ux3d_resources": 9
+        },
+        "scene": {
+            "allOf": [ { "$ref": "glTFid.schema.json" } ],
+            "description": "The index of the default scene.",
+            "ux3d_pathPrefix" : "/scenes"
+        },
+        "scenes": {
+            "type": "array",
+            "description": "An array of scenes.",
+            "items": {
+              "$ref": "scene.schema.json",
+              "ux3d_hierarchy": true
+            },
+            "minItems": 1,
+            "ux3d_resources": 0
+        },
+        "skins": {
+            "type": "array",
+            "description": "An array of skins.",
+            "items": {
+                "$ref": "skin.schema.json"
+            },
+            "minItems": 1,
+            "gltf_detailedDescription": "An array of skins.  A skin is defined by joints and matrices.",
+            "ux3d_resources": 10
+        },
+        "textures": {
+            "type": "array",
+            "description": "An array of textures.",
+            "items": {
+                "$ref": "texture.schema.json"
+            },
+            "minItems": 1,
+            "ux3d_resources": 7
+        },
+        "extensions": {
+            "type": "object",
+            "ux3d_propertyOrdering": {
+                "KHR_lights_punctual": 2,
+                "KHR_materials_variants": 1,
+                "KHR_xmp_json_ld": 0
+            },
+            "ux3d_generateSetter": false,
+            "properties": {
+                "KHR_lights_punctual": {
+                    "ux3d_generateSetter": false,
+                    "$ref": "glTF.KHR_lights_punctual.schema.json"
+                },
+                "KHR_xmp_json_ld": {
+                    "ux3d_generateSetter": false,
+                    "$ref": "glTF.KHR_xmp_json_ld.schema.json"
+                },
+                "KHR_materials_variants": {
+                    "ux3d_generateSetter": false,
+                    "$ref": "glTF.KHR_materials_variants.schema.json"
+                }
+            }
+        },
+        "extras": { }
+    },
+    "dependencies": {
+        "scene": [ "scenes" ]
+    },
+    "required": [ "asset" ]
+}

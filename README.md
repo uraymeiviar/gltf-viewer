@@ -45,6 +45,12 @@ This fork modernizes and streamlines **Gestaltor** by stripping out the legacy, 
   - Real-time Image-Based Lighting (IBL) with spherical harmonics and environment radiance filtering.
   - Infinite fading ground grid and multiple render debug modes (Wireframe, Normal, Roughness, Metallic, Base Color, UV, etc.).
   - Window state and recent file history persistence across sessions.
+- **Built-in In-Process glTF 2.0 Validator**:
+  - High-performance, native C++20 validation engine running directly in-process with zero external subprocesses or tools needed.
+  - **Tier 1 (JSON Schema Validation)**: Evaluates loaded assets against official Khronos glTF 2.0 and extension schemas embedded inside the executable.
+  - **Tier 2 (Semantic & Buffer Integrity Checks)**: Verifies buffer view alignments, accessor strides/bounds, min/max values, geometry attribute parity, vertex index bounds, degenerate triangles, animation monotonicity, and scene hierarchy cycle detection.
+  - **Interactive Validation Panel**: Filterable issues table (Errors 🔴, Warnings 🟡, Infos 🔵), text search, single-click Inspector selection, double-click 3D viewport framing (`F`), and one-click GitHub-flavored Markdown report export.
+  - Viewport toolbar status pill indicator (`[ ✓ glTF Valid ]` / `[ 🔴 N Errors ]`).
 
 ---
 

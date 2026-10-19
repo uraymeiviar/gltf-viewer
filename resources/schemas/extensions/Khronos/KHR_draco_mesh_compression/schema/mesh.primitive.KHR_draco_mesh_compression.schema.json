@@ -1,0 +1,36 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema",
+    "title": "KHR_draco_mesh_compression extension",
+    "type": "object",
+    "ux3d_generateSetter": false,
+    "allOf": [ { "$ref": "glTFProperty.schema.json" } ],
+    "ux3d_propertyOrdering": {
+        "attributes": 3,
+        "bufferView": 2,
+        "extensions": 1,
+        "extras": 0
+    },
+    "properties": {
+        "bufferView": {
+            "allOf": [ { "$ref" : "glTFid.schema.json" } ],
+            "ux3d_pathPrefix": "/bufferViews",
+            "ux3d_generateSetter": false,
+            "description": "The index of the bufferView."
+        },
+        "attributes": {
+            "type": "object",
+            "minProperties": 1,
+            "ux3d_generateSetter": false,
+            "additionalProperties": {
+                "type": "integer",
+                "minimum": 0,
+                "ux3d_generateSetter": false,
+                "ux3d_generateReset": false
+            },
+            "description": "A dictionary object, where each key corresponds to an attribute and its unique attribute id stored in the compressed geometry."
+        },
+        "extensions": { },
+        "extras": { }
+    },
+    "required": [ "bufferView", "attributes" ]
+}
