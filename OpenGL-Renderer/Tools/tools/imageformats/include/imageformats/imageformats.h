@@ -32,7 +32,8 @@ namespace imageformats {
         BMP,
         TGA,
         WEBP,
-        DDS
+        DDS,
+        EXR
     };
 
     ImageDecodingResult decodeImageFromFile(const filesystem::File& _inFile, image::Image& _outImage, core::IAllocator* _inAllocator = core::HeapAllocator::defaultInstance(), const uint32_t _inRequiredChannels = 0);

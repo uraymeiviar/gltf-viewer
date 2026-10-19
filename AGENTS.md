@@ -1,6 +1,6 @@
 # Developer & Agent Onboarding Guide (`AGENTS.md`)
 
-This document serves as the comprehensive technical onboarding guide and architectural reference for AI agents and human contributors working on the **Gestaltor glTF Viewer** codebase.
+This document serves as the comprehensive technical onboarding guide and architectural reference for AI agents and human contributors working on the **Glider glTF Viewer** codebase.
 
 ---
 
@@ -8,7 +8,7 @@ This document serves as the comprehensive technical onboarding guide and archite
 
 - **Origin**: Forked from [UX3D Gestaltor](https://github.com/ux3d/Gestaltor) (originally a full-featured glTF 2.0 visual editor built with Qt 5/6).
 - **Current Role**: A lightweight, high-performance, **viewer-only / visual inspector** for glTF and GLB 3D assets.
-- **Key Tenet**: **100% Standalone Single Executable**. All runtime assets (GLSL shaders, IBL HDR environment map, UI fonts, icons, default sample models) are compressed with Zstandard and embedded directly into `Gestaltor.exe`. The application runs with **zero external folders, assets, or runtime DLL dependencies**.
+- **Key Tenet**: **100% Standalone Single Executable**. All runtime assets (GLSL shaders, IBL HDR environment map, UI fonts, icons, default sample models) are compressed with Zstandard and embedded directly into `Glider.exe`. The application runs with **zero external folders, assets, or runtime DLL dependencies**.
 - **UI Framework**: Replaced the entire heavyweight Qt framework with **Dear ImGui (Docking branch)** and **GLFW** with OpenGL 4.1 Core Profile.
 
 ---
@@ -182,28 +182,30 @@ Prerequisites:
 :: 1. Configure build directory
 cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
 
-:: 2. Compile standalone Gestaltor.exe
-cmake --build build --config Release --target Gestaltor
+:: 2. Compile standalone Glider.exe
+cmake --build build --config Release --target Glider
 ```
 
 Output binary:
 ```
-build/bin/Release/Gestaltor.exe
+build/bin/Release/Glider.exe
 ```
 
 ### 4.2 Command-Line Arguments & Automation
 
-`Gestaltor.exe` supports several CLI flags useful for testing and headless image verification:
+`Glider.exe` supports several CLI flags useful for testing and headless image verification:
 - `[model.gltf / model.glb]`: Path to glTF or GLB file to open on startup (defaults to embedded `HelloCube.glb`).
+- `--aa <none|msaa2|msaa4|msaa8|fxaa|taa>`: Set anti-aliasing mode on startup.
 - `--select-node <name>`: Automatically selects a node by name and frames camera on startup.
+- `--select-viewport <id>`: Selects a viewport to inspect its settings.
 - `--dump-frame <output.jpg>`: Renders 8 warm-up frames and dumps the window framebuffer to disk as `.jpg` or `.png`.
 - `--exit-after-dump`: Exits the application immediately after dumping the frame.
 
 Example test command:
 ```cmd
-cmd /c "build\bin\Release\Gestaltor.exe --dump-frame frame.jpg --exit-after-dump"
+cmd /c "build\bin\Release\Glider.exe --dump-frame frame.jpg --exit-after-dump"
 ```
-*(Note: Because `Gestaltor.exe` is a Win32 subsystem executable, wrap in `cmd /c` when invoking from PowerShell to wait for process exit synchronously).*
+*(Note: Because `Glider.exe` is a Win32 subsystem executable, wrap in `cmd /c` when invoking from PowerShell to wait for process exit synchronously).*
 
 ### 4.3 Updating Runtime Resources
 
@@ -212,15 +214,15 @@ If you modify shaders, fonts, or environments in `resources/`:
    ```cmd
    python scripts/pack_resources.py
    ```
-2. Recompile `Gestaltor.exe`:
+2. Recompile `Glider.exe`:
    ```cmd
-   cmake --build build --config Release --target Gestaltor
+   cmake --build build --config Release --target Glider
    ```
 *(CMake also triggers this automatically when CMake detects resource changes).*
 
 ### 4.4 Publishing GitHub Releases
 
-The script [`scripts/create_release.py`](file:///H:/git-repos/gltf-viewer/scripts/create_release.py) automatically packages `Gestaltor.exe`, `README.md`, and `LICENSE` into a `.zip` archive, checks authentication via Windows Git Credential Manager, and uploads the release asset to GitHub:
+The script [`scripts/create_release.py`](file:///H:/git-repos/gltf-viewer/scripts/create_release.py) automatically packages `Glider.exe`, `README.md`, and `LICENSE` into a `.zip` archive, checks authentication via Windows Git Credential Manager, and uploads the release asset to GitHub:
 ```cmd
 python scripts/create_release.py
 ```
@@ -230,7 +232,7 @@ python scripts/create_release.py
 ## 5. Critical Rules & Guardrails for AI Agents
 
 1. **Standalone Integrity**:
-   - Never add code that assumes `resources/` exists on disk adjacent to `Gestaltor.exe`.
+   - Never add code that assumes `resources/` exists on disk adjacent to `Glider.exe`.
    - All runtime resources must be accessed via `ux3d::imgui::StdFileSystem::instance()` or `EmbeddedVFS::instance()`.
 2. **Never Commit or Push Without Instruction**:
    - Only execute `git commit` or `git push` when the user explicitly instructs you to do so.

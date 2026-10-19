@@ -5,33 +5,38 @@ import json
 import os
 import zipfile
 
-VERSION = 'v2.4.0'
-RELEASE_NAME = f'Gestaltor Viewer {VERSION} (Standalone Win64)'
-ZIP_NAME = f'Gestaltor-{VERSION}-win64.zip'
+VERSION = 'v1.0.0'
+RELEASE_NAME = f'Glider {VERSION} (Standalone Win64)'
+ZIP_NAME = f'Glider-{VERSION}-win64.zip'
 
-RELEASE_BODY = f'''### Gestaltor glTF Viewer {VERSION}
+RELEASE_BODY = f'''### Glider glTF Viewer {VERSION}
 
 A lightweight, high-performance, 100% standalone **glTF 2.0 Visual Inspector & Viewer** based on UX3D Gestaltor.
 
 #### Highlights in {VERSION}
+- **Multi-Viewport Architecture**:
+  - Open multiple concurrent 3D viewports docked as tabs or side-by-side splits.
+  - Viewport items in Scene Hierarchy tree with per-viewport selection and individual settings in the Inspector.
+  - Attach viewports to any glTF camera node (`[ Free Look | <camera-list> ]`) or inspect with free look navigation.
+  - Dedicated Viewport menu (New Viewport, Camera Attachment, Orientation Presets, Shading Mode, Grid & BBox toggles).
+- **Comprehensive Image & Texture Inspection**:
+  - Real-time proportional image preview in Element Inspector constrained to inspector width with 1px border.
+  - Exact image channel count (Grayscale, RG, RGB, RGBA) and bit depth (e.g., 8-bit, 16-bit per channel / 48-bit, 64-bit total).
+- **Temporal Anti-Aliasing (TAA) & Post-Processing**:
+  - Rock-solid TAA with Halton(2, 3) 8-phase subpixel jitter and 3x3 color neighborhood clamping.
+  - Dynamic responsive motion blending and crisp stationary accumulation.
+  - FXAA 3.11 and MSAA 2x/4x/8x multi-sample anti-aliasing options.
 - **Built-in In-Process glTF 2.0 Validator**:
-  - High-performance, native C++20 validation engine running entirely in-process with zero external subprocesses or tools needed.
+  - High-performance native C++20 validation engine running entirely in-process with zero external subprocesses or tools needed.
   - **Tier 1 (JSON Schema Validation)**: Evaluates loaded assets against official Khronos glTF 2.0 and extension schemas embedded inside the executable.
   - **Tier 2 (Semantic & Buffer Integrity Checks)**: Verifies buffer view alignments, accessor strides/bounds, min/max values, geometry attribute parity, vertex index bounds, degenerate triangles, animation monotonicity, and scene hierarchy cycle detection.
-- **Interactive Validation UI Panel**:
-  - Filterable issues table with Errors (🔴), Warnings (🟡), and Infos (🔵), plus real-time text search.
-  - Single-click selection jumps to the offending element in the Element/Material Inspector; double-click frames it in the 3D viewport (`F`).
-  - One-click "Copy Report" button generates a complete GitHub-flavored Markdown diagnostic report to clipboard.
+  - **Interactive Validation Panel**: Filterable issues table (Errors 🔴, Warnings 🟡, Infos 🔵), text search, single-click Inspector selection, double-click 3D viewport framing (`F`), and one-click GitHub-flavored Markdown report export.
   - Viewport toolbar status pill indicator (`[ ✓ glTF Valid ]` or `[ 🔴 N Errors ]`).
-  - Global shortcut `Ctrl + 8` or **View -> Validation**.
-- **Modernized Concurrency**:
-  - Removed legacy Intel oneTBB runtime dependency in favor of clean standard C++20 multithreading.
 - **100% Standalone Single Binary**:
-  - All runtime assets (GLSL shaders, IBL HDR environment map, validation schemas, fonts with embedded Material Design Icons, sample models) are compressed with Zstandard and embedded directly inside `Gestaltor.exe`.
+  - All runtime assets (GLSL shaders, IBL HDR environment map, validation schemas, fonts with embedded Material Design Icons, sample models) are compressed with Zstandard and embedded directly inside `Glider.exe`.
 - **Zero Qt Dependency**: Lightweight Dear ImGui (Docking) and GLFW with OpenGL 4.1 Core Profile.
-- **FSS Aviation Dark Theme**: Aviation dark theme with emerald green accents and crisp typography.
-- **Blender-Style Viewport Navigation**: Orbit, pan, zoom, and frame focus (`F`) controls.
-- **Native GPU Color Picking**: Subpixel mesh picking, Oriented Bounding Box (OBB) local highlighting, and coordinate gizmos.
+- **FSS Aviation Dark Theme**: Aviation dark theme with emerald green accents, crisp typography, and high-DPI icons.
+- **Blender-Style Viewport Navigation**: Orbit, pan, zoom, frame focus (`F`), and corner orientation compass gizmo.
 - **Full glTF 2.0 PBR Pipeline**: Core PBR plus Specular-Glossiness, Clearcoat, Sheen, Transmission, Volume, IOR, Iridescence, Material Variants, and Punctual Lights.
 
 #### Assets
@@ -40,12 +45,14 @@ A lightweight, high-performance, 100% standalone **glTF 2.0 Visual Inspector & V
 
 def package_zip(zip_path):
     print(f'Packaging {zip_path}...')
-    exe_path = os.path.join('build', 'bin', 'Release', 'Gestaltor.exe')
+    exe_path = os.path.join('build', 'bin', 'Release', 'Glider.exe')
+    if not os.path.exists(exe_path):
+        exe_path = os.path.join('build', 'bin', 'Release', 'Gestaltor.exe')
     if not os.path.exists(exe_path):
         raise FileNotFoundError(f'Executable not found at {exe_path}. Build Release target first.')
 
     files_to_pack = [
-        (exe_path, 'Gestaltor.exe'),
+        (exe_path, 'Glider.exe'),
         ('LICENSE', 'LICENSE'),
         ('README.md', 'README.md'),
     ]

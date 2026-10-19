@@ -15,6 +15,7 @@
 #include <stb_image_write.h>
 
 #include <ktx.h>
+#include <tinyexr.h>
 
 #include <algorithm>
 
@@ -60,6 +61,9 @@ core::string imageformats::imageEncodingToString(ImageEncoding _imageEncoding)
     }
     case ImageEncoding::DDS: {
         return "image/vnd-ms.dds";
+    }
+    case ImageEncoding::EXR: {
+        return "image/x-exr";
     }
     default: {
         return "";
@@ -146,6 +150,9 @@ ImageEncoding imageformats::getEncodingFromUri(const core::string& _inUri)
     if (core::endsWith(core::toLower(_inUri), ".dds")) {
         return ImageEncoding::DDS;
     }
+    if (core::endsWith(core::toLower(_inUri), ".exr")) {
+        return ImageEncoding::EXR;
+    }
 
     // default
     return ImageEncoding::Undefined;
@@ -225,8 +232,83 @@ ImageEncoding imageformats::getEncodingFromBuffer(const std::vector<uint8_t>& _i
         }
     }
 
+    // detect openexr (magic 0x76, 0x2f, 0x31, 0x01)
+    if (_inBuffer.size() >= 4) {
+        if (_inBuffer[0] == 0x76 && _inBuffer[1] == 0x2f && _inBuffer[2] == 0x31 && _inBuffer[3] == 0x01) {
+            return ImageEncoding::EXR;
+        }
+    }
+
     // default
     return ImageEncoding::Undefined;
+}
+
+static ImageDecodingResult decodeEXR(
+    const core::Vector<uint8_t>& _inBuffer,
+    image::Image& _outImage,
+    const uint32_t _inRequiredChannels)
+{
+    if (_inBuffer.empty()) {
+        return ImageDecodingError::InvalidInput;
+    }
+
+    float* rgba = nullptr;
+    int width = 0;
+    int height = 0;
+    const char* err = nullptr;
+
+    int ret = LoadEXRFromMemory(
+        &rgba,
+        &width,
+        &height,
+        _inBuffer.data(),
+        _inBuffer.size(),
+        &err);
+
+    if (ret != TINYEXR_SUCCESS || rgba == nullptr) {
+        if (err) {
+            core::logError("TinyEXR failed: %s", err);
+            FreeEXRErrorMessage(err);
+        }
+        return ImageDecodingError::LoadFailure;
+    }
+
+    uint32_t bitsPerChannel[4] = { 32, 32, 32, 32 };
+    image::Format format = image::Format::FLOAT;
+    bool signedType = true;
+    bool srgb = false;
+    bool packed = false;
+    bool compressed = false;
+
+    _outImage.initializeLayout(
+        bitsPerChannel[0],
+        bitsPerChannel[1],
+        bitsPerChannel[2],
+        bitsPerChannel[3],
+        format,
+        signedType,
+        srgb,
+        packed,
+        compressed,
+        0, 1, 2, 3);
+
+    size_t pixelCount = static_cast<size_t>(width) * static_cast<size_t>(height);
+    size_t byteLength = pixelCount * 4 * sizeof(float);
+
+    bool success = _outImage.initialize(
+        reinterpret_cast<const uint8_t*>(rgba),
+        byteLength,
+        static_cast<uint32_t>(width),
+        static_cast<uint32_t>(height),
+        1, 1, 1, 1);
+
+    free(rgba);
+
+    if (!success) {
+        return ImageDecodingError::InitializeFailure;
+    }
+
+    return ImageDecodingResult::Success;
 }
 
 ImageDecodingResult imageformats::decodeImage(
@@ -267,6 +349,8 @@ ImageDecodingResult imageformats::decodeImage(
         return decodeWebP(_inBuffer, _outImage);
     } else if (encoding == ImageEncoding::DDS) {
         return decodeDDS(_inBuffer, _outImage);
+    } else if (encoding == ImageEncoding::EXR) {
+        return decodeEXR(_inBuffer, _outImage, _inRequiredChannels);
     } else {
         int x = 0;
         int y = 0;

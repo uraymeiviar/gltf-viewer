@@ -349,7 +349,7 @@ bool AppSettings::saveSettings(const std::string& iniPath)
     }
 
     if (!fileExisted) {
-        out << "; Gestaltor glTF Viewer Configuration\n\n";
+        out << "; Glider glTF Viewer Configuration\n\n";
     }
 
     // Write [SearchPaths] section

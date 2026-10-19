@@ -55,9 +55,9 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
             ImGui::Separator();
 
             // HDR environment map
-            ImGui::Text("HDR Environment: %s", state.currentHdrPath.c_str());
-            if (ImGui::Button("Load Custom HDR...")) {
-                auto selection = pfd::open_file("Open HDR Panorama", "", { "HDR Environment (*.hdr *.exr)", "*.hdr *.exr" }).result();
+            ImGui::Text("HDR / EXR Environment: %s", state.currentHdrPath.c_str());
+            if (ImGui::Button("Load Custom HDR / EXR...")) {
+                auto selection = pfd::open_file("Open HDR / EXR Panorama", "", { "HDR / OpenEXR Environment (*.hdr *.exr)", "*.hdr *.exr", "All Files (*.*)", "*.*" }).result();
                 if (!selection.empty() && gltfLayer != nullptr) {
                     auto path = ux3d::imgui::StdFileSystem::instance().toPath(selection[0].c_str());
                     gltfLayer->setEnvironmentMap(path);

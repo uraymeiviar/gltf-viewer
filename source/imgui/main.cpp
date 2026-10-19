@@ -255,10 +255,17 @@ static std::vector<std::string> s_recentFiles;
 static std::string getRecentFilesConfigPath() {
     const char* appData = std::getenv("APPDATA");
     if (appData != nullptr && std::strlen(appData) > 0) {
-        std::filesystem::path dir = std::filesystem::path(appData) / "Gestaltor";
+        std::filesystem::path dir = std::filesystem::path(appData) / "Glider";
         std::error_code ec;
         std::filesystem::create_directories(dir, ec);
-        return (dir / "recent_files.txt").string();
+        std::filesystem::path newPath = dir / "recent_files.txt";
+        if (!std::filesystem::exists(newPath)) {
+            std::filesystem::path oldPath = std::filesystem::path(appData) / "Gestaltor" / "recent_files.txt";
+            if (std::filesystem::exists(oldPath)) {
+                std::filesystem::copy_file(oldPath, newPath, ec);
+            }
+        }
+        return newPath.string();
     }
     return "recent_files.txt";
 }
@@ -315,10 +322,17 @@ struct WindowState {
 static std::string getWindowStateConfigPath() {
     const char* appData = std::getenv("APPDATA");
     if (appData != nullptr && std::strlen(appData) > 0) {
-        std::filesystem::path dir = std::filesystem::path(appData) / "Gestaltor";
+        std::filesystem::path dir = std::filesystem::path(appData) / "Glider";
         std::error_code ec;
         std::filesystem::create_directories(dir, ec);
-        return (dir / "window_state.txt").string();
+        std::filesystem::path newPath = dir / "window_state.txt";
+        if (!std::filesystem::exists(newPath)) {
+            std::filesystem::path oldPath = std::filesystem::path(appData) / "Gestaltor" / "window_state.txt";
+            if (std::filesystem::exists(oldPath)) {
+                std::filesystem::copy_file(oldPath, newPath, ec);
+            }
+        }
+        return newPath.string();
     }
     return "window_state.txt";
 }
@@ -367,7 +381,7 @@ static void saveWindowState(GLFWwindow* window) {
 
 static void updateWindowTitle(GLFWwindow* window, const std::string& currentFilePath) {
     if (window == nullptr) return;
-    std::string title = "Gestaltor 2.2.7 - ";
+    std::string title = "Glider - ";
     if (currentFilePath.empty()) {
         title += "untitled.glb";
     } else {
@@ -962,7 +976,7 @@ int main(int argc, char** argv)
 #endif
 
     // Create GLFW window (starts at restored or default size)
-    GLFWwindow* window = glfwCreateWindow(winState.width, winState.height, "Gestaltor - glTF 2.0 Visual Editor", nullptr, nullptr);
+    GLFWwindow* window = glfwCreateWindow(winState.width, winState.height, "Glider - glTF 2.0 Viewer", nullptr, nullptr);
     if (!window) {
         std::fprintf(stderr, "Failed to create GLFW window\n");
         glfwTerminate();
@@ -1112,6 +1126,15 @@ int main(int argc, char** argv)
             ux3d::imgui::SceneHierarchyPanel::setSearchFilter(argv[++i]);
         } else if (arg == "--filter-resource" && i + 1 < argc) {
             ux3d::imgui::ResourcesPanel::setSearchFilter(argv[++i]);
+        } else if ((arg == "--env" || arg == "--hdr") && i + 1 < argc) {
+            std::string customHdr = argv[++i];
+            auto path = ux3d::imgui::StdFileSystem::instance().toPath(customHdr.c_str());
+            gltfLayer->setEnvironmentMap(path);
+            if (gltfLayer->filterEnvironmentMap()) {
+                activeViewport->settings.currentHdrPath = customHdr;
+                commandGenerator->setIBLEnabled(true);
+                logMessage("Loaded environment map: " + customHdr);
+            }
         } else if ((arg == "--aa" || arg == "--anti-aliasing") && i + 1 < argc) {
             std::string aaVal = argv[++i];
             if (aaVal == "none" || aaVal == "0") activeViewport->settings.antiAliasingIdx = 0;
@@ -1349,10 +1372,10 @@ int main(int argc, char** argv)
         ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-        ImGui::Begin("GestaltorDockSpace", nullptr, windowFlags);
+        ImGui::Begin("GliderDockSpace", nullptr, windowFlags);
         ImGui::PopStyleVar(3);
 
-        ImGuiID dockspaceId = ImGui::GetID("GestaltorMainDockSpace_v3");
+        ImGuiID dockspaceId = ImGui::GetID("GliderMainDockSpace_v1");
 
         static bool s_firstLayout = true;
         static bool s_resetLayout = false;

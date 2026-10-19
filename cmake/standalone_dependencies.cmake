@@ -266,3 +266,28 @@ if(NOT RxCpp_POPULATED)
     target_include_directories(RxCpp INTERFACE ${rxcpp_SOURCE_DIR}/Rx/v2/src/)
 endif()
 
+# 17. tinyexr (OpenEXR image loader)
+message(STATUS "[Standalone] Fetching tinyexr...")
+FetchContent_Declare(
+    tinyexr
+    GIT_REPOSITORY https://github.com/syoyo/tinyexr.git
+    GIT_TAG v1.0.9
+)
+FetchContent_GetProperties(tinyexr)
+if(NOT tinyexr_POPULATED)
+    FetchContent_Populate(tinyexr)
+    add_library(tinyexr STATIC
+        ${tinyexr_SOURCE_DIR}/deps/miniz/miniz.c
+    )
+    target_include_directories(tinyexr PUBLIC
+        ${tinyexr_SOURCE_DIR}
+        ${tinyexr_SOURCE_DIR}/deps/miniz
+    )
+    if(MSVC)
+        target_compile_definitions(tinyexr PRIVATE _CRT_SECURE_NO_WARNINGS)
+    endif()
+    if(NOT TARGET tinyexr::tinyexr)
+        add_library(tinyexr::tinyexr ALIAS tinyexr)
+    endif()
+endif()
+

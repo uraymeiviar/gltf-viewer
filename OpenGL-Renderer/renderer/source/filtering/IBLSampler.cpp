@@ -308,7 +308,7 @@ GLuint IBLSampler::loadTextureHDR(const filesystem::Path& _panoramaImagePath)
     image::Image panoramaImage;
 
     if (core::Failed(imageformats::decodeImage(hdrFileData, panoramaImage))) {
-        core::logError("Decoding of hdr failed %s", _panoramaImagePath.toString().c_str());
+        core::logError("Decoding of HDR/EXR environment map failed: %s", _panoramaImagePath.toString().c_str());
         return 0;
     }
 
@@ -328,10 +328,14 @@ GLuint IBLSampler::loadTextureHDR(const filesystem::Path& _panoramaImagePath)
     }
     // fill texture data
     const GLint level = 0;
-    const GLint internalFormat = GL_RGB32F;
     const GLint border = 0;
-    const GLenum format = GL_RGB;
     const GLenum type = GL_FLOAT;
+    GLint internalFormat = GL_RGB32F;
+    GLenum format = GL_RGB;
+    if (panoramaImage.getChannelCount() == 4) {
+        internalFormat = GL_RGBA32F;
+        format = GL_RGBA;
+    }
     const void* data = panoramaImage.getPixels().data();
     GLsizei width = panoramaImage.getWidth();
     GLsizei height = panoramaImage.getHeight();

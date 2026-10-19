@@ -19,6 +19,10 @@ target_link_libraries(${lib_name} PRIVATE KTX::ktx)
 find_package(WebP REQUIRED)
 target_link_libraries(${lib_name} PRIVATE WebP::WebP)
 
+if (TARGET tinyexr)
+	target_link_libraries(${lib_name} PRIVATE tinyexr)
+endif()
+
 if (${UX3D_TOOLS_TESTING})
 	add_sources("tests/*.cpp" "test_sources")
 	add_library(${lib_name}Tests OBJECT "${test_sources}")
