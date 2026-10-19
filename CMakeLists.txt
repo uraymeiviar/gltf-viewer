@@ -71,6 +71,8 @@ set(GESTALTOR_SOURCES
 	"header/imgui/ViewportSettingsPanel.h"
 	"source/imgui/StatisticsPanel.cpp"
 	"header/imgui/StatisticsPanel.h"
+	"source/imgui/SceneHierarchyPanel.cpp"
+	"header/imgui/SceneHierarchyPanel.h"
 	"source/imgui/ResourcesPanel.cpp"
 	"header/imgui/ResourcesPanel.h"
 	"source/imgui/ElementInspector.cpp"

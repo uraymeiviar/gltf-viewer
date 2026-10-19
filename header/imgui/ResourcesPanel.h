@@ -10,9 +10,15 @@
 #include "gltf/Light.h"
 #include "gltf/Texture.h"
 #include "gltf/Image.h"
+#include "gltf/Sampler.h"
 #include "gltf/Animation.h"
 #include "gltf/Skin.h"
 #include "gltf/MaterialVariant.h"
+#include "gltf/Scene.h"
+#include "gltf/Accessor.h"
+#include "gltf/BufferView.h"
+#include "gltf/Buffer.h"
+#include <string>
 
 namespace ux3d::renderer {
 class GltfRenderLayer;
@@ -31,7 +37,12 @@ enum class SelectionType {
     Image,
     Animation,
     Skin,
-    MaterialVariant
+    MaterialVariant,
+    Scene,
+    Sampler,
+    Accessor,
+    BufferView,
+    Buffer
 };
 
 struct SelectionState {
@@ -46,6 +57,11 @@ struct SelectionState {
     ux3d::gltf::Animation* selectedAnimation = nullptr;
     ux3d::gltf::Skin* selectedSkin = nullptr;
     ux3d::gltf::MaterialVariant* selectedVariant = nullptr;
+    ux3d::gltf::Scene* selectedScene = nullptr;
+    ux3d::gltf::Sampler* selectedSampler = nullptr;
+    ux3d::gltf::Accessor* selectedAccessor = nullptr;
+    ux3d::gltf::BufferView* selectedBufferView = nullptr;
+    ux3d::gltf::Buffer* selectedBuffer = nullptr;
 
     void selectNode(const ux3d::gltf::Node* node) {
         type = SelectionType::Node;
@@ -96,6 +112,31 @@ struct SelectionState {
         type = SelectionType::MaterialVariant;
         selectedVariant = variant;
     }
+
+    void selectScene(ux3d::gltf::Scene* scene) {
+        type = SelectionType::Scene;
+        selectedScene = scene;
+    }
+
+    void selectSampler(ux3d::gltf::Sampler* sampler) {
+        type = SelectionType::Sampler;
+        selectedSampler = sampler;
+    }
+
+    void selectAccessor(ux3d::gltf::Accessor* accessor) {
+        type = SelectionType::Accessor;
+        selectedAccessor = accessor;
+    }
+
+    void selectBufferView(ux3d::gltf::BufferView* bv) {
+        type = SelectionType::BufferView;
+        selectedBufferView = bv;
+    }
+
+    void selectBuffer(ux3d::gltf::Buffer* buf) {
+        type = SelectionType::Buffer;
+        selectedBuffer = buf;
+    }
 };
 
 class ResourcesPanel {
@@ -103,7 +144,10 @@ public:
     static void render(ux3d::gltf::Gltf& gltfModel,
                        SelectionState& selection,
                        ux3d::renderer::GltfRenderLayer* gltfLayer = nullptr,
-                       bool* isSceneDirty = nullptr);
+                       bool* isSceneDirty = nullptr,
+                       bool* pOpen = nullptr);
+    static void resetSearch();
+    static void setSearchFilter(const std::string& filter);
 };
 
 } // namespace ux3d::imgui

@@ -9,6 +9,15 @@
 
 namespace ux3d::imgui {
 
+struct HierarchyDisplayOptions {
+    bool showIcon = true;
+    bool showTitle = true;
+    bool showIndex = true;
+    bool showName = true;
+};
+
+using ResourceDisplayOptions = HierarchyDisplayOptions;
+
 class AppSettings {
 public:
     static AppSettings& instance();
@@ -35,6 +44,14 @@ public:
     std::string getCurrentModelPath() const;
     std::string getCurrentModelDir() const;
 
+    // Scene hierarchy display options
+    HierarchyDisplayOptions getHierarchyOptions() const;
+    void setHierarchyOptions(const HierarchyDisplayOptions& options);
+
+    // Resources panel display options
+    ResourceDisplayOptions getResourceOptions() const;
+    void setResourceOptions(const ResourceDisplayOptions& options);
+
     // Asset resolution hook:
     // Resolves missing external asset paths against the active model directory and configured search paths.
     // Returns the resolved absolute or canonical path if found on disk, or empty string if not found.
@@ -53,6 +70,8 @@ private:
     std::vector<std::string> m_searchPaths;
     std::string m_currentModelPath;
     std::string m_currentModelDir;
+    HierarchyDisplayOptions m_hierarchyOptions;
+    ResourceDisplayOptions m_resourceOptions;
 };
 
 } // namespace ux3d::imgui

@@ -52,6 +52,7 @@
 #include "imgui/IconsMaterialDesignIcons.h"
 #include "imgui/AppSettings.h"
 #include "imgui/SearchPathsPanel.h"
+#include "imgui/SceneHierarchyPanel.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -129,17 +130,6 @@ public:
 static void glfw_error_callback(int error, const char* description)
 {
     std::fprintf(stderr, "GLFW Error %d: %s\n", error, description);
-}
-
-static bool s_scrollToSelectedNode = false;
-
-static bool isAncestorOf(const ux3d::gltf::Node* parent, const ux3d::gltf::Node* target)
-{
-    if (parent == nullptr || target == nullptr) return false;
-    for (const auto* child : parent->getChildren()) {
-        if (child == target || isAncestorOf(child, target)) return true;
-    }
-    return false;
 }
 
 static ux3d::gltf::Extends getNodeExtends(ux3d::gltf::Node* node,
@@ -260,60 +250,6 @@ static void focusCameraOnNode(ux3d::gltf::Node* node,
     sceneDirty = true;
 }
 
-// Recursive scene hierarchy node renderer with single-click focus/orbit
-static void renderNodeHierarchy(ux3d::gltf::Node* node,
-                                ux3d::imgui::SelectionState& selection,
-                                ux3d::gltf::Gltf& gltfModel,
-                                ux3d::renderer::GltfRenderLayer* gltfLayer,
-                                ux3d::editor::CameraActor& cameraActor,
-                                ux3d::imgui::AntiAliasing& antiAliasing,
-                                bool& sceneDirty)
-{
-    if (!node) return;
-
-    // Auto-expand parents if selected node is a descendant
-    if (selection.type == ux3d::imgui::SelectionType::Node && selection.selectedNode != nullptr) {
-        if (isAncestorOf(node, selection.selectedNode)) {
-            ImGui::SetNextItemOpen(true);
-        }
-    }
-
-    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick | ImGuiTreeNodeFlags_SpanAvailWidth;
-    if (selection.type == ux3d::imgui::SelectionType::Node && selection.selectedNode == node) {
-        flags |= ImGuiTreeNodeFlags_Selected;
-        if (s_scrollToSelectedNode) {
-            ImGui::SetScrollHereY(0.5f);
-            s_scrollToSelectedNode = false;
-        }
-    }
-    if (node->getChildren().empty()) {
-        flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
-    }
-
-    std::string name = node->hasName() ? node->getName().c_str() : ("Node " + std::to_string(node->m_ID));
-    std::string tag = "";
-    if (node->getMesh() != nullptr) tag += " [" ICON_MDI_CUBE_OUTLINE " Mesh]";
-    if (node->getCamera() != nullptr) tag += " [" ICON_MDI_CAMERA " Camera]";
-    if (node->getLight() != nullptr) tag += " [" ICON_MDI_LIGHTBULB_OUTLINE " Light]";
-    std::string label = name + tag;
-
-    bool open = ImGui::TreeNodeEx(reinterpret_cast<void*>(static_cast<intptr_t>(node->m_ID)), flags, "%s", label.c_str());
-    if (ImGui::IsItemClicked()) {
-        selection.selectNode(node);
-        focusCameraOnNode(node, gltfModel, gltfLayer, cameraActor, antiAliasing, sceneDirty);
-    }
-    if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-        selection.selectNode(node);
-        focusCameraOnNode(node, gltfModel, gltfLayer, cameraActor, antiAliasing, sceneDirty);
-    }
-
-    if (open && !node->getChildren().empty()) {
-        for (auto* child : node->getChildren()) {
-            renderNodeHierarchy(child, selection, gltfModel, gltfLayer, cameraActor, antiAliasing, sceneDirty);
-        }
-        ImGui::TreePop();
-    }
-}
 
 // Recent Files Persistence
 static std::vector<std::string> s_recentFiles;
@@ -962,6 +898,7 @@ int main(int argc, char** argv)
     int dumpFrameCountdown = -1;
     bool exitAfterDump = false;
     std::string selectNodeArg;
+    std::string hideNodeArg;
     std::string selectMaterialArg;
     bool showValidationArg = false;
     bool showSearchPathsArg = false;
@@ -975,12 +912,18 @@ int main(int argc, char** argv)
             exitAfterDump = true;
         } else if (arg == "--select-node" && i + 1 < argc) {
             selectNodeArg = argv[++i];
+        } else if (arg == "--hide-node" && i + 1 < argc) {
+            hideNodeArg = argv[++i];
         } else if (arg == "--select-material" && i + 1 < argc) {
             selectMaterialArg = argv[++i];
         } else if (arg == "--show-validation" || arg == "--validate") {
             showValidationArg = true;
         } else if (arg == "--show-search-paths" || arg == "--search-paths") {
             showSearchPathsArg = true;
+        } else if (arg == "--filter-node" && i + 1 < argc) {
+            ux3d::imgui::SceneHierarchyPanel::setSearchFilter(argv[++i]);
+        } else if (arg == "--filter-resource" && i + 1 < argc) {
+            ux3d::imgui::ResourcesPanel::setSearchFilter(argv[++i]);
         } else if (!arg.empty() && arg[0] != '-') {
             modelToLoad = arg;
         }
@@ -997,6 +940,21 @@ int main(int argc, char** argv)
                 if (node.hasName() && node.getName() == selectNodeArg.c_str()) {
                     selection.selectNode(&node);
                     focusCameraOnNode(&node, gltfModel, gltfLayer.get(), cameraActor, antiAliasing, isSceneDirty);
+                    break;
+                }
+            }
+        }
+        if (!hideNodeArg.empty()) {
+            std::string target = hideNodeArg;
+            if (target.size() >= 2 && target.front() == '"' && target.back() == '"') {
+                target = target.substr(1, target.size() - 2);
+            }
+            for (auto& node : gltfModel.getNodes()) {
+                if ((node.hasName() && (node.getName() == target || node.getName() == hideNodeArg)) ||
+                    std::to_string(node.m_ID) == hideNodeArg) {
+                    node.setVisible(false);
+                    isSceneDirty = true;
+                    std::printf("Hiding node %u: %s\n", node.m_ID, node.hasName() ? node.getName().c_str() : "");
                     break;
                 }
             }
@@ -1690,7 +1648,7 @@ int main(int argc, char** argv)
                             if (it != currentReverseMapping.end() && it->second != nullptr) {
                                 auto* pickedNode = const_cast<ux3d::gltf::Node*>(it->second);
                                 selection.selectNode(pickedNode);
-                                s_scrollToSelectedNode = true;
+                                ux3d::imgui::SceneHierarchyPanel::requestScrollToSelectedNode();
                                 isSceneDirty = true;
                                 logMessage("Picked: " + (pickedNode->hasName() ? pickedNode->getName() : ("Node " + std::to_string(pickedNode->m_ID))));
                                 if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
@@ -1727,37 +1685,14 @@ int main(int argc, char** argv)
         // Hierarchy Panel
         // -------------------------------------------------------------
         if (showHierarchy) {
-            if (ImGui::Begin(WND_HIERARCHY, &showHierarchy)) {
-                if (activeScene != nullptr) {
-                    std::string sceneTitle = activeScene->hasName() ? activeScene->getName().c_str() : ("Scene " + std::to_string(activeScene->m_ID));
-                    if (ImGui::TreeNodeEx(sceneTitle.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
-                        for (auto* rootNode : activeScene->getNodes()) {
-                            renderNodeHierarchy(rootNode, selection, gltfModel, gltfLayer.get(), cameraActor, antiAliasing, isSceneDirty);
-                        }
-                        ImGui::TreePop();
-                    }
-                } else {
-                    ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "No active glTF scene.");
-                    if (ImGui::Button("Open File...")) {
-                        auto openRes = pfd::open_file("Open glTF / GLB", "", { "glTF files (*.gltf *.glb)", "*.gltf *.glb" }).result();
-                        if (!openRes.empty()) {
-                            loadGltfModel(openRes[0], gltfModel, activeScene, selection, currentFilePath, cameraActor, gltfLayer.get(), animationPlayer, isSceneDirty);
-                            updateWindowTitle(window, currentFilePath);
-                        }
-                    }
-                }
-            }
-            ImGui::End();
+            ux3d::imgui::SceneHierarchyPanel::render(gltfModel, activeScene, selection, gltfLayer.get(), cameraActor, antiAliasing, isSceneDirty, &showHierarchy);
         }
 
         // -------------------------------------------------------------
         // Resources Panel
         // -------------------------------------------------------------
         if (showResources) {
-            if (ImGui::Begin(WND_RESOURCES, &showResources)) {
-                ux3d::imgui::ResourcesPanel::render(gltfModel, selection, gltfLayer.get(), &isSceneDirty);
-            }
-            ImGui::End();
+            ux3d::imgui::ResourcesPanel::render(gltfModel, selection, gltfLayer.get(), &isSceneDirty, &showResources);
         }
 
         // -------------------------------------------------------------

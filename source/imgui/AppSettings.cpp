@@ -161,6 +161,30 @@ void AppSettings::clearSearchPaths()
     m_searchPaths.clear();
 }
 
+HierarchyDisplayOptions AppSettings::getHierarchyOptions() const
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_hierarchyOptions;
+}
+
+void AppSettings::setHierarchyOptions(const HierarchyDisplayOptions& options)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_hierarchyOptions = options;
+}
+
+ResourceDisplayOptions AppSettings::getResourceOptions() const
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_resourceOptions;
+}
+
+void AppSettings::setResourceOptions(const ResourceDisplayOptions& options)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_resourceOptions = options;
+}
+
 bool AppSettings::loadSettings(const std::string& iniPath)
 {
     std::string targetFile = iniPath.empty() ? m_iniPath : iniPath;
@@ -198,6 +222,8 @@ bool AppSettings::loadSettings(const std::string& iniPath)
 
     std::string line;
     bool inSearchPathsSection = false;
+    bool inSceneHierarchySection = false;
+    bool inResourcesSection = false;
 
     while (std::getline(in, line)) {
         std::string trimmed = trimString(line);
@@ -209,8 +235,20 @@ bool AppSettings::loadSettings(const std::string& iniPath)
             // Check section header
             if (trimmed.rfind("[SearchPaths]", 0) == 0 || trimmed.rfind("[SearchPaths", 0) == 0) {
                 inSearchPathsSection = true;
+                inSceneHierarchySection = false;
+                inResourcesSection = false;
+            } else if (trimmed.rfind("[SceneHierarchy]", 0) == 0 || trimmed.rfind("[SceneHierarchy", 0) == 0) {
+                inSearchPathsSection = false;
+                inSceneHierarchySection = true;
+                inResourcesSection = false;
+            } else if (trimmed.rfind("[Resources]", 0) == 0 || trimmed.rfind("[Resources", 0) == 0) {
+                inSearchPathsSection = false;
+                inSceneHierarchySection = false;
+                inResourcesSection = true;
             } else {
                 inSearchPathsSection = false;
+                inSceneHierarchySection = false;
+                inResourcesSection = false;
             }
             continue;
         }
@@ -239,6 +277,30 @@ bool AppSettings::loadSettings(const std::string& iniPath)
                     }
                 }
             }
+        } else if (inSceneHierarchySection) {
+            auto eqPos = trimmed.find('=');
+            if (eqPos != std::string::npos) {
+                std::string key = trimString(trimmed.substr(0, eqPos));
+                std::string val = trimString(trimmed.substr(eqPos + 1));
+                bool bVal = (val == "true" || val == "1" || val == "True");
+
+                if (key == "showIcon") m_hierarchyOptions.showIcon = bVal;
+                else if (key == "showTitle") m_hierarchyOptions.showTitle = bVal;
+                else if (key == "showIndex") m_hierarchyOptions.showIndex = bVal;
+                else if (key == "showName") m_hierarchyOptions.showName = bVal;
+            }
+        } else if (inResourcesSection) {
+            auto eqPos = trimmed.find('=');
+            if (eqPos != std::string::npos) {
+                std::string key = trimString(trimmed.substr(0, eqPos));
+                std::string val = trimString(trimmed.substr(eqPos + 1));
+                bool bVal = (val == "true" || val == "1" || val == "True");
+
+                if (key == "showIcon") m_resourceOptions.showIcon = bVal;
+                else if (key == "showTitle") m_resourceOptions.showTitle = bVal;
+                else if (key == "showIndex") m_resourceOptions.showIndex = bVal;
+                else if (key == "showName") m_resourceOptions.showName = bVal;
+            }
         }
     }
 
@@ -259,20 +321,22 @@ bool AppSettings::saveSettings(const std::string& iniPath)
         if (in.is_open()) {
             fileExisted = true;
             std::string line;
-            bool skippingSearchPaths = false;
+            bool skippingSection = false;
 
             while (std::getline(in, line)) {
                 std::string trimmed = trimString(line);
                 if (trimmed[0] == '[') {
-                    if (trimmed.rfind("[SearchPaths]", 0) == 0 || trimmed.rfind("[SearchPaths", 0) == 0) {
-                        skippingSearchPaths = true;
+                    if (trimmed.rfind("[SearchPaths]", 0) == 0 || trimmed.rfind("[SearchPaths", 0) == 0 ||
+                        trimmed.rfind("[SceneHierarchy]", 0) == 0 || trimmed.rfind("[SceneHierarchy", 0) == 0 ||
+                        trimmed.rfind("[Resources]", 0) == 0 || trimmed.rfind("[Resources", 0) == 0) {
+                        skippingSection = true;
                         continue;
                     } else {
-                        skippingSearchPaths = false;
+                        skippingSection = false;
                     }
                 }
 
-                if (!skippingSearchPaths) {
+                if (!skippingSection) {
                     preservedLines.push_back(line);
                 }
             }
@@ -296,6 +360,28 @@ bool AppSettings::saveSettings(const std::string& iniPath)
         for (size_t i = 0; i < m_searchPaths.size(); ++i) {
             out << "path" << i << "=" << m_searchPaths[i] << "\n";
         }
+    }
+    out << "\n";
+
+    // Write [SceneHierarchy] section
+    out << "[SceneHierarchy]\n";
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        out << "showIcon=" << (m_hierarchyOptions.showIcon ? "true" : "false") << "\n";
+        out << "showTitle=" << (m_hierarchyOptions.showTitle ? "true" : "false") << "\n";
+        out << "showIndex=" << (m_hierarchyOptions.showIndex ? "true" : "false") << "\n";
+        out << "showName=" << (m_hierarchyOptions.showName ? "true" : "false") << "\n";
+    }
+    out << "\n";
+
+    // Write [Resources] section
+    out << "[Resources]\n";
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        out << "showIcon=" << (m_resourceOptions.showIcon ? "true" : "false") << "\n";
+        out << "showTitle=" << (m_resourceOptions.showTitle ? "true" : "false") << "\n";
+        out << "showIndex=" << (m_resourceOptions.showIndex ? "true" : "false") << "\n";
+        out << "showName=" << (m_resourceOptions.showName ? "true" : "false") << "\n";
     }
     out << "\n";
 
