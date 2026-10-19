@@ -75,6 +75,8 @@ set(GESTALTOR_SOURCES
 	"header/imgui/ResourcesPanel.h"
 	"source/imgui/ElementInspector.cpp"
 	"header/imgui/ElementInspector.h"
+	"source/imgui/ExtensionInspector.cpp"
+	"header/imgui/ExtensionInspector.h"
 	"source/imgui/AnimationPlayer.cpp"
 	"header/imgui/AnimationPlayer.h"
 	"source/imgui/AntiAliasing.cpp"

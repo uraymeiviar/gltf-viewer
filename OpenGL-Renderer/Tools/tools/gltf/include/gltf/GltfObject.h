@@ -14,6 +14,8 @@ public:
     virtual Extensions getUsedExtensions() const { return Extension::None; }
 
     bool addUnknownExtension(const core::string& _extensionName, const core::string& _extensionObject);
+    void setUnknownExtension(const core::string& _extensionName, const core::string& _extensionObject) { m_unknownExtensions[_extensionName] = _extensionObject; }
+    bool removeUnknownExtension(const core::string& _extensionName) { return m_unknownExtensions.erase(_extensionName) > 0; }
     const std::unordered_map<core::string, core::string>& getUnknownExtensions() const { return m_unknownExtensions; }
     bool removeUnknownExtensions();
     void clearExtras() { m_extras.clear(); }

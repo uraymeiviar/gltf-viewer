@@ -1,4 +1,5 @@
 #include "imgui/ElementInspector.h"
+#include "imgui/ExtensionInspector.h"
 #include "imgui/MaterialInspector.h"
 #include "imgui/AnimationPlayer.h"
 #include "imgui/Theme.h"
@@ -154,6 +155,14 @@ void ElementInspector::render(SelectionState& selection,
                 ImGui::TreePop();
             }
         }
+
+        // Node Vendor Extensions (e.g. ASOBO_gizmo_object, ASOBO_collision_object, ASOBO_macro_light)
+        if (!selection.selectedNode->getUnknownExtensions().empty()) {
+            std::string nodeExtHeader = "Node Extensions (MSFS) (" + std::to_string(selection.selectedNode->getUnknownExtensions().size()) + ")";
+            if (ImGui::CollapsingHeader(nodeExtHeader.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
+                ExtensionInspector::instance().renderExtensions(selection.selectedNode, gltfModel, isSceneDirty);
+            }
+        }
     }
 
     // -----------------------------------------------------------------
@@ -186,6 +195,14 @@ void ElementInspector::render(SelectionState& selection,
         }
 
         ImGui::Separator();
+
+        // Mesh Vendor Extensions (e.g. ASOBO_softbody_mesh)
+        if (!mesh->getUnknownExtensions().empty()) {
+            std::string meshExtHeader = "Mesh Extensions (MSFS) (" + std::to_string(mesh->getUnknownExtensions().size()) + ")";
+            if (ImGui::CollapsingHeader(meshExtHeader.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
+                ExtensionInspector::instance().renderExtensions(mesh, gltfModel, isSceneDirty);
+            }
+        }
 
         auto& prims = mesh->getPrimitives();
         ImGui::Text("Primitives: %zu", prims.size());
@@ -294,6 +311,14 @@ void ElementInspector::render(SelectionState& selection,
                                 }
                             }
                         }
+                        ImGui::TreePop();
+                    }
+                }
+
+                // Primitive Vendor Extensions (e.g. ASOBO_material_geometry_decal)
+                if (!prim.getUnknownExtensions().empty()) {
+                    if (ImGui::TreeNode("Primitive Extensions (MSFS)")) {
+                        ExtensionInspector::instance().renderExtensions(&prim, gltfModel, isSceneDirty);
                         ImGui::TreePop();
                     }
                 }
@@ -488,7 +513,7 @@ void ElementInspector::render(SelectionState& selection,
         // Channels detailed tree
         if (ImGui::TreeNodeEx("Channels", ImGuiTreeNodeFlags_DefaultOpen)) {
             int chIdx = 0;
-            for (const auto& ch : anim->getChannels()) {
+            for (auto& ch : anim->getChannels()) {
                 auto* targetNode = ch.getTarget().getNode();
                 std::string targetNodeName = targetNode ? (targetNode->hasName() ? targetNode->getName().c_str() : ("Node " + std::to_string(targetNode->m_ID))) : "Unbound";
 
@@ -535,6 +560,14 @@ void ElementInspector::render(SelectionState& selection,
                         }
                     }
 
+                    // Channel Vendor Extensions (e.g. ASOBO_property_animation)
+                    if (!ch.getUnknownExtensions().empty()) {
+                        if (ImGui::TreeNode("Channel Extensions (MSFS)")) {
+                            ExtensionInspector::instance().renderExtensions(&ch, gltfModel, isSceneDirty);
+                            ImGui::TreePop();
+                        }
+                    }
+
                     ImGui::TreePop();
                 }
                 ++chIdx;
@@ -570,6 +603,14 @@ void ElementInspector::render(SelectionState& selection,
                 ++sIdx;
             }
             ImGui::TreePop();
+        }
+
+        // Animation Vendor Extensions (e.g. ASOBO_animation_retargeting, ASOBO_property_animation)
+        if (!anim->getUnknownExtensions().empty()) {
+            std::string animExtHeader = "Animation Extensions (MSFS) (" + std::to_string(anim->getUnknownExtensions().size()) + ")";
+            if (ImGui::CollapsingHeader(animExtHeader.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
+                ExtensionInspector::instance().renderExtensions(anim, gltfModel, isSceneDirty);
+            }
         }
     }
 

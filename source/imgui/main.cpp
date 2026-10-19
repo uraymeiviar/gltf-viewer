@@ -933,6 +933,7 @@ int main(int argc, char** argv)
     int dumpFrameCountdown = -1;
     bool exitAfterDump = false;
     std::string selectNodeArg;
+    std::string selectMaterialArg;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -943,6 +944,8 @@ int main(int argc, char** argv)
             exitAfterDump = true;
         } else if (arg == "--select-node" && i + 1 < argc) {
             selectNodeArg = argv[++i];
+        } else if (arg == "--select-material" && i + 1 < argc) {
+            selectMaterialArg = argv[++i];
         } else if (!arg.empty() && arg[0] != '-') {
             modelToLoad = arg;
         }
@@ -958,6 +961,15 @@ int main(int argc, char** argv)
                 if (node.hasName() && node.getName() == selectNodeArg.c_str()) {
                     selection.selectNode(&node);
                     focusCameraOnNode(&node, gltfModel, gltfLayer.get(), cameraActor, antiAliasing, isSceneDirty);
+                    break;
+                }
+            }
+        }
+        if (!selectMaterialArg.empty()) {
+            for (auto& mat : gltfModel.getElements<ux3d::gltf::Material>()) {
+                if ((mat.hasName() && mat.getName() == selectMaterialArg.c_str()) ||
+                    std::to_string(mat.m_ID) == selectMaterialArg) {
+                    selection.selectMaterial(&mat);
                     break;
                 }
             }

@@ -1,6 +1,7 @@
 // Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
 
 #include "imgui/MaterialInspector.h"
+#include "imgui/ExtensionInspector.h"
 #include "imgui/Theme.h"
 #include <imgui.h>
 #include <cstring>
@@ -309,9 +310,62 @@ bool MaterialInspector::render(ux3d::gltf::Material* material, ux3d::gltf::Gltf&
     }
 
     // -----------------------------------------------------------------
+    // MSFS & Vendor Extensions
+    // -----------------------------------------------------------------
+    bool hasVendorExts = !material->getUnknownExtensions().empty();
+    std::string vendorHeader = "MSFS & Vendor Extensions (" + std::to_string(material->getUnknownExtensions().size()) + ")";
+    if (ImGui::CollapsingHeader(vendorHeader.c_str(), hasVendorExts ? ImGuiTreeNodeFlags_DefaultOpen : 0)) {
+        if (hasVendorExts) {
+            if (ExtensionInspector::instance().renderExtensions(material, gltfModel, isSceneDirty)) {
+                modified = true;
+            }
+            ImGui::Separator();
+        } else {
+            ImGui::TextDisabled("No vendor extensions defined on this material.");
+        }
+
+        // Add Extension Button
+        if (ImGui::Button("+ Add MSFS Extension...")) {
+            ImGui::OpenPopup("AddMsfsExtensionPopup");
+        }
+
+        if (ImGui::BeginPopup("AddMsfsExtensionPopup")) {
+            ImGui::TextDisabled("Select an extension to attach:");
+            ImGui::Separator();
+            for (const auto& name : ExtensionInspector::instance().getAvailableExtensionNames()) {
+                if (name.rfind("ASOBO_material_", 0) == 0 || name == "ASOBO_normal_map_convention" || name == "ASOBO_extra_occlusion_texture" || name == "ASOBO_occlusion_strength") {
+                    std::string label = ExtensionInspector::formatExtensionLabel(name);
+                    bool alreadyHas = material->getUnknownExtensions().count(name) != 0;
+                    if (alreadyHas) {
+                        ImGui::BeginDisabled();
+                    }
+                    if (ImGui::MenuItem(label.c_str())) {
+                        material->setUnknownExtension(name, "{}");
+                        modified = true;
+                        isSceneDirty = true;
+                    }
+                    if (alreadyHas) {
+                        ImGui::EndDisabled();
+                    }
+                }
+            }
+            ImGui::EndPopup();
+        }
+    }
+
+    // -----------------------------------------------------------------
     // Khronos Material Extensions
     // -----------------------------------------------------------------
-    if (ImGui::CollapsingHeader("Khronos Extensions", ImGuiTreeNodeFlags_DefaultOpen)) {
+    bool hasKhronosExt = material->isUnlit() ||
+                         material->getClearcoat().has_value() ||
+                         material->getTransmission().has_value() ||
+                         material->getVolume().has_value() ||
+                         material->getIor().has_value() ||
+                         material->getSpecular().has_value() ||
+                         material->getSheen().has_value();
+
+    std::string khronosHeader = "Khronos Extensions" + std::string(hasKhronosExt ? " (Active)" : "");
+    if (ImGui::CollapsingHeader(khronosHeader.c_str(), hasKhronosExt ? ImGuiTreeNodeFlags_DefaultOpen : 0)) {
         // KHR_materials_unlit
         bool hasUnlit = material->isUnlit();
         if (ImGui::Checkbox("Unlit (KHR_materials_unlit)", &hasUnlit)) {
