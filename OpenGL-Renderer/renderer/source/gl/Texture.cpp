@@ -95,7 +95,7 @@ void ux3d::renderer::gl::Texture::write(const image::Image& image, bool isLinear
     auto internalFormat = InternalFormat::Identity;
 
     if (!isLinear) {
-        if (pixelFormat != ComponentType::UByte) {
+        if (pixelFormat != ComponentType::UByte && pixelFormat != ComponentType::UShort) {
             core::debugLog(core::LogLevel::Error, "Unsupported image format");
             return;
         }

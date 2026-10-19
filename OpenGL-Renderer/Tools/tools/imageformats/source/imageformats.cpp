@@ -292,20 +292,38 @@ ImageDecodingResult imageformats::decodeImage(
             format = image::Format::FLOAT;
             signedType = true;
         } else if (encoding == ImageEncoding::PNG || encoding == ImageEncoding::JPEG || encoding == ImageEncoding::BMP || encoding == ImageEncoding::TGA || encoding == ImageEncoding::Undefined) {
-            imageDataStb = static_cast<uint8_t*>(
-                stbi_load_from_memory(
+            int is16Bit = stbi_is_16_bit_from_memory(
+                static_cast<stbi_uc const*>(&_inBuffer[0]),
+                static_cast<int>(_inBuffer.size()));
+
+            if (is16Bit) {
+                stbi_us* data16 = stbi_load_16_from_memory(
                     static_cast<stbi_uc const*>(&_inBuffer[0]),
-                    static_cast<int>(_inBuffer.size()), &x, &y, &channelsInFile, desiredChannels));
+                    static_cast<int>(_inBuffer.size()), &x, &y, &channelsInFile, desiredChannels);
+                imageDataStb = reinterpret_cast<uint8_t*>(data16);
+
+                channelCount = static_cast<uint32_t>(channelsInFile);
+
+                bitsPerChannel[0] = 16;
+                bitsPerChannel[1] = (channelCount >= 2) ? 16 : 0;
+                bitsPerChannel[2] = (channelCount >= 3) ? 16 : 0;
+                bitsPerChannel[3] = (channelCount >= 4) ? 16 : 0;
+            } else {
+                imageDataStb = static_cast<uint8_t*>(
+                    stbi_load_from_memory(
+                        static_cast<stbi_uc const*>(&_inBuffer[0]),
+                        static_cast<int>(_inBuffer.size()), &x, &y, &channelsInFile, desiredChannels));
+
+                channelCount = static_cast<uint32_t>(channelsInFile);
+
+                bitsPerChannel[0] = 8;
+                bitsPerChannel[1] = (channelCount >= 2) ? 8 : 0;
+                bitsPerChannel[2] = (channelCount >= 3) ? 8 : 0;
+                bitsPerChannel[3] = (channelCount >= 4) ? 8 : 0;
+            }
 
             width = static_cast<size_t>(x);
             height = static_cast<size_t>(y);
-
-            channelCount = static_cast<uint32_t>(channelsInFile);
-
-            bitsPerChannel[0] = 8;
-            bitsPerChannel[1] = (channelCount >= 2) ? 8 : 0;
-            bitsPerChannel[2] = (channelCount >= 3) ? 8 : 0;
-            bitsPerChannel[3] = (channelCount >= 4) ? 8 : 0;
 
             format = image::Format::NORM;
             signedType = false;

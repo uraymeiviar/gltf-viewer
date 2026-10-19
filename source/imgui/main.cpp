@@ -392,6 +392,7 @@ static bool loadGltfModel(const std::string& filePath,
     ux3d::gltf::ImportOptions importOptions;
     ux3d::filesystem::File file = ux3d::imgui::StdFileSystem::instance().toFile(filePath.c_str());
 
+    ux3d::imgui::ElementInspector::clearPreviewCache();
     gltfModel.reset();
     auto result = ux3d::gltf::GltfParsing::fromFile(gltfModel, file, importOptions);
     if (result.derived == ux3d::gltf::GltfFromFileResult::Success) {
@@ -897,6 +898,8 @@ int main(int argc, char** argv)
     std::string selectNodeArg;
     std::string hideNodeArg;
     std::string selectMaterialArg;
+    std::string selectImageArg;
+    std::string selectTextureArg;
     bool showValidationArg = false;
     bool showSearchPathsArg = false;
     float animTimeArg = -1.0f;
@@ -916,6 +919,10 @@ int main(int argc, char** argv)
             hideNodeArg = argv[++i];
         } else if (arg == "--select-material" && i + 1 < argc) {
             selectMaterialArg = argv[++i];
+        } else if (arg == "--select-image" && i + 1 < argc) {
+            selectImageArg = argv[++i];
+        } else if (arg == "--select-texture" && i + 1 < argc) {
+            selectTextureArg = argv[++i];
         } else if (arg == "--show-validation" || arg == "--validate") {
             showValidationArg = true;
         } else if (arg == "--show-search-paths" || arg == "--search-paths") {
@@ -964,6 +971,25 @@ int main(int argc, char** argv)
                 if ((mat.hasName() && mat.getName() == selectMaterialArg.c_str()) ||
                     std::to_string(mat.m_ID) == selectMaterialArg) {
                     selection.selectMaterial(&mat);
+                    break;
+                }
+            }
+        }
+        if (!selectImageArg.empty()) {
+            for (auto& img : gltfModel.getElements<ux3d::gltf::Image>()) {
+                if ((img.hasName() && img.getName() == selectImageArg.c_str()) ||
+                    std::to_string(img.m_ID) == selectImageArg ||
+                    (!img.getUri().empty() && img.getUri().find(selectImageArg) != std::string::npos)) {
+                    selection.selectImage(&img);
+                    break;
+                }
+            }
+        }
+        if (!selectTextureArg.empty()) {
+            for (auto& tex : gltfModel.getElements<ux3d::gltf::Texture>()) {
+                if ((tex.hasName() && tex.getName() == selectTextureArg.c_str()) ||
+                    std::to_string(tex.m_ID) == selectTextureArg) {
+                    selection.selectTexture(&tex);
                     break;
                 }
             }
@@ -1835,6 +1861,7 @@ int main(int argc, char** argv)
     }
 
     // Cleanup
+    ux3d::imgui::ElementInspector::clearPreviewCache();
     gridRenderer.cleanup();
     sceneFbo.unbind();
 

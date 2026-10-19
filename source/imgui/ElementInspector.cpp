@@ -1,3 +1,4 @@
+#include <glad/glad.h>
 #include "imgui/ElementInspector.h"
 #include "imgui/ExtensionInspector.h"
 #include "imgui/MaterialInspector.h"
@@ -5,7 +6,11 @@
 #include "imgui/TextureUtils.h"
 #include "imgui/IconsMaterialDesignIcons.h"
 #include "imgui/Theme.h"
+#include "imgui/AppSettings.h"
+#include "imgui/StdFileSystem.h"
 #include "imageformats/imageformats.h"
+#include "renderer/gltf/GltfRenderLayer.h"
+#include "renderer/gl/Texture.h"
 #include "gltf/GlTypes.h"
 #include "gltf/AttributeType.h"
 #include <imgui.h>
@@ -15,8 +20,331 @@
 #include <cmath>
 #include <string>
 #include <vector>
+#include <unordered_map>
 
 namespace ux3d::imgui {
+
+struct ImagePreviewEntry {
+    GLuint textureId = 0;
+    int encodedMapID = -1;
+};
+
+static std::unordered_map<const ux3d::gltf::Image*, ImagePreviewEntry> s_previewCache;
+
+void ElementInspector::clearPreviewCache()
+{
+    for (auto& pair : s_previewCache) {
+        if (pair.second.textureId != 0) {
+            glDeleteTextures(1, &pair.second.textureId);
+        }
+    }
+    s_previewCache.clear();
+}
+
+struct ImageHeaderDetails {
+    bool hasHeader = false;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    uint32_t channels = 0;
+    uint32_t bitsPerChannel = 0;
+    uint32_t totalBitDepth = 0;
+    std::string format;
+};
+
+static ImageHeaderDetails parseImageHeader(const uint8_t* data, size_t size)
+{
+    ImageHeaderDetails d;
+    if (!data || size < 8) return d;
+
+    // 1. PNG: 89 50 4E 47 0D 0A 1A 0A
+    if (size >= 26 && data[0] == 0x89 && data[1] == 'P' && data[2] == 'N' && data[3] == 'G' &&
+        data[4] == 0x0D && data[5] == 0x0A && data[6] == 0x1A && data[7] == 0x0A) {
+        if (data[12] == 'I' && data[13] == 'H' && data[14] == 'D' && data[15] == 'R') {
+            d.hasHeader = true;
+            d.format = "PNG";
+            d.width = (uint32_t(data[16]) << 24) | (uint32_t(data[17]) << 16) | (uint32_t(data[18]) << 8) | uint32_t(data[19]);
+            d.height = (uint32_t(data[20]) << 24) | (uint32_t(data[21]) << 16) | (uint32_t(data[22]) << 8) | uint32_t(data[23]);
+            d.bitsPerChannel = data[24]; // 1, 2, 4, 8, 16
+            uint8_t colorType = data[25];
+            switch (colorType) {
+            case 0: d.channels = 1; break; // Grayscale
+            case 2: d.channels = 3; break; // RGB
+            case 3: d.channels = 1; break; // Indexed
+            case 4: d.channels = 2; break; // Grayscale + Alpha
+            case 6: d.channels = 4; break; // RGBA
+            default: d.channels = 3; break;
+            }
+            d.totalBitDepth = d.bitsPerChannel * d.channels;
+            return d;
+        }
+    }
+
+    // 2. DDS: 'D' 'D' 'S' ' '
+    if (size >= 128 && data[0] == 'D' && data[1] == 'D' && data[2] == 'S' && data[3] == ' ') {
+        d.hasHeader = true;
+        d.format = "DDS";
+        d.height = uint32_t(data[12]) | (uint32_t(data[13]) << 8) | (uint32_t(data[14]) << 16) | (uint32_t(data[15]) << 24);
+        d.width  = uint32_t(data[16]) | (uint32_t(data[17]) << 8) | (uint32_t(data[18]) << 16) | (uint32_t(data[19]) << 24);
+        uint32_t pfFourCC = uint32_t(data[88]) | (uint32_t(data[89]) << 8) | (uint32_t(data[90]) << 16) | (uint32_t(data[91]) << 24);
+        uint32_t rgbBitCount = uint32_t(data[92]) | (uint32_t(data[93]) << 8) | (uint32_t(data[94]) << 16) | (uint32_t(data[95]) << 24);
+        if (pfFourCC == 0x30315844 && size >= 148) { // "DX10"
+            uint32_t dxgiFormat = uint32_t(data[128]) | (uint32_t(data[129]) << 8) | (uint32_t(data[130]) << 16) | (uint32_t(data[131]) << 24);
+            if (dxgiFormat == 10 || dxgiFormat == 11 || dxgiFormat == 12) {
+                d.channels = 4; d.bitsPerChannel = 16; d.totalBitDepth = 64;
+            } else if (dxgiFormat == 27 || dxgiFormat == 28 || dxgiFormat == 29) {
+                d.channels = 4; d.bitsPerChannel = 8; d.totalBitDepth = 32;
+            } else if (dxgiFormat >= 70 && dxgiFormat <= 84) {
+                d.channels = 4; d.bitsPerChannel = 8; d.totalBitDepth = (dxgiFormat <= 72) ? 4 : 8;
+            }
+        } else if (rgbBitCount > 0) {
+            d.totalBitDepth = rgbBitCount;
+            if (rgbBitCount == 64) { d.channels = 4; d.bitsPerChannel = 16; }
+            else if (rgbBitCount == 48) { d.channels = 3; d.bitsPerChannel = 16; }
+            else if (rgbBitCount == 32) { d.channels = 4; d.bitsPerChannel = 8; }
+            else if (rgbBitCount == 24) { d.channels = 3; d.bitsPerChannel = 8; }
+            else if (rgbBitCount == 16) { d.channels = 2; d.bitsPerChannel = 8; }
+        }
+        return d;
+    }
+
+    return d;
+}
+
+static ImageHeaderDetails getImageHeaderDetails(const ux3d::gltf::Image* img)
+{
+    if (!img) return {};
+    if (img->getEncodedBytes() != nullptr && img->getEncodedBytes()->size() >= 26) {
+        return parseImageHeader(img->getEncodedBytes()->data(), img->getEncodedBytes()->size());
+    }
+    if (!img->getUri().empty()) {
+        std::string modelPath = AppSettings::instance().getCurrentModelPath();
+        if (!modelPath.empty()) {
+            ux3d::filesystem::File mfile = StdFileSystem::instance().toFile(modelPath.c_str());
+            ux3d::filesystem::Path imgPath = mfile.getParent() / img->getUri();
+            ux3d::filesystem::File imgFile(imgPath);
+            core::Vector<uint8_t> headerBytes;
+            if (core::Succeeded(imgFile.load(headerBytes)) && headerBytes.size() >= 26) {
+                return parseImageHeader(headerBytes.data(), headerBytes.size());
+            }
+        }
+    }
+    return {};
+}
+
+static void ensureImageDataDecoded(const ux3d::gltf::Image* img)
+{
+    if (!img) return;
+    auto* mutableImg = const_cast<ux3d::gltf::Image*>(img);
+
+    // If pixels are already loaded, we are good
+    if (!mutableImg->getData().getPixels().empty() && mutableImg->getData().getWidth() > 0) {
+        return;
+    }
+
+    // Try decoding from encoded bytes if available
+    if (img->getEncodedBytes() != nullptr && !img->getEncodedBytes()->empty()) {
+        ux3d::imageformats::decodeImage(*img->getEncodedBytes(), mutableImg->m_data);
+        if (!mutableImg->getData().getPixels().empty() && mutableImg->getData().getWidth() > 0) {
+            return;
+        }
+    }
+
+    // Fallback: try loading from disk / VFS via base model directory
+    std::string modelPath = AppSettings::instance().getCurrentModelPath();
+    if (!modelPath.empty()) {
+        ux3d::filesystem::File file = StdFileSystem::instance().toFile(modelPath.c_str());
+        ux3d::filesystem::Dir gltfDir(file.getParent());
+        mutableImg->loadDataToMemory(gltfDir);
+    } else {
+        mutableImg->loadDataToMemory(std::nullopt);
+    }
+}
+
+static GLuint getOrCreateImagePreviewTexture(const ux3d::gltf::Image* img, ux3d::renderer::GltfRenderLayer* gltfLayer)
+{
+    if (!img) return 0;
+
+    // 1. Check local cache
+    auto cacheIt = s_previewCache.find(img);
+    if (cacheIt != s_previewCache.end() && cacheIt->second.textureId != 0) {
+        if (cacheIt->second.encodedMapID == img->encodedMapID) {
+            return cacheIt->second.textureId;
+        }
+        // Stale texture, destroy it
+        glDeleteTextures(1, &cacheIt->second.textureId);
+        s_previewCache.erase(cacheIt);
+    }
+
+    // 2. Check if gltfLayer already has an uploaded OpenGL texture for this image
+    if (gltfLayer != nullptr) {
+        // Check sRGB first
+        auto it = gltfLayer->m_textureMapping.map.find({ img, false });
+        if (it != gltfLayer->m_textureMapping.map.end() && it->second != nullptr) {
+            if (it->second->currentMapID == img->encodedMapID &&
+                it->second->handle != ux3d::renderer::gl::invalid && it->second->handle != 0) {
+                return it->second->handle;
+            }
+        }
+        // Check linear
+        it = gltfLayer->m_textureMapping.map.find({ img, true });
+        if (it != gltfLayer->m_textureMapping.map.end() && it->second != nullptr) {
+            if (it->second->currentMapID == img->encodedMapID &&
+                it->second->handle != ux3d::renderer::gl::invalid && it->second->handle != 0) {
+                return it->second->handle;
+            }
+        }
+    }
+
+    // 3. Create a dedicated preview OpenGL texture
+    ensureImageDataDecoded(img);
+    const auto& data = img->getData();
+    if (data.getPixels().empty() || data.getWidth() == 0 || data.getHeight() == 0) {
+        return 0;
+    }
+
+    GLuint texId = 0;
+    glGenTextures(1, &texId);
+    if (texId == 0) return 0;
+
+    glBindTexture(GL_TEXTURE_2D, texId);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    GLenum format = GL_RGBA;
+    GLint internalFormat = GL_RGBA8;
+    uint32_t channels = data.getChannelCount();
+    if (channels == 1) {
+        format = GL_RED;
+        internalFormat = GL_R8;
+        GLint swizzleMask[4] = { GL_RED, GL_RED, GL_RED, GL_ONE };
+        glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, swizzleMask);
+    } else if (channels == 2) {
+        format = GL_RG;
+        internalFormat = GL_RG8;
+        GLint swizzleMask[4] = { GL_RED, GL_RED, GL_RED, GL_GREEN };
+        glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, swizzleMask);
+    } else if (channels == 3) {
+        format = GL_RGB;
+        internalFormat = GL_RGB8;
+    } else if (channels == 4) {
+        format = GL_RGBA;
+        internalFormat = GL_RGBA8;
+    }
+
+    GLenum type = GL_UNSIGNED_BYTE;
+    if (data.getFormat() == ux3d::image::Format::FLOAT) {
+        type = GL_FLOAT;
+        if (channels == 1) internalFormat = GL_R32F;
+        else if (channels == 2) internalFormat = GL_RG32F;
+        else if (channels == 3) internalFormat = GL_RGB32F;
+        else if (channels == 4) internalFormat = GL_RGBA32F;
+    } else if (data.getChannelSize(ux3d::image::Channel::RED) == 16) {
+        type = GL_UNSIGNED_SHORT;
+        if (channels == 1) internalFormat = GL_R16;
+        else if (channels == 2) internalFormat = GL_RG16;
+        else if (channels == 3) internalFormat = GL_RGB16;
+        else if (channels == 4) internalFormat = GL_RGBA16;
+    }
+
+    glTexImage2D(GL_TEXTURE_2D, 0, internalFormat,
+                 static_cast<GLsizei>(data.getWidth()),
+                 static_cast<GLsizei>(data.getHeight()),
+                 0, format, type, data.getPixels().data());
+    glGenerateMipmap(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    ImagePreviewEntry entry;
+    entry.textureId = texId;
+    entry.encodedMapID = img->encodedMapID;
+    s_previewCache[img] = entry;
+
+    return texId;
+}
+
+static void renderImagePreview(const ux3d::gltf::Image* img, ux3d::renderer::GltfRenderLayer* gltfLayer)
+{
+    if (!img) return;
+
+    ensureImageDataDecoded(img);
+
+    GLuint texId = getOrCreateImagePreviewTexture(img, gltfLayer);
+
+    const auto& data = img->getData();
+    uint32_t imgW = data.getWidth();
+    uint32_t imgH = data.getHeight();
+    auto res = img->getResolution();
+    if ((imgW == 0 || imgH == 0) && res.size() >= 2) {
+        imgW = res[0];
+        imgH = res[1];
+    }
+
+    if (imgW == 0 || imgH == 0) {
+        ImGui::Spacing();
+        ImGui::TextDisabled("Preview unavailable (0x0 resolution)");
+        return;
+    }
+
+    float availWidth = ImGui::GetContentRegionAvail().x;
+    if (availWidth < 20.0f) {
+        return;
+    }
+
+    float aspect = static_cast<float>(imgW) / static_cast<float>(imgH);
+    if (aspect <= 0.001f) {
+        aspect = 1.0f;
+    }
+
+    float previewW = availWidth;
+    float previewH = previewW / aspect;
+
+    // Safety clamp in case of extreme height
+    if (previewH > 2500.0f) {
+        previewH = 2500.0f;
+    }
+    if (previewH < 16.0f) {
+        previewH = 16.0f;
+    }
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::TextDisabled("Image Preview (%u x %u):", imgW, imgH);
+    ImGui::Spacing();
+
+    if (texId != 0) {
+        ImGui::Image(static_cast<ImTextureID>(texId),
+                     ImVec2(previewW, previewH),
+                     ImVec2(0.0f, 0.0f),
+                     ImVec2(1.0f, 1.0f));
+
+        ImVec2 rMin = ImGui::GetItemRectMin();
+        ImVec2 rMax = ImGui::GetItemRectMax();
+        ImGui::GetWindowDrawList()->AddRect(rMin, rMax, IM_COL32(70, 70, 78, 255));
+
+        if (ImGui::IsItemHovered()) {
+            ImGui::BeginTooltip();
+            ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", getImageDisplayName(img).c_str());
+            ImGui::Separator();
+            ImGui::Text("Dimensions: %u x %u px", imgW, imgH);
+            ImGui::Text("Aspect Ratio: %.2f:1", aspect);
+            auto hInfo = getImageHeaderDetails(img);
+            uint32_t chs = (hInfo.hasHeader && hInfo.channels > 0) ? hInfo.channels : data.getChannelCount();
+            uint32_t bpc = (hInfo.hasHeader && hInfo.bitsPerChannel > 0) ? hInfo.bitsPerChannel : data.getChannelSize(ux3d::image::Channel::RED);
+            uint32_t totBits = (hInfo.hasHeader && hInfo.totalBitDepth > 0) ? hInfo.totalBitDepth : (bpc * (chs > 0 ? chs : 1));
+            if (chs > 0) {
+                ImGui::Text("Channels: %u (%s)", chs, (chs == 1) ? "Grayscale" : (chs == 2) ? "RG" : (chs == 3) ? "RGB" : (chs == 4) ? "RGBA" : "");
+            }
+            if (bpc > 0) {
+                ImGui::Text("Bit Depth: %u-bit per channel (%u-bit total)", bpc, totBits);
+            }
+            ImGui::EndTooltip();
+        }
+    } else {
+        ImGui::TextDisabled("Preview texture unavailable");
+    }
+}
 
 void ElementInspector::render(SelectionState& selection,
                               ux3d::gltf::Gltf& gltfModel,
@@ -419,10 +747,56 @@ void ElementInspector::render(SelectionState& selection,
             if (!src->getUri().empty()) {
                 ImGui::Text("File URI: %s", src->getUri().c_str());
             }
+
+            ensureImageDataDecoded(src);
+            const auto& srcData = src->getData();
+            auto headerInfo = getImageHeaderDetails(src);
+
+            uint32_t width = srcData.getWidth();
+            uint32_t height = srcData.getHeight();
             auto res = src->getResolution();
-            if (res.size() >= 2 && res[0] > 0 && res[1] > 0) {
-                ImGui::Text("Resolution: %u x %u px", res[0], res[1]);
+            if (width == 0 && height == 0) {
+                if (headerInfo.hasHeader && headerInfo.width > 0 && headerInfo.height > 0) {
+                    width = headerInfo.width;
+                    height = headerInfo.height;
+                } else if (res.size() >= 2) {
+                    width = res[0];
+                    height = res[1];
+                }
             }
+            if (width > 0 && height > 0) {
+                ImGui::Text("Resolution: %u x %u px", width, height);
+            }
+
+            uint32_t channels = (headerInfo.hasHeader && headerInfo.channels > 0) ? headerInfo.channels : srcData.getChannelCount();
+            if (channels > 0) {
+                const char* chanDesc = (channels == 1) ? "1 (Grayscale)" :
+                                       (channels == 2) ? "2 (RG)" :
+                                       (channels == 3) ? "3 (RGB)" :
+                                       (channels == 4) ? "4 (RGBA)" : "Multi-channel";
+                ImGui::Text("Channels: %s", chanDesc);
+            }
+
+            uint32_t bitsPerChannel = (headerInfo.hasHeader && headerInfo.bitsPerChannel > 0) ? headerInfo.bitsPerChannel : srcData.getChannelSize(ux3d::image::Channel::RED);
+            if (bitsPerChannel == 0 && channels > 0 && srcData.getPixelSize() > 0) {
+                bitsPerChannel = (srcData.getPixelSize() * 8) / channels;
+            }
+            if (bitsPerChannel == 0 && !srcData.getPixels().empty()) {
+                bitsPerChannel = (srcData.getFormat() == ux3d::image::Format::FLOAT) ? 32 : 8;
+            }
+
+            uint32_t totalBitDepth = (headerInfo.hasHeader && headerInfo.totalBitDepth > 0) ? 
+                                     headerInfo.totalBitDepth : (bitsPerChannel * (channels > 0 ? channels : 1));
+
+            if (bitsPerChannel > 0) {
+                std::string layout = srcData.getMemoryLayoutString();
+                if (!layout.empty()) {
+                    ImGui::Text("Bit Depth: %u-bit per channel (%u-bit total, %s)", bitsPerChannel, totalBitDepth, layout.c_str());
+                } else {
+                    ImGui::Text("Bit Depth: %u-bit per channel (%u-bit total)", bitsPerChannel, totalBitDepth);
+                }
+            }
+
             if (ImGui::Button(ICON_MDI_FILE_IMAGE_OUTLINE " Inspect Source Image")) {
                 selection.selectImage(tex->getSource());
             }
@@ -434,6 +808,9 @@ void ElementInspector::render(SelectionState& selection,
             if (sampler->hasName()) {
                 ImGui::Text("Sampler Name: %s", sampler->getName().c_str());
             }
+        }
+        if (tex->getSource() != nullptr) {
+            renderImagePreview(tex->getSource(), gltfLayer);
         }
     } else if (selection.type == SelectionType::Image && selection.selectedImage != nullptr) {
         auto* img = selection.selectedImage;
@@ -457,10 +834,57 @@ void ElementInspector::render(SelectionState& selection,
         if (byteSize > 0) {
             ImGui::Text("Data Size: %zu bytes", byteSize);
         }
+
+        ensureImageDataDecoded(img);
+        const auto& data = img->getData();
+        auto headerInfo = getImageHeaderDetails(img);
+
+        uint32_t width = data.getWidth();
+        uint32_t height = data.getHeight();
         auto res = img->getResolution();
-        if (res.size() >= 2 && res[0] > 0 && res[1] > 0) {
-            ImGui::Text("Resolution: %u x %u px", res[0], res[1]);
+        if (width == 0 && height == 0) {
+            if (headerInfo.hasHeader && headerInfo.width > 0 && headerInfo.height > 0) {
+                width = headerInfo.width;
+                height = headerInfo.height;
+            } else if (res.size() >= 2) {
+                width = res[0];
+                height = res[1];
+            }
         }
+        if (width > 0 && height > 0) {
+            ImGui::Text("Resolution: %u x %u px", width, height);
+        }
+
+        uint32_t channels = (headerInfo.hasHeader && headerInfo.channels > 0) ? headerInfo.channels : data.getChannelCount();
+        if (channels > 0) {
+            const char* chanDesc = (channels == 1) ? "1 (Grayscale)" :
+                                   (channels == 2) ? "2 (RG)" :
+                                   (channels == 3) ? "3 (RGB)" :
+                                   (channels == 4) ? "4 (RGBA)" : "Multi-channel";
+            ImGui::Text("Channels: %s", chanDesc);
+        }
+
+        uint32_t bitsPerChannel = (headerInfo.hasHeader && headerInfo.bitsPerChannel > 0) ? headerInfo.bitsPerChannel : data.getChannelSize(ux3d::image::Channel::RED);
+        if (bitsPerChannel == 0 && channels > 0 && data.getPixelSize() > 0) {
+            bitsPerChannel = (data.getPixelSize() * 8) / channels;
+        }
+        if (bitsPerChannel == 0 && !data.getPixels().empty()) {
+            bitsPerChannel = (data.getFormat() == ux3d::image::Format::FLOAT) ? 32 : 8;
+        }
+
+        uint32_t totalBitDepth = (headerInfo.hasHeader && headerInfo.totalBitDepth > 0) ? 
+                                 headerInfo.totalBitDepth : (bitsPerChannel * (channels > 0 ? channels : 1));
+
+        if (bitsPerChannel > 0) {
+            std::string layout = data.getMemoryLayoutString();
+            if (!layout.empty()) {
+                ImGui::Text("Bit Depth: %u-bit per channel (%u-bit total, %s)", bitsPerChannel, totalBitDepth, layout.c_str());
+            } else {
+                ImGui::Text("Bit Depth: %u-bit per channel (%u-bit total)", bitsPerChannel, totalBitDepth);
+            }
+        }
+
+        renderImagePreview(img, gltfLayer);
     }
 
     // -----------------------------------------------------------------

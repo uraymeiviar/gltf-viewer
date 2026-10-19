@@ -20,6 +20,8 @@ public:
                        bool& isSceneDirty,
                        AnimationPlayer* animationPlayer = nullptr,
                        ux3d::renderer::GltfRenderLayer* gltfLayer = nullptr);
+
+    static void clearPreviewCache();
 };
 
 } // namespace ux3d::imgui
