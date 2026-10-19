@@ -91,6 +91,10 @@ set(GESTALTOR_SOURCES
 	"header/imgui/EmbeddedVFS.h"
 	"source/imgui/EmbeddedResources.cpp"
 	"header/imgui/zstd.h"
+	"source/imgui/GltfValidator.cpp"
+	"header/imgui/GltfValidator.h"
+	"source/imgui/ValidationPanel.cpp"
+	"header/imgui/ValidationPanel.h"
 	"header/imgui/IconsMaterialDesignIcons.h"
 	"header/imgui/stb_image_write.h"
 )
@@ -144,6 +148,7 @@ target_link_libraries(${APP_NAME} PRIVATE
 	draco::draco
 	WebP::WebP
 	KTX::ktx
+	nlohmann_json_schema_validator
 )
 
 set_target_properties(${APP_NAME} PROPERTIES

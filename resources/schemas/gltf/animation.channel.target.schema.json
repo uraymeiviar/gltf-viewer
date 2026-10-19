@@ -1,0 +1,40 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema",
+    "title": "Animation Channel Target",
+    "type": "object",
+    "description": "The index of the node and TRS property that an animation channel targets.",
+    "allOf": [ { "$ref": "glTFProperty.schema.json" } ],
+    "ux3d_propertyOrdering": {
+        "path": 3,
+        "node": 2,
+        "extensions": 1,
+        "extras": 0
+    },
+    "properties": {
+        "node": {
+            "allOf": [ { "$ref": "glTFid.schema.json" } ],
+            "description": "The index of the node to target.",
+            "ux3d_pathPrefix" : "/nodes"
+        },
+        "path": {
+            "description": "The name of the node's TRS property to modify, or the \"weights\" of the Morph Targets it instantiates. For the \"translation\" property, the values that are provided by the sampler are the translation along the x, y, and z axes. For the \"rotation\" property, the values are a quaternion in the order (x, y, z, w), where w is the scalar. For the \"scale\" property, the values are the scaling factors along the x, y, and z axes.",
+            "anyOf": [
+                {
+                    "enum": [ "translation" ]
+                },
+                {
+                    "enum": [ "rotation" ]
+                },
+                {
+                    "enum": [ "scale" ]
+                },
+                {
+                    "enum": [ "weights" ]
+                }
+            ]
+        },
+        "extensions": { },
+        "extras": { }
+    },
+    "required": [ "path" ]
+}

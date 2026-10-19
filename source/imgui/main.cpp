@@ -41,6 +41,8 @@
 #include "imgui/MaterialInspector.h"
 #include "imgui/ViewportSettingsPanel.h"
 #include "imgui/StatisticsPanel.h"
+#include "imgui/ValidationPanel.h"
+#include "imgui/GltfValidator.h"
 #include "imgui/ResourcesPanel.h"
 #include "imgui/ElementInspector.h"
 #include "imgui/AnimationPlayer.h"
@@ -493,6 +495,28 @@ static bool loadGltfModel(const std::string& filePath,
 
         sceneDirty = true;
         logMessage("Loaded successfully: " + filePath, ImVec4(0.2f, 1.0f, 0.4f, 1.0f));
+
+        // Auto-run glTF 2.0 validation
+        auto valReport = ux3d::imgui::GltfValidator::instance().validate(filePath, gltfModel);
+        if (valReport.errorCount > 0) {
+            char valBuf[256];
+            std::snprintf(valBuf, sizeof(valBuf), "Validation: %d %s, %d %s (%.1f ms)",
+                          valReport.errorCount, valReport.errorCount == 1 ? "error" : "errors",
+                          valReport.warningCount, valReport.warningCount == 1 ? "warning" : "warnings",
+                          valReport.durationMs);
+            logMessage(valBuf, ImVec4(1.0f, 0.35f, 0.35f, 1.0f));
+        } else if (valReport.warningCount > 0) {
+            char valBuf[256];
+            std::snprintf(valBuf, sizeof(valBuf), "Validation: %d %s (%.1f ms)",
+                          valReport.warningCount, valReport.warningCount == 1 ? "warning" : "warnings",
+                          valReport.durationMs);
+            logMessage(valBuf, ImVec4(1.0f, 0.85f, 0.25f, 1.0f));
+        } else {
+            char valBuf[256];
+            std::snprintf(valBuf, sizeof(valBuf), "Validation: PASSED (glTF 2.0 Valid, %.1f ms)", valReport.durationMs);
+            logMessage(valBuf, ImVec4(0.2f, 1.0f, 0.5f, 1.0f));
+        }
+
         if (filePath != "resources/sampleGltf/HelloCube.glb" && !filePath.empty()) {
             addRecentFile(s_recentFiles, filePath);
         }
@@ -759,6 +783,7 @@ static const char* const WND_INSPECTOR          = ICON_MDI_TUNE " Inspector";
 static const char* const WND_VIEWPORT_SETTINGS = ICON_MDI_COG_OUTLINE " Viewport Settings";
 static const char* const WND_LOGGER             = ICON_MDI_CONSOLE " Logger";
 static const char* const WND_STATISTICS         = ICON_MDI_CHART_BAR " Statistics";
+static const char* const WND_VALIDATION         = ICON_MDI_SHIELD_CHECK_OUTLINE " Validation###ValidationPanel";
 
 static void setupDefaultDockLayout(ImGuiID dockspaceId, ImVec2 size, bool force = false)
 {
@@ -791,6 +816,7 @@ static void setupDefaultDockLayout(ImGuiID dockspaceId, ImVec2 size, bool force 
         // Dock optional panels in center-bottom if opened later
         ImGui::DockBuilderDockWindow(WND_VIEWPORT_SETTINGS, dock_center_bottom);
         ImGui::DockBuilderDockWindow(WND_STATISTICS, dock_center_bottom);
+        ImGui::DockBuilderDockWindow(WND_VALIDATION, dock_center_bottom);
 
         ImGui::DockBuilderFinish(dockspaceId);
     }
@@ -934,6 +960,7 @@ int main(int argc, char** argv)
     bool exitAfterDump = false;
     std::string selectNodeArg;
     std::string selectMaterialArg;
+    bool showValidationArg = false;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -946,6 +973,8 @@ int main(int argc, char** argv)
             selectNodeArg = argv[++i];
         } else if (arg == "--select-material" && i + 1 < argc) {
             selectMaterialArg = argv[++i];
+        } else if (arg == "--show-validation" || arg == "--validate") {
+            showValidationArg = true;
         } else if (!arg.empty() && arg[0] != '-') {
             modelToLoad = arg;
         }
@@ -987,6 +1016,11 @@ int main(int argc, char** argv)
     static bool showLogger = true;
     static bool showViewportSettings = false;
     static bool showStatistics = false;
+    static bool showValidation = false;
+    if (showValidationArg) {
+        showValidation = true;
+        ux3d::imgui::ValidationPanel::requestFocus();
+    }
 
     double lastFrameTime = glfwGetTime();
 
@@ -1093,9 +1127,10 @@ int main(int argc, char** argv)
             if (ImGui::IsKeyPressed(ImGuiKey_5)) showLogger = !showLogger;
             if (ImGui::IsKeyPressed(ImGuiKey_6)) showViewportSettings = !showViewportSettings;
             if (ImGui::IsKeyPressed(ImGuiKey_7)) showStatistics = !showStatistics;
+            if (ImGui::IsKeyPressed(ImGuiKey_8)) showValidation = !showValidation;
             if (ImGui::IsKeyPressed(ImGuiKey_L)) {
                 showInspector = showHierarchy = showViewport = showResources = showLogger = true;
-                showViewportSettings = showStatistics = false;
+                showViewportSettings = showStatistics = showValidation = false;
                 s_resetLayout = true;
             }
         }
@@ -1163,10 +1198,11 @@ int main(int argc, char** argv)
                 ImGui::MenuItem(WND_LOGGER, "Ctrl+5", &showLogger);
                 ImGui::MenuItem(WND_VIEWPORT_SETTINGS, "Ctrl+6", &showViewportSettings);
                 ImGui::MenuItem(WND_STATISTICS, "Ctrl+7", &showStatistics);
+                ImGui::MenuItem(WND_VALIDATION, "Ctrl+8", &showValidation);
                 ImGui::Separator();
                 if (ImGui::MenuItem(ICON_MDI_REFRESH " Reset Layout", "Ctrl+L")) {
                     showInspector = showHierarchy = showViewport = showResources = showLogger = true;
-                    showViewportSettings = showStatistics = false;
+                    showViewportSettings = showStatistics = showValidation = false;
                     s_resetLayout = true;
                 }
                 ImGui::EndMenu();
@@ -1270,6 +1306,12 @@ int main(int argc, char** argv)
                 ImGui::EndCombo();
             }
         }
+
+        ImGui::SameLine();
+        ImGui::TextDisabled("|");
+        ImGui::SameLine();
+        ux3d::imgui::ValidationPanel::renderStatusBarIndicator(&showValidation);
+
         ImGui::EndGroup();
         ImGui::PopStyleVar(2);
 
@@ -1732,6 +1774,13 @@ int main(int argc, char** argv)
                 ux3d::imgui::StatisticsPanel::render(gltfModel, currentFilePath);
             }
             ImGui::End();
+        }
+
+        // -------------------------------------------------------------
+        // Validation Panel
+        // -------------------------------------------------------------
+        if (showValidation) {
+            ux3d::imgui::ValidationPanel::render(&showValidation, currentFilePath, gltfModel, selection, cameraActor, gltfLayer.get());
         }
 
         // -------------------------------------------------------------

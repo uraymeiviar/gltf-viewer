@@ -1,0 +1,27 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema",
+    "title": "KHR_lights_punctual glTF extension",
+    "type": "object",
+    "allOf": [ { "$ref": "glTFProperty.schema.json" } ],
+    "ux3d_propertyOrdering": {
+        "lights": 2,
+        "extensions": 1,
+        "extras": 0
+    },
+    "properties": {
+        "lights": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "$ref": "light.schema.json"
+            },
+            "minItems": 1,
+            "ux3d_resources": 3
+        },
+        "extensions": { },
+        "extras": { }
+    },
+    "required": [
+        "lights"
+    ]
+}

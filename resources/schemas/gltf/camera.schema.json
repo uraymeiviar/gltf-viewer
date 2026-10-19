@@ -1,0 +1,47 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema",
+    "title": "Camera",
+    "type": "object",
+    "description": "A camera's projection.  A node can reference a camera to apply a transform to place the camera in the scene.",
+    "allOf": [ { "$ref": "glTFChildOfRootProperty.schema.json" } ],
+    "ux3d_propertyOrdering": {
+        "name": 5,
+        "type": 4,
+        "perspective": 3,
+        "orthographic": 2,
+        "extensions": 1,
+        "extras": 0
+    },
+    "properties": {
+        "orthographic": {
+            "allOf": [ { "$ref": "camera.orthographic.schema.json" } ],
+            "description": "An orthographic camera containing properties to create an orthographic projection matrix.",
+            "ux3d_generateSetter": false
+        },
+        "perspective": {
+            "allOf": [ { "$ref": "camera.perspective.schema.json" } ],
+            "description": "A perspective camera containing properties to create a perspective projection matrix.",
+            "ux3d_generateSetter": false
+        },
+        "type": {
+        "description": "Specifies if the camera uses a perspective or orthographic projection.",
+        "gltf_detailedDescription": "Specifies if the camera uses a perspective or orthographic projection.  Based on this, either the camera's `perspective` or `orthographic` property will be defined.",
+        "ux3d_generateSetter": false,
+        "anyOf": [
+          {
+            "enum": [ "perspective" ]
+          },
+          {
+            "enum": [ "orthographic" ]
+          }
+        ]
+      },
+        "name": { },
+        "extensions": { },
+        "extras": { }
+    },
+    "required": [ "type" ],
+    "not": {
+        "required": [ "perspective", "orthographic" ]
+    }
+}
