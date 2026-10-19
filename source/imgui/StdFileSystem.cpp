@@ -2,6 +2,7 @@
 
 #include "imgui/StdFileSystem.h"
 #include "imgui/EmbeddedVFS.h"
+#include "imgui/AppSettings.h"
 #include "core/Slice.h"
 #include "core/Vector.h"
 
@@ -91,7 +92,14 @@ bool StdFileSystem::isFile(const filesystem::Path& path) const
         return true;
     }
     std::error_code ec;
-    return fs::is_regular_file(fs::u8path(path.toString().c_str()), ec);
+    if (fs::is_regular_file(fs::u8path(path.toString().c_str()), ec)) {
+        return true;
+    }
+    std::string resolved = AppSettings::instance().resolveAssetPath(path.toString().c_str());
+    if (!resolved.empty() && resolved != path.toString().c_str()) {
+        return fs::is_regular_file(fs::u8path(resolved), ec);
+    }
+    return false;
 }
 
 bool StdFileSystem::isDirectory(const filesystem::Path& path) const
@@ -126,7 +134,14 @@ bool StdFileSystem::exists(const filesystem::Path& path) const
         return true;
     }
     std::error_code ec;
-    return fs::exists(fs::u8path(path.toString().c_str()), ec);
+    if (fs::exists(fs::u8path(path.toString().c_str()), ec)) {
+        return true;
+    }
+    std::string resolved = AppSettings::instance().resolveAssetPath(path.toString().c_str());
+    if (!resolved.empty() && resolved != path.toString().c_str()) {
+        return fs::exists(fs::u8path(resolved), ec);
+    }
+    return false;
 }
 
 core::Vector<filesystem::Path> StdFileSystem::listContents(const filesystem::Dir& dir) const
@@ -304,6 +319,12 @@ filesystem::FileLoadResult StdFileSystem::loadBinary(const char* pPath, core::Ve
 
     std::ifstream stream(pPath, std::ios::binary | std::ios::ate);
     if (!stream.is_open()) {
+        std::string resolved = AppSettings::instance().resolveAssetPath(pPath);
+        if (!resolved.empty() && resolved != pPath) {
+            stream.open(resolved.c_str(), std::ios::binary | std::ios::ate);
+        }
+    }
+    if (!stream.is_open()) {
         return filesystem::FileLoadResultE::CannotOpenFile;
     }
 
@@ -339,6 +360,12 @@ filesystem::FileLoadResult StdFileSystem::loadBinary(const char* pPath, core::Sl
 
     std::ifstream stream(pPath, std::ios::binary | std::ios::ate);
     if (!stream.is_open()) {
+        std::string resolved = AppSettings::instance().resolveAssetPath(pPath);
+        if (!resolved.empty() && resolved != pPath) {
+            stream.open(resolved.c_str(), std::ios::binary | std::ios::ate);
+        }
+    }
+    if (!stream.is_open()) {
         return filesystem::FileLoadResultE::CannotOpenFile;
     }
 
@@ -371,6 +398,12 @@ filesystem::FileLoadResult StdFileSystem::loadText(const char* pPath, core::stri
     }
 
     std::ifstream stream(pPath, std::ios::binary | std::ios::ate);
+    if (!stream.is_open()) {
+        std::string resolved = AppSettings::instance().resolveAssetPath(pPath);
+        if (!resolved.empty() && resolved != pPath) {
+            stream.open(resolved.c_str(), std::ios::binary | std::ios::ate);
+        }
+    }
     if (!stream.is_open()) {
         return filesystem::FileLoadResultE::CannotOpenFile;
     }

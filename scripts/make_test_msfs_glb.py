@@ -16,11 +16,59 @@ def create_msfs_glb(input_glb, output_glb):
     gltf = json.loads(json_bytes.decode('utf-8'))
 
     # Read remaining binary chunks
-    bin_chunk = data[20 + c0_len:]
+    bin_chunk = bytearray(data[20 + c0_len:])
+
+    # 1x1 PNG bytes (70 bytes, verified valid PNG)
+    png_1x1 = bytes.fromhex(
+        "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+        "0000000d4944415478da6364f8cf500f00038601805a347d6b0000000049454e44ae426082"
+    )
+    pad = (4 - (len(png_1x1) % 4)) % 4
+    png_padded = png_1x1 + b'\x00' * pad
+
+    img_offset = len(bin_chunk) - 8 # subtract 8 bytes chunk 1 header (length + type)
+    # The binary chunk starts with 8 bytes header (chunk_len, 0x004E4942)
+    c1_len, c1_type = struct.unpack_from('<II', bin_chunk, 0)
+    img_byte_offset = c1_len
+    # Append to chunk 1 payload
+    bin_chunk += png_padded
+    # Update chunk 1 length in header
+    struct.pack_into('<I', bin_chunk, 0, c1_len + len(png_padded))
+
+    # Update buffers[0].byteLength
+    gltf["buffers"][0]["byteLength"] = c1_len + len(png_padded)
+
+    # Add bufferView for the image
+    img_bv_idx = len(gltf.get("bufferViews", []))
+    gltf.setdefault("bufferViews", []).append({
+        "buffer": 0,
+        "byteOffset": img_byte_offset,
+        "byteLength": len(png_1x1)
+    })
+
+    # Inject sample textures and images with names and file references
+    gltf["images"] = [
+        {"name": "cockpit_albedo.png", "bufferView": img_bv_idx, "mimeType": "image/png"},
+        {"name": "fuselage_normal.png", "bufferView": img_bv_idx, "mimeType": "image/png"},
+        {"name": "instruments_decal.png", "bufferView": img_bv_idx, "mimeType": "image/png"}
+    ]
+    gltf["samplers"] = [
+        {"magFilter": 9729, "minFilter": 9987, "wrapS": 10497, "wrapT": 10497}
+    ]
+    gltf["textures"] = [
+        {"source": 0, "sampler": 0},
+        {"source": 1, "sampler": 0, "name": "Cockpit_Normal_Tex"},
+        {"source": 2, "sampler": 0}
+    ]
 
     # Inject MSFS extensions into Material 0
     if "materials" in gltf and len(gltf["materials"]) > 0:
         mat = gltf["materials"][0]
+        if "pbrMetallicRoughness" in mat:
+            mat["pbrMetallicRoughness"]["baseColorTexture"] = {"index": 0, "texCoord": 0}
+            mat["pbrMetallicRoughness"]["metallicRoughnessTexture"] = {"index": 1, "texCoord": 0}
+        mat["normalTexture"] = {"index": 1, "scale": 1.0}
+        mat["occlusionTexture"] = {"index": 2, "strength": 0.8}
         if "extensions" not in mat:
             mat["extensions"] = {}
         mat["extensions"]["ASOBO_normal_map_convention"] = {

@@ -52,8 +52,8 @@ void applyFssTheme()
     colors[ImGuiCol_TitleBgActive]             = ImVec4(0.15f, 0.15f, 0.18f, 1.00f);
     colors[ImGuiCol_TitleBgCollapsed]          = ImVec4(0.12f, 0.12f, 0.14f, 0.75f);
     colors[ImGuiCol_MenuBarBg]                 = ImVec4(0.14f, 0.14f, 0.16f, 1.00f);
-    colors[ImGuiCol_ScrollbarBg]               = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
-    colors[ImGuiCol_ScrollbarGrab]             = ImVec4(1.00f, 1.00f, 1.00f, 0.15f);
+    colors[ImGuiCol_ScrollbarBg]               = ImVec4(0.08f, 0.08f, 0.10f, 0.60f);
+    colors[ImGuiCol_ScrollbarGrab]             = ImVec4(1.00f, 1.00f, 1.00f, 0.22f);
     colors[ImGuiCol_ScrollbarGrabHovered]      = ImVec4(0.13f, 0.67f, 0.42f, 1.00f);
     colors[ImGuiCol_ScrollbarGrabActive]       = ImVec4(0.19f, 0.36f, 0.28f, 1.00f);
     colors[ImGuiCol_CheckMark]                 = ImVec4(0.13f, 0.67f, 0.42f, 1.00f);

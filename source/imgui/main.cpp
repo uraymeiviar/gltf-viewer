@@ -50,6 +50,8 @@
 #include "imgui/BoundingBoxRenderer.h"
 #include "imgui/Theme.h"
 #include "imgui/IconsMaterialDesignIcons.h"
+#include "imgui/AppSettings.h"
+#include "imgui/SearchPathsPanel.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -453,6 +455,7 @@ static bool loadGltfModel(const std::string& filePath,
                           bool& sceneDirty)
 {
     logMessage("Opening file: " + filePath);
+    ux3d::imgui::AppSettings::instance().setCurrentModelPath(filePath);
     ux3d::gltf::ImportOptions importOptions;
     ux3d::filesystem::File file = ux3d::imgui::StdFileSystem::instance().toFile(filePath.c_str());
 
@@ -961,6 +964,7 @@ int main(int argc, char** argv)
     std::string selectNodeArg;
     std::string selectMaterialArg;
     bool showValidationArg = false;
+    bool showSearchPathsArg = false;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -975,11 +979,14 @@ int main(int argc, char** argv)
             selectMaterialArg = argv[++i];
         } else if (arg == "--show-validation" || arg == "--validate") {
             showValidationArg = true;
+        } else if (arg == "--show-search-paths" || arg == "--search-paths") {
+            showSearchPathsArg = true;
         } else if (!arg.empty() && arg[0] != '-') {
             modelToLoad = arg;
         }
     }
 
+    ux3d::imgui::AppSettings::instance().loadSettings();
     s_recentFiles = loadRecentFiles();
 
     if (ux3d::imgui::StdFileSystem::instance().isFile(ux3d::imgui::StdFileSystem::instance().toFile(modelToLoad.c_str()))) {
@@ -1017,9 +1024,13 @@ int main(int argc, char** argv)
     static bool showViewportSettings = false;
     static bool showStatistics = false;
     static bool showValidation = false;
+    static bool showSearchPaths = false;
     if (showValidationArg) {
         showValidation = true;
         ux3d::imgui::ValidationPanel::requestFocus();
+    }
+    if (showSearchPathsArg) {
+        showSearchPaths = true;
     }
 
     double lastFrameTime = glfwGetTime();
@@ -1186,6 +1197,9 @@ int main(int argc, char** argv)
                     } else if (activeScene != nullptr && !activeScene->getNodes().empty()) {
                         cameraActor.fitCameraToScene(*activeScene, &gltfModel);
                     }
+                }
+                ImGui::Separator();
+                if (ImGui::MenuItem(ICON_MDI_FOLDER_SEARCH_OUTLINE " Search Paths...", nullptr, &showSearchPaths)) {
                 }
                 ImGui::EndMenu();
             }
@@ -1784,25 +1798,64 @@ int main(int argc, char** argv)
         }
 
         // -------------------------------------------------------------
+        // Search Paths Window
+        // -------------------------------------------------------------
+        if (showSearchPaths) {
+            ux3d::imgui::renderSearchPathsWindow(&showSearchPaths, [&]() {
+                if (!currentFilePath.empty()) {
+                    loadGltfModel(currentFilePath, gltfModel, activeScene, selection, currentFilePath, cameraActor, gltfLayer.get(), animationPlayer, isSceneDirty);
+                }
+            });
+        }
+
+        // -------------------------------------------------------------
         // Logger Panel
         // -------------------------------------------------------------
         if (showLogger) {
             if (ImGui::Begin(WND_LOGGER, &showLogger)) {
+                static bool s_loggerWrap = false;
+                static bool s_loggerAutoScroll = true;
+
                 if (ImGui::Button(ICON_MDI_DELETE_OUTLINE " Clear")) {
                     s_consoleLogs.clear();
                 }
                 ImGui::SameLine();
+                if (ImGui::Button(ICON_MDI_CONTENT_COPY " Copy")) {
+                    std::string allLogs;
+                    for (const auto& entry : s_consoleLogs) {
+                        allLogs += entry.text;
+                        allLogs += "\n";
+                    }
+                    ImGui::SetClipboardText(allLogs.c_str());
+                }
+                ImGui::SameLine();
+                ImGui::Checkbox(ICON_MDI_WRAP " Wrap", &s_loggerWrap);
+                ImGui::SameLine();
+                ImGui::Checkbox("Auto-Scroll", &s_loggerAutoScroll);
+                ImGui::SameLine();
                 ImGui::PushFont(ux3d::imgui::getMonoFont());
-                ImGui::Text("Messages: %zu", s_consoleLogs.size());
+                ImGui::TextDisabled("| Messages: %zu", s_consoleLogs.size());
                 ImGui::PopFont();
                 ImGui::Separator();
-                ImGui::BeginChild("LoggerScrollArea");
+
+                ImGuiWindowFlags childFlags = 0;
+                if (!s_loggerWrap) {
+                    childFlags |= ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_AlwaysHorizontalScrollbar;
+                }
+
+                ImGui::BeginChild("LoggerScrollArea", ImVec2(0, 0), false, childFlags);
+                if (s_loggerWrap) {
+                    ImGui::PushTextWrapPos(0.0f);
+                }
                 ImGui::PushFont(ux3d::imgui::getMonoFont());
                 for (const auto& entry : s_consoleLogs) {
                     ImGui::TextColored(entry.color, "%s", entry.text.c_str());
                 }
                 ImGui::PopFont();
-                if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY()) {
+                if (s_loggerWrap) {
+                    ImGui::PopTextWrapPos();
+                }
+                if (s_loggerAutoScroll && ImGui::GetScrollY() >= ImGui::GetScrollMaxY()) {
                     ImGui::SetScrollHereY(1.0f);
                 }
                 ImGui::EndChild();

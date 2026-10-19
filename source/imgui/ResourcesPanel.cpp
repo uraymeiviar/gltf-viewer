@@ -1,4 +1,5 @@
 #include "imgui/ResourcesPanel.h"
+#include "imgui/TextureUtils.h"
 #include "renderer/gltf/GltfRenderLayer.h"
 #include <imgui.h>
 #include <string>
@@ -76,9 +77,9 @@ void ResourcesPanel::render(ux3d::gltf::Gltf& gltfModel,
     // -----------------------------------------------------------------
     auto& textures = gltfModel.getElements<ux3d::gltf::Texture>();
     std::string texHeader = "Textures (" + std::to_string(textures.size()) + ")";
-    if (ImGui::TreeNodeEx(texHeader.c_str())) {
+    if (ImGui::TreeNodeEx(texHeader.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
         for (auto& tex : textures) {
-            std::string name = tex.hasName() ? tex.getName().c_str() : ("Texture " + std::to_string(tex.m_ID));
+            std::string name = getTextureDisplayName(&tex);
             if (!matchesFilter(name)) continue;
 
             bool isSelected = (selection.type == SelectionType::Texture && selection.selectedTexture == &tex);
@@ -95,10 +96,9 @@ void ResourcesPanel::render(ux3d::gltf::Gltf& gltfModel,
 
     auto& images = gltfModel.getElements<ux3d::gltf::Image>();
     std::string imgHeader = "Images (" + std::to_string(images.size()) + ")";
-    if (ImGui::TreeNodeEx(imgHeader.c_str())) {
+    if (ImGui::TreeNodeEx(imgHeader.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
         for (auto& img : images) {
-            std::string name = img.hasName() ? img.getName().c_str() : ("Image " + std::to_string(img.m_ID));
-            if (!img.getUri().empty()) name += " (" + std::string(img.getUri().c_str()) + ")";
+            std::string name = getImageDisplayName(&img);
             if (!matchesFilter(name)) continue;
 
             bool isSelected = (selection.type == SelectionType::Image && selection.selectedImage == &img);

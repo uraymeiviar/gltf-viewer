@@ -2,6 +2,8 @@
 
 #include "imgui/MaterialInspector.h"
 #include "imgui/ExtensionInspector.h"
+#include "imgui/TextureUtils.h"
+#include "imgui/IconsMaterialDesignIcons.h"
 #include "imgui/Theme.h"
 #include <imgui.h>
 #include <cstring>
@@ -27,8 +29,7 @@ bool MaterialInspector::renderTextureSlot(const char* label,
         // Texture selection combo
         std::string currentPreview = "None";
         if (hasTex) {
-            auto* t = texInfo->getTexture();
-            currentPreview = t->hasName() ? t->getName().c_str() : ("Texture " + std::to_string(t->m_ID));
+            currentPreview = getTextureDisplayName(texInfo->getTexture());
         }
 
         if (ImGui::BeginCombo("Texture", currentPreview.c_str())) {
@@ -45,7 +46,7 @@ bool MaterialInspector::renderTextureSlot(const char* label,
 
             for (auto& tex : textures) {
                 bool isSelected = hasTex && (texInfo->getTexture() == &tex);
-                std::string itemLabel = tex.hasName() ? tex.getName().c_str() : ("Texture " + std::to_string(tex.m_ID));
+                std::string itemLabel = getTextureDisplayName(&tex);
                 if (ImGui::Selectable(itemLabel.c_str(), isSelected)) {
                     if (!texInfo.has_value()) {
                         texInfo.emplace();
@@ -61,6 +62,19 @@ bool MaterialInspector::renderTextureSlot(const char* label,
         }
 
         if (texInfo.has_value() && texInfo->getTexture() != nullptr) {
+            auto* t = texInfo->getTexture();
+            if (t->getSource() != nullptr) {
+                auto* src = t->getSource();
+                if (!src->getUri().empty()) {
+                    ImGui::TextDisabled("File: %s", src->getUri().c_str());
+                }
+                auto res = src->getResolution();
+                if (res.size() >= 2 && res[0] > 0 && res[1] > 0) {
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("(%ux%u px)", res[0], res[1]);
+                }
+            }
+
             // TexCoord index
             int texCoord = static_cast<int>(texInfo->getTexCoordOrDefault());
             const char* coordItems[] = { "TEXCOORD_0", "TEXCOORD_1" };

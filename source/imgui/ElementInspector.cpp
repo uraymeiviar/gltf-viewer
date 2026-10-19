@@ -2,6 +2,8 @@
 #include "imgui/ExtensionInspector.h"
 #include "imgui/MaterialInspector.h"
 #include "imgui/AnimationPlayer.h"
+#include "imgui/TextureUtils.h"
+#include "imgui/IconsMaterialDesignIcons.h"
 #include "imgui/Theme.h"
 #include "imageformats/imageformats.h"
 #include "gltf/GlTypes.h"
@@ -403,21 +405,45 @@ void ElementInspector::render(SelectionState& selection,
     // -----------------------------------------------------------------
     else if (selection.type == SelectionType::Texture && selection.selectedTexture != nullptr) {
         auto* tex = selection.selectedTexture;
-        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Texture ID: %u", tex->m_ID);
+        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", getTextureDisplayName(tex).c_str());
+        ImGui::Separator();
+        ImGui::Text("glTF Texture ID: %u", tex->m_ID);
+        if (tex->hasName()) {
+            ImGui::Text("glTF Name: %s", tex->getName().c_str());
+        }
         if (tex->getSource() != nullptr) {
-            ImGui::Text("Source Image ID: %u", tex->getSource()->m_ID);
-            if (!tex->getSource()->getUri().empty()) {
-                ImGui::Text("URI: %s", tex->getSource()->getUri().c_str());
+            auto* src = tex->getSource();
+            std::string imgName = getImageDisplayName(src);
+            ImGui::Text("Source Image: %s", imgName.c_str());
+            if (!src->getUri().empty()) {
+                ImGui::Text("File URI: %s", src->getUri().c_str());
             }
-            if (ImGui::Button("Inspect Image")) {
+            auto res = src->getResolution();
+            if (res.size() >= 2 && res[0] > 0 && res[1] > 0) {
+                ImGui::Text("Resolution: %u x %u px", res[0], res[1]);
+            }
+            if (ImGui::Button(ICON_MDI_FILE_IMAGE_OUTLINE " Inspect Source Image")) {
                 selection.selectImage(tex->getSource());
+            }
+        }
+        if (tex->getSampler() != nullptr) {
+            auto* sampler = tex->getSampler();
+            ImGui::Separator();
+            ImGui::Text("Sampler ID: %u", sampler->m_ID);
+            if (sampler->hasName()) {
+                ImGui::Text("Sampler Name: %s", sampler->getName().c_str());
             }
         }
     } else if (selection.type == SelectionType::Image && selection.selectedImage != nullptr) {
         auto* img = selection.selectedImage;
-        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Image ID: %u", img->m_ID);
+        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", getImageDisplayName(img).c_str());
+        ImGui::Separator();
+        ImGui::Text("glTF Image ID: %u", img->m_ID);
+        if (img->hasName()) {
+            ImGui::Text("glTF Name: %s", img->getName().c_str());
+        }
         if (!img->getUri().empty()) {
-            ImGui::Text("URI: %s", img->getUri().c_str());
+            ImGui::Text("File URI: %s", img->getUri().c_str());
         }
         auto mimeStr = ux3d::imageformats::imageEncodingToString(img->getMimeType());
         if (!mimeStr.empty()) {
@@ -427,10 +453,12 @@ void ElementInspector::render(SelectionState& selection,
         if (byteSize == 0 && img->getEncodedBytes() != nullptr) {
             byteSize = img->getEncodedBytes()->size();
         }
-        ImGui::Text("Data Size: %zu bytes", byteSize);
+        if (byteSize > 0) {
+            ImGui::Text("Data Size: %zu bytes", byteSize);
+        }
         auto res = img->getResolution();
-        if (res.size() >= 2) {
-            ImGui::Text("Resolution: %u x %u", res[0], res[1]);
+        if (res.size() >= 2 && res[0] > 0 && res[1] > 0) {
+            ImGui::Text("Resolution: %u x %u px", res[0], res[1]);
         }
     }
 

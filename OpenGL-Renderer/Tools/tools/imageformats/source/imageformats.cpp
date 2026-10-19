@@ -55,6 +55,12 @@ core::string imageformats::imageEncodingToString(ImageEncoding _imageEncoding)
     case ImageEncoding::WEBP: {
         return "image/webp";
     }
+    case ImageEncoding::TGA: {
+        return "image/x-tga";
+    }
+    case ImageEncoding::DDS: {
+        return "image/vnd-ms.dds";
+    }
     default: {
         return "";
     }
@@ -78,6 +84,12 @@ ImageEncoding imageformats::imageEncodingFromString(const std::string& _mimeType
     if (_mimeType == "image/webp") {
         return ImageEncoding::WEBP;
     }
+    if (_mimeType == "image/x-tga" || _mimeType == "image/tga") {
+        return ImageEncoding::TGA;
+    }
+    if (_mimeType == "image/vnd-ms.dds" || _mimeType == "image/dds") {
+        return ImageEncoding::DDS;
+    }
     return ImageEncoding::Undefined;
 }
 
@@ -98,6 +110,12 @@ core::string imageformats::getFileExtension(ImageEncoding _imageEncoding)
     }
     case ImageEncoding::WEBP: {
         return ".webp";
+    }
+    case ImageEncoding::TGA: {
+        return ".tga";
+    }
+    case ImageEncoding::DDS: {
+        return ".dds";
     }
     default: {
         return "";
@@ -121,6 +139,12 @@ ImageEncoding imageformats::getEncodingFromUri(const core::string& _inUri)
     }
     if (core::endsWith(core::toLower(_inUri), ".webp")) {
         return ImageEncoding::WEBP;
+    }
+    if (core::endsWith(core::toLower(_inUri), ".tga")) {
+        return ImageEncoding::TGA;
+    }
+    if (core::endsWith(core::toLower(_inUri), ".dds")) {
+        return ImageEncoding::DDS;
     }
 
     // default
@@ -194,6 +218,13 @@ ImageEncoding imageformats::getEncodingFromBuffer(const std::vector<uint8_t>& _i
         }
     }
 
+    // detect dds (magic 'D' 'D' 'S' ' ')
+    if (_inBuffer.size() >= 4) {
+        if (_inBuffer[0] == 'D' && _inBuffer[1] == 'D' && _inBuffer[2] == 'S' && _inBuffer[3] == ' ') {
+            return ImageEncoding::DDS;
+        }
+    }
+
     // default
     return ImageEncoding::Undefined;
 }
@@ -234,6 +265,8 @@ ImageDecodingResult imageformats::decodeImage(
         return decodeKTX(_inBuffer, _outImage);
     } else if (encoding == ImageEncoding::WEBP) {
         return decodeWebP(_inBuffer, _outImage);
+    } else if (encoding == ImageEncoding::DDS) {
+        return decodeDDS(_inBuffer, _outImage);
     } else {
         int x = 0;
         int y = 0;
@@ -258,7 +291,7 @@ ImageDecodingResult imageformats::decodeImage(
 
             format = image::Format::FLOAT;
             signedType = true;
-        } else if (encoding == ImageEncoding::PNG || encoding == ImageEncoding::JPEG || encoding == ImageEncoding::BMP || encoding == ImageEncoding::TGA) {
+        } else if (encoding == ImageEncoding::PNG || encoding == ImageEncoding::JPEG || encoding == ImageEncoding::BMP || encoding == ImageEncoding::TGA || encoding == ImageEncoding::Undefined) {
             imageDataStb = static_cast<uint8_t*>(
                 stbi_load_from_memory(
                     static_cast<stbi_uc const*>(&_inBuffer[0]),

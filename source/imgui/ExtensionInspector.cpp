@@ -3,6 +3,7 @@
 #include "imgui/ExtensionInspector.h"
 #include "imgui/EmbeddedVFS.h"
 #include "imgui/IconsMaterialDesignIcons.h"
+#include "imgui/TextureUtils.h"
 #include "gltf/Texture.h"
 #include "gltf/Image.h"
 
@@ -615,7 +616,7 @@ bool ExtensionInspector::renderTexturePicker(const char* label,
     if (hasTex) {
         for (auto& t : textures) {
             if (t.m_ID == currentTexId) {
-                previewName = t.hasName() ? t.getName().c_str() : ("Texture " + std::to_string(t.m_ID));
+                previewName = getTextureDisplayName(&t);
                 break;
             }
         }
@@ -633,7 +634,7 @@ bool ExtensionInspector::renderTexturePicker(const char* label,
 
         for (auto& tex : textures) {
             bool isSelected = hasTex && (currentTexId == tex.m_ID);
-            std::string itemLabel = tex.hasName() ? tex.getName().c_str() : ("Texture " + std::to_string(tex.m_ID));
+            std::string itemLabel = getTextureDisplayName(&tex);
             if (ImGui::Selectable(itemLabel.c_str(), isSelected)) {
                 texObj["index"] = tex.m_ID;
                 modified = true;
@@ -645,6 +646,23 @@ bool ExtensionInspector::renderTexturePicker(const char* label,
         ImGui::EndCombo();
     }
     helpMarker(tooltip);
+
+    if (hasTex) {
+        for (auto& t : textures) {
+            if (t.m_ID == currentTexId && t.getSource() != nullptr) {
+                auto* src = t.getSource();
+                if (!src->getUri().empty()) {
+                    ImGui::TextDisabled("File: %s", src->getUri().c_str());
+                }
+                auto res = src->getResolution();
+                if (res.size() >= 2 && res[0] > 0 && res[1] > 0) {
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("(%ux%u px)", res[0], res[1]);
+                }
+                break;
+            }
+        }
+    }
 
     // If texture is selected, show UV coordinate set if user wants to customize
     if (hasTex) {

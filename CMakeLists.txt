@@ -95,6 +95,11 @@ set(GESTALTOR_SOURCES
 	"header/imgui/GltfValidator.h"
 	"source/imgui/ValidationPanel.cpp"
 	"header/imgui/ValidationPanel.h"
+	"source/imgui/AppSettings.cpp"
+	"header/imgui/AppSettings.h"
+	"source/imgui/SearchPathsPanel.cpp"
+	"header/imgui/SearchPathsPanel.h"
+	"header/imgui/TextureUtils.h"
 	"header/imgui/IconsMaterialDesignIcons.h"
 	"header/imgui/stb_image_write.h"
 )

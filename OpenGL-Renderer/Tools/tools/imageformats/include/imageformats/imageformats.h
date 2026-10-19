@@ -16,6 +16,8 @@
 
 #include <vector>
 
+#include "Dds.h"
+
 namespace ux3d {
 namespace slimktx2 {
     enum class Format : uint32_t;
@@ -29,7 +31,8 @@ namespace imageformats {
         KTX2,
         BMP,
         TGA,
-        WEBP
+        WEBP,
+        DDS
     };
 
     ImageDecodingResult decodeImageFromFile(const filesystem::File& _inFile, image::Image& _outImage, core::IAllocator* _inAllocator = core::HeapAllocator::defaultInstance(), const uint32_t _inRequiredChannels = 0);
