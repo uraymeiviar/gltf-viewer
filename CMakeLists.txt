@@ -46,8 +46,7 @@ set(UX3D_RENDERER_RESOURCES_DIR "${UX3D_RESOURCES_ROOT_DIR}/OpenGL-Renderer/reso
 add_definitions(-DUX3D_EDITOR_RESOURCES_DIR="${UX3D_EDITOR_RESOURCES_DIR}")
 add_definitions(-DUX3D_RENDERER_RESOURCES_DIR="${UX3D_RENDERER_RESOURCES_DIR}")
 
-# Build subprocess library & Core OpenGL-Renderer
-add_subdirectory("subprocess")
+# Core OpenGL-Renderer
 add_subdirectory("OpenGL-Renderer")
 
 #--------------------------------------------------------------------------------

@@ -21,7 +21,6 @@ target_link_libraries(${lib_name} PUBLIC DataStorage)
 find_package(Ktx)
 target_link_libraries(${lib_name} PUBLIC KTX::ktx)
 target_link_libraries(${lib_name} PRIVATE stb::stb)
-target_link_libraries(${lib_name} PRIVATE subprocess)
 find_package(glm)
 target_include_directories(${lib_name} SYSTEM PUBLIC ${PROJECT_SOURCE_DIR}/../Tools/Runtime/thirdparty/glm/glm)
 
