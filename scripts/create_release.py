@@ -14,11 +14,18 @@ RELEASE_BODY = f'''### Glider glTF Viewer {VERSION}
 A lightweight, high-performance, 100% standalone **glTF 2.0 Visual Inspector & Viewer** based on UX3D Gestaltor.
 
 #### Highlights in {VERSION}
+- **Rebranding to Glider**:
+  - Fresh modern identity with custom high-DPI application icon.
+  - Dedicated user configuration directory (`%APPDATA%/Glider/`).
 - **Multi-Viewport Architecture**:
   - Open multiple concurrent 3D viewports docked as tabs or side-by-side splits.
   - Viewport items in Scene Hierarchy tree with per-viewport selection and individual settings in the Inspector.
   - Attach viewports to any glTF camera node (`[ Free Look | <camera-list> ]`) or inspect with free look navigation.
   - Dedicated Viewport menu (New Viewport, Camera Attachment, Orientation Presets, Shading Mode, Grid & BBox toggles).
+- **OpenEXR (.exr) & HDR Environment Maps**:
+  - Full support for OpenEXR (`.exr`) panoramic environment maps via statically embedded `tinyexr`.
+  - Dynamic 3-channel (`.hdr`) and 4-channel (`.exr` RGBA) floating-point IBL cubemap filtering for irradiance and GGX specular reflections.
+  - Viewport Settings file dialog and `--env` / `--hdr <path>` CLI argument support.
 - **Comprehensive Image & Texture Inspection**:
   - Real-time proportional image preview in Element Inspector constrained to inspector width with 1px border.
   - Exact image channel count (Grayscale, RG, RGB, RGBA) and bit depth (e.g., 8-bit, 16-bit per channel / 48-bit, 64-bit total).
@@ -33,7 +40,7 @@ A lightweight, high-performance, 100% standalone **glTF 2.0 Visual Inspector & V
   - **Interactive Validation Panel**: Filterable issues table (Errors 🔴, Warnings 🟡, Infos 🔵), text search, single-click Inspector selection, double-click 3D viewport framing (`F`), and one-click GitHub-flavored Markdown report export.
   - Viewport toolbar status pill indicator (`[ ✓ glTF Valid ]` or `[ 🔴 N Errors ]`).
 - **100% Standalone Single Binary**:
-  - All runtime assets (GLSL shaders, IBL HDR environment map, validation schemas, fonts with embedded Material Design Icons, sample models) are compressed with Zstandard and embedded directly inside `Glider.exe`.
+  - All runtime assets (GLSL shaders, IBL HDR/EXR environment map, validation schemas, fonts with embedded Material Design Icons, sample models) are compressed with Zstandard and embedded directly inside `Glider.exe`.
 - **Zero Qt Dependency**: Lightweight Dear ImGui (Docking) and GLFW with OpenGL 4.1 Core Profile.
 - **FSS Aviation Dark Theme**: Aviation dark theme with emerald green accents, crisp typography, and high-DPI icons.
 - **Blender-Style Viewport Navigation**: Orbit, pan, zoom, frame focus (`F`), and corner orientation compass gizmo.
@@ -88,7 +95,7 @@ def main():
     headers = {
         'Authorization': f'Bearer {token}',
         'Accept': 'application/vnd.github+json',
-        'User-Agent': 'GestaltorReleaseScript'
+        'User-Agent': 'GliderReleaseScript'
     }
 
     # 3. Check if release exists
@@ -104,6 +111,7 @@ def main():
     if not release:
         release_payload = {
             'tag_name': VERSION,
+            'target_commitish': 'msfs-gltf',
             'name': RELEASE_NAME,
             'body': RELEASE_BODY,
             'draft': False,
