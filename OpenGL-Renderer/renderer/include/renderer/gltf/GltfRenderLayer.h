@@ -45,6 +45,19 @@ class MaterialVariant;
 namespace ux3d::renderer {
 
 using ReverseMapping = std::unordered_map<Mesh*, const gltf::Node*>;
+
+struct AnimationProfileTimes {
+    double channelsMs = 0.0;
+    double transformsMs = 0.0;
+    double skinsMs = 0.0;
+};
+
+struct SceneProfileStats {
+    uint64_t nodesVisited = 0;
+    uint64_t primitivesVisited = 0;
+    uint64_t drawables = 0;
+};
+
 class GltfRenderLayer : public renderer::IRenderLayer {
     // TODO: these should be removed when access to members is not needed any more
     friend class GltfLightMapping;
@@ -63,6 +76,10 @@ public:
 
     const gltf::Scene* getGltfScene() const { return m_gltfScene; } // TODO: Cannot the renderer pass the same scene to the editor render layer?
     const auto& getTransformHierarchy() const { return m_transformHierarchyMapping; }
+
+    void setCpuProfilingEnabled(bool enabled) { m_cpuProfilingEnabled = enabled; }
+    const AnimationProfileTimes& getLastAnimationProfile() const { return m_lastAnimationProfile; }
+    const SceneProfileStats& getLastSceneStats() const { return m_lastSceneStats; }
 
     void setEnvironmentMap(const filesystem::Path& panoramaIrradiancePath);
     bool filterEnvironmentMap();
@@ -136,6 +153,10 @@ private:
     size_t m_maxTextureArrayLength = 0;
     std::list<renderer::Skin> m_skins;
     std::list<animation::Animation> m_animations;
+
+    bool m_cpuProfilingEnabled = false;
+    AnimationProfileTimes m_lastAnimationProfile;
+    SceneProfileStats m_lastSceneStats;
 
     // list for all materials needed for transmission draw call.
     core::LinkedList<std::tuple<Mesh*, Material*>> m_postTransmissionDrawables; // this list has to persist between frames so that the old elements can be cleared each frame.

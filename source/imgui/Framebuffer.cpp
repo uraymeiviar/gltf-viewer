@@ -1,6 +1,7 @@
 // Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
 
 #include "imgui/Framebuffer.h"
+#include "imgui/Profiling.h"
 #include <cstdio>
 #include <utility>
 
@@ -164,6 +165,22 @@ void Framebuffer::resize(int width, int height, int samples)
     }
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    const uint64_t pixels = static_cast<uint64_t>(m_width) * static_cast<uint64_t>(m_height);
+    ux3d::imgui::profiling::countTextureCreation();
+    // Resolve/single-sample RGBA8 color texture.
+    ux3d::imgui::profiling::countTextureAllocation(pixels * 4ull);
+    ux3d::imgui::profiling::countFramebufferCreation(m_samples > 1 ? 2u : 1u);
+    ux3d::imgui::profiling::countRenderbufferCreation(m_samples > 1 ? 2u : 1u);
+    if (m_samples > 1) {
+        // Multisampled RGBA8 color + D24S8 depth/stencil renderbuffers. The
+        // sample count multiplies renderbuffer storage, not texel count.
+        ux3d::imgui::profiling::countRenderbufferAllocation(
+            pixels * 4ull * static_cast<uint64_t>(m_samples) * 2ull);
+    } else {
+        // Single-sample D24S8 depth/stencil renderbuffer.
+        ux3d::imgui::profiling::countRenderbufferAllocation(pixels * 4ull);
+    }
 }
 
 void Framebuffer::bind()

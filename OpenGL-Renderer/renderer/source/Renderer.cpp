@@ -7,6 +7,7 @@
 ux3d::renderer::Renderer::Renderer(gl::GL* gl)
     : m_gl(gl)
     , m_commandExecutor(gl)
+    , m_gpuProfiler(gl)
 {
 }
 
@@ -25,24 +26,30 @@ bool ux3d::renderer::Renderer::init(math::vec4 clearColor)
 
 bool ux3d::renderer::Renderer::draw(const core::Vector<CommandGenerator*>& scenes)
 {
+    m_gpuProfiler.beginFrame(m_gpuFrame, m_gpuViewport, m_gpuLabel);
     m_commandExecutor.resetState();
 
     if (!checkGLError(m_gl, "Renderer::draw")) {
+        m_gpuProfiler.endFrame();
         return false;
     }
 
     if (!preDrawScenes()) {
+        m_gpuProfiler.endFrame();
         return false;
     }
 
     if (!onDrawScenes(scenes)) {
+        m_gpuProfiler.endFrame();
         return false;
     }
 
     if (!postDrawScenes()) {
+        m_gpuProfiler.endFrame();
         return false;
     }
 
+    m_gpuProfiler.endFrame();
     return true;
 }
 
@@ -80,8 +87,14 @@ bool ux3d::renderer::Renderer::setViewportAndClear(int width, int height)
 bool ux3d::renderer::Renderer::onDrawScenes(const core::Vector<CommandGenerator*>& scenes)
 {
     for (auto& scene : scenes) {
+        uint32_t passIndex = 0;
         for (Pass& passType : scene->getPassCommands()) {
             for (auto& [pass, commands] : passType) {
+                const std::string passName = pass->getName().empty()
+                    ? ("pass" + std::to_string(passIndex))
+                    : pass->getName();
+                m_gpuProfiler.beginPass(passName);
+
                 for (const auto& cmd : pass->getPreCommands()) {
                     m_commandExecutor.execute(cmd);
                 }
@@ -97,7 +110,9 @@ bool ux3d::renderer::Renderer::onDrawScenes(const core::Vector<CommandGenerator*
                 }
 
                 pass->deinit(*this); // clean up
+                m_gpuProfiler.endPass();
             }
+            ++passIndex;
         }
     }
 

@@ -1,6 +1,7 @@
 // Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
 
 #include "imgui/BoundingBoxRenderer.h"
+#include "imgui/Profiling.h"
 #include <cstdio>
 #include <glm/gtc/type_ptr.hpp>
 
@@ -99,6 +100,11 @@ void BoundingBoxRenderer::init()
 
     glGenVertexArrays(1, &m_vao);
     glGenBuffers(1, &m_vbo);
+    ux3d::imgui::profiling::countVaoCreation();
+    ux3d::imgui::profiling::countBufferCreation();
+    ux3d::imgui::profiling::countShaderCompile();
+    ux3d::imgui::profiling::countShaderCompile();
+    ux3d::imgui::profiling::countProgramLink();
 
     glBindVertexArray(m_vao);
     glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
@@ -158,6 +164,8 @@ void BoundingBoxRenderer::draw(const glm::vec3& minBounds, const glm::vec3& maxB
     glBindVertexArray(m_vao);
     glDrawArrays(GL_LINES, 0, 24);
     glBindVertexArray(0);
+    ux3d::imgui::profiling::countAppDrawCall();
+    ux3d::imgui::profiling::countBufferUpload(sizeof(lineVertices));
 
     glDisable(GL_POLYGON_OFFSET_LINE);
     glLineWidth(1.0f);

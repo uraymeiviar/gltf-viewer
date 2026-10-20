@@ -56,6 +56,8 @@ set(APP_NAME "Glider")
 
 set(GLIDER_SOURCES
 	"source/imgui/main.cpp"
+	"source/imgui/Profiling.cpp"
+	"header/imgui/Profiling.h"
 	"source/imgui/GladGL.cpp"
 	"header/imgui/GladGL.h"
 	"source/imgui/Framebuffer.cpp"

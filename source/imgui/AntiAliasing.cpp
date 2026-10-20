@@ -1,6 +1,7 @@
 // Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
 
 #include "imgui/AntiAliasing.h"
+#include "imgui/Profiling.h"
 #include <cstdio>
 #include <cmath>
 
@@ -188,6 +189,16 @@ void AntiAliasing::init()
     // Create Quad VAO and VBO
     glGenVertexArrays(1, &m_quadVao);
     glGenBuffers(1, &m_quadVbo);
+    ux3d::imgui::profiling::countVaoCreation();
+    ux3d::imgui::profiling::countBufferCreation();
+    ux3d::imgui::profiling::countBufferAllocation(sizeof(s_quadVertices));
+    ux3d::imgui::profiling::countBufferUpload(sizeof(s_quadVertices));
+    ux3d::imgui::profiling::countShaderCompile();
+    ux3d::imgui::profiling::countShaderCompile();
+    ux3d::imgui::profiling::countProgramLink();
+    ux3d::imgui::profiling::countShaderCompile();
+    ux3d::imgui::profiling::countShaderCompile();
+    ux3d::imgui::profiling::countProgramLink();
 
     glBindVertexArray(m_quadVao);
     glBindBuffer(GL_ARRAY_BUFFER, m_quadVbo);
@@ -366,6 +377,10 @@ void AntiAliasing::ensureBuffers(int width, int height)
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glBindTexture(GL_TEXTURE_2D, 0);
+
+    ux3d::imgui::profiling::countTextureCreation(3);
+    ux3d::imgui::profiling::countFramebufferCreation(3);
+    ux3d::imgui::profiling::countTextureAllocation(static_cast<uint64_t>(m_width) * static_cast<uint64_t>(m_height) * 4ull * 3ull);
 }
 
 GLuint AntiAliasing::render(AntiAliasingMode mode,
@@ -383,6 +398,7 @@ GLuint AntiAliasing::render(AntiAliasingMode mode,
     }
 
     ensureBuffers(width, height);
+    ux3d::imgui::profiling::countAntiAliasingPass();
 
     // Explicitly configure all render state for 2D post-processing pass
     glDisable(GL_DEPTH_TEST);
@@ -412,6 +428,7 @@ GLuint AntiAliasing::render(AntiAliasingMode mode,
         glBindVertexArray(m_quadVao);
         glDrawArrays(GL_TRIANGLES, 0, 6);
         glBindVertexArray(0);
+        ux3d::imgui::profiling::countAppDrawCall();
 
         // Always restore texture unit 0 before returning to ImGui
         glActiveTexture(GL_TEXTURE0);
@@ -469,6 +486,7 @@ GLuint AntiAliasing::render(AntiAliasingMode mode,
         glBindVertexArray(m_quadVao);
         glDrawArrays(GL_TRIANGLES, 0, 6);
         glBindVertexArray(0);
+        ux3d::imgui::profiling::countAppDrawCall();
 
         // Always restore active texture unit to GL_TEXTURE0 before returning to ImGui
         glActiveTexture(GL_TEXTURE1);

@@ -1,6 +1,7 @@
 // Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
 
 #include "imgui/GridRenderer.h"
+#include "imgui/Profiling.h"
 #include <cstdio>
 #include <algorithm>
 #include <glm/gtc/type_ptr.hpp>
@@ -193,6 +194,10 @@ void GridRenderer::init(float /*size*/, float /*step*/)
 
     // Empty VAO for fullscreen triangle strip rendering with gl_VertexID
     glGenVertexArrays(1, &m_vao);
+    ux3d::imgui::profiling::countVaoCreation();
+    ux3d::imgui::profiling::countShaderCompile();
+    ux3d::imgui::profiling::countShaderCompile();
+    ux3d::imgui::profiling::countProgramLink();
 }
 
 void GridRenderer::draw(const glm::mat4& view, const glm::mat4& proj, const glm::vec3& cameraPos, float cameraDistance)
@@ -227,6 +232,7 @@ void GridRenderer::draw(const glm::mat4& view, const glm::mat4& proj, const glm:
     glBindVertexArray(m_vao);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     glBindVertexArray(0);
+    ux3d::imgui::profiling::countAppDrawCall();
 
     glDepthMask(GL_TRUE);
     glUseProgram(0);

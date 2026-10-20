@@ -15,6 +15,7 @@
 #include "imgui/GridRenderer.h"
 #include "imgui/StdFileSystem.h"
 #include "imgui/EmbeddedVFS.h"
+#include "imgui/Profiling.h"
 #include "renderViewInput/CameraActor.h"
 
 #include "gltf/Gltf.h"
@@ -65,17 +66,25 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cmath>
+#include <cstdint>
+#include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <vector>
 #include <utility>
 
 #include "imgui/stb_image_write.h"
 #include <cctype>
+#include <deque>
 
-static void saveImage(const char* filename, int width, int height, const uint8_t* rgba) {
-    if (!filename || width <= 0 || height <= 0 || !rgba) return;
+static bool s_outputFailed = false;
+
+static bool saveImage(const char* filename, int width, int height, const uint8_t* rgba) {
+    if (!filename || width <= 0 || height <= 0 || !rgba) return false;
 
     // OpenGL glReadPixels returns bottom-to-top image; flip vertically to save right-side up
     stbi_flip_vertically_on_write(1);
@@ -89,17 +98,158 @@ static void saveImage(const char* filename, int width, int height, const uint8_t
     }
 
     if (ext == ".jpg" || ext == ".jpeg") {
-        stbi_write_jpg(filename, width, height, 4, rgba, 90);
-    } else if (ext == ".png") {
-        stbi_write_png(filename, width, height, 4, rgba, width * 4);
-    } else {
-        stbi_write_bmp(filename, width, height, 4, rgba);
+        return stbi_write_jpg(filename, width, height, 4, rgba, 90) != 0;
     }
+    if (ext == ".png") {
+        return stbi_write_png(filename, width, height, 4, rgba, width * 4) != 0;
+    }
+    return stbi_write_bmp(filename, width, height, 4, rgba) != 0;
+}
+
+static uint64_t hashBytesFnv1a64(const uint8_t* data, size_t size) {
+    uint64_t value = 14695981039346656037ULL;
+    for (size_t i = 0; i < size; ++i) {
+        value ^= static_cast<uint64_t>(data[i]);
+        value *= 1099511628211ULL;
+    }
+    return value;
+}
+
+static bool captureViewportTexture(GLuint texture,
+                                   int width,
+                                   int height,
+                                   const std::string& path,
+                                   const std::string& region,
+                                   uint64_t frame,
+                                   bool firstFrame,
+                                   double timeSeconds,
+                                   ux3d::imgui::profiling::CaptureRecord& record)
+{
+    record = ux3d::imgui::profiling::CaptureRecord();
+    record.firstFrame = firstFrame;
+    record.source = "viewport-texture";
+    record.region = region;
+    record.path = path;
+    record.frame = frame;
+    record.width = width;
+    record.height = height;
+    record.timeSeconds = timeSeconds;
+
+    if (texture == 0 || width <= 0 || height <= 0 || path.empty()) {
+        std::fprintf(stderr, "Capture skipped: invalid texture, size or path\n");
+        return false;
+    }
+
+    const std::filesystem::path outputPath = std::filesystem::u8path(path);
+    if (outputPath.has_parent_path()) {
+        std::error_code directoryError;
+        std::filesystem::create_directories(outputPath.parent_path(), directoryError);
+    }
+
+    std::vector<uint8_t> pixels(static_cast<size_t>(width) * static_cast<size_t>(height) * 4u);
+    GLint previousTexture = 0;
+    GLint previousPackAlignment = 4;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &previousTexture);
+    glGetIntegerv(GL_PACK_ALIGNMENT, &previousPackAlignment);
+    while (glGetError() != GL_NO_ERROR) {
+    }
+
+    const auto readbackStart = ux3d::imgui::profiling::Clock::now();
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+    const GLenum readError = glGetError();
+    glPixelStorei(GL_PACK_ALIGNMENT, previousPackAlignment);
+    glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(previousTexture));
+    record.readbackMs = ux3d::imgui::profiling::elapsedMs(readbackStart);
+
+    if (readError != GL_NO_ERROR) {
+        std::fprintf(stderr, "Capture failed: glGetTexImage error 0x%X\n", readError);
+        return false;
+    }
+
+    record.rgbaHash = hashBytesFnv1a64(pixels.data(), pixels.size());
+    std::error_code removeError;
+    std::filesystem::remove(outputPath, removeError);
+    const auto writeStart = ux3d::imgui::profiling::Clock::now();
+    const bool wroteImage = saveImage(path.c_str(), width, height, pixels.data());
+    record.writeMs = ux3d::imgui::profiling::elapsedMs(writeStart);
+    if (!wroteImage) {
+        std::fprintf(stderr, "Capture failed: could not write %s\n", path.c_str());
+        return false;
+    }
+
+    std::error_code sizeError;
+    const uint64_t fileBytes = static_cast<uint64_t>(std::filesystem::file_size(outputPath, sizeError));
+    if (sizeError) {
+        std::fprintf(stderr, "Capture failed: could not read output size for %s\n", path.c_str());
+        return false;
+    }
+
+    record.fileBytes = fileBytes;
+    record.valid = true;
+    std::printf("Captured viewport frame %llu to %s (%dx%d, %llu bytes, readback %.3f ms, write %.3f ms)\n",
+                static_cast<unsigned long long>(frame),
+                path.c_str(),
+                width,
+                height,
+                static_cast<unsigned long long>(fileBytes),
+                record.readbackMs,
+                record.writeMs);
+    return true;
 }
 
 // Log console message history
 using ux3d::imgui::LogEntry;
 static std::vector<LogEntry> s_consoleLogs;
+
+// P0.1 deterministic scenario state. When enabled, no user-persisted window, layout,
+// recent-file or application settings are read or written.
+static bool s_isolatedState = false;
+static bool s_windowSizeOverridden = false;
+constexpr uint64_t SCENARIO_REPORT_FRAME = 8;
+
+// P0.4: requested swap interval. This must be known before the window is
+// created so it can be applied before the first frame is presented.
+static bool s_vsyncEnabled = true;
+
+// P0.2 CPU/counter profiling. Detailed instrumentation is opt-in so ordinary
+// interactive runs do not pay for timers, query polling or counter updates.
+static bool s_profilingEnabled = false;
+static std::string s_profileReportPath;
+static bool s_exitAfterProfile = false;
+static bool s_profileReportAttempted = false;
+static bool s_profileReportDeferredLogged = false;
+static std::deque<ux3d::imgui::profiling::FrameSample> s_frameSamples;
+static uint64_t s_frameSamplesDropped = 0;
+static ux3d::imgui::profiling::FrameSample s_firstFrameSample;
+static bool s_haveFirstFrameSample = false;
+static ux3d::imgui::profiling::CaptureRecord s_captureRecord;
+
+// P0.5 viewport-region capture. The steady capture is selected by frame or by
+// elapsed wall-clock time; the first rendered frame can be captured separately.
+static std::string s_captureViewportPath;
+static uint64_t s_captureFrame = 0;
+static bool s_captureFrameProvided = false;
+static double s_captureTimeSeconds = -1.0;
+static bool s_captureTimeProvided = false;
+static std::string s_captureFirstFramePath;
+static bool s_captureAttempted = false;
+static bool s_firstFrameCaptureAttempted = false;
+static ux3d::imgui::profiling::CaptureRecord s_firstFrameCaptureRecord;
+static double s_captureEpochSeconds = 0.0;
+
+// P0.4 bounded benchmark. The benchmark records lightweight frame timing even
+// when detailed P0.2 instrumentation is off. Warmup frames are rendered but not
+// retained; measured frames and the first rendered frame are reported separately.
+static bool s_benchmarkEnabled = false;
+static std::string s_benchmarkOutputPath;
+static uint64_t s_benchmarkWarmupFrames = 8;
+static uint64_t s_benchmarkMeasuredFrames = 120;
+static bool s_exitAfterBenchmark = false;
+static bool s_benchmarkReportAttempted = false;
+static bool s_benchmarkReportWritten = false;
+static std::vector<ux3d::imgui::profiling::FrameSample> s_benchmarkSamples;
 
 static void logMessage(const std::string& msg, ImVec4 color = ImVec4(0.85f, 0.85f, 0.88f, 1.0f), ux3d::core::LogLevel level = ux3d::core::LogLevel::Info)
 {
@@ -295,6 +445,7 @@ static void saveRecentFiles(const std::vector<std::string>& files) {
 
 static void addRecentFile(std::vector<std::string>& files, const std::string& path) {
     if (path.empty()) return;
+    if (s_isolatedState) return; // Do not touch user-persisted state in scenario runs.
     std::string normPath = path;
     for (char& c : normPath) {
         if (c == '\\') c = '/';
@@ -379,6 +530,47 @@ static void saveWindowState(GLFWwindow* window) {
     }
 }
 
+// P0.1 scenario parser helpers. Window size and camera values use explicit,
+// locale-independent separators so command lines are reproducible.
+static bool parseWindowSize(const std::string& text, int& width, int& height)
+{
+    std::string normalized = text;
+    for (char& c : normalized) {
+        if (c == 'x' || c == 'X' || c == ',' || c == ';') c = ' ';
+    }
+    std::istringstream stream(normalized);
+    int w = 0;
+    int h = 0;
+    if (!(stream >> w >> h)) return false;
+    if (w < 320 || h < 240) return false;
+    width = w;
+    height = h;
+    return true;
+}
+
+static bool parseFloat3(const std::string& text, float& x, float& y, float& z)
+{
+    std::string normalized = text;
+    for (char& c : normalized) {
+        if (c == ',' || c == ';') c = ' ';
+    }
+    std::istringstream stream(normalized);
+    float px = 0.0f;
+    float py = 0.0f;
+    float pz = 0.0f;
+    if (!(stream >> px >> py >> pz)) return false;
+    x = px;
+    y = py;
+    z = pz;
+    return true;
+}
+
+static std::string toLowerAscii(std::string text)
+{
+    for (char& c : text) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return text;
+}
+
 static void updateWindowTitle(GLFWwindow* window, const std::string& currentFilePath) {
     if (window == nullptr) return;
     std::string title = "Glider - ";
@@ -405,11 +597,14 @@ static bool loadGltfModel(const std::string& filePath,
     logMessage("Opening file: " + filePath);
     ux3d::imgui::AppSettings::instance().setCurrentModelPath(filePath);
     ux3d::gltf::ImportOptions importOptions;
+    auto& startupProfile = ux3d::imgui::profiling::startupProfile();
+    const auto loadStart = ux3d::imgui::profiling::Clock::now();
     ux3d::filesystem::File file = ux3d::imgui::StdFileSystem::instance().toFile(filePath.c_str());
 
     ux3d::imgui::ElementInspector::clearPreviewCache();
     gltfModel.reset();
     auto result = ux3d::gltf::GltfParsing::fromFile(gltfModel, file, importOptions);
+    startupProfile.loadDecodeMs = ux3d::imgui::profiling::elapsedMs(loadStart);
     if (result.derived == ux3d::gltf::GltfFromFileResult::Success) {
         currentFilePath = filePath;
         activeScene = gltfModel.getDefaultScene();
@@ -418,6 +613,7 @@ static bool loadGltfModel(const std::string& filePath,
         }
         selection = ux3d::imgui::SelectionState();
 
+        const auto uploadStart = ux3d::imgui::profiling::Clock::now();
         if (gltfLayer != nullptr) {
             gltfLayer->updateGltf(gltfModel);
             if (activeScene != nullptr) {
@@ -425,12 +621,23 @@ static bool loadGltfModel(const std::string& filePath,
                 gltfLayer->applyAnimationTime(0.0f);
             }
         }
+        startupProfile.rendererUploadMs = ux3d::imgui::profiling::elapsedMs(uploadStart);
 
         animPlayer.setModel(gltfModel, gltfLayer);
 
         size_t nodeCount = gltfModel.getElements<ux3d::gltf::Node>().size();
         size_t meshCount = gltfModel.getElements<ux3d::gltf::Mesh>().size();
         size_t matCount = gltfModel.getElements<ux3d::gltf::Material>().size();
+        startupProfile.nodeCount = nodeCount;
+        startupProfile.meshCount = meshCount;
+        startupProfile.materialCount = matCount;
+        startupProfile.imageCount = gltfModel.getElements<ux3d::gltf::Image>().size();
+        startupProfile.textureCount = gltfModel.getElements<ux3d::gltf::Texture>().size();
+        std::error_code sizeError;
+        const auto modelSize = std::filesystem::file_size(std::filesystem::path(filePath), sizeError);
+        if (!sizeError) {
+            startupProfile.modelBytes = static_cast<uint64_t>(modelSize);
+        }
         char infoBuf[256];
         std::snprintf(infoBuf, sizeof(infoBuf), "Model Stats: %zu nodes, %zu meshes, %zu materials", nodeCount, meshCount, matCount);
         logMessage(infoBuf, ImVec4(0.4f, 0.8f, 1.0f, 1.0f));
@@ -466,7 +673,10 @@ static bool loadGltfModel(const std::string& filePath,
         logMessage("Loaded successfully: " + filePath, ImVec4(0.2f, 1.0f, 0.4f, 1.0f));
 
         // Auto-run glTF 2.0 validation
+        const auto validationStart = ux3d::imgui::profiling::Clock::now();
         auto valReport = ux3d::imgui::GltfValidator::instance().validate(filePath, gltfModel);
+        startupProfile.validationMs = ux3d::imgui::profiling::elapsedMs(validationStart);
+        startupProfile.validationReportedMs = valReport.durationMs;
         if (valReport.errorCount > 0) {
             char valBuf[256];
             std::snprintf(valBuf, sizeof(valBuf), "Validation: %d %s, %d %s (%.1f ms)",
@@ -718,6 +928,419 @@ static std::string resolveSampleModelPath()
     return "resources/sampleGltf/HelloCube.glb";
 }
 
+// -----------------------------------------------------------------------------
+// P0.1 — deterministic scenario manifest
+// -----------------------------------------------------------------------------
+
+static std::string jsonEscape(const std::string& text)
+{
+    std::string out;
+    out.reserve(text.size() + 2);
+    out.push_back('"');
+    for (unsigned char c : text) {
+        switch (c) {
+        case '"': out += "\\\""; break;
+        case '\\': out += "\\\\"; break;
+        case '\b': out += "\\b"; break;
+        case '\f': out += "\\f"; break;
+        case '\n': out += "\\n"; break;
+        case '\r': out += "\\r"; break;
+        case '\t': out += "\\t"; break;
+        default:
+            if (c < 0x20) {
+                char buffer[8];
+                std::snprintf(buffer, sizeof(buffer), "\\u%04x", static_cast<unsigned int>(c));
+                out += buffer;
+            } else {
+                out.push_back(static_cast<char>(c));
+            }
+            break;
+        }
+    }
+    out.push_back('"');
+    return out;
+}
+
+static void writeJsonNumber(std::ostream& out, double value)
+{
+    if (!std::isfinite(value)) {
+        out << "null";
+        return;
+    }
+    out << value;
+}
+
+static void writeJsonVec3(std::ostream& out, const ux3d::math::vec3& value)
+{
+    out << "[";
+    writeJsonNumber(out, value.x);
+    out << ", ";
+    writeJsonNumber(out, value.y);
+    out << ", ";
+    writeJsonNumber(out, value.z);
+    out << "]";
+}
+
+static void writeJsonMat4(std::ostream& out, const ux3d::math::mat4x4& matrix)
+{
+    out << "[";
+    for (int column = 0; column < 4; ++column) {
+        for (int row = 0; row < 4; ++row) {
+            if (column != 0 || row != 0) out << ", ";
+            writeJsonNumber(out, matrix[column][row]);
+        }
+    }
+    out << "]";
+}
+
+static bool hashFileFnv1a64(const std::string& path, uint64_t& hash, uint64_t& byteCount)
+{
+    if (path.empty()) return false;
+    auto& fs = ux3d::imgui::StdFileSystem::instance();
+    ux3d::filesystem::File file = fs.toFile(path.c_str());
+    ux3d::core::Vector<uint8_t> data;
+    if (file.load(data) != ux3d::filesystem::FileLoadResult::Success) {
+        return false;
+    }
+
+    uint64_t value = 14695981039346656037ULL; // FNV-1a 64-bit offset basis
+    for (size_t i = 0; i < data.size(); ++i) {
+        value ^= static_cast<uint64_t>(data[i]);
+        value *= 1099511628211ULL; // FNV prime
+    }
+    hash = value;
+    byteCount = static_cast<uint64_t>(data.size());
+    return true;
+}
+
+static const char* antiAliasingName(int index)
+{
+    switch (index) {
+    case 0: return "none";
+    case 1: return "msaa2";
+    case 2: return "msaa4";
+    case 3: return "msaa8";
+    case 4: return "fxaa";
+    case 5: return "taa";
+    default: return "unknown";
+    }
+}
+
+static const char* cameraTypeName(ux3d::renderer::Camera::Type type)
+{
+    switch (type) {
+    case ux3d::renderer::Camera::Type::Perspective: return "perspective";
+    case ux3d::renderer::Camera::Type::Orthographic: return "orthographic";
+    case ux3d::renderer::Camera::Type::Custom: return "custom";
+    default: return "unknown";
+    }
+}
+
+static const char* selectionTypeName(ux3d::imgui::SelectionType type)
+{
+    using ux3d::imgui::SelectionType;
+    switch (type) {
+    case SelectionType::None: return "none";
+    case SelectionType::Node: return "node";
+    case SelectionType::Material: return "material";
+    case SelectionType::Mesh: return "mesh";
+    case SelectionType::Camera: return "camera";
+    case SelectionType::Light: return "light";
+    case SelectionType::Texture: return "texture";
+    case SelectionType::Image: return "image";
+    case SelectionType::Animation: return "animation";
+    case SelectionType::Skin: return "skin";
+    case SelectionType::MaterialVariant: return "materialVariant";
+    case SelectionType::Scene: return "scene";
+    case SelectionType::Sampler: return "sampler";
+    case SelectionType::Accessor: return "accessor";
+    case SelectionType::BufferView: return "bufferView";
+    case SelectionType::Buffer: return "buffer";
+    case SelectionType::Viewport: return "viewport";
+    default: return "unknown";
+    }
+}
+
+static const char* antiAliasingModeName(int index)
+{
+    switch (index) {
+    case 0: return "none";
+    case 1: return "msaa2";
+    case 2: return "msaa4";
+    case 3: return "msaa8";
+    case 4: return "fxaa";
+    case 5: return "taa";
+    default: return "unknown";
+    }
+}
+
+static bool writeScenarioReport(const std::string& reportPath,
+                                const std::string& scenarioName,
+                                uint64_t frame,
+                                GLFWwindow* window,
+                                const std::string& modelPath,
+                                bool modelLoaded,
+                                ux3d::gltf::Gltf& gltfModel,
+                                ux3d::gltf::Scene* activeScene,
+                                const ux3d::imgui::ViewportInstance& viewport,
+                                const std::string& environmentPath,
+                                bool environmentLoaded,
+                                const ux3d::imgui::AnimationPlayer& animationPlayer,
+                                const ux3d::imgui::SelectionState& selection)
+{
+    std::error_code directoryError;
+    const std::filesystem::path reportFilePath = std::filesystem::u8path(reportPath);
+    if (reportFilePath.has_parent_path()) {
+        std::filesystem::create_directories(reportFilePath.parent_path(), directoryError);
+    }
+
+    std::ofstream out(reportFilePath, std::ios::binary);
+    if (!out.is_open()) return false;
+
+    int clientWidth = 0;
+    int clientHeight = 0;
+    int framebufferWidth = 0;
+    int framebufferHeight = 0;
+    float contentScaleX = 1.0f;
+    float contentScaleY = 1.0f;
+    glfwGetWindowSize(window, &clientWidth, &clientHeight);
+    glfwGetFramebufferSize(window, &framebufferWidth, &framebufferHeight);
+    glfwGetWindowContentScale(window, &contentScaleX, &contentScaleY);
+
+    uint64_t modelHash = 0;
+    uint64_t modelBytes = 0;
+    const bool modelHashed = hashFileFnv1a64(modelPath, modelHash, modelBytes);
+
+    uint64_t environmentHash = 0;
+    uint64_t environmentBytes = 0;
+    const bool environmentHashed = hashFileFnv1a64(environmentPath, environmentHash, environmentBytes);
+
+    const ux3d::imgui::ViewportSettingsState& settings = viewport.settings;
+    const ux3d::renderer::Camera& camera = viewport.rendererCamera;
+
+    ux3d::gltf::Extends sceneExtends;
+    bool hasSceneExtends = false;
+    if (activeScene != nullptr && !activeScene->getNodes().empty()) {
+        sceneExtends = ux3d::gltf::utils::getExtends(activeScene->getNodes(), &gltfModel);
+        hasSceneExtends = true;
+    }
+
+    const char* glVendor = reinterpret_cast<const char*>(glGetString(GL_VENDOR));
+    const char* glRenderer = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
+    const char* glVersion = reinterpret_cast<const char*>(glGetString(GL_VERSION));
+    const char* glslVersion = reinterpret_cast<const char*>(glGetString(GL_SHADING_LANGUAGE_VERSION));
+
+    out << std::fixed << std::setprecision(9);
+    out << "{\n";
+    out << "  \"schema\": \"glider.scenario.v1\",\n";
+    out << "  \"scenarioName\": " << jsonEscape(scenarioName) << ",\n";
+    out << "  \"frame\": " << frame << ",\n";
+    out << "  \"isolated\": " << (s_isolatedState ? "true" : "false") << ",\n";
+    out << "  \"layout\": " << jsonEscape(s_isolatedState ? "default-forced" : "persisted") << ",\n";
+    out << "  \"vsync\": " << (s_vsyncEnabled ? "true" : "false") << ",\n";
+
+    out << "  \"application\": {\n";
+    out << "    \"name\": \"Glider\",\n";
+    out << "    \"build\": " << jsonEscape(std::string(__DATE__) + " " + __TIME__) << ",\n";
+    out << "    \"openglVendor\": " << jsonEscape(glVendor != nullptr ? glVendor : "") << ",\n";
+    out << "    \"openglRenderer\": " << jsonEscape(glRenderer != nullptr ? glRenderer : "") << ",\n";
+    out << "    \"openglVersion\": " << jsonEscape(glVersion != nullptr ? glVersion : "") << ",\n";
+    out << "    \"glslVersion\": " << jsonEscape(glslVersion != nullptr ? glslVersion : "") << "\n";
+    out << "  },\n";
+
+    out << "  \"window\": {\n";
+    out << "    \"clientWidth\": " << clientWidth << ",\n";
+    out << "    \"clientHeight\": " << clientHeight << ",\n";
+    out << "    \"framebufferWidth\": " << framebufferWidth << ",\n";
+    out << "    \"framebufferHeight\": " << framebufferHeight << ",\n";
+    out << "    \"contentScaleX\": ";
+    writeJsonNumber(out, contentScaleX);
+    out << ",\n";
+    out << "    \"contentScaleY\": ";
+    writeJsonNumber(out, contentScaleY);
+    out << "\n";
+    out << "  },\n";
+
+    out << "  \"viewport\": {\n";
+    out << "    \"id\": " << viewport.id << ",\n";
+    out << "    \"name\": " << jsonEscape(viewport.name) << ",\n";
+    out << "    \"width\": " << viewport.sceneFbo.getWidth() << ",\n";
+    out << "    \"height\": " << viewport.sceneFbo.getHeight() << ",\n";
+    out << "    \"samples\": " << viewport.sceneFbo.getSamples() << ",\n";
+    out << "    \"pickingWidth\": " << viewport.pickingFbo.getWidth() << ",\n";
+    out << "    \"pickingHeight\": " << viewport.pickingFbo.getHeight() << "\n";
+    out << "  },\n";
+
+    out << "  \"model\": {\n";
+    out << "    \"path\": " << jsonEscape(modelPath) << ",\n";
+    out << "    \"loaded\": " << (modelLoaded ? "true" : "false") << ",\n";
+    out << "    \"hashScope\": \"container-file\",\n";
+    out << "    \"hashAlgorithm\": \"fnv1a64\",\n";
+    out << "    \"bytes\": " << modelBytes << ",\n";
+    out << "    \"hash\": ";
+    if (modelHashed) {
+        out << "\"0x" << std::hex << std::setw(16) << std::setfill('0') << modelHash
+            << std::dec << std::setfill(' ') << "\"";
+    } else {
+        out << "null";
+    }
+    out << "\n";
+    out << "  },\n";
+
+    out << "  \"scene\": {\n";
+    out << "    \"nodes\": " << gltfModel.getElements<ux3d::gltf::Node>().size() << ",\n";
+    out << "    \"meshes\": " << gltfModel.getElements<ux3d::gltf::Mesh>().size() << ",\n";
+    out << "    \"materials\": " << gltfModel.getElements<ux3d::gltf::Material>().size() << ",\n";
+    out << "    \"boundsMin\": ";
+    if (hasSceneExtends) writeJsonVec3(out, ux3d::math::vec3(sceneExtends.min));
+    else out << "null";
+    out << ",\n";
+    out << "    \"boundsMax\": ";
+    if (hasSceneExtends) writeJsonVec3(out, ux3d::math::vec3(sceneExtends.max));
+    else out << "null";
+    out << "\n";
+    out << "  },\n";
+
+    out << "  \"camera\": {\n";
+    out << "    \"type\": " << jsonEscape(cameraTypeName(camera.getType())) << ",\n";
+    out << "    \"eye\": ";
+    writeJsonVec3(out, viewport.cameraActor.getEyePosition());
+    out << ",\n";
+    out << "    \"target\": ";
+    writeJsonVec3(out, viewport.cameraActor.getLookTarget());
+    out << ",\n";
+    out << "    \"up\": ";
+    writeJsonVec3(out, ux3d::math::vec3(camera.getUp()));
+    out << ",\n";
+    out << "    \"yawRadians\": ";
+    writeJsonNumber(out, viewport.cameraActor.getRotationX());
+    out << ",\n";
+    out << "    \"pitchRadians\": ";
+    writeJsonNumber(out, viewport.cameraActor.getRotationY());
+    out << ",\n";
+    out << "    \"zoom\": ";
+    writeJsonNumber(out, viewport.cameraActor.getZoom());
+    out << ",\n";
+    out << "    \"yfovRadians\": ";
+    writeJsonNumber(out, camera.getYFoV());
+    out << ",\n";
+    out << "    \"aspectRatio\": ";
+    writeJsonNumber(out, camera.getAspectRatio());
+    out << ",\n";
+    out << "    \"zNear\": ";
+    writeJsonNumber(out, camera.getZNearPlane());
+    out << ",\n";
+    out << "    \"zFar\": ";
+    writeJsonNumber(out, camera.getZFarPlane());
+    out << ",\n";
+    out << "    \"orthographicScaling\": ";
+    writeJsonNumber(out, camera.getOrthographicScaling());
+    out << ",\n";
+    out << "    \"matrixOrder\": \"column-major\",\n";
+    out << "    \"view\": ";
+    writeJsonMat4(out, camera.getViewMatrix());
+    out << ",\n";
+    out << "    \"projection\": ";
+    writeJsonMat4(out, camera.getProjectionMatrix());
+    out << "\n";
+    out << "  },\n";
+
+    out << "  \"environment\": {\n";
+    out << "    \"path\": " << jsonEscape(environmentPath) << ",\n";
+    out << "    \"loaded\": " << (environmentLoaded ? "true" : "false") << ",\n";
+    out << "    \"bytes\": " << environmentBytes << ",\n";
+    out << "    \"hash\": ";
+    if (environmentHashed) {
+        out << "\"0x" << std::hex << std::setw(16) << std::setfill('0') << environmentHash
+            << std::dec << std::setfill(' ') << "\"";
+    } else {
+        out << "null";
+    }
+    out << ",\n";
+    out << "    \"uiPath\": " << jsonEscape(settings.currentHdrPath) << ",\n";
+    out << "    \"iblEnabled\": " << (settings.iblEnabled ? "true" : "false") << ",\n";
+    out << "    \"rotation\": ";
+    writeJsonNumber(out, settings.hdrRotation);
+    out << ",\n";
+    out << "    \"intensity\": ";
+    writeJsonNumber(out, settings.hdrIntensity);
+    out << ",\n";
+    out << "    \"blur\": ";
+    writeJsonNumber(out, settings.hdrBlur);
+    out << "\n";
+    out << "  },\n";
+
+    out << "  \"settings\": {\n";
+    out << "    \"antiAliasing\": " << jsonEscape(antiAliasingName(settings.antiAliasingIdx)) << ",\n";
+    out << "    \"antiAliasingIndex\": " << settings.antiAliasingIdx << ",\n";
+    out << "    \"renderModeIndex\": " << settings.renderModeIdx << ",\n";
+    out << "    \"toneMappingIndex\": " << settings.toneMappingIdx << ",\n";
+    out << "    \"exposureEV\": ";
+    writeJsonNumber(out, settings.exposureEV);
+    out << ",\n";
+    out << "    \"showBackground\": " << (settings.showBackground ? "true" : "false") << ",\n";
+    out << "    \"showGrid\": " << (settings.showGrid ? "true" : "false") << ",\n";
+    out << "    \"forceDoubleSided\": " << (settings.forceDoubleSided ? "true" : "false") << ",\n";
+    out << "    \"invertWinding\": " << (settings.invertWinding ? "true" : "false") << ",\n";
+    out << "    \"wireframeOverlay\": " << (settings.wireframeOverlay ? "true" : "false") << ",\n";
+    out << "    \"showSceneBoundingBox\": " << (settings.showSceneBoundingBox ? "true" : "false") << ",\n";
+    out << "    \"showSelectedBoundingBox\": " << (settings.showSelectedBoundingBox ? "true" : "false") << ",\n";
+    out << "    \"showNodeCoordinateGizmo\": " << (settings.showNodeCoordinateGizmo ? "true" : "false") << ",\n";
+    out << "    \"showOrientationGizmo\": " << (settings.showOrientationGizmo ? "true" : "false") << ",\n";
+    out << "    \"gizmoAxisConvention\": " << settings.gizmoAxisConvention << ",\n";
+    out << "    \"turntable\": " << (settings.turntable ? "true" : "false") << ",\n";
+    out << "    \"turntableSpeed\": ";
+    writeJsonNumber(out, settings.turntableSpeed);
+    out << ",\n";
+    out << "    \"punctualLightsEnabled\": " << (settings.punctualLightsEnabled ? "true" : "false") << ",\n";
+    out << "    \"clearColor\": [";
+    writeJsonNumber(out, settings.clearColor.r);
+    out << ", ";
+    writeJsonNumber(out, settings.clearColor.g);
+    out << ", ";
+    writeJsonNumber(out, settings.clearColor.b);
+    out << ", ";
+    writeJsonNumber(out, settings.clearColor.a);
+    out << "]\n";
+    out << "  },\n";
+
+    out << "  \"animation\": {\n";
+    out << "    \"time\": ";
+    writeJsonNumber(out, animationPlayer.getCurrentTime());
+    out << ",\n";
+    out << "    \"maxDuration\": ";
+    writeJsonNumber(out, animationPlayer.getMaxDuration());
+    out << ",\n";
+    out << "    \"playing\": " << (animationPlayer.isPlaying() ? "true" : "false") << ",\n";
+    out << "    \"activeIndex\": " << animationPlayer.getActiveAnimationIndex() << ",\n";
+    out << "    \"looping\": " << (animationPlayer.isLooping() ? "true" : "false") << ",\n";
+    out << "    \"loopCount\": " << animationPlayer.getLoopCount() << ",\n";
+    out << "    \"playbackSpeed\": ";
+    writeJsonNumber(out, animationPlayer.getPlaybackSpeed());
+    out << "\n";
+    out << "  },\n";
+
+    out << "  \"selection\": {\n";
+    out << "    \"type\": " << jsonEscape(selectionTypeName(selection.type)) << ",\n";
+    out << "    \"viewportId\": " << selection.selectedViewportId << ",\n";
+    out << "    \"nodeId\": ";
+    if (selection.selectedNode != nullptr) out << selection.selectedNode->m_ID;
+    else out << "null";
+    out << ",\n";
+    out << "    \"nodeName\": ";
+    if (selection.selectedNode != nullptr && selection.selectedNode->hasName()) {
+        out << jsonEscape(selection.selectedNode->getName());
+    } else {
+        out << "null";
+    }
+    out << "\n";
+    out << "  }\n";
+    out << "}\n";
+
+    out.flush();
+    return out.good();
+}
+
 static ux3d::renderer::RenderMode getRenderModeFromIndex(int idx)
 {
     switch (idx) {
@@ -953,10 +1576,97 @@ static void setupDefaultDockLayout(ImGuiID dockspaceId, ImVec2 size, bool force 
     }
 }
 
+static void fillGpuReport(ux3d::imgui::profiling::GpuReport& target,
+                          const ux3d::renderer::Renderer* renderer)
+{
+    target = ux3d::imgui::profiling::GpuReport();
+    if (renderer == nullptr) {
+        return;
+    }
+
+    const auto& profiler = renderer->getGpuProfiler();
+    target.enabled = profiler.enabled();
+    target.method = "GL_TIME_ELAPSED; polled with GL_QUERY_RESULT_AVAILABLE after >=2 later submissions; no glFinish";
+    target.cpuSubmissionStage = "draw.submit (CPU, includes command submission only)";
+    target.pendingFrames = profiler.pendingFrameCount();
+    target.unavailablePolls = profiler.unavailablePollCount();
+    target.droppedFrames = profiler.droppedFrameCount();
+    target.completedFrameLimit = profiler.completedFrameLimit();
+    target.completedFramesDropped = profiler.completedFrameDroppedCount();
+
+    const auto convertGpuFrame = [](const ux3d::renderer::GpuFrameSample& source) {
+        ux3d::imgui::profiling::GpuFrameReport converted;
+        converted.sequence = source.sequence;
+        converted.frame = source.frame;
+        converted.viewport = source.viewport;
+        converted.label = source.label;
+        for (const auto& pass : source.passes) {
+            converted.passes.push_back(ux3d::imgui::profiling::GpuPassReport{
+                pass.name, pass.available, pass.milliseconds
+            });
+        }
+        return converted;
+    };
+
+    for (const auto& frame : profiler.completedFrames()) {
+        target.completed.push_back(convertGpuFrame(frame));
+    }
+    const auto pendingGpuFrames = profiler.pendingFrames();
+    for (const auto& frame : pendingGpuFrames) {
+        target.pending.push_back(convertGpuFrame(frame));
+    }
+}
+
 int main(int argc, char** argv)
 {
+    // P0.1 pre-scan: window size and state isolation must be known before GLFW
+    // creates the window and before persisted layouts are loaded.
+    bool isolatedArg = false;
+    bool profileArg = false;
+    bool noProfileArg = false;
+    std::string profileReportArg;
+    int requestedWidth = 0;
+    int requestedHeight = 0;
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--isolated" || arg == "--no-persist") {
+            isolatedArg = true;
+        } else if (arg == "--profile") {
+            profileArg = true;
+        } else if (arg == "--no-profile") {
+            noProfileArg = true;
+        } else if (arg == "--profile-report" && i + 1 < argc) {
+            profileReportArg = argv[++i];
+        } else if (arg == "--vsync" && i + 1 < argc) {
+            const std::string vsyncValue = toLowerAscii(argv[++i]);
+            if (vsyncValue == "on" || vsyncValue == "1" || vsyncValue == "true") {
+                s_vsyncEnabled = true;
+            } else if (vsyncValue == "off" || vsyncValue == "0" || vsyncValue == "false") {
+                s_vsyncEnabled = false;
+            } else {
+                std::fprintf(stderr, "Invalid --vsync '%s' (expected on|off)\n", vsyncValue.c_str());
+                return 1;
+            }
+        } else if (arg == "--window-size" && i + 1 < argc) {
+            const std::string sizeText = argv[++i];
+            if (!parseWindowSize(sizeText, requestedWidth, requestedHeight)) {
+                std::fprintf(stderr, "Invalid --window-size '%s' (expected WIDTHxHEIGHT, minimum 320x240)\n", sizeText.c_str());
+                requestedWidth = 0;
+                requestedHeight = 0;
+            }
+        }
+    }
+    s_isolatedState = isolatedArg;
+    s_windowSizeOverridden = requestedWidth > 0 && requestedHeight > 0;
+    s_profilingEnabled = !noProfileArg && (profileArg || !profileReportArg.empty());
+    ux3d::imgui::profiling::setCountingEnabled(s_profilingEnabled);
+
+    const auto startupStart = ux3d::imgui::profiling::Clock::now();
+
     // Initialize embedded Virtual File System (decompresses runtime resources in-memory)
     ux3d::imgui::EmbeddedVFS::instance().initialize();
+    ux3d::imgui::profiling::startupProfile().vfsDecompressMs =
+        ux3d::imgui::profiling::elapsedMs(startupStart);
 
     glfwSetErrorCallback(glfw_error_callback);
     if (!glfwInit()) {
@@ -964,7 +1674,12 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    WindowState winState = loadWindowState();
+    WindowState winState = s_isolatedState ? WindowState() : loadWindowState();
+    if (s_windowSizeOverridden) {
+        winState.width = requestedWidth;
+        winState.height = requestedHeight;
+        winState.maximized = false;
+    }
 
     // Target OpenGL 4.1 Core Profile
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
@@ -988,7 +1703,7 @@ int main(int argc, char** argv)
     }
 
     glfwMakeContextCurrent(window);
-    glfwSwapInterval(1); // Enable V-Sync
+    glfwSwapInterval(s_vsyncEnabled ? 1 : 0);
 
     // Initialize core logger callback
     ConsoleLogCallback consoleLogger;
@@ -1015,6 +1730,10 @@ int main(int argc, char** argv)
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    if (s_isolatedState) {
+        // Scenario runs must not inherit an interactive docking layout from imgui.ini.
+        io.IniFilename = nullptr;
+    }
 
     // Load FSS Fonts (fss-ui.ttf and fss-ui-mono.ttf with embedded MDI icons)
     ux3d::imgui::loadFssFonts(io);
@@ -1047,6 +1766,7 @@ int main(int argc, char** argv)
     auto commandGenerator = std::make_unique<ux3d::renderer::CommandGenerator>(gladGL.get(), shaderSource);
     auto glRenderer = std::make_unique<ux3d::renderer::Renderer>(gladGL.get());
     glRenderer->init(ux3d::math::vec4(0.12f, 0.12f, 0.14f, 1.0f));
+    glRenderer->setGpuProfilingEnabled(s_profilingEnabled);
 
     ux3d::renderer::PickingRenderLayer pickingLayer(gladGL.get());
     ux3d::renderer::ReverseMapping currentReverseMapping;
@@ -1056,9 +1776,18 @@ int main(int argc, char** argv)
     ux3d::imgui::ViewportInstance* activeViewport = viewports[0].get();
 
     auto envPath = resolveEnvironmentPath(rendererResourcesDir);
+    std::string scenarioEnvironmentPath = envPath.toString().c_str();
+    bool scenarioEnvironmentLoaded = false;
+    auto& startupProfile = ux3d::imgui::profiling::startupProfile();
     if (ux3d::imgui::StdFileSystem::instance().isFile(envPath)) {
+        const auto environmentInitStart = ux3d::imgui::profiling::Clock::now();
         gltfLayer->setEnvironmentMap(envPath);
+        startupProfile.environmentInitMs += ux3d::imgui::profiling::elapsedMs(environmentInitStart);
+        const auto environmentFilterStart = ux3d::imgui::profiling::Clock::now();
         if (gltfLayer->filterEnvironmentMap()) {
+            startupProfile.environmentFilterMs += ux3d::imgui::profiling::elapsedMs(environmentFilterStart);
+            startupProfile.environmentLoads++;
+            scenarioEnvironmentLoaded = true;
             commandGenerator->setIBLEnabled(true);
             logMessage("Loaded default environment map: footprint_court.hdr");
         }
@@ -1094,16 +1823,101 @@ int main(int argc, char** argv)
     bool showValidationArg = false;
     bool showSearchPathsArg = false;
     float animTimeArg = -1.0f;
+    std::string scenarioReportPath;
+    std::string scenarioName = "default";
+    bool cameraYawProvided = false;
+    bool cameraPitchProvided = false;
+    bool cameraDistanceProvided = false;
+    bool cameraTargetProvided = false;
+    bool cameraFovProvided = false;
+    float cameraYawArg = 0.0f;
+    float cameraPitchArg = 0.0f;
+    float cameraDistanceArg = 0.0f;
+    float cameraTargetX = 0.0f;
+    float cameraTargetY = 0.0f;
+    float cameraTargetZ = 0.0f;
+    float cameraFovArg = 0.0f;
+    std::string cameraProjectionArg;
+    bool modelLoaded = false;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "--dump-frame" && i + 1 < argc) {
             dumpFramePath = argv[++i];
             dumpFrameCountdown = 8;
+        } else if (arg == "--capture-viewport" && i + 1 < argc) {
+            s_captureViewportPath = argv[++i];
+        } else if (arg == "--capture-frame" && i + 1 < argc) {
+            s_captureFrame = static_cast<uint64_t>(std::stoull(argv[++i]));
+            s_captureFrameProvided = true;
+        } else if (arg == "--capture-time" && i + 1 < argc) {
+            s_captureTimeSeconds = std::stod(argv[++i]);
+            s_captureTimeProvided = true;
+        } else if (arg == "--capture-first-frame" && i + 1 < argc) {
+            s_captureFirstFramePath = argv[++i];
         } else if (arg == "--exit-after-dump") {
             exitAfterDump = true;
+        } else if (arg == "--profile") {
+            s_profilingEnabled = true;
+        } else if (arg == "--no-profile") {
+            s_profilingEnabled = false;
+        } else if (arg == "--profile-report" && i + 1 < argc) {
+            s_profileReportPath = argv[++i];
+            s_profilingEnabled = true;
+        } else if (arg == "--exit-after-profile") {
+            s_exitAfterProfile = true;
+        } else if (arg == "--benchmark") {
+            s_benchmarkEnabled = true;
+        } else if (arg == "--benchmark-output" && i + 1 < argc) {
+            s_benchmarkOutputPath = argv[++i];
+            s_benchmarkEnabled = true;
+        } else if (arg == "--benchmark-warmup" && i + 1 < argc) {
+            s_benchmarkWarmupFrames = static_cast<uint64_t>(std::stoull(argv[++i]));
+            s_benchmarkEnabled = true;
+        } else if (arg == "--benchmark-frames" && i + 1 < argc) {
+            const uint64_t requested = static_cast<uint64_t>(std::stoull(argv[++i]));
+            if (requested == 0) {
+                std::fprintf(stderr, "--benchmark-frames must be at least 1\n");
+                return 1;
+            }
+            s_benchmarkMeasuredFrames = requested;
+            s_benchmarkEnabled = true;
+        } else if (arg == "--exit-after-benchmark") {
+            s_exitAfterBenchmark = true;
+            s_benchmarkEnabled = true;
+        } else if (arg == "--vsync" && i + 1 < argc) {
+            ++i; // Applied by the pre-scan before window creation.
         } else if (arg == "--anim-time" && i + 1 < argc) {
             animTimeArg = std::stof(argv[++i]);
+        } else if (arg == "--scenario-report" && i + 1 < argc) {
+            scenarioReportPath = argv[++i];
+        } else if (arg == "--scenario-name" && i + 1 < argc) {
+            scenarioName = argv[++i];
+        } else if (arg == "--camera-yaw" && i + 1 < argc) {
+            cameraYawArg = std::stof(argv[++i]);
+            cameraYawProvided = true;
+        } else if (arg == "--camera-pitch" && i + 1 < argc) {
+            cameraPitchArg = std::stof(argv[++i]);
+            cameraPitchProvided = true;
+        } else if (arg == "--camera-distance" && i + 1 < argc) {
+            cameraDistanceArg = std::stof(argv[++i]);
+            cameraDistanceProvided = true;
+        } else if (arg == "--camera-target" && i + 1 < argc) {
+            const std::string targetText = argv[++i];
+            if (parseFloat3(targetText, cameraTargetX, cameraTargetY, cameraTargetZ)) {
+                cameraTargetProvided = true;
+            } else {
+                std::fprintf(stderr, "Invalid --camera-target '%s' (expected X,Y,Z)\n", targetText.c_str());
+            }
+        } else if (arg == "--camera-fov" && i + 1 < argc) {
+            cameraFovArg = std::stof(argv[++i]);
+            cameraFovProvided = true;
+        } else if (arg == "--camera-projection" && i + 1 < argc) {
+            cameraProjectionArg = toLowerAscii(argv[++i]);
+        } else if (arg == "--window-size" && i + 1 < argc) {
+            ++i; // Value was applied by the pre-scan before window creation.
+        } else if (arg == "--isolated" || arg == "--no-persist") {
+            s_isolatedState = true; // Also applied by the pre-scan.
         } else if (arg == "--select-node" && i + 1 < argc) {
             selectNodeArg = argv[++i];
         } else if (arg == "--hide-node" && i + 1 < argc) {
@@ -1129,8 +1943,16 @@ int main(int argc, char** argv)
         } else if ((arg == "--env" || arg == "--hdr") && i + 1 < argc) {
             std::string customHdr = argv[++i];
             auto path = ux3d::imgui::StdFileSystem::instance().toPath(customHdr.c_str());
+            scenarioEnvironmentPath = path.toString().c_str();
+            scenarioEnvironmentLoaded = false;
+            const auto environmentInitStart = ux3d::imgui::profiling::Clock::now();
             gltfLayer->setEnvironmentMap(path);
+            startupProfile.environmentInitMs += ux3d::imgui::profiling::elapsedMs(environmentInitStart);
+            const auto environmentFilterStart = ux3d::imgui::profiling::Clock::now();
             if (gltfLayer->filterEnvironmentMap()) {
+                startupProfile.environmentFilterMs += ux3d::imgui::profiling::elapsedMs(environmentFilterStart);
+                startupProfile.environmentLoads++;
+                scenarioEnvironmentLoaded = true;
                 activeViewport->settings.currentHdrPath = customHdr;
                 commandGenerator->setIBLEnabled(true);
                 logMessage("Loaded environment map: " + customHdr);
@@ -1148,11 +1970,39 @@ int main(int argc, char** argv)
         }
     }
 
-    ux3d::imgui::AppSettings::instance().loadSettings();
-    s_recentFiles = loadRecentFiles();
+    ux3d::imgui::profiling::setCountingEnabled(s_profilingEnabled);
+
+    if (s_benchmarkEnabled && s_benchmarkOutputPath.empty()) {
+        s_benchmarkOutputPath = "glider-benchmark.json";
+    }
+    if (!s_captureViewportPath.empty() && !s_captureFrameProvided && !s_captureTimeProvided) {
+        s_captureFrame = 8;
+        s_captureFrameProvided = true;
+    }
+    if (s_captureFrameProvided && s_captureFrame == 0) {
+        std::fprintf(stderr, "--capture-frame must be at least 1\n");
+        return 1;
+    }
+    if (s_captureTimeProvided && s_captureTimeSeconds < 0.0) {
+        std::fprintf(stderr, "--capture-time must be non-negative\n");
+        return 1;
+    }
+
+    if (!s_isolatedState) {
+        ux3d::imgui::AppSettings::instance().loadSettings();
+        s_recentFiles = loadRecentFiles();
+    } else {
+        // Keep any panel-triggered save away from the user's settings.ini.
+        std::error_code tempError;
+        std::filesystem::path tempDir = std::filesystem::temp_directory_path(tempError);
+        std::filesystem::path tempSettings = tempError
+            ? std::filesystem::path("glider-scenario-settings.ini")
+            : tempDir / "glider-scenario-settings.ini";
+        ux3d::imgui::AppSettings::instance().setIniFilePath(tempSettings.string());
+    }
 
     if (ux3d::imgui::StdFileSystem::instance().isFile(ux3d::imgui::StdFileSystem::instance().toFile(modelToLoad.c_str()))) {
-        loadGltfModel(modelToLoad, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, isSceneDirty);
+        modelLoaded = loadGltfModel(modelToLoad, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, isSceneDirty);
         updateWindowTitle(window, currentFilePath);
         if (!selectNodeArg.empty()) {
             for (auto& node : gltfModel.getNodes()) {
@@ -1263,6 +2113,58 @@ int main(int argc, char** argv)
         updateWindowTitle(window, "untitled.glb");
     }
 
+    // P0.1 explicit camera/projection controls are applied after model load and
+    // after --select-node framing so the requested pose always wins.
+    const bool cameraOverrideRequested = cameraYawProvided || cameraPitchProvided ||
+        cameraDistanceProvided || cameraTargetProvided || cameraFovProvided ||
+        !cameraProjectionArg.empty();
+    if (cameraOverrideRequested && activeViewport != nullptr) {
+        auto& viewport = *activeViewport;
+
+        if (cameraFovProvided) {
+            if (cameraFovArg > 0.1f && cameraFovArg < 179.0f) {
+                auto& camera = viewport.rendererCamera;
+                camera.setPerspective(camera.getAspectRatio(), glm::radians(cameraFovArg),
+                                      camera.getZNearPlane(), camera.getZFarPlane());
+            } else {
+                logMessage("Ignoring --camera-fov outside (0.1, 179) degrees", ImVec4(1.0f, 0.8f, 0.2f, 1.0f));
+            }
+        }
+
+        if (cameraTargetProvided) {
+            viewport.cameraActor.setTarget(ux3d::math::vec3(cameraTargetX, cameraTargetY, cameraTargetZ));
+        }
+
+        if (cameraDistanceProvided) {
+            if (cameraDistanceArg > 0.0f) {
+                viewport.cameraActor.setZoom(cameraDistanceArg);
+            } else {
+                logMessage("Ignoring non-positive --camera-distance", ImVec4(1.0f, 0.8f, 0.2f, 1.0f));
+            }
+        }
+
+        if (cameraYawProvided || cameraPitchProvided) {
+            const float yaw = cameraYawProvided ? glm::radians(cameraYawArg) : viewport.cameraActor.getRotationX();
+            const float pitch = cameraPitchProvided ? glm::radians(cameraPitchArg) : viewport.cameraActor.getRotationY();
+            viewport.cameraActor.setCameraRotation(yaw, pitch);
+        } else {
+            viewport.cameraActor.updateUserCameraTransform();
+        }
+
+        if (!cameraProjectionArg.empty()) {
+            if (cameraProjectionArg == "ortho" || cameraProjectionArg == "orthographic") {
+                viewport.cameraActor.changeUserCameraType(ux3d::renderer::Camera::Type::Orthographic);
+            } else if (cameraProjectionArg == "perspective" || cameraProjectionArg == "persp") {
+                viewport.cameraActor.changeUserCameraType(ux3d::renderer::Camera::Type::Perspective);
+            } else {
+                logMessage("Unknown --camera-projection (use perspective or orthographic)", ImVec4(1.0f, 0.8f, 0.2f, 1.0f));
+            }
+        }
+
+        viewport.antiAliasing.resetHistory();
+        isSceneDirty = true;
+    }
+
     // UI state
     bool showDemoWindow = false;
     static bool showInspector = true;
@@ -1280,11 +2182,55 @@ int main(int argc, char** argv)
         showSearchPaths = true;
     }
 
+    // P0.2 startup snapshot: load/decode, renderer upload, validation and IBL
+    // are measured separately. Counter state is then reset for frame sampling.
+    {
+        auto& startup = ux3d::imgui::profiling::startupProfile();
+        startup.totalStartupMs = ux3d::imgui::profiling::elapsedMs(startupStart);
+        startup.stages = {
+            { "startup.vfsDecompress", startup.vfsDecompressMs },
+            { "startup.environmentInit", startup.environmentInitMs },
+            { "startup.environmentFilter", startup.environmentFilterMs },
+            { "startup.loadDecode", startup.loadDecodeMs },
+            { "startup.rendererUpload", startup.rendererUploadMs },
+            { "startup.validation", startup.validationMs },
+            { "startup.total", startup.totalStartupMs }
+        };
+        startup.counters = ux3d::imgui::profiling::frameCounters();
+        ux3d::imgui::profiling::resetFrameCounters();
+    }
+    if (gltfLayer != nullptr) {
+        gltfLayer->setCpuProfilingEnabled(s_profilingEnabled);
+    }
+    if (glRenderer != nullptr) {
+        glRenderer->setGpuProfilingEnabled(s_profilingEnabled);
+    }
+
     double lastFrameTime = glfwGetTime();
+    uint64_t frameCount = 0;
+    ux3d::imgui::profiling::Clock::time_point previousFrameStart = ux3d::imgui::profiling::Clock::now();
 
     // Main Loop
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
+
+        const auto frameStart = ux3d::imgui::profiling::Clock::now();
+        const uint64_t frameNumber = frameCount + 1;
+        ux3d::imgui::profiling::FrameSample frameSample;
+        frameSample.frame = frameNumber;
+        if (frameNumber > 1) {
+            frameSample.frameIntervalMs = ux3d::imgui::profiling::elapsedMs(previousFrameStart, frameStart);
+        }
+        if (frameNumber == 1) {
+            s_captureEpochSeconds = glfwGetTime();
+        }
+        previousFrameStart = frameStart;
+        ux3d::imgui::profiling::resetFrameCounters();
+        const auto markStage = [&](const char* name, ux3d::imgui::profiling::Clock::time_point start) {
+            if (s_profilingEnabled) {
+                frameSample.stages.push_back({ name, ux3d::imgui::profiling::elapsedMs(start) });
+            }
+        };
 
         double currentTime = glfwGetTime();
         float deltaTime = static_cast<float>(currentTime - lastFrameTime);
@@ -1292,7 +2238,9 @@ int main(int argc, char** argv)
         if (deltaTime > 0.1f) deltaTime = 0.1f;
 
         // Update animation player
+        const auto animationUpdateStart = ux3d::imgui::profiling::Clock::now();
         animationPlayer.update(deltaTime, gltfLayer.get());
+        markStage("animation.update", animationUpdateStart);
 
         // Turntable Auto-Rotate
         for (auto& vp : viewports) {
@@ -1352,10 +2300,13 @@ int main(int argc, char** argv)
         }
 
         // Start ImGui frame
+        const auto uiNewFrameStart = ux3d::imgui::profiling::Clock::now();
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
         ImGuizmo::BeginFrame();
+        markStage("ui.newFrame", uiNewFrameStart);
+        const auto uiChromeStart = ux3d::imgui::profiling::Clock::now();
 
         // Main DockSpace covering the whole window (minus status bar at bottom)
         float statusBarHeight = ImGui::GetFrameHeight() + 8.0f;
@@ -1380,7 +2331,7 @@ int main(int argc, char** argv)
         static bool s_firstLayout = true;
         static bool s_resetLayout = false;
         if (s_firstLayout || s_resetLayout) {
-            bool force = s_resetLayout;
+            bool force = s_resetLayout || s_isolatedState;
             s_firstLayout = false;
             s_resetLayout = false;
             setupDefaultDockLayout(dockspaceId, dockspaceSize, force);
@@ -1622,17 +2573,44 @@ int main(int argc, char** argv)
         // -------------------------------------------------------------
         // Synchronize glTF Scene & Animation before Viewports Render
         // -------------------------------------------------------------
+        markStage("ui.chrome", uiChromeStart);
+        const auto dirtySyncStart = ux3d::imgui::profiling::Clock::now();
         if (animationPlayer.isPlaying()) {
             isSceneDirty = true;
         }
 
         if (isSceneDirty && gltfLayer != nullptr) {
+            ux3d::imgui::profiling::countDirtySync();
+            auto stageStart = ux3d::imgui::profiling::Clock::now();
             gltfLayer->updateGltf(gltfModel);
-            if (activeScene != nullptr) {
-                gltfLayer->updateScene(gltfModel, *activeScene);
+            if (s_profilingEnabled) {
+                ++ux3d::imgui::profiling::frameCounters().updateGltfCalls;
+                ++ux3d::imgui::profiling::frameCounters().cacheRebuilds;
             }
+            markStage("scene.updateGltf", stageStart);
+
+            if (activeScene != nullptr) {
+                stageStart = ux3d::imgui::profiling::Clock::now();
+                gltfLayer->updateScene(gltfModel, *activeScene);
+                if (s_profilingEnabled) {
+                    ++ux3d::imgui::profiling::frameCounters().updateSceneCalls;
+                    ++ux3d::imgui::profiling::frameCounters().cacheRebuilds;
+                }
+                markStage("scene.updateScene", stageStart);
+            }
+
+            stageStart = ux3d::imgui::profiling::Clock::now();
             gltfLayer->applyAnimationTime(animationPlayer.getCurrentTime());
+            if (s_profilingEnabled) {
+                ++ux3d::imgui::profiling::frameCounters().applyAnimationCalls;
+                const auto& animationProfile = gltfLayer->getLastAnimationProfile();
+                frameSample.stages.push_back({ "animation.channels", animationProfile.channelsMs });
+                frameSample.stages.push_back({ "animation.transforms", animationProfile.transformsMs });
+                frameSample.stages.push_back({ "animation.skins", animationProfile.skinsMs });
+            }
+            markStage("scene.applyAnimation", stageStart);
         }
+        markStage("scene.dirtySync", dirtySyncStart);
 
         bool frameSceneDirty = isSceneDirty;
         isSceneDirty = false;
@@ -1998,6 +2976,7 @@ int main(int argc, char** argv)
 
             // 1. Render glTF scene & background skybox
             if (gltfLayer != nullptr && glRenderer != nullptr && commandGenerator != nullptr) {
+                const auto sceneBuildStart = ux3d::imgui::profiling::Clock::now();
                 gltfLayer->enableCubeMap(vp->settings.showBackground);
 
                 auto mode = vp->settings.renderMode;
@@ -2033,7 +3012,14 @@ int main(int argc, char** argv)
                     }
                 }
 
+                const auto createSceneStart = ux3d::imgui::profiling::Clock::now();
                 auto [scene, reverseMapping] = gltfLayer->createScene(activeScene);
+                markStage("scene.create", createSceneStart);
+                if (s_profilingEnabled) {
+                    const auto& sceneStats = gltfLayer->getLastSceneStats();
+                    ux3d::imgui::profiling::countSceneBuild(sceneStats.drawables);
+                    ux3d::imgui::profiling::countSceneNodesVisited(sceneStats.nodesVisited);
+                }
                 currentReverseMapping = reverseMapping;
 
                 auto cubeTuple = gltfLayer->getResourceManager().getCubeMapTuple();
@@ -2055,7 +3041,11 @@ int main(int argc, char** argv)
                 }
 
                 // Apply GPU picking layer
+                const auto pickingBuildStart = ux3d::imgui::profiling::Clock::now();
                 scene = pickingLayer.applyLayer(std::move(scene));
+                markStage("picking.build", pickingBuildStart);
+                ux3d::imgui::profiling::countPickingBuild();
+                markStage("scene.build", sceneBuildStart);
 
                 // Continuously synchronize viewport lighting, exposure, and environment parameters
                 commandGenerator->setExposure(std::pow(2.0f, vp->settings.exposureEV));
@@ -2065,8 +3055,14 @@ int main(int argc, char** argv)
                 commandGenerator->setIBLEnabled(vp->settings.iblEnabled);
                 commandGenerator->setPunctualLightsEnabled(vp->settings.punctualLightsEnabled);
 
+                const auto commandGenerationStart = ux3d::imgui::profiling::Clock::now();
                 commandGenerator->update(scene);
+                markStage("commands.generate", commandGenerationStart);
+                ux3d::imgui::profiling::countCommandGeneration();
+                const auto drawSubmissionStart = ux3d::imgui::profiling::Clock::now();
+                glRenderer->setGpuFrameContext(frameNumber, vp->id, "main");
                 glRenderer->draw({ commandGenerator.get() });
+                markStage("draw.submit", drawSubmissionStart);
                 glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
                 // Restore unjittered camera projection so subsequent passes and next frame are clean
@@ -2075,6 +3071,7 @@ int main(int argc, char** argv)
                 }
 
                 if (vp->settings.wireframeOverlay && mode != ux3d::renderer::RenderMode::Wireframe) {
+                    const auto wireframeStart = ux3d::imgui::profiling::Clock::now();
                     glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
                     glEnable(GL_POLYGON_OFFSET_LINE);
                     glPolygonOffset(-1.0f, -1.0f);
@@ -2086,17 +3083,21 @@ int main(int argc, char** argv)
                         }
                     }
                     commandGenerator->update(wireScene);
+                    glRenderer->setGpuFrameContext(frameNumber, vp->id, "wireframe");
                     glRenderer->draw({ commandGenerator.get() });
                     glDisable(GL_POLYGON_OFFSET_LINE);
                     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                    markStage("scene.wireframeOverlay", wireframeStart);
                 }
             } else {
                 currentReverseMapping.clear();
             }
 
             // 2. Render ground grid
+            const auto overlayStart = ux3d::imgui::profiling::Clock::now();
             if (vp->settings.showGrid) {
                 gridRenderer.draw(view, (aaMode == ux3d::imgui::AntiAliasingMode::TAA ? jitteredProj : proj), ux3d::math::vec3(cameraEye.x, cameraEye.y, cameraEye.z), cameraZoom);
+                ux3d::imgui::profiling::countOverlayDraw();
             }
 
             // 3. Render bounding boxes
@@ -2106,6 +3107,7 @@ int main(int argc, char** argv)
                                   glm::vec3(ext.max.x, ext.max.y, ext.max.z),
                                   glm::vec4(1.0f, 0.85f, 0.2f, 0.85f),
                                   viewProj);
+                ux3d::imgui::profiling::countOverlayDraw();
             }
             if (vp->settings.showSelectedBoundingBox && selection.type == ux3d::imgui::SelectionType::Node && selection.selectedNode != nullptr) {
                 NodeOBB obb = getNodeOBB(selection.selectedNode, gltfLayer.get());
@@ -2115,17 +3117,58 @@ int main(int argc, char** argv)
                                          obb.modelMatrix,
                                          glm::vec4(1.0f, 0.62f, 0.12f, 1.0f),
                                          viewProj);
+                    ux3d::imgui::profiling::countOverlayDraw();
                 }
             }
+            markStage("overlays.gridBbox", overlayStart);
 
             vp->sceneFbo.unbind();
 
             // 4. Post-processing Anti-Aliasing pass
+            const auto antiAliasingStart = ux3d::imgui::profiling::Clock::now();
             GLuint displayTexture = vp->antiAliasing.render(aaMode,
                                                             vp->sceneFbo.getColorTexture(),
                                                             vpW, vpH,
                                                             proj * view,
                                                             frameSceneDirty);
+            markStage("aa.render", antiAliasingStart);
+
+            if (vp.get() == activeViewport && displayTexture != 0) {
+                const double captureElapsed = glfwGetTime() - s_captureEpochSeconds;
+                if (!s_captureFirstFramePath.empty() &&
+                    frameNumber == 1 &&
+                    !s_firstFrameCaptureAttempted) {
+                    s_firstFrameCaptureAttempted = true;
+                    const bool firstCaptureSucceeded = captureViewportTexture(
+                        displayTexture, vpW, vpH,
+                        s_captureFirstFramePath,
+                        "active-viewport-texture",
+                        frameNumber, true, captureElapsed,
+                        s_firstFrameCaptureRecord);
+                    s_firstFrameCaptureRecord.viewportId = vp->id;
+                    if (!firstCaptureSucceeded) {
+                        s_outputFailed = true;
+                    }
+                }
+
+                if (!s_captureViewportPath.empty() && !s_captureAttempted) {
+                    const bool byFrame = s_captureFrameProvided && frameNumber == s_captureFrame;
+                    const bool byTime = s_captureTimeProvided && captureElapsed >= s_captureTimeSeconds;
+                    if (byFrame || byTime) {
+                        s_captureAttempted = true;
+                        const bool captureSucceeded = captureViewportTexture(
+                            displayTexture, vpW, vpH,
+                            s_captureViewportPath,
+                            "active-viewport-texture",
+                            frameNumber, false, captureElapsed,
+                            s_captureRecord);
+                        s_captureRecord.viewportId = vp->id;
+                        if (!captureSucceeded) {
+                            s_outputFailed = true;
+                        }
+                    }
+                }
+            }
 
             // Draw offscreen FBO texture inside ImGui viewport window
             if (displayTexture != 0) {
@@ -2321,6 +3364,7 @@ int main(int argc, char** argv)
         // -------------------------------------------------------------
         // Hierarchy Panel
         // -------------------------------------------------------------
+        const auto panelsStart = ux3d::imgui::profiling::Clock::now();
         if (showHierarchy) {
             ux3d::editor::CameraActor dummyActor;
             ux3d::imgui::AntiAliasing dummyAA;
@@ -2441,17 +3485,174 @@ int main(int argc, char** argv)
         // -------------------------------------------------------------
         // Application Status Bar (Bottom)
         // -------------------------------------------------------------
+        markStage("ui.panels", panelsStart);
+        const auto statusBarStart = ux3d::imgui::profiling::Clock::now();
         ux3d::imgui::StatusBar::render(gltfModel, gltfLayer.get(), animationPlayer, isSceneDirty, showLogger, showValidation, s_consoleLogs, activeViewport ? &activeViewport->antiAliasing : nullptr);
+        markStage("ui.statusBar", statusBarStart);
 
         // Rendering main window
+        const auto uiRenderStart = ux3d::imgui::profiling::Clock::now();
         ImGui::Render();
+        markStage("ui.render", uiRenderStart);
         int displayW = 0, displayH = 0;
         glfwGetFramebufferSize(window, &displayW, &displayH);
         glViewport(0, 0, displayW, displayH);
         glClearColor(0.11f, 0.11f, 0.13f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
+        const auto uiSubmitStart = ux3d::imgui::profiling::Clock::now();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+        markStage("ui.submit", uiSubmitStart);
+        if (const ImDrawData* drawData = ImGui::GetDrawData(); drawData != nullptr) {
+            ux3d::imgui::profiling::countUiDrawData(
+                static_cast<uint64_t>(drawData->CmdListsCount),
+                static_cast<uint64_t>(drawData->TotalVtxCount),
+                static_cast<uint64_t>(drawData->TotalIdxCount));
+        }
+
+        frameSample.cpuFrameMs = ux3d::imgui::profiling::elapsedMs(frameStart);
+        frameSample.firstFrame = (frameNumber == 1);
+        if (s_profilingEnabled) {
+            frameSample.counters = ux3d::imgui::profiling::frameCounters();
+        }
+        if (frameSample.firstFrame && (s_profilingEnabled || s_benchmarkEnabled)) {
+            s_firstFrameSample = frameSample;
+            s_haveFirstFrameSample = true;
+        }
+        if (s_profilingEnabled) {
+            s_frameSamples.push_back(frameSample);
+            if (s_frameSamples.size() > ux3d::imgui::profiling::kMaxRetainedFrameSamples) {
+                s_frameSamples.pop_front();
+                ++s_frameSamplesDropped;
+            }
+        }
+        if (s_benchmarkEnabled &&
+            frameNumber > s_benchmarkWarmupFrames &&
+            s_benchmarkSamples.size() < s_benchmarkMeasuredFrames) {
+            s_benchmarkSamples.push_back(frameSample);
+        }
+
+        ++frameCount;
+        const bool profileCaptureReady = s_captureViewportPath.empty() || s_captureAttempted;
+        const bool profileReportReady = !s_profileReportPath.empty() &&
+            !s_profileReportAttempted &&
+            frameCount >= SCENARIO_REPORT_FRAME &&
+            activeViewport != nullptr &&
+            profileCaptureReady;
+
+        if (!profileReportReady &&
+            !s_profileReportPath.empty() &&
+            !s_profileReportAttempted &&
+            !s_profileReportDeferredLogged &&
+            frameCount >= SCENARIO_REPORT_FRAME &&
+            !s_captureViewportPath.empty() &&
+            !s_captureAttempted) {
+            std::printf("Deferring profile report until the requested viewport capture completes\n");
+            s_profileReportDeferredLogged = true;
+        }
+
+        if (profileReportReady) {
+            s_profileReportAttempted = true;
+            ux3d::imgui::profiling::ProfileReport report;
+            report.scenarioName = scenarioName;
+            report.modelPath = currentFilePath.empty() ? modelToLoad : currentFilePath;
+            report.build = std::string(__DATE__) + " " + __TIME__;
+            const auto* glVersion = reinterpret_cast<const char*>(glGetString(GL_VERSION));
+            const auto* glVendor = reinterpret_cast<const char*>(glGetString(GL_VENDOR));
+            const auto* glRendererName = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
+            report.glVersion = glVersion != nullptr ? glVersion : "";
+            report.gpuVendor = glVendor != nullptr ? glVendor : "";
+            report.gpuRenderer = glRendererName != nullptr ? glRendererName : "";
+            report.isolated = s_isolatedState;
+            report.instrumentationEnabled = s_profilingEnabled;
+            report.vsyncRequested = s_vsyncEnabled;
+            glfwGetWindowSize(window, &report.windowWidth, &report.windowHeight);
+            report.viewportWidth = activeViewport->sceneFbo.getWidth();
+            report.viewportHeight = activeViewport->sceneFbo.getHeight();
+            report.viewportSamples = activeViewport->sceneFbo.getSamples();
+            report.antiAliasing = antiAliasingModeName(activeViewport->settings.antiAliasingIdx);
+            report.startup = ux3d::imgui::profiling::startupProfile();
+            report.reportFrame = frameCount;
+            report.frameSampleLimit = ux3d::imgui::profiling::kMaxRetainedFrameSamples;
+            report.frameSamplesDropped = s_frameSamplesDropped;
+            report.frames.assign(s_frameSamples.begin(), s_frameSamples.end());
+            fillGpuReport(report.gpu, glRenderer.get());
+            report.captureRequested = !s_captureViewportPath.empty();
+            report.hasFirstFrameCapture = s_firstFrameCaptureAttempted;
+            report.firstFrameCapture = s_firstFrameCaptureRecord;
+            report.capture = s_captureRecord;
+            if (ux3d::imgui::profiling::writeProfileReport(s_profileReportPath, report)) {
+                std::printf("Wrote profile report to %s (finalized at frame %llu)\n",
+                            s_profileReportPath.c_str(),
+                            static_cast<unsigned long long>(frameCount));
+            } else {
+                s_outputFailed = true;
+                std::fprintf(stderr, "Failed to write profile report to %s\n", s_profileReportPath.c_str());
+            }
+            if (s_exitAfterProfile) {
+                glfwSetWindowShouldClose(window, GLFW_TRUE);
+            }
+        }
+        if (!scenarioReportPath.empty() && frameCount == SCENARIO_REPORT_FRAME && activeViewport != nullptr) {
+            const std::string reportModelPath = currentFilePath.empty() ? modelToLoad : currentFilePath;
+            if (writeScenarioReport(scenarioReportPath, scenarioName, frameCount, window,
+                                    reportModelPath, modelLoaded, gltfModel, activeScene,
+                                    *activeViewport, scenarioEnvironmentPath, scenarioEnvironmentLoaded,
+                                    animationPlayer, selection)) {
+                std::printf("Wrote scenario report to %s\n", scenarioReportPath.c_str());
+            } else {
+                s_outputFailed = true;
+                std::fprintf(stderr, "Failed to write scenario report to %s\n", scenarioReportPath.c_str());
+            }
+        }
+
+        if (s_benchmarkEnabled &&
+            !s_benchmarkReportAttempted &&
+            s_benchmarkSamples.size() >= s_benchmarkMeasuredFrames) {
+            ux3d::imgui::profiling::BenchmarkReport report;
+            report.scenarioName = scenarioName;
+            report.modelPath = currentFilePath.empty() ? modelToLoad : currentFilePath;
+            report.build = std::string(__DATE__) + " " + __TIME__;
+            const auto* glVersion = reinterpret_cast<const char*>(glGetString(GL_VERSION));
+            const auto* glVendor = reinterpret_cast<const char*>(glGetString(GL_VENDOR));
+            const auto* glRendererName = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
+            report.glVersion = glVersion != nullptr ? glVersion : "";
+            report.gpuVendor = glVendor != nullptr ? glVendor : "";
+            report.gpuRenderer = glRendererName != nullptr ? glRendererName : "";
+            report.isolated = s_isolatedState;
+            report.vsyncRequested = s_vsyncEnabled;
+            report.detailedInstrumentation = s_profilingEnabled;
+            glfwGetWindowSize(window, &report.windowWidth, &report.windowHeight);
+            if (activeViewport != nullptr) {
+                report.viewportWidth = activeViewport->sceneFbo.getWidth();
+                report.viewportHeight = activeViewport->sceneFbo.getHeight();
+                report.viewportSamples = activeViewport->sceneFbo.getSamples();
+                report.antiAliasing = antiAliasingModeName(activeViewport->settings.antiAliasingIdx);
+            }
+            report.warmupFrames = s_benchmarkWarmupFrames;
+            report.measuredFramesRequested = s_benchmarkMeasuredFrames;
+            report.hasFirstFrame = s_haveFirstFrameSample;
+            report.firstFrame = s_firstFrameSample;
+            report.measuredFrames = s_benchmarkSamples;
+            fillGpuReport(report.gpu, glRenderer.get());
+
+            s_benchmarkReportAttempted = true;
+            s_benchmarkReportWritten =
+                ux3d::imgui::profiling::writeBenchmarkReport(s_benchmarkOutputPath, report);
+            if (s_benchmarkReportWritten) {
+                std::printf("Wrote benchmark report to %s (%zu measured frames, warmup %llu, vsync %s)\n",
+                            s_benchmarkOutputPath.c_str(),
+                            s_benchmarkSamples.size(),
+                            static_cast<unsigned long long>(s_benchmarkWarmupFrames),
+                            s_vsyncEnabled ? "on" : "off");
+            } else {
+                s_outputFailed = true;
+                std::fprintf(stderr, "Benchmark report write failed after attempt: %s\n", s_benchmarkOutputPath.c_str());
+            }
+            if (s_exitAfterBenchmark) {
+                glfwSetWindowShouldClose(window, GLFW_TRUE);
+            }
+        }
 
         if (dumpFrameCountdown > 0) {
             dumpFrameCountdown--;
@@ -2460,8 +3661,12 @@ int main(int argc, char** argv)
                 glPixelStorei(GL_PACK_ALIGNMENT, 1);
                 glReadBuffer(GL_BACK);
                 glReadPixels(0, 0, displayW, displayH, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
-                saveImage(dumpFramePath.c_str(), displayW, displayH, pixels.data());
-                std::printf("Dumped window frame to %s\n", dumpFramePath.c_str());
+                if (saveImage(dumpFramePath.c_str(), displayW, displayH, pixels.data())) {
+                    std::printf("Dumped window frame to %s\n", dumpFramePath.c_str());
+                } else {
+                    s_outputFailed = true;
+                    std::fprintf(stderr, "Failed to dump window frame to %s\n", dumpFramePath.c_str());
+                }
                 if (exitAfterDump) {
                     glfwSetWindowShouldClose(window, GLFW_TRUE);
                 }
@@ -2482,11 +3687,17 @@ int main(int argc, char** argv)
 
     ux3d::core::removeLoggerCallback(&consoleLogger);
 
-    saveWindowState(window);
+    if (!s_isolatedState && !s_windowSizeOverridden) {
+        saveWindowState(window);
+    }
 
     glfwDestroyWindow(window);
     glfwTerminate();
 
+    if (s_outputFailed) {
+        std::fprintf(stderr, "Exiting with failure status because an output or capture operation failed\n");
+        return 1;
+    }
     return 0;
 }
 

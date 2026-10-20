@@ -63,6 +63,7 @@ RendererScene PickingRenderLayer::applyLayer(RendererScene&& scene)
                 || renderPassId == RenderPassType::PostGizmos
                 || renderPassId == RenderPassType::Transmissive) {
                 renderPassCopy = m_pickingResourceManager.create<RenderPass>(*material->renderPass);
+                renderPassCopy->setName("Picking/" + material->renderPass->getName());
                 // attach framebuffer bind pre and post commands
 
                 renderPassCopy->getPreCommands().emplace(renderPassCopy->getPreCommands().begin(), renderer::Command::makeExternalFunctionCommand(m_gl, prePass));

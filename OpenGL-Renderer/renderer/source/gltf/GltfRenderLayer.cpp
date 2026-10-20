@@ -17,6 +17,7 @@
 #include "renderer/passes/TransparentPass.h"
 
 #include <functional>
+#include <chrono>
 #include <memory>
 #include <vector>
 
@@ -1529,16 +1530,29 @@ void GltfRenderLayer::updateGltf(const gltf::Gltf& gltf)
 
 void GltfRenderLayer::applyAnimationTime(const std::optional<float>& animationTime)
 {
+    const auto profileStart = std::chrono::steady_clock::now();
     if (animationTime.has_value()) {
         for (animation::Animation& anim : m_animations) {
             anim.updateChannels(*animationTime);
         }
     }
+    const auto afterChannels = std::chrono::steady_clock::now();
 
     m_resourceManager.m_transformHierarchy.apply();
+    const auto afterTransforms = std::chrono::steady_clock::now();
 
     for (auto& skin : m_skins) {
         skin.computeJoints();
+    }
+    const auto afterSkins = std::chrono::steady_clock::now();
+
+    if (m_cpuProfilingEnabled) {
+        const auto toMs = [](auto duration) {
+            return std::chrono::duration<double, std::milli>(duration).count();
+        };
+        m_lastAnimationProfile.channelsMs = toMs(afterChannels - profileStart);
+        m_lastAnimationProfile.transformsMs = toMs(afterTransforms - afterChannels);
+        m_lastAnimationProfile.skinsMs = toMs(afterSkins - afterTransforms);
     }
 }
 
@@ -1630,9 +1644,11 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
     ReverseMapping reverseMapping;
     bool containsTransmissiveMaterial = false;
     m_gltfScene = gltfScene;
+    m_lastSceneStats = SceneProfileStats();
 
     std::function<void(const gltf::Node*)> addMeshMaterialRecursive;
     addMeshMaterialRecursive = [&](const gltf::Node* gltfNode) {
+        ++m_lastSceneStats.nodesVisited;
         for (const auto* child : gltfNode->getChildren()) {
             addMeshMaterialRecursive(child);
         }
@@ -1653,6 +1669,7 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
             return;
 
         for (auto& gltfPrimitive : gltfMesh->getPrimitives()) {
+            ++m_lastSceneStats.primitivesVisited;
             // TODO: use new callback to sort commands into render passes
             if (!gltfPrimitive.getVisible())
                 continue;
@@ -1730,7 +1747,6 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
 
     // Duplicate drawables for transmission path
     if (containsTransmissiveMaterial) {
-
         for (const auto [mesh, material] : scene.drawables) {
             if (material->renderPass->getId() != Opaque
                 && material->renderPass->getId() != Transparent
@@ -1759,6 +1775,7 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
         scene.drawables.emplace_back(m_resourceManager.getEmptyTransmissionBlit());
     }
 
+    m_lastSceneStats.drawables = static_cast<uint64_t>(scene.drawables.size());
     return { scene, reverseMapping };
 }
 

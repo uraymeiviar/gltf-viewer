@@ -136,6 +136,14 @@ public:
     virtual void uniformMatrix3fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat* value) = 0;
     virtual void uniformMatrix4fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat* value) = 0;
 
+    // Queries:
+    virtual void genQueries(GLsizei n, GLuint* ids) = 0;
+    virtual void deleteQueries(GLsizei n, const GLuint* ids) = 0;
+    virtual void beginQuery(GLenum target, GLuint id) = 0;
+    virtual void endQuery(GLenum target) = 0;
+    virtual void getQueryObjectiv(GLuint id, GLenum pname, GLint* params) = 0;
+    virtual void getQueryObjectui64v(GLuint id, GLenum pname, GLuint64* params) = 0;
+
     // Enqueuing work:
     virtual void drawArrays(GLenum mode, GLint first, GLsizei count) = 0;
     virtual void drawElements(GLenum mode, GLsizei count, GLenum type, const void* indices) = 0;
