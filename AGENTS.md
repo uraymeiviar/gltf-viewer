@@ -70,8 +70,10 @@ gltf-viewer/
 │   ├── editor/              # Old Qt widgets and dialogs
 │   └── resources/           # Old Qt PNG icon slots, QRC files, and stylesheets
 │
-├── docs/
-│   └── images/              # README screenshots & assets
+├── docs/                    # Technical documentation & project assets
+│   ├── images/              # README screenshots & assets
+│   ├── MIGRATION_PLAN_IMGUI.md  # Architectural Qt-to-Dear-ImGui migration plan
+│   └── MSFS_GLTF_JOURNAL.md # Development journal tracking MSFS extension support
 ├── CMakeLists.txt           # Main build configuration (Qt removed, standalone ImGui)
 ├── AGENTS.md                # This developer/agent onboarding guide
 └── README.md                # User-facing repository overview and download guide
