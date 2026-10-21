@@ -5,6 +5,7 @@
 #include "imgui/TextureUtils.h"
 #include "imgui/IconsMaterialDesignIcons.h"
 #include "imgui/SelfCheckResult.h"
+#include "imgui/UiProbe.h"
 #include "renderer/gltf/GltfRenderLayer.h"
 #include <imgui.h>
 #include <cstdint>
@@ -113,10 +114,43 @@ struct ResourceCategoryCache {
     bool filterValid = false;
     std::string filter;
     std::vector<uint8_t> matched;
+    std::vector<size_t> visibleIndices;
     size_t matchCount = 0;
+    bool fixedHeightRows = true;
 };
 
 static std::unordered_map<const void*, ResourceCategoryCache> s_resourceCaches;
+
+// core::LinkedList::at(n) walks from begin() on every call. Visible indices are
+// ascending, so one cursor per frame resolves them in a single forward walk and
+// holds no pointer past the frame.
+template <typename TList>
+class SourceCursor {
+public:
+    explicit SourceCursor(TList& list) : m_list(&list), m_it(list.begin()) {}
+
+    auto& at(size_t index)
+    {
+        if (index < m_position) {
+            m_it = m_list->begin();
+            m_position = 0;
+        }
+        while (m_position < index) {
+            ++m_it;
+            ++m_position;
+            ++m_advances;
+        }
+        return *m_it;
+    }
+
+    size_t advances() const { return m_advances; }
+
+private:
+    TList* m_list;
+    decltype(std::declval<TList&>().begin()) m_it;
+    size_t m_position = 0;
+    size_t m_advances = 0;
+};
 
 static uint32_t resourceOptionsMask(const ResourceDisplayOptions& opts)
 {
@@ -157,6 +191,7 @@ static ResourceCategoryCache& ensureResourceCategoryCache(const void* cacheKey,
         cache.header = formatCategoryHeader(icon, categoryTitle, elements.size(), opts);
         cache.items.clear();
         cache.items.reserve(elements.size());
+        cache.fixedHeightRows = true;
 
         for (const auto& item : elements) {
             std::string name = getNameFn(item);
@@ -164,6 +199,9 @@ static ResourceCategoryCache& ensureResourceCategoryCache(const void* cacheKey,
             itemCache.label = formatResourceLabel(icon, itemTitle, item.m_ID, name, opts);
             itemCache.lowerLabel = toLowerString(itemCache.label);
             itemCache.lowerName = toLowerString(name);
+            if (itemCache.label.find_first_of("\r\n") != std::string::npos) {
+                cache.fixedHeightRows = false;
+            }
             cache.items.push_back(std::move(itemCache));
         }
 
@@ -174,17 +212,23 @@ static ResourceCategoryCache& ensureResourceCategoryCache(const void* cacheKey,
         cache.filter = lowerFilter;
         cache.filterValid = true;
         cache.matched.assign(cache.items.size(), 0);
+        cache.visibleIndices.clear();
+        cache.visibleIndices.reserve(cache.items.size());
         cache.matchCount = 0;
 
         if (lowerFilter.empty()) {
             std::fill(cache.matched.begin(), cache.matched.end(), static_cast<uint8_t>(1));
             cache.matchCount = cache.items.size();
+            for (size_t i = 0; i < cache.items.size(); ++i) {
+                cache.visibleIndices.push_back(i);
+            }
         } else {
             for (size_t i = 0; i < cache.items.size(); ++i) {
                 const auto& item = cache.items[i];
                 if (item.lowerLabel.find(lowerFilter) != std::string::npos
                     || (!item.lowerName.empty() && item.lowerName.find(lowerFilter) != std::string::npos)) {
                     cache.matched[i] = 1;
+                    cache.visibleIndices.push_back(i);
                     ++cache.matchCount;
                 }
             }
@@ -276,6 +320,26 @@ SelfCheckResult ResourcesPanel::runCacheInvalidationSelfCheck(bool forceFailure)
     check(materialCache.items.size() == 1 && materialCache.items[0].label == expectedMaterialLabel(first.material, options),
         "initial material resource label mismatch");
 
+    TestModel filtered = makeModel("NodeZero", "MeshZero", "MaterialZero");
+    filtered.model->create<Mesh>()->setName("MeshMiddle");
+    Mesh* filteredTarget = filtered.model->create<Mesh>();
+    filteredTarget->setName("MeshTarget\ncontinued");
+    auto& filteredMeshes = filtered.model->getElements<Mesh>();
+    auto& filteredCache = ensureMeshes(*filtered.model, options, "meshtarget");
+    check(filteredCache.visibleIndices.size() == 1 && filteredCache.visibleIndices[0] == 2,
+        "filtered resources row did not retain its original source index");
+    check(!filteredCache.fixedHeightRows,
+        "multiline resource label was incorrectly classified as fixed-height");
+    SelectionState filteredSelection;
+    if (filteredCache.visibleIndices.size() == 1) {
+        filteredSelection.selectMesh(&filteredMeshes.at(filteredCache.visibleIndices[0]));
+    }
+    check(filteredSelection.selectedMesh == filteredTarget,
+        "filtered resource selection resolved to a filtered-list position instead of the source item");
+    auto& noMatchCache = ensureMeshes(*filtered.model, options, "no-such-mesh");
+    check(noMatchCache.visibleIndices.empty() && noMatchCache.matchCount == 0,
+        "no-match resource filter retained visible source indices");
+
     // Rename each category after its cache exists. The old term must stop
     // matching and the new term must match through the same cache object.
     first.node->setName("NodeRenamed");
@@ -348,6 +412,29 @@ SelfCheckResult ResourcesPanel::runCacheInvalidationSelfCheck(bool forceFailure)
         && materialCache.items[0].label == expectedMaterialLabel(reloadedMaterial, options),
         "model A->B->A material cache retained stale data");
 
+    {
+        Gltf cursorModel;
+        for (int i = 0; i < 1000; ++i) {
+            cursorModel.create<Mesh>()->setName(("CursorMesh" + std::to_string(i)).c_str());
+        }
+        auto& cursorMeshes = cursorModel.getElements<Mesh>();
+        SourceCursor cursor(cursorMeshes);
+        bool identity = true;
+        const size_t sparse[] = { 0, 3, 3, 250, 251, 999 };
+        for (size_t index : sparse) {
+            identity = identity && (&cursor.at(index) == &cursorMeshes.at(index));
+        }
+        check(identity, "source cursor disagrees with LinkedList::at on ascending indices");
+        check(cursor.advances() == 999, "source cursor advance count is not linear");
+        identity = (&cursor.at(10) == &cursorMeshes.at(10));
+        check(identity, "source cursor did not restart on backward access");
+        size_t before = cursor.advances();
+        for (size_t i = 0; i < 1000; ++i) {
+            cursor.at(i);
+        }
+        check(cursor.advances() - before == 999, "full ascending scan is not one forward walk");
+    }
+
     if (forceFailure) {
         check(false, "forced resources cache self-check failure");
     }
@@ -398,6 +485,7 @@ void ResourcesPanel::render(ux3d::gltf::Gltf& gltfModel,
 
     ImGui::SetNextItemWidth(searchWidth);
     ImGui::InputTextWithHint("##ResourceSearch", ICON_MDI_MAGNIFY " Filter resources...", s_resourceSearchBuffer, sizeof(s_resourceSearchBuffer));
+    ux3d::imgui::UiProbe::item("res.search", 0);
 
     if (clearBtnWidth > 0.0f) {
         ImGui::SameLine();
@@ -474,13 +562,12 @@ void ResourcesPanel::render(ux3d::gltf::Gltf& gltfModel,
         ImGuiTreeNodeFlags catFlags = 0;
         if (defaultOpen && lowerFilter.empty()) catFlags |= ImGuiTreeNodeFlags_DefaultOpen;
 
-        if (ImGui::TreeNodeEx(cache.header.c_str(), catFlags)) {
-            size_t itemIndex = 0;
-            for (auto& item : elements) {
-                if (itemIndex >= cache.matched.size() || cache.matched[itemIndex] == 0) {
-                    ++itemIndex;
-                    continue;
-                }
+        const bool categoryOpen = ImGui::TreeNodeEx(cache.header.c_str(), catFlags);
+        ux3d::imgui::UiProbe::item(categoryTitle, -1);
+        if (categoryOpen) {
+            SourceCursor sourceCursor(elements);
+            auto renderItem = [&](size_t itemIndex) {
+                auto& item = sourceCursor.at(itemIndex);
                 const ResourceItemCache& itemCache = cache.items[itemIndex];
 
                 bool isSelected = (selection.type == selType && selectedPtr == &item);
@@ -488,10 +575,24 @@ void ResourcesPanel::render(ux3d::gltf::Gltf& gltfModel,
                 if (isSelected) flags |= ImGuiTreeNodeFlags_Selected;
 
                 ImGui::TreeNodeEx(reinterpret_cast<void*>(static_cast<intptr_t>(item.m_ID + idOffset)), flags, "%s", itemCache.label.c_str());
+                ux3d::imgui::UiProbe::item(categoryTitle, static_cast<long long>(item.m_ID));
                 if (ImGui::IsItemClicked()) {
                     selectFn(item);
                 }
-                ++itemIndex;
+            };
+
+            if (cache.fixedHeightRows) {
+                ImGuiListClipper clipper;
+                clipper.Begin(static_cast<int>(cache.visibleIndices.size()));
+                while (clipper.Step()) {
+                    for (int visibleIndex = clipper.DisplayStart; visibleIndex < clipper.DisplayEnd; ++visibleIndex) {
+                        renderItem(cache.visibleIndices[static_cast<size_t>(visibleIndex)]);
+                    }
+                }
+            } else {
+                for (size_t itemIndex : cache.visibleIndices) {
+                    renderItem(itemIndex);
+                }
             }
             ImGui::TreePop();
         }
@@ -537,7 +638,9 @@ void ResourcesPanel::render(ux3d::gltf::Gltf& gltfModel,
             ICON_MDI_PALETTE_SWATCH_OUTLINE, "Material Variants", "Variant", opts, lowerFilter,
             [](auto& v) -> std::string { return v.hasName() ? v.getName().c_str() : ""; });
 
-        if (ImGui::TreeNodeEx(variantCache.header.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
+        const bool variantsOpen = ImGui::TreeNodeEx(variantCache.header.c_str(), ImGuiTreeNodeFlags_DefaultOpen);
+        ux3d::imgui::UiProbe::item("Material Variants", -1);
+        if (variantsOpen) {
             // Default / Original variant option
             bool isDefaultSelected = gltfLayer && !gltfLayer->getMaterialVariant().has_value();
             ImGuiTreeNodeFlags defFlags = ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
@@ -552,12 +655,9 @@ void ResourcesPanel::render(ux3d::gltf::Gltf& gltfModel,
                 }
             }
 
-            size_t variantIndex = 0;
-            for (auto& var : variants) {
-                if (variantIndex >= variantCache.matched.size() || variantCache.matched[variantIndex] == 0) {
-                    ++variantIndex;
-                    continue;
-                }
+            SourceCursor variantCursor(variants);
+            auto renderVariant = [&](size_t variantIndex) {
+                auto& var = variantCursor.at(variantIndex);
                 const ResourceItemCache& variantItem = variantCache.items[variantIndex];
 
                 bool isSelected = (selection.type == SelectionType::MaterialVariant && selection.selectedVariant == &var) ||
@@ -566,6 +666,7 @@ void ResourcesPanel::render(ux3d::gltf::Gltf& gltfModel,
                 if (isSelected) flags |= ImGuiTreeNodeFlags_Selected;
 
                 ImGui::TreeNodeEx(reinterpret_cast<void*>(static_cast<intptr_t>(var.m_ID + 900000)), flags, "%s", variantItem.label.c_str());
+                ux3d::imgui::UiProbe::item("Material Variants", static_cast<long long>(var.m_ID));
                 if (ImGui::IsItemClicked()) {
                     selection.selectVariant(&var);
                     if (gltfLayer) {
@@ -573,7 +674,20 @@ void ResourcesPanel::render(ux3d::gltf::Gltf& gltfModel,
                         if (isSceneDirty) *isSceneDirty = true;
                     }
                 }
-                ++variantIndex;
+            };
+
+            if (variantCache.fixedHeightRows) {
+                ImGuiListClipper clipper;
+                clipper.Begin(static_cast<int>(variantCache.visibleIndices.size()));
+                while (clipper.Step()) {
+                    for (int visibleIndex = clipper.DisplayStart; visibleIndex < clipper.DisplayEnd; ++visibleIndex) {
+                        renderVariant(variantCache.visibleIndices[static_cast<size_t>(visibleIndex)]);
+                    }
+                }
+            } else {
+                for (size_t variantIndex : variantCache.visibleIndices) {
+                    renderVariant(variantIndex);
+                }
             }
             ImGui::TreePop();
         }

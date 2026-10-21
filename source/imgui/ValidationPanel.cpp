@@ -4,6 +4,7 @@
 #include "imgui/GltfValidator.h"
 #include "imgui/IconsMaterialDesignIcons.h"
 #include "imgui/SelfCheckResult.h"
+#include "imgui/UiProbe.h"
 #include "imgui/Theme.h"
 #include "renderer/gltf/GltfRenderLayer.h"
 
@@ -39,6 +40,7 @@ struct ValidationCache {
     bool reportValid = false;
     uint64_t reportRevision = 0;
     std::vector<ValidationIssueSearchCache> issues;
+    bool fixedHeightRows = true;
 
     bool filterValid = false;
     uint32_t severityMask = 0;
@@ -71,10 +73,16 @@ static void ensureValidationCache(const ValidationReport& report)
         s_validationCache.reportValid = true;
         s_validationCache.reportRevision = reportRevision;
         s_validationCache.issues.resize(report.issues.size());
+        s_validationCache.fixedHeightRows = true;
         for (size_t i = 0; i < report.issues.size(); ++i) {
             s_validationCache.issues[i].code = lowerSearchString(report.issues[i].code);
             s_validationCache.issues[i].message = lowerSearchString(report.issues[i].message);
             s_validationCache.issues[i].pointer = lowerSearchString(report.issues[i].jsonPointer);
+            if (report.issues[i].code.find_first_of("\r\n") != std::string::npos
+                || report.issues[i].message.find_first_of("\r\n") != std::string::npos
+                || report.issues[i].jsonPointer.find_first_of("\r\n") != std::string::npos) {
+                s_validationCache.fixedHeightRows = false;
+            }
         }
         s_validationCache.filterValid = false;
     }
@@ -219,6 +227,13 @@ SelfCheckResult ValidationPanel::runCacheSelfCheck(bool forceFailure)
         check(legacy == indexed, std::string("filter mismatch for search '") + filterCase.search + "'");
         check(legacy.size() == filterCase.expected,
             std::string("unexpected count for search '") + filterCase.search + "'");
+        if (std::string(filterCase.search) == "code_01999") {
+            check(indexed.size() == 1 && indexed[0] == 1999,
+                "filtered validation row lost its original source issue index");
+        } else if (std::string(filterCase.search) == "nodes/19990") {
+            check(indexed.size() == 1 && indexed[0] == 19990,
+                "pointer-filtered validation row lost its original source issue index");
+        }
     }
 
     auto measureMs = [](int repetitions, const std::function<void()>& operation) {
@@ -361,6 +376,17 @@ SelfCheckResult ValidationPanel::runReportRevisionSelfCheck(bool forceFailure)
     ensureValidationCache(validator.getLastReport());
     check(s_validationCache.visibleIssues.size() == 2,
         "report B infos filter count mismatch");
+
+    ValidationReport multilineReport;
+    multilineReport.validated = true;
+    multilineReport.addIssue(ValidationSeverity::Error, "MULTILINE_MESSAGE",
+        "first message line\nsecond message line", "/multiline/0");
+    validator.setReport(multilineReport);
+    setSeverityFilter(true, true, true);
+    setSearchFilter("");
+    ensureValidationCache(validator.getLastReport());
+    check(!s_validationCache.fixedHeightRows && s_validationCache.visibleIssues.size() == 1,
+        "multiline validation row was incorrectly classified as fixed-height");
 
     if (forceFailure) {
         check(false, "forced report-revision self-check failure");
@@ -506,6 +532,7 @@ void ValidationPanel::render(bool* pOpen,
     ImGui::SameLine();
     ImGui::SetNextItemWidth(180);
     ImGui::InputTextWithHint("##IssueSearch", "Search issues...", s_searchBuffer, sizeof(s_searchBuffer));
+    ux3d::imgui::UiProbe::item("val.search", 0);
     if (s_searchBuffer[0] != '\0') {
         ImGui::SameLine();
         if (ImGui::SmallButton(ICON_MDI_CLOSE)) {
@@ -533,7 +560,7 @@ void ValidationPanel::render(bool* pOpen,
 
         ensureValidationCache(report);
 
-        for (int rowIdx : s_validationCache.visibleIssues) {
+        auto renderIssueRow = [&](int rowIdx) {
             const auto& issue = report.issues[static_cast<size_t>(rowIdx)];
 
             ImGui::TableNextRow();
@@ -551,7 +578,9 @@ void ValidationPanel::render(bool* pOpen,
             char rowSelectableId[64];
             std::snprintf(rowSelectableId, sizeof(rowSelectableId), "##IssueRow_%d", rowIdx);
 
-            if (ImGui::Selectable(rowSelectableId, isSelected, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick)) {
+            const bool rowClicked = ImGui::Selectable(rowSelectableId, isSelected, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick);
+            ux3d::imgui::UiProbe::item("val.row", rowIdx);
+            if (rowClicked) {
                 s_selectedIssueIndex = rowIdx;
 
                 // Select target object in application inspector
@@ -613,9 +642,11 @@ void ValidationPanel::render(bool* pOpen,
             // Column 4: Message
             ImGui::TableSetColumnIndex(3);
             ImGui::TextUnformatted(issue.message.c_str());
+            ux3d::imgui::UiProbe::item("val.msg", rowIdx);
 
             if (ImGui::IsItemHovered()) {
                 ImGui::BeginTooltip();
+                ux3d::imgui::UiProbe::mark("val.tooltip", rowIdx);
                 ImGui::TextColored(sevColor, "%s %s: %s", sevIcon, issue.getSeverityString(), issue.code.c_str());
                 if (!issue.jsonPointer.empty()) {
                     ImGui::TextDisabled("Location: %s", issue.jsonPointer.c_str());
@@ -628,8 +659,23 @@ void ValidationPanel::render(bool* pOpen,
                 }
                 ImGui::EndTooltip();
             }
+        };
+
+        if (s_validationCache.fixedHeightRows) {
+            ImGuiListClipper clipper;
+            clipper.Begin(static_cast<int>(s_validationCache.visibleIssues.size()));
+            while (clipper.Step()) {
+                for (int visibleIndex = clipper.DisplayStart; visibleIndex < clipper.DisplayEnd; ++visibleIndex) {
+                    renderIssueRow(s_validationCache.visibleIssues[static_cast<size_t>(visibleIndex)]);
+                }
+            }
+        } else {
+            for (int rowIdx : s_validationCache.visibleIssues) {
+                renderIssueRow(rowIdx);
+            }
         }
 
+        ux3d::imgui::UiProbe::mark("val.selected", s_selectedIssueIndex);
         ImGui::EndTable();
     }
 

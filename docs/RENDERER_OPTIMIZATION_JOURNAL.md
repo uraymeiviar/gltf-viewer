@@ -1294,9 +1294,10 @@ for P1.4-P1.6 remain INCONCLUSIVE where recorded. The cumulative review in §12.
 supported S6 per-viewport settings and picking cases and records S9 scene switching and viewport
 destruction as not applicable to the current viewer. The independent reviewer acceptance is recorded
 at the end of §12.15; no blocking Phase 1 finding remains. **Phase 2 has started:** P2.1 and P2.2 are
-implemented and validated in §12.16-§12.17, remain uncommitted for review, and P2.3/P2.4 have not
-started. The P2.1/P2.2 review findings and their fixes are recorded in §12.18; that section supersedes
-the startup-only invalidation claims in §12.17.
+implemented and validated in §12.16-§12.17, remain uncommitted for review, and P2.3 is implemented
+with its evidence and remaining validation limits recorded in §12.20. P2.3 is awaiting independent
+review; P2.4 has not started. The P2.1/P2.2 review findings and their fixes are recorded in §12.18;
+that section supersedes the startup-only invalidation claims in §12.17.
 
 ### 5.4 Phase 2 - UI Caches and Visible-Row Rendering (R2)
 
@@ -1309,8 +1310,11 @@ the startup-only invalidation claims in §12.17.
 - [x] **P2.2 — Search/label caches (§3.19, §3.22).** Separate cache construction from row rendering.
   Validate rename, options, search/severity filters, report replacement and model reload.
   *Implemented and validated in §12.17; warm-cache review fixes in §12.18; independently accepted in §12.19.*
-- [ ] **P2.3 — Flat-list and logger clipping (§3.22, §3.23).** Start with fixed-height rows; implement
+- [x] **P2.3 — Flat-list and logger clipping (§3.22, §3.23).** Start with fixed-height rows; implement
   multiline/wrapped height accounting as a separate substep. Preserve Copy, selection and auto-scroll.
+  *Implemented in §12.20, corrected/validated in §12.21, independently accepted in §12.22.*
+  *Implementation and targeted evidence are recorded in §12.20; interactive validation limits remain,
+  and independent review is pending.*
 - [ ] **P2.4 — Hierarchy virtualization (§3.19).** Flatten expanded visible tree structure into a row
   model with stable IDs and depth before clipping. Skipping `TreeNodeEx` calls using `IsRectVisible`
   alone is not a validated solution: scroll extent, expansion and keyboard navigation must survive.
@@ -3681,3 +3685,321 @@ Review artifacts are in `H:\git-repos\gltf-viewer\build\p2-rereview\`.
 The full paired UI timing series and mouse/clipboard interactions were not repeated; the limits
 in §12.18 remain applicable. This accepts P2.1/P2.2 only, not the unfinished Phase 2 as a whole.
 No commit, push or P2.3/P2.4 implementation was performed during this review.
+
+### 12.20 P2.3 - Flat-list and Logger clipping (2026-10-21)
+
+**Status: IMPLEMENTED; targeted steady-state clipping measurements PASS on the large fixtures.
+At this initial checkpoint, acceptance was INCOMPLETE pending independent review and interactive UI cases;
+this status is superseded by the fixes in §12.21 and reviewer acceptance in §12.22.**
+P2.1/P2.2 remain at the accepted baseline; P2.4 and Phase 3 were not started.
+
+```text
+Baseline source: commit 009c062836079446dde28c7db3a048fb15c183be
+Baseline executable SHA-256: D577CF5E7AA65AB604FFBDAE8FA9454ECFC21C93CC7F9CE5BF64EB620A4ABB66
+Final Release executable: build\bin\Release\Glider.exe
+Final executable SHA-256: CA9A9A9C82F40CFA419472EF2BC5D973356715ADA507F04ABDD3EBC9BAC2169C
+Build: Windows Release, OpenGL 4.1, NVIDIA RTX 5080 / driver 616.92
+Benchmark window: 1280x720, vsync off, 8 warm-up and 30 measured frames
+Evidence root (local, ignored build output): build\p2.3\
+```
+
+**Changes.**
+
+1. **Fixed-height flat lists.** Resources uses cached filtered source indices and clips only the fixed
+   rows within each existing category; labels containing newlines keep the old un-clipped path.
+   Validation clips its fixed-height table rows while mapping each visible row back to the original
+   issue index for selection, double-click focus and tooltips. Multiline report content keeps the
+   previous full rendering path. Category headings, table behavior, source identity and scroll extent
+   are retained. The scene hierarchy was not changed and no `TreeNodeEx` calls are skipped.
+2. **Logger one-line clipping.** Unwrapped one-line entries use `ImGuiListClipper`; horizontal content
+   extent remains available. The initial cold layout remains O(N), then only visible rows are submitted.
+3. **Logger variable-height rows.** Entries containing newlines or using wrapping use cached measured
+   heights and cumulative offsets. The visible range is drawn while a dummy item preserves total scroll
+   extent. Layout invalidates on message revision/clear generation, wrap mode, available width, font
+   identity/size and item spacing; append extends the cached layout. Clear invalidates it. Copy still
+   forms text from all stored messages, independently of visible rows. Severity totals, Clear, wrapping,
+   and the pre-existing auto-scroll condition are unchanged. No retention limit, truncation or export
+   behavior change was introduced.
+
+Changed files:
+
+```text
+source\imgui\ResourcesPanel.cpp
+source\imgui\ValidationPanel.cpp
+source\imgui\main.cpp
+scripts\generate_ui_clipping_fixtures.py
+```
+
+**Separate measured substeps.** Before combining all P2.3 changes, the fixed-list change and then the
+one-line Logger clipper were each built and measured:
+
+| Substep candidate | Executable SHA-256 | Workload | Baseline → candidate median `ui.panels` (ms) | Median paired change | Baseline / candidate noise |
+|---|---|---|---:|---:|---:|
+| Fixed-height Resources and Validation lists | `6BAAC74827924FFAD8A9DB5E116EEA9186A7124DC8EB73FEE1A7173C887188D6` | Resources, 4,096 rows | .3383 → .0163 | -95.19% (all pairs improved) | 1.89% / 29.14% |
+| Fixed-height one-line Logger clipper | `347961A885AD4A0EAF627F36D9FF5D7327F76A0116ED1777C2420499417C1C40` | Logger, 10,000 rows | .5745 → .0278 | -95.16% (all pairs improved) | 1.61% / 36.87% |
+
+For the first substep, Validation measured `.7696 → .0282 ms` (`-96.34%`, all five pairs improved;
+baseline/candidate noise `1.91% / 28.24%`). The corresponding fixed-candidate JSON reports are
+`resources_4096_fixed_candidate_1-5.json` and `validation_2048_fixed_candidate_1-5.json`.
+The one-line Logger candidate reports are `logger_10000_candidate_1-5.json`. The later variable-height
+work was then validated separately with the final integrated executable hash recorded above; its
+three-run cold and warm results are listed below. This avoids treating the one-line clipper timings as
+evidence for wrapped/multiline layout.
+
+**Reproduction.** From the repository root, regenerate the deterministic fixtures and build:
+
+```powershell
+python scripts\generate_ui_clipping_fixtures.py build\p2.3\fixtures --resource-count 4096 --validation-count 2048
+cmake --build build --config Release --target Glider
+```
+
+Fixture hashes:
+
+```text
+build\p2.3\fixtures\p2_3_resources_4096.glb
+  SHA-256 24815205454628BF025746C99F5589052F79C4C20121BBF1CF5737F870125C04
+build\p2.3\fixtures\p2_3_validation_2048.glb
+  SHA-256 16924A6947918B5B4DB56D47DE72013F70D0758BEB2FC7DE22F0C1304E1A1F7F
+```
+
+The fixtures were regenerated to a second directory; both hashes matched. Each benchmark run used the
+final command shape below with run number `1`-`5` (variable Logger runs used `1`-`3`), and corresponding
+baseline runs used the same arguments on the accepted baseline executable:
+
+```powershell
+build\bin\Release\Glider.exe --isolated --window-size 1280x720 --vsync off --profile --benchmark --benchmark-warmup 8 --benchmark-frames 30 --benchmark-output build\p2.3\<workload>_final_candidate_<run>.json --exit-after-benchmark <workload-arguments>
+```
+
+Workload arguments were `--show-logger --log-test 10000` (single-line Logger),
+`"<resources fixture>" --filter-resource Mesh_`, `--show-validation "<validation fixture>"`, and no
+extra arguments for the small default-model control. Variable Logger runs added
+`--show-logger --log-test 10000 --log-test-variable`, with `--logger-wrap` for the wrapped case.
+All baseline and candidate JSON reports are under `build\p2.3\`.
+
+Final self-check invocations were:
+
+```powershell
+New-Item -ItemType Directory -Force build\p2.3\final-verify | Out-Null
+build\bin\Release\Glider.exe --conflict-selfcheck build\p2.3\final-verify\conflict.txt
+build\bin\Release\Glider.exe --validation-cache-selfcheck build\p2.3\final-verify\validation-cache.txt
+build\bin\Release\Glider.exe --cache-invalidation-selfcheck build\p2.3\final-verify\cache-invalidation.txt
+build\bin\Release\Glider.exe --logger-layout-selfcheck build\p2.3\final-verify\logger-layout.txt
+```
+
+Representative final frame commands (the corresponding input fixtures and output paths are local to
+`build\p2.3\`) are:
+
+```powershell
+build\bin\Release\Glider.exe "<resources fixture>" --filter-resource Mesh_ --dump-frame build\p2.3\resources_4096_final.png --exit-after-dump
+build\bin\Release\Glider.exe --show-validation "<validation fixture>" --dump-frame build\p2.3\validation_2048_final.png --exit-after-dump
+build\bin\Release\Glider.exe --show-logger --log-test 10000 --log-test-variable --dump-frame build\p2.3\logger_variable_nowrap_final.png --exit-after-dump
+build\bin\Release\Glider.exe --show-logger --logger-wrap --log-test 10000 --log-test-variable --dump-frame build\p2.3\logger_variable_wrap_final.png --exit-after-dump
+build\bin\Release\Glider.exe "<resources fixture>" --filter-resource NoSuchResource --dump-frame build\p2.3\resources_4096_nomatch_final.png --exit-after-dump
+build\bin\Release\Glider.exe --show-validation "<validation fixture>" --filter-validation NoSuchIssue --dump-frame build\p2.3\validation_2048_nomatch_final.png --exit-after-dump
+```
+
+**Measured results.** Values below are the per-run median `ui.panels` stage in milliseconds, with the
+five baseline and final-candidate runs paired by run index. Noise is `(max - min) / median` over each
+five-run set. P95 is the median of the five per-run frame p95 values. Whole-frame CPU is the median of
+the five per-run CPU-frame medians. These are CPU timings, not GPU timings.
+
+| Workload | Baseline runs (ms) | Final candidate runs (ms) | Baseline / candidate noise | Median paired change | `ui.panels` p95 baseline → candidate (ms) |
+|---|---|---|---:|---:|---:|
+| Logger, 10,000 one-line messages | .5742, .5793, .5748, .5700, .5745 | .0353, .0314, .0358, .0304, .0286 | 1.61% / 22.93% | -94.59% (all 5 pairs improved) | .6248 → .0649 |
+| Resources, 4,096 filtered meshes | .3382, .3391, .3327, .3388, .3383 | .0236, .0236, .0219, .0217, .0216 | 1.89% / 9.13% | -93.43% (all 5 pairs improved) | .3587 → .0345 |
+| Validation, 2,048 issues | .7817, .7696, .7683, .7670, .7796 | .0555, .0486, .0387, .0470, .0343 | 1.91% / 45.11% | -93.88% (all 5 pairs improved) | .8129 → .0733 |
+| Small default-model control | .0166, .0218, .0166, .0183, .0187 | .0262, .0260, .0260, .0279, .0277 | 28.61% / 7.44% | +52.04% paired median | .0360 → .0452 |
+
+The median whole-frame CPU times for Logger, Resources, Validation and the control were respectively
+`1.0559 → .5896 ms`, `.7467 → .5140 ms`, `1.1843 → .5906 ms` and `.4169 → .6185 ms`. The control
+therefore shows an observed `ui.panels` increase of .00785 ms (42.8% comparing medians); its baseline
+spread is broad, and multiple unrelated frame stages also rose between the baseline and final
+measurement series. Treat the control comparison as inconclusive rather than attributing the full-frame
+change to clipping or claiming a neutral small-workload effect.
+
+Cold `ui.panels` stage medians were baseline → final candidate `1.4679 → 2.0808 ms` for the
+one-line Logger, `1.6353 → 1.9823 ms` for Resources, and `2.6804 → 2.8905 ms` for Validation. This
+separates cache/layout construction cost from the warm visible-row savings. For 10,000 variable entries,
+the three no-wrap candidate runs measured cold stages of `2.4388, 3.5585, 3.0790 ms`, with warm
+`ui.panels` median `.0352 ms` and p95 median `.0591 ms`; wrapped runs measured cold stages of
+`5.4301, 8.5195, 6.5168 ms`, warm median `.0397 ms` and p95 median `.0635 ms`. These variable-entry
+cases have no comparable baseline series. Their observed warm whole-frame CPU medians were `.6830 ms`
+and `.6032 ms`, respectively. The wrapped cold build is measurably more expensive; no claim is made
+that variable-height first-use layout is faster.
+
+**Behavior and validation evidence.** The final Release build completed successfully. The following
+self-checks were run against the final executable; all returned exit code 0:
+
+```text
+build\p2.3\final-verify\conflict.txt          P2.1: 456 checks PASS
+build\p2.3\final-verify\validation-cache.txt  P2.2: 20 checks PASS (20,000 issues)
+build\p2.3\final-verify\cache-invalidation.txt P2.2: 67 checks PASS (30 hierarchy, 24 resources, 13 validation)
+build\p2.3\final-verify\logger-layout.txt    P2.3: 19 checks PASS
+```
+
+The Logger self-check covers empty layout, top/middle/bottom visible ranges, embedded newlines,
+wrapping, width/font invalidation, append, Clear/severity totals, and Copy text assembled from all
+entries. The source-index checks cover filtered-to-original identity and multiline fallback
+classification. On the final binary the Logger self-check returned 1 for an intentional forced failure
+and 2 for an invalid report destination; these reports are in `build\p2.3\final-verify\`.
+
+Final frame dumps were opened and visually inspected at 1280x720. Resources shows the filtered
+`Meshes (4096)` category with the expected leading source rows, and the no-match capture shows an
+empty result area. Validation shows its 2,048-error table, while its no-match capture shows the empty
+table with headers retained. Logger dumps show generated embedded-newline entries with wrapping
+disabled and enabled:
+
+```text
+build\p2.3\resources_4096_final.png
+  SHA-256 DE6FB6E6F57686A5E5BADCD9895416C3ECB56BD92FE269E77177464CB3E555C9
+build\p2.3\validation_2048_final.png
+  SHA-256 F5A4AF8EE3B336CFF0D2B9F178F54CCBD16F2A65D16190080EB6108961301216
+build\p2.3\logger_variable_nowrap_final.png
+  SHA-256 FED30F9E995488DA48AEAAC59C6C67EBC06168BDD1F3BD9D77C2638AFF388FA5
+build\p2.3\logger_variable_wrap_final.png
+  SHA-256 7025314C1502ABA1321372954057E021476B582ED8B6F55C64C629E79E925B54
+build\p2.3\resources_4096_nomatch_final.png
+  SHA-256 20DDCE8E22AB83B2658C8287396A3DE6EE5FF6A8FAEF6F9622B4E8D0C8ABC74D
+build\p2.3\validation_2048_nomatch_final.png
+  SHA-256 112AD02DFFAB2AA24925F44CF6B0128922594630796AE5CF0D10EC7F83B7DA08
+```
+
+**Limitations / not claimed PASS.** No interactive mouse/keyboard session was available. Scrolling by
+hand at top/middle/bottom, changing filters while scrolled, mouse selection/double-click focus and
+tooltips/actions after filtering, and keyboard navigation remain unverified in the running UI.
+Logger top/middle/bottom ranges, append, Clear, and all-entry Copy content are covered by code-level
+self-checks, but appending while an actual user is scrolled upward or at the bottom and clicking the
+real clipboard button were not exercised; frame captures are not substitutes for those interactions.
+Continuous interactive resizing was not tested. Code inspection confirms Logger Copy still uses all
+stored entries and that the existing auto-scroll condition is retained. These limits and the small
+control result should be reviewed before P2.3 acceptance.
+
+No commit or push was performed. P2.3 is ready for independent review; P2.4 and Phase 3 remain
+unstarted.
+
+
+### 12.21 P2.3 review-fix round (2026-10-21)
+
+Baseline for all comparisons: commit `009c062`. This round fixes the three P2.3 review findings.
+The work is uncommitted. P2.4 and Phase 3 are not started; no claim is made that Phase 2 is complete.
+
+**Executables (final, built after the last C++ edit).**
+
+```text
+build\p2.3-candidate\Glider.exe  13DF53A2B3C4E9AC8FBE91C1696D1149E4865C7ADC23142F951F6609411A8BA5
+  (identical SHA to build\bin\Release\Glider.exe; the four self-checks below ran on this file)
+build\p2.3-baseline\Glider.exe   17AF36BA4E4AB36F410B6A4F222EA14A3DF7E7FFAC6FA3384CB7F388A3DEA027
+  (commit 009c062 main/ResourcesPanel/ValidationPanel + UiProbe/UiScenarioHarness hooks only;
+   built by scripts\ui_integration\build_baseline_harness.py, working tree restored with SHA check)
+```
+
+Later edits after that build touched only Python scripts and fixtures. Earlier P2.3 executables and
+the §12.20 control numbers are not reused as final-build evidence.
+
+**Finding 1 - O(n) `LinkedList::at(n)` (code fix, measured, code inspection).**
+`SourceCursor<TList>` in `ResourcesPanel.cpp` advances one forward iterator across frames' rows and
+restarts at `begin()` only on backward access. It holds no pointers across frames, so model
+reload/reset or element deletion (`Gltf::delete*` does not bump `m_revision`) cannot leave stale
+pointers. Remaining cost: O(highest requested source index) per frame, not constant time. Measured
+effect is visible below (top 0.0167 ms, mid 0.0316 ms, bottom 0.0461 ms `ui.panels`). The multiline
+fallback renders every matching row unclipped, as before; it does not use `at()`.
+
+**Finding 2 - runtime integration validation (measured, real ImGui frames with injected input).**
+`--ui-script`/`--ui-report` (`header\imgui\UiScenarioHarness.h`, `UiProbe.h`) drive real mouse, wheel,
+keyboard, typing, resize, model reload and the real Copy/Clear buttons through ImGui. The same
+scripts run on the baseline-harness and candidate exes; per-frame snapshots (selection, scroll and
+content extents, probe geometry, pixel hashes, clipboard) are compared and oracles asserted.
+
+```text
+python scripts\generate_ui_clipping_fixtures.py build\p2.3\fixtures
+python scripts\ui_integration\build_baseline_harness.py --backup <dir>
+python scripts\ui_integration\run_ui_integration.py            (exit 0 pass, 1 failed assertion, 2 report-write failure)
+evidence: build\p2.3\integration\summary.json, *.script.txt, *.baseline.json, *.candidate.json
+```
+
+Result: 130 passed, 0 failed, run twice (`build\p2.3\integration`, `build\p2.3\integration_run2`).
+Exit codes were verified: `--force-fail` returns 1, `--fail-report-write` returns 2 (report-write
+failure message printed). Fixtures: resources_4096 (4096 meshes), resources_multiline_4096 (one
+multiline label per category), variants_4096, validation_2048, validation_mixed_2048 (interleaved
+MESH_NO_PRIMITIVES and PRIMITIVE_MISSING_POSITION errors, so a code filter selects alternating
+source rows).
+
+Covered, baseline == candidate in every snapshot, and oracles pass: Resources and Material Variants
+top/middle/bottom scroll with pixel hashes; tail row 4095 reachable and extents identical; filters
+changed while scrolled, no-match, clearing; click selection resolving to the original source item;
+keyboard Down navigation including past the last visible row; reload of a different model (and the
+same path twice) after caches were populated; multiline fallback row layout and actions; Validation
+filtered click selection indexes, hover tooltip appearing and disappearing, filtered double-click
+resolving to the original odd-indexed mesh target. Logger: single-line, embedded-newline and long
+wrapped entries; append at the bottom with auto-scroll; append while scrolled upward; auto-scroll
+disabled; wrap toggle and window resize after layout caches were populated; Clear; real Copy button
+producing the full log at top and bottom scroll positions (35,916 bytes, identical hash) and empty
+text after Clear; severity totals.
+
+Limitations (explicit): Logger rows on the clipped path report a synthesized full-width probe rect,
+so `log.row` compares x0/y0/y1 and ignores hovered/focused; rendering is covered by pixel hashes.
+The Logger child is ~100 px tall at 1280x720, so mid-view oracles see only a few rows. Node- and
+material-target validation issues could not be generated (loader rejects node cycles/multi-parent;
+material range checks produced no issues), so the node-focus camera move on double-click is
+NOT RUN; mesh-target identity is what was verified. The Logger Copy-after-Clear snapshot failed once
+(click raced the Clear layout); a settle was added and 2 further full runs passed, so intermittency
+is not fully excluded. Real OS-level mouse and drag-resize were not used; resize was a scripted
+window size change. Startup frame dumps (`build\p2.3\final\res.png`, `val.png`, 1600x900) were
+visually inspected: layout intact, lists collapsed so they show no list rows (code-level and
+integration pixel hashes are the list evidence).
+
+**Finding 3 - small-scene control (measured).**
+`python scripts\ui_integration\run_paired_bench.py --baseline build\p2.3-baseline\Glider.exe --candidate build\p2.3-candidate\Glider.exe`
+(5 alternating pairs, 120 warm-up + 600 measured frames, 1280x720, vsync off, `--profile`, isolated,
+sequential). Evidence: `build\p2.3\bench\paired_summary.json` plus per-run JSON.
+
+| scenario | ui.panels baseline -> candidate (median of run medians, ms) | whole-frame CPU median (ms) | noise ranges |
+|---|---|---|---|
+| control_default | 0.0185 -> 0.0175 (paired delta -0.0001) | 0.3883 -> 0.3775 | panels b 0.0172-0.0200, c 0.0175-0.0197 |
+| res_4096_top | 0.3648 -> 0.0167 | 0.7550 -> 0.3911 | c 0.0157-0.0184 |
+| res_4096_mid | 0.3639 -> 0.0316 | 0.7548 -> 0.4037 | c 0.0287-0.0342 |
+| res_4096_bottom | 0.3637 -> 0.0461 | 0.7624 -> 0.4085 | c 0.0454-0.0467 |
+| res_4096_filter_end (matches 4090-4095) | 0.0441 -> 0.0453 | 0.4123 -> 0.4285 | within noise |
+| res_multiline_bottom (unclipped fallback) | 0.3639 -> 0.3726 | 0.7538 -> 0.7708 | within noise |
+| variants_bottom | 0.3951 -> 0.0343 | 0.7445 -> 0.4052 | c 0.0335-0.0351 |
+
+The control regression reported in §12.20 (+52% on 30 frames) does not reproduce: the longer
+alternating comparison shows equal `ui.panels` and no whole-frame slowdown (CPU run-median ranges
+overlap, 0.2716-0.4461 vs 0.2712-0.4029). The earlier figure is superseded; the 8+30-frame, non-alternating
+series was dominated by warm-up and noise. Clipping benefits are warm-frame figures; first-use
+cache-building costs remain as recorded in §12.20. Bottom-of-list cost rising from 0.0167 to 0.0461 ms
+is the SourceCursor O(index) traversal, still ~8x below baseline. The multiline fallback shows no
+gain (as designed). The p95 CPU for unclipped baselines (~0.96-1.0 ms) falls to ~0.58-0.62 ms when clipped.
+
+**Self-checks on the final executable (all exit 0):** conflict 456, validation-cache 20,
+cache-invalidation 30+28+13, logger-layout 19; outputs in `build\p2.3\final\`.
+
+No commit or push was performed.
+
+### 12.22 Independent P2.3 re-review (2026-10-21)
+
+**Decision: P2.3 accepted for the reviewed scope; no blocking finding remains.** The reviewer
+inspected SourceCursor, the baseline harness construction and the integration comparison logic.
+Release built successfully and the current executable matches §12.21 SHA-256
+`13DF53A2B3C4E9AC8FBE91C1696D1149E4865C7ADC23142F951F6609411A8BA5`.
+
+The full runtime integration suite was independently rerun against the recorded baseline harness:
+130 checks passed, zero failed, exit 0. This includes baseline/candidate snapshot comparisons and
+behavior assertions for Resources, multiline fallback, Material Variants, Validation and Logger.
+All four self-checks were rerun successfully: conflict 456, validation-cache 20,
+cache-invalidation 71 (30+28+13), logger-layout 19. A fresh wrapped Logger frame dump was opened
+and inspected. `git diff --check` passed.
+
+The reviewer also independently reran the default-model control with five alternating pairs,
+120 warm-up frames and 600 measured frames. Median-of-run-medians `ui.panels` was
+0.0188 ms baseline versus 0.0181 ms candidate; CPU frame time was 0.3916 versus 0.3862 ms.
+The earlier +52% panel/whole-frame slowdown does not reproduce; these results are control evidence,
+not a claimed small-scene speedup. The other workload timing series in §12.21 was inspected rather
+than independently repeated. Artifacts: `build/p2-3-rereview/`, including `integration/summary.json`
+and `bench/paired_summary.json`.
+
+The documented limitations remain: SourceCursor walks up to the highest requested source index
+per frame; node-target focus motion was not exercised; scripted ImGui input/window resizing is
+not OS-level mouse/drag testing. Copy-after-Clear passed this independent run in addition to the
+recorded successful runs. Acceptance covers P2.3 only. No commit, push, P2.4 or Phase 3 work was
+performed in this review.
