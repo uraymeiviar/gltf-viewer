@@ -50,7 +50,7 @@ void ux3d::renderer::gl::Texture::bind() const
         throw std::runtime_error("Cannot bind invalid texture");
     }
     m_gl->bindTexture(static_cast<GLenum>(target), handle);
-    checkGLError(m_gl, "Bind Texture");
+    GLIDER_HOT_GL_CHECK(m_gl, "Bind Texture");
 }
 
 void ux3d::renderer::gl::Texture::write(size_t width, size_t height, Format format, ComponentType pixelFormat, const void* pixels, InternalFormat internalFormat)

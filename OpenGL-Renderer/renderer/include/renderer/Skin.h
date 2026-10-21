@@ -35,6 +35,9 @@ namespace renderer {
         TransformHierarchyNode* m_root; //Node in which the skin is used
 
         std::shared_ptr<gl::Texture> m_jointsTexture = nullptr;
+        // Reused between frames. Never part of the skin's observable state; its
+        // capacity may remain at the largest joint count seen so far.
+        core::Vector<float> m_jointTextureScratch;
         gl::Sampler m_jointsSampler;
         gl::SamplerState m_jointsSamplerState;
     };

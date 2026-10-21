@@ -80,12 +80,18 @@ struct GltfToRendererMapping {
     void update(const core::LinkedList<GLTF_WITHOUT_PTR>& gltfProperties)
     {
         std::vector<GLTF> erasedProperties;
+        erasedProperties.reserve(map.size());
+        std::unordered_set<GLTF, typename core::Hash<GLTF>> alive;
+        alive.reserve(map.size());
         std::vector<GLTF> toBeCreated;
+        toBeCreated.reserve(gltfProperties.size());
         std::vector<std::tuple<GLTF, RENDERER>> toBeUpdated;
+        toBeUpdated.reserve(gltfProperties.size());
         std::vector<std::tuple<GLTF, RENDERER>> toBeRecreated;
 
         for (const auto& [key, _] : map) {
             erasedProperties.emplace_back(key);
+            alive.insert(key);
         }
 
         for (const auto& updateProperty : gltfProperties) {
@@ -104,18 +110,20 @@ struct GltfToRendererMapping {
                 toBeUpdated.emplace_back(mapIt->first, mapIt->second);
             }
 
-            // tick off objects that are still present in the gltf. Only objects that are not in the gltf any more will be left
-            // in erasedProperties
-            auto eraseIt = core::find(erasedProperties.begin(), erasedProperties.end(), key);
-            if (eraseIt != erasedProperties.end()) {
-                erasedProperties.erase(eraseIt);
-            }
+            // Objects still present in the glTF are no longer candidates for removal.
+            alive.erase(key);
         }
 
         // destroy the render objects for gltf objects that are not part of the gltf any more
         for (const auto& erase : erasedProperties) {
-            destroyRendererobjectFromGltf(erase, map[erase]);
-            map.erase(erase);
+            if (!alive.contains(erase)) {
+                continue;
+            }
+            auto mapIt = map.find(erase);
+            if (mapIt != map.end()) {
+                destroyRendererobjectFromGltf(mapIt->first, mapIt->second);
+                map.erase(mapIt);
+            }
         }
 
         for (const auto& [key, value] : toBeRecreated) {

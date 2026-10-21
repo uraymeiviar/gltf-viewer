@@ -7,6 +7,8 @@
 #include "renderer/editor/EditorRenderLayer.h"
 #include "renderer/gl/ShaderCache.h"
 
+#include <utility>
+
 using namespace ux3d;
 using namespace ux3d::renderer;
 
@@ -17,17 +19,18 @@ CommandMapping::CommandMapping(gl::GL* gl, CommandGenerator& scene, gl::ShaderCa
 {
 }
 
-std::vector<CmdDesc> CommandMapping::update(const core::LinkedList<MeshMaterialTuple>& drawables)
+void CommandMapping::update(const core::LinkedList<MeshMaterialTuple>& drawables, std::vector<CmdDesc>& commands)
 {
-    std::vector<CmdDesc> commands;
-    commands.reserve(drawables.size());
+    commands.clear();
+    if (commands.capacity() < drawables.size()) {
+        commands.reserve(drawables.size());
+    }
     for (const auto& meshMat : drawables) {
         auto command = makeCommand(meshMat);
         if (command) {
-            commands.push_back(command.value());
+            commands.push_back(std::move(*command));
         }
     }
-    return commands;
 }
 
 std::optional<CmdDesc> CommandMapping::makeCommand(MeshMaterialTuple meshMat)
@@ -45,9 +48,21 @@ std::optional<CmdDesc> CommandMapping::makeCommand(MeshMaterialTuple meshMat)
     command->uniforms.clear();
     command->samplers.clear();
 
+    // These lists have knowable upper bounds from the mesh, material, camera,
+    // environment and light set. Reserving once avoids repeated reallocation
+    // while the per-drawable command is assembled.
+    command->uniformBlocks.reserve(mesh->uniformBlocks.size());
+    command->uniforms.reserve(
+        mesh->uniforms.size() + material->uniforms.size() +
+        (m_scene.m_activeCamera != nullptr ? 6u : 0u) + 5u +
+        (m_scene.m_useIBL ? 1u : 0u) +
+        m_scene.m_lights.getUniforms().size() + 1u);
+    command->samplers.reserve(material->samplers.size() + 2u + 6u);
+
     // Compile vertex and fragment shaders, and pass proper defines to both.
 
     Defines fragmentDefines;
+    fragmentDefines.reserve(64);
     fragmentDefines.define("DEBUG_NONE", static_cast<int>(RenderMode::None));
     fragmentDefines.define("DEBUG_WIREFRAME", static_cast<int>(RenderMode::Wireframe));
     fragmentDefines.define("DEBUG_NORMAL_TEXTURE", static_cast<int>(RenderMode::NormalTexture));

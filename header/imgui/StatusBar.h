@@ -21,6 +21,12 @@ struct LogEntry {
     ux3d::core::LogLevel level = ux3d::core::LogLevel::Info;
 };
 
+struct LogSeverityCounts {
+    size_t errors = 0;
+    size_t warnings = 0;
+    size_t info = 0;
+};
+
 class AntiAliasing;
 
 class StatusBar {
@@ -31,7 +37,7 @@ public:
                        bool& isSceneDirty,
                        bool& showLogger,
                        bool& showValidation,
-                       const std::vector<LogEntry>& consoleLogs,
+                       const LogSeverityCounts& logCounts,
                        AntiAliasing* antiAliasing = nullptr);
 };
 

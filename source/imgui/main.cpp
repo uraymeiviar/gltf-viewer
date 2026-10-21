@@ -201,7 +201,46 @@ static bool captureViewportTexture(GLuint texture,
 
 // Log console message history
 using ux3d::imgui::LogEntry;
-static std::vector<LogEntry> s_consoleLogs;
+using ux3d::imgui::LogSeverityCounts;
+
+// P1.5: keep severity totals in step with the append/clear path so the status
+// bar never rescans the retained log on every frame. The entries vector remains
+// the single source of truth for display and Copy.
+class ConsoleLogStore {
+public:
+    void append(LogEntry entry)
+    {
+        switch (entry.level) {
+        case ux3d::core::LogLevel::Error:
+        case ux3d::core::LogLevel::Fatal:
+            ++m_counts.errors;
+            break;
+        case ux3d::core::LogLevel::Warning:
+            ++m_counts.warnings;
+            break;
+        default:
+            ++m_counts.info;
+            break;
+        }
+        m_entries.push_back(std::move(entry));
+    }
+
+    void clear()
+    {
+        m_entries.clear();
+        m_counts = {};
+    }
+
+    const std::vector<LogEntry>& entries() const { return m_entries; }
+    const LogSeverityCounts& counts() const { return m_counts; }
+    size_t size() const { return m_entries.size(); }
+
+private:
+    std::vector<LogEntry> m_entries;
+    LogSeverityCounts m_counts;
+};
+
+static ConsoleLogStore s_consoleLogs;
 
 // P0.1 deterministic scenario state. When enabled, no user-persisted window, layout,
 // recent-file or application settings are read or written.
@@ -253,7 +292,7 @@ static std::vector<ux3d::imgui::profiling::FrameSample> s_benchmarkSamples;
 
 static void logMessage(const std::string& msg, ImVec4 color = ImVec4(0.85f, 0.85f, 0.88f, 1.0f), ux3d::core::LogLevel level = ux3d::core::LogLevel::Info)
 {
-    s_consoleLogs.push_back({ msg, color, level });
+    s_consoleLogs.append({ msg, color, level });
     std::fprintf(stderr, "%s\n", msg.c_str());
     std::fflush(stderr);
 }
@@ -595,6 +634,7 @@ static bool loadGltfModel(const std::string& filePath,
                           bool& sceneDirty)
 {
     logMessage("Opening file: " + filePath);
+    ux3d::imgui::StatisticsPanel::invalidate();
     ux3d::imgui::AppSettings::instance().setCurrentModelPath(filePath);
     ux3d::gltf::ImportOptions importOptions;
     auto& startupProfile = ux3d::imgui::profiling::startupProfile();
@@ -717,6 +757,7 @@ static bool loadGltfModel(const std::string& filePath,
                          bool& sceneDirty)
 {
     gltfModel.reset();
+    ux3d::imgui::StatisticsPanel::invalidate();
     auto* scene = gltfModel.create<ux3d::gltf::Scene>();
     if (scene != nullptr) {
         scene->setName("Scene");
@@ -755,6 +796,7 @@ static bool loadGltfModel(const std::string& filePath,
     auto result = ux3d::gltf::GltfParsing::toFile(gltfModel, file, exportOptions);
     if (result.derived == ux3d::gltf::GltfToFileResult::Success) {
         currentFilePath = filePath;
+        ux3d::imgui::StatisticsPanel::invalidate();
         logMessage("Saved successfully: " + filePath, ImVec4(0.2f, 1.0f, 0.4f, 1.0f));
         addRecentFile(s_recentFiles, filePath);
         return true;
@@ -1822,6 +1864,9 @@ int main(int argc, char** argv)
     std::string newViewportCamArg;
     bool showValidationArg = false;
     bool showSearchPathsArg = false;
+    bool showStatisticsArg = false;
+    bool showLoggerArg = false;
+    size_t logTestCountArg = 0;
     float animTimeArg = -1.0f;
     std::string scenarioReportPath;
     std::string scenarioName = "default";
@@ -1936,6 +1981,12 @@ int main(int argc, char** argv)
             showValidationArg = true;
         } else if (arg == "--show-search-paths" || arg == "--search-paths") {
             showSearchPathsArg = true;
+        } else if (arg == "--show-statistics") {
+            showStatisticsArg = true;
+        } else if (arg == "--show-logger") {
+            showLoggerArg = true;
+        } else if (arg == "--log-test" && i + 1 < argc) {
+            logTestCountArg = static_cast<size_t>(std::stoull(argv[++i]));
         } else if (arg == "--filter-node" && i + 1 < argc) {
             ux3d::imgui::SceneHierarchyPanel::setSearchFilter(argv[++i]);
         } else if (arg == "--filter-resource" && i + 1 < argc) {
@@ -1971,6 +2022,35 @@ int main(int argc, char** argv)
     }
 
     ux3d::imgui::profiling::setCountingEnabled(s_profilingEnabled);
+
+    // P1.5 diagnostic control: append deterministic entries covering every
+    // severity without echoing them to stderr. Used to exercise counters, Copy
+    // and Clear with the Logger both closed and open.
+    for (size_t i = 0; i < logTestCountArg; ++i) {
+        ux3d::core::LogLevel level = ux3d::core::LogLevel::Info;
+        ImVec4 color(0.85f, 0.85f, 0.88f, 1.0f);
+        const char* severity = "Info";
+        switch (i % 4) {
+        case 1:
+            level = ux3d::core::LogLevel::Warning;
+            color = ImVec4(1.0f, 0.8f, 0.2f, 1.0f);
+            severity = "Warning";
+            break;
+        case 2:
+            level = ux3d::core::LogLevel::Error;
+            color = ImVec4(1.0f, 0.35f, 0.35f, 1.0f);
+            severity = "Error";
+            break;
+        case 3:
+            level = ux3d::core::LogLevel::Fatal;
+            color = ImVec4(1.0f, 0.35f, 0.35f, 1.0f);
+            severity = "Fatal";
+            break;
+        default:
+            break;
+        }
+        s_consoleLogs.append({ "Log test #" + std::to_string(i) + " [" + severity + "]", color, level });
+    }
 
     if (s_benchmarkEnabled && s_benchmarkOutputPath.empty()) {
         s_benchmarkOutputPath = "glider-benchmark.json";
@@ -2170,8 +2250,8 @@ int main(int argc, char** argv)
     static bool showInspector = true;
     static bool showHierarchy = true;
     static bool showResources = true;
-    static bool showLogger = false;
-    static bool showStatistics = false;
+    static bool showLogger = showLoggerArg;
+    static bool showStatistics = showStatisticsArg;
     static bool showValidation = false;
     static bool showSearchPaths = false;
     if (showValidationArg) {
@@ -3436,7 +3516,7 @@ int main(int argc, char** argv)
                 ImGui::SameLine();
                 if (ImGui::Button(ICON_MDI_CONTENT_COPY " Copy")) {
                     std::string allLogs;
-                    for (const auto& entry : s_consoleLogs) {
+                    for (const auto& entry : s_consoleLogs.entries()) {
                         allLogs += entry.text;
                         allLogs += "\n";
                     }
@@ -3462,7 +3542,7 @@ int main(int argc, char** argv)
                     ImGui::PushTextWrapPos(0.0f);
                 }
                 ImGui::PushFont(ux3d::imgui::getMonoFont());
-                for (const auto& entry : s_consoleLogs) {
+                for (const auto& entry : s_consoleLogs.entries()) {
                     ImGui::TextColored(entry.color, "%s", entry.text.c_str());
                 }
                 ImGui::PopFont();
@@ -3487,7 +3567,7 @@ int main(int argc, char** argv)
         // -------------------------------------------------------------
         markStage("ui.panels", panelsStart);
         const auto statusBarStart = ux3d::imgui::profiling::Clock::now();
-        ux3d::imgui::StatusBar::render(gltfModel, gltfLayer.get(), animationPlayer, isSceneDirty, showLogger, showValidation, s_consoleLogs, activeViewport ? &activeViewport->antiAliasing : nullptr);
+        ux3d::imgui::StatusBar::render(gltfModel, gltfLayer.get(), animationPlayer, isSceneDirty, showLogger, showValidation, s_consoleLogs.counts(), activeViewport ? &activeViewport->antiAliasing : nullptr);
         markStage("ui.statusBar", statusBarStart);
 
         // Rendering main window

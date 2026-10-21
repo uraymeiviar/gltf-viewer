@@ -89,7 +89,7 @@ void ux3d::renderer::CommandExecutor::draw(const Command& command)
     setupPolygonMode(command);
     setupFrontFace(command);
 
-    checkGLError(m_gl, "before draw failed");
+    GLIDER_HOT_GL_CHECK(m_gl, "before draw failed");
 
     if (command.indexBuffer != nullptr) {
         m_gl->bindBuffer(GL_ELEMENT_ARRAY_BUFFER, command.indexBuffer->handle);
@@ -105,7 +105,7 @@ void ux3d::renderer::CommandExecutor::draw(const Command& command)
             command.primitiveCount);
     }
 
-    checkGLError(m_gl, "draw failed");
+    GLIDER_HOT_GL_CHECK(m_gl, "draw failed");
 }
 
 void ux3d::renderer::CommandExecutor::clear(const Command& command) const
@@ -137,7 +137,7 @@ void ux3d::renderer::CommandExecutor::setupVertexArray(const Command& command)
         m_activeVertexArray = command.vertexLayout->handle;
         m_gl->bindVertexArray(m_activeVertexArray);
     }
-    checkGLError(m_gl, "Failed to bind vertex array");
+    GLIDER_HOT_GL_CHECK(m_gl, "Failed to bind vertex array");
 }
 
 void ux3d::renderer::CommandExecutor::setupBlendFunc(const Command& command) const
@@ -150,7 +150,7 @@ void ux3d::renderer::CommandExecutor::setupBlendFunc(const Command& command) con
         m_gl->disable(GL_BLEND);
     }
 
-    checkGLError(m_gl, "Failed to set blend mode");
+    GLIDER_HOT_GL_CHECK(m_gl, "Failed to set blend mode");
 }
 
 void ux3d::renderer::CommandExecutor::setupCulling(const Command& command) const
@@ -162,14 +162,14 @@ void ux3d::renderer::CommandExecutor::setupCulling(const Command& command) const
         m_gl->disable(GL_CULL_FACE);
     }
 
-    checkGLError(m_gl, "Failed to set culling mode");
+    GLIDER_HOT_GL_CHECK(m_gl, "Failed to set culling mode");
 }
 
 void ux3d::renderer::CommandExecutor::setupPolygonMode(const Command& command) const
 {
     m_gl->polygonMode(GL_FRONT_AND_BACK, GLenum(command.polygonMode));
 
-    checkGLError(m_gl, "Failed to set polygon mode");
+    GLIDER_HOT_GL_CHECK(m_gl, "Failed to set polygon mode");
 }
 
 void ux3d::renderer::CommandExecutor::setupFrontFace(const Command& command) const

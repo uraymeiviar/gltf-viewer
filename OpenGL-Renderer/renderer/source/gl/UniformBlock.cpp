@@ -21,5 +21,5 @@ void ux3d::renderer::gl::UniformBlock::write(size_t size, const void* data)
 void ux3d::renderer::gl::UniformBlock::commit(GL* gl, const UniformBlockBinding& binding) const
 {
     gl->bindBufferBase(GL_UNIFORM_BUFFER, binding.blockIndex, m_buffer.handle);
-    checkGLError(gl, "Failed to bind uniform block");
+    GLIDER_HOT_GL_CHECK(gl, "Failed to bind uniform block");
 }

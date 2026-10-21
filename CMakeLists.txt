@@ -13,6 +13,7 @@ set(UX3D_OUTPUT_NAME "Glider" CACHE STRING "Name of our application without spac
 set(UX3D_VERSION "1.0.0" CACHE STRING "The version number of Glider")
 set(UX3D_BUILD_NUMBER "0" CACHE STRING "Incremental build number")
 set(UX3D_ENABLE_CCACHE OFF CACHE BOOL "Use ccache")
+option(GLIDER_GL_DEBUG_CHECKS "Enable per-command OpenGL error checks in Release builds" OFF)
 
 include("${Runtime_DIR}/cmake/defines.cmake")
 include("${Tools_DIR}/cmake/defines.cmake")

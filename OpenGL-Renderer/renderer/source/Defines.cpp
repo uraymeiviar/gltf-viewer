@@ -30,6 +30,11 @@ void Defines::clear()
     m_defines.clear();
 }
 
+void Defines::reserve(size_t capacity)
+{
+    m_defines.reserve(capacity);
+}
+
 std::string Defines::toLines() const
 {
     std::string defineLines;

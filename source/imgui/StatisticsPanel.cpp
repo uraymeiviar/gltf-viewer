@@ -15,16 +15,23 @@
 #include "gltf/Scene.h"
 #include "gltf/Skin.h"
 #include "gltf/Texture.h"
+#include "imgui/AppSettings.h"
+#include "imgui/EmbeddedVFS.h"
 #include <imgui.h>
 #include "imgui/Theme.h"
 #include "imgui/IconsMaterialDesignIcons.h"
 #include <filesystem>
 #include <sstream>
 #include <iomanip>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace ux3d::imgui {
 
-static std::string formatBytes(uint64_t bytes)
+namespace {
+
+std::string formatBytes(uint64_t bytes)
 {
     if (bytes < 1024) {
         return std::to_string(bytes) + " B";
@@ -43,19 +50,38 @@ static std::string formatBytes(uint64_t bytes)
     }
 }
 
-void StatisticsPanel::render(const ux3d::gltf::Gltf& gltfModel, const std::string& currentFilePath)
+struct Row {
+    std::string label;
+    std::string value;
+};
+
+struct StatisticsSnapshot {
+    std::vector<Row> rows;
+    std::string clipboard;
+};
+
+struct StatisticsCache {
+    bool valid = false;
+    std::string path;
+    const ux3d::gltf::Gltf* model = nullptr;
+    StatisticsSnapshot snapshot;
+};
+
+StatisticsCache s_cache;
+
+StatisticsSnapshot buildSnapshot(const ux3d::gltf::Gltf& gltfModel, const std::string& currentFilePath)
 {
-    // Compute total metrics
+    // Compute total metrics.
     uint64_t totalVertices = 0;
     uint64_t totalTriangles = 0;
     uint64_t primitiveCount = 0;
 
-    auto& meshes = gltfModel.getElements<ux3d::gltf::Mesh>();
+    const auto& meshes = gltfModel.getElements<ux3d::gltf::Mesh>();
     for (const auto& mesh : meshes) {
         for (const auto& prim : mesh.getPrimitives()) {
             ++primitiveCount;
 
-            // Vertices from POSITION attribute
+            // Vertices from POSITION attribute.
             for (const auto& attr : prim.getAttributes()) {
                 if (attr.getName() == "POSITION" && attr.getAccessor() != nullptr) {
                     totalVertices += attr.getAccessor()->getCount();
@@ -63,7 +89,7 @@ void StatisticsPanel::render(const ux3d::gltf::Gltf& gltfModel, const std::strin
                 }
             }
 
-            // Triangles from indices or vertices
+            // Triangles from indices or vertices.
             if (prim.getIndicesAccessor() != nullptr) {
                 totalTriangles += prim.getIndicesAccessor()->getCount() / 3;
             } else {
@@ -77,13 +103,11 @@ void StatisticsPanel::render(const ux3d::gltf::Gltf& gltfModel, const std::strin
         }
     }
 
-    // Total buffer memory
     uint64_t totalBufferBytes = 0;
     for (const auto& buf : gltfModel.getElements<ux3d::gltf::Buffer>()) {
         totalBufferBytes += buf.getByteLength();
     }
 
-    // Total image pixel memory estimate
     uint64_t totalImageBytes = 0;
     for (const auto& img : gltfModel.getElements<ux3d::gltf::Image>()) {
         size_t s = img.getData().getPixels().size();
@@ -93,80 +117,162 @@ void StatisticsPanel::render(const ux3d::gltf::Gltf& gltfModel, const std::strin
         totalImageBytes += s;
     }
 
-    // File size on disk
+    // Resolve the file size once per snapshot. Embedded models must not be
+    // reported as disk files, and an unavailable disk path must stay visible
+    // rather than silently turning into 0 B.
     uint64_t fileSizeBytes = 0;
+    bool fileSizeKnown = false;
+    std::string fileSource = "Unsaved";
     if (!currentFilePath.empty()) {
-        std::error_code ec;
-        fileSizeBytes = std::filesystem::file_size(currentFilePath, ec);
+        if (VfsFile vfsFile = EmbeddedVFS::instance().getFile(currentFilePath); vfsFile.isValid()) {
+            fileSizeBytes = vfsFile.size;
+            fileSizeKnown = true;
+            fileSource = "Embedded";
+        } else {
+            std::error_code ec;
+            const auto directSize = std::filesystem::file_size(std::filesystem::path(currentFilePath), ec);
+            if (!ec) {
+                fileSizeBytes = directSize;
+                fileSizeKnown = true;
+                fileSource = "Disk";
+            } else {
+                const std::string resolved = AppSettings::instance().resolveAssetPath(currentFilePath);
+                if (!resolved.empty()) {
+                    ec.clear();
+                    const auto resolvedSize = std::filesystem::file_size(std::filesystem::path(resolved), ec);
+                    if (!ec) {
+                        fileSizeBytes = resolvedSize;
+                        fileSizeKnown = true;
+                        fileSource = "Disk";
+                    }
+                }
+                if (!fileSizeKnown) {
+                    fileSource = "Unavailable";
+                }
+            }
+        }
     }
 
-    // Action Buttons
+    const std::string fileSizeText = fileSizeKnown ? formatBytes(fileSizeBytes) : "N/A";
+    const std::string bufferText = formatBytes(totalBufferBytes);
+    const std::string imageText = formatBytes(totalImageBytes);
+
+    const size_t sceneCount = gltfModel.getElements<ux3d::gltf::Scene>().size();
+    const size_t nodeCount = gltfModel.getElements<ux3d::gltf::Node>().size();
+    const size_t materialCount = gltfModel.getElements<ux3d::gltf::Material>().size();
+    const size_t textureCount = gltfModel.getElements<ux3d::gltf::Texture>().size();
+    const size_t imageCount = gltfModel.getElements<ux3d::gltf::Image>().size();
+    const size_t samplerCount = gltfModel.getElements<ux3d::gltf::Sampler>().size();
+    const size_t animationCount = gltfModel.getElements<ux3d::gltf::Animation>().size();
+    const size_t skinCount = gltfModel.getElements<ux3d::gltf::Skin>().size();
+    const size_t cameraCount = gltfModel.getElements<ux3d::gltf::Camera>().size();
+    const size_t lightCount = gltfModel.getElements<ux3d::gltf::Light>().size();
+    const size_t accessorCount = gltfModel.getElements<ux3d::gltf::Accessor>().size();
+    const size_t bufferViewCount = gltfModel.getElements<ux3d::gltf::BufferView>().size();
+    const size_t bufferCount = gltfModel.getElements<ux3d::gltf::Buffer>().size();
+
+    StatisticsSnapshot snapshot;
+    snapshot.rows = {
+        { "File Size", fileSizeText },
+        { "File Source", fileSource },
+        { "Total Buffer Data", bufferText },
+        { "Total Image Data", imageText },
+        { "Scenes", std::to_string(sceneCount) },
+        { "Nodes", std::to_string(nodeCount) },
+        { "Meshes", std::to_string(meshes.size()) },
+        { "Primitives", std::to_string(primitiveCount) },
+        { "Total Vertices", std::to_string(totalVertices) },
+        { "Total Triangles", std::to_string(totalTriangles) },
+        { "Materials", std::to_string(materialCount) },
+        { "Textures", std::to_string(textureCount) },
+        { "Images", std::to_string(imageCount) },
+        { "Samplers", std::to_string(samplerCount) },
+        { "Animations", std::to_string(animationCount) },
+        { "Skins", std::to_string(skinCount) },
+        { "Cameras", std::to_string(cameraCount) },
+        { "Lights", std::to_string(lightCount) },
+        { "Accessors", std::to_string(accessorCount) },
+        { "Buffer Views", std::to_string(bufferViewCount) },
+        { "Buffers", std::to_string(bufferCount) },
+    };
+
+    std::ostringstream copy;
+    copy << "File: " << currentFilePath << "\n";
+    copy << "File Source: " << fileSource << "\n";
+    copy << "File Size: " << fileSizeText << "\n";
+    copy << "Scenes: " << sceneCount << "\n";
+    copy << "Nodes: " << nodeCount << "\n";
+    copy << "Meshes: " << meshes.size() << "\n";
+    copy << "Primitives: " << primitiveCount << "\n";
+    copy << "Vertices: " << totalVertices << "\n";
+    copy << "Triangles: " << totalTriangles << "\n";
+    copy << "Materials: " << materialCount << "\n";
+    copy << "Textures: " << textureCount << "\n";
+    copy << "Images: " << imageCount << "\n";
+    copy << "Animations: " << animationCount << "\n";
+    copy << "Skins: " << skinCount << "\n";
+    copy << "Cameras: " << cameraCount << "\n";
+    copy << "Lights: " << lightCount << "\n";
+    copy << "Accessors: " << accessorCount << "\n";
+    copy << "Buffer Views: " << bufferViewCount << "\n";
+    copy << "Buffers: " << bufferCount << " (" << bufferText << ")\n";
+    snapshot.clipboard = copy.str();
+    return snapshot;
+}
+
+void ensureSnapshot(const ux3d::gltf::Gltf& gltfModel, const std::string& currentFilePath)
+{
+    if (s_cache.valid && s_cache.model == &gltfModel && s_cache.path == currentFilePath) {
+        return;
+    }
+    s_cache.snapshot = buildSnapshot(gltfModel, currentFilePath);
+    s_cache.path = currentFilePath;
+    s_cache.model = &gltfModel;
+    s_cache.valid = true;
+}
+
+} // namespace
+
+void StatisticsPanel::invalidate()
+{
+    s_cache.valid = false;
+}
+
+void StatisticsPanel::render(const ux3d::gltf::Gltf& gltfModel, const std::string& currentFilePath)
+{
+    ensureSnapshot(gltfModel, currentFilePath);
+    const StatisticsSnapshot& snapshot = s_cache.snapshot;
+
+    // Action buttons. Copy and display are both backed by the same snapshot.
+    if (ImGui::Button(ICON_MDI_REFRESH " Refresh")) {
+        invalidate();
+    }
+    ImGui::SameLine();
     if (ImGui::Button(ICON_MDI_CONTENT_COPY " Copy to Clipboard")) {
-        std::ostringstream ss;
-        ss << "File: " << currentFilePath << "\n";
-        ss << "File Size: " << formatBytes(fileSizeBytes) << "\n";
-        ss << "Scenes: " << gltfModel.getElements<ux3d::gltf::Scene>().size() << "\n";
-        ss << "Nodes: " << gltfModel.getElements<ux3d::gltf::Node>().size() << "\n";
-        ss << "Meshes: " << meshes.size() << "\n";
-        ss << "Primitives: " << primitiveCount << "\n";
-        ss << "Vertices: " << totalVertices << "\n";
-        ss << "Triangles: " << totalTriangles << "\n";
-        ss << "Materials: " << gltfModel.getElements<ux3d::gltf::Material>().size() << "\n";
-        ss << "Textures: " << gltfModel.getElements<ux3d::gltf::Texture>().size() << "\n";
-        ss << "Images: " << gltfModel.getElements<ux3d::gltf::Image>().size() << "\n";
-        ss << "Animations: " << gltfModel.getElements<ux3d::gltf::Animation>().size() << "\n";
-        ss << "Skins: " << gltfModel.getElements<ux3d::gltf::Skin>().size() << "\n";
-        ss << "Cameras: " << gltfModel.getElements<ux3d::gltf::Camera>().size() << "\n";
-        ss << "Lights: " << gltfModel.getElements<ux3d::gltf::Light>().size() << "\n";
-        ss << "Accessors: " << gltfModel.getElements<ux3d::gltf::Accessor>().size() << "\n";
-        ss << "Buffer Views: " << gltfModel.getElements<ux3d::gltf::BufferView>().size() << "\n";
-        ss << "Buffers: " << gltfModel.getElements<ux3d::gltf::Buffer>().size() << " (" << formatBytes(totalBufferBytes) << ")\n";
-        ImGui::SetClipboardText(ss.str().c_str());
+        ImGui::SetClipboardText(snapshot.clipboard.c_str());
     }
 
     ImGui::Separator();
 
-    // Table display
     if (ImGui::BeginTable("StatisticsTable", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
         ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableHeadersRow();
 
-        auto addRow = [](const char* name, const std::string& val) {
+        auto addRow = [](const Row& row) {
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
-            ImGui::Text("%s", name);
+            ImGui::Text("%s", row.label.c_str());
             ImGui::TableNextColumn();
             ImFont* mono = getMonoFont();
             if (mono != nullptr) ImGui::PushFont(mono);
-            ImGui::Text("%s", val.c_str());
+            ImGui::Text("%s", row.value.c_str());
             if (mono != nullptr) ImGui::PopFont();
         };
 
-        addRow("File Size on Disk", formatBytes(fileSizeBytes));
-        addRow("Total Buffer Data", formatBytes(totalBufferBytes));
-        addRow("Total Image Data", formatBytes(totalImageBytes));
-
-        addRow("Scenes", std::to_string(gltfModel.getElements<ux3d::gltf::Scene>().size()));
-        addRow("Nodes", std::to_string(gltfModel.getElements<ux3d::gltf::Node>().size()));
-        addRow("Meshes", std::to_string(meshes.size()));
-        addRow("Primitives", std::to_string(primitiveCount));
-        addRow("Total Vertices", std::to_string(totalVertices));
-        addRow("Total Triangles", std::to_string(totalTriangles));
-
-        addRow("Materials", std::to_string(gltfModel.getElements<ux3d::gltf::Material>().size()));
-        addRow("Textures", std::to_string(gltfModel.getElements<ux3d::gltf::Texture>().size()));
-        addRow("Images", std::to_string(gltfModel.getElements<ux3d::gltf::Image>().size()));
-        addRow("Samplers", std::to_string(gltfModel.getElements<ux3d::gltf::Sampler>().size()));
-
-        addRow("Animations", std::to_string(gltfModel.getElements<ux3d::gltf::Animation>().size()));
-        addRow("Skins", std::to_string(gltfModel.getElements<ux3d::gltf::Skin>().size()));
-        addRow("Cameras", std::to_string(gltfModel.getElements<ux3d::gltf::Camera>().size()));
-        addRow("Lights", std::to_string(gltfModel.getElements<ux3d::gltf::Light>().size()));
-
-        addRow("Accessors", std::to_string(gltfModel.getElements<ux3d::gltf::Accessor>().size()));
-        addRow("Buffer Views", std::to_string(gltfModel.getElements<ux3d::gltf::BufferView>().size()));
-        addRow("Buffers", std::to_string(gltfModel.getElements<ux3d::gltf::Buffer>().size()));
+        for (const Row& row : snapshot.rows) {
+            addRow(row);
+        }
 
         ImGui::EndTable();
     }

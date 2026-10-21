@@ -11,6 +11,10 @@ public:
 
     // Custom Helpers
     virtual bool hasExtension(const GLchar* extensionName) = 0;
+    // Immutable per-context capabilities. Implementations may cache these
+    // after the first query; callers must not use them as mutable state.
+    virtual bool supportsAnisotropicFiltering() = 0;
+    virtual GLfloat maxTextureMaxAnisotropy() = 0;
 
     // Global:
     virtual GLenum getError() = 0;

@@ -35,13 +35,12 @@ void ux3d::renderer::gl::Sampler::commit(GL* gl, const UniformBinding& binding, 
         gl->texParameteri(target, GL_TEXTURE_WRAP_R, GLenum(defaultSamplerState.wrapR));
     }
 
-    // Also enable anisotropic filtering if available.
-    if (gl->hasExtension("GL_EXT_texture_filter_anisotropic")) {
-        GLfloat maxAnisotropy;
-        gl->getFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &maxAnisotropy);
-        gl->texParameterf(target, GL_TEXTURE_MAX_ANISOTROPY_EXT, maxAnisotropy);
+    // Also enable anisotropic filtering if available. The extension support and
+    // limit are immutable for the lifetime of the context.
+    if (gl->supportsAnisotropicFiltering()) {
+        gl->texParameterf(target, GL_TEXTURE_MAX_ANISOTROPY_EXT, gl->maxTextureMaxAnisotropy());
     }
 
     gl->uniform1i(binding.location, textureUnit);
-    checkGLError(gl, "Failed to commit sampler");
+    GLIDER_HOT_GL_CHECK(gl, "Failed to commit sampler");
 }

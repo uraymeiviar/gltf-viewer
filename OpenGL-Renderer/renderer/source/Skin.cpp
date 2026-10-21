@@ -92,10 +92,6 @@ const ux3d::core::Vector<ux3d::renderer::Mesh*>& ux3d::renderer::Skin::getMeshes
 
 void ux3d::renderer::Skin::computeJoints()
 {
-    auto width = math::ceil(math::sqrt(m_joints.size() * 8));
-    core::Vector<float> textureData;
-    textureData.resize(width * width * 4);
-
     if (m_root == nullptr) {
         return;
     }
@@ -104,6 +100,10 @@ void ux3d::renderer::Skin::computeJoints()
         core::debugLog(core::LogLevel::Error, "Joints and inverse bind matrices don't match in size (%d != %d). Something is wrong with the asset.", m_joints.size(), m_inverseBindMatrices.size());
         return;
     }
+
+    auto width = math::ceil(math::sqrt(m_joints.size() * 8));
+    m_jointTextureScratch.resize(width * width * 4);
+    auto& textureData = m_jointTextureScratch;
 
     math::mat4x4 worldInverse = math::inverse(m_root->getWorldTransform());
 

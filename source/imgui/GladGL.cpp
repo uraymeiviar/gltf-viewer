@@ -26,6 +26,26 @@ bool GladGL::hasExtension(const GLchar* extensionName)
     return extensionsCache->contains(std::string(extensionName));
 }
 
+bool GladGL::supportsAnisotropicFiltering()
+{
+    if (!m_anisotropicFilteringQueried) {
+        m_anisotropicFilteringSupported = hasExtension("GL_EXT_texture_filter_anisotropic");
+        m_anisotropicFilteringQueried = true;
+    }
+    return m_anisotropicFilteringSupported;
+}
+
+GLfloat GladGL::maxTextureMaxAnisotropy()
+{
+    if (!m_maxAnisotropyQueried) {
+        GLfloat value = 1.0f;
+        getFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &value);
+        m_maxAnisotropy = value;
+        m_maxAnisotropyQueried = true;
+    }
+    return m_maxAnisotropy;
+}
+
 // Global:
 
 GLenum GladGL::getError()

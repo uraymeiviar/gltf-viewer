@@ -20,6 +20,13 @@ find_package(OpenAL)
 add_library(OpenGL-Renderer ${UX3D_MODULE_LINKAGE} ${target_sources} ${target_headers})
 
 target_include_directories(OpenGL-Renderer PUBLIC "${target_includes}")
+
+# Per-command GL error checks are compiled out in Release by default. Debug
+# builds keep them, and this option restores them for release diagnostics.
+if (GLIDER_GL_DEBUG_CHECKS)
+    target_compile_definitions(OpenGL-Renderer PRIVATE GLIDER_GL_DEBUG_CHECKS=1)
+endif()
+
 target_link_libraries(OpenGL-Renderer PUBLIC Core)
 target_link_libraries(OpenGL-Renderer PUBLIC Math)
 target_link_libraries(OpenGL-Renderer PUBLIC Logging)

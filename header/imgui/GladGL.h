@@ -17,6 +17,8 @@ public:
 
     // Custom Helpers
     virtual bool hasExtension(const GLchar* extensionName) override;
+    virtual bool supportsAnisotropicFiltering() override;
+    virtual GLfloat maxTextureMaxAnisotropy() override;
 
     // Global:
     virtual GLenum getError() override;
@@ -156,6 +158,10 @@ public:
 
 private:
     std::optional<std::unordered_set<std::string>> extensionsCache;
+    bool m_anisotropicFilteringQueried = false;
+    bool m_anisotropicFilteringSupported = false;
+    bool m_maxAnisotropyQueried = false;
+    GLfloat m_maxAnisotropy = 1.0f;
 };
 
 } // namespace ux3d::renderer

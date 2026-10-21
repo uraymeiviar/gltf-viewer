@@ -27,8 +27,7 @@ void ux3d::renderer::CommandGenerator::update(const RendererScene& scene)
     m_lights.update(scene.lights);
     m_activeCamera = scene.camera;
     m_activeEnvironmentMap = scene.environmentMap;
-    m_commands.clear();
-    m_commands = m_commandMapping.update(scene.drawables);
+    m_commandMapping.update(scene.drawables, m_commands);
 
     emitCommands();
 }

@@ -6,6 +6,8 @@
 #include <tuple>
 #include <type_traits>
 #include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 #include "core/Algorithms.h"
 #include "core/Hash.h"
@@ -77,12 +79,19 @@ template <class KEY, class VALUE>
 template <typename KEY_WITHOUT_PTR>
 inline void Mapping<KEY, VALUE>::update(const core::LinkedList<KEY_WITHOUT_PTR>& gltfProperties)
 {
-    core::LinkedList<KEY> erasedProperties;
-    core::LinkedList<KEY> createdProperties;
-
+    // Keep the original map iteration order for destruction; the hash set only
+    // answers presence so update no longer performs a linear search per key.
+    std::vector<KEY> erasedProperties;
+    erasedProperties.reserve(map.size());
+    std::unordered_set<KEY, typename core::Hash<KEY>> alive;
+    alive.reserve(map.size());
     for (const auto& [key, _] : map) {
         erasedProperties.emplace_back(key);
+        alive.insert(key);
     }
+
+    std::vector<KEY> createdProperties;
+    createdProperties.reserve(gltfProperties.size());
 
     for (const auto& updateProperty : gltfProperties) {
         auto key = getKey(updateProperty);
@@ -102,19 +111,20 @@ inline void Mapping<KEY, VALUE>::update(const core::LinkedList<KEY_WITHOUT_PTR>&
             onUpdateMapping(mapIt->first, mapIt->second);
         }
 
-        // tick off objects that are still present in the gltf. Only objects that are not in the gltf any more will be left
-        // in erasedProperties
-        auto eraseIt = ux3d::core::find(erasedProperties.begin(), erasedProperties.end(), key);
-        if (eraseIt != erasedProperties.end()) {
-            erasedProperties.erase(eraseIt);
-        }
+        // Objects still present in the glTF are no longer candidates for removal.
+        alive.erase(key);
     }
 
     // destroy the render objects for gltf objects that are not part of the gltf any more
-    for (const auto erase : erasedProperties) {
-        auto erasePtr = map[erase];
-        onDestroyMapping(erase, erasePtr);
-        map.erase(erase);
+    for (const auto& erase : erasedProperties) {
+        if (!alive.contains(erase)) {
+            continue;
+        }
+        auto eraseIt = map.find(erase);
+        if (eraseIt != map.end()) {
+            onDestroyMapping(eraseIt->first, eraseIt->second);
+            map.erase(eraseIt);
+        }
     }
 
     // create the objects that were added to the gltf

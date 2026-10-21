@@ -19,7 +19,7 @@ void StatusBar::render(ux3d::gltf::Gltf& gltfModel,
                        bool& isSceneDirty,
                        bool& showLogger,
                        bool& showValidation,
-                       const std::vector<LogEntry>& consoleLogs,
+                       const LogSeverityCounts& logCounts,
                        AntiAliasing* antiAliasing)
 {
     const ImGuiViewport* mainViewport = ImGui::GetMainViewport();
@@ -57,12 +57,9 @@ void StatusBar::render(ux3d::gltf::Gltf& gltfModel,
         // -------------------------------------------------------------
         // Calculate Right Group Width (glTF Valid + Logger message count)
         // -------------------------------------------------------------
-        size_t errCount = 0, warnCount = 0, infoCount = 0;
-        for (const auto& e : consoleLogs) {
-            if (e.level == ux3d::core::LogLevel::Error || e.level == ux3d::core::LogLevel::Fatal) errCount++;
-            else if (e.level == ux3d::core::LogLevel::Warning) warnCount++;
-            else infoCount++;
-        }
+        size_t errCount = logCounts.errors;
+        size_t warnCount = logCounts.warnings;
+        size_t infoCount = logCounts.info;
 
         char errNumBuf[32], warnNumBuf[32], infoNumBuf[32];
         std::snprintf(errNumBuf, sizeof(errNumBuf), "%zu", errCount);

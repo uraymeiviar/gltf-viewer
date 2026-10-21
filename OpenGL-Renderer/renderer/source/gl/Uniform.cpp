@@ -95,7 +95,7 @@ void ux3d::renderer::gl::Uniform::commit(GL* gl, const UniformBinding& binding) 
         break;
     }
 
-    checkGLError(gl, "Failed to commit uniform");
+    GLIDER_HOT_GL_CHECK(gl, "Failed to commit uniform");
 
     return;
 }

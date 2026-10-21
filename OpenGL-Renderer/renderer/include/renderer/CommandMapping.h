@@ -24,7 +24,7 @@ using MeshMaterialTuple = std::tuple<Mesh*, Material*>;
 class CommandMapping {
 public:
     CommandMapping(gl::GL* gl, CommandGenerator& scene, gl::ShaderCache& shaderCache);
-    std::vector<CmdDesc> update(const core::LinkedList<MeshMaterialTuple>& drawables);
+    void update(const core::LinkedList<MeshMaterialTuple>& drawables, std::vector<CmdDesc>& commands);
 
 protected:
     std::optional<CmdDesc> makeCommand(MeshMaterialTuple meshMat);

@@ -21,6 +21,9 @@ public:
     /// Removes all definitions.
     void clear();
 
+    /// Reserves space for at least [capacity] definitions.
+    void reserve(size_t capacity);
+
     /// Print all definitions according to the C language: #define [name] [value].
     std::string toLines() const;
 
