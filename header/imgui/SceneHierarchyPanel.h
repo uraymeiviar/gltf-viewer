@@ -10,6 +10,7 @@
 #include "gltf/Gltf.h"
 #include <vector>
 #include <memory>
+#include <cstdint>
 
 namespace ux3d::renderer {
 class GltfRenderLayer;
@@ -33,6 +34,9 @@ public:
     static void requestScrollToSelectedNode();
     static void resetSearch();
     static void setSearchFilter(const std::string& filter);
+
+    static uint64_t rowModelBuildCount();
+    static void resetRowModelBuildCount();
 
     // Focused P2.2 warm-cache invalidation check used by the command-line
     // regression run. It calls the same cache implementation used by render().

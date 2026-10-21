@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build a Glider executable from the accepted baseline commit plus the UI scenario harness.
 
-The baseline sources are taken from git (default 009c062) and receive only the
+The baseline sources are taken from git (default fc6a89b) and receive only the
 harness hooks and probe lines that already exist in the working tree. The
 working-tree files are backed up, replaced, built, and restored (SHA-256
 verified) so the candidate sources are never altered.
@@ -17,8 +17,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 FILES = [
     "source/imgui/main.cpp",
-    "source/imgui/ResourcesPanel.cpp",
-    "source/imgui/ValidationPanel.cpp",
+    "source/imgui/SceneHierarchyPanel.cpp",
 ]
 
 
@@ -50,102 +49,95 @@ def eol(text: str) -> str:
 
 def baseline_main(base: str, candidate: str) -> str:
     base, candidate = eol(base), eol(candidate)
-    describe = slice_between(candidate, "static std::string describeUiSelection", "int main(")
-    config = slice_between(candidate, "    if (!uiScriptPath.empty()) {", "    double lastFrameTime")
-    end_hook = slice_between(candidate, "        if (uiScenario.active()) {\n            ux3d::imgui::UiScenarioFrame", "        glfwSwapBuffers(window);")
-    args_block = slice_between(candidate, '        } else if (arg == "--ui-script"', '        } else if (arg == "--isolated"')
-
-    text = base
-    text = replace_once(text, "int main(", describe + "int main(", "describe")
-    text = replace_once(text, '    std::string dumpFramePath = "";\n',
-                        '    std::string dumpFramePath = "";\n    std::string uiScriptPath;\n    std::string uiReportPath;\n    ux3d::imgui::UiScenario uiScenario;\n', "decl")
-    text = replace_once(text, '        } else if (arg == "--isolated" || arg == "--no-persist") {\n            s_isolatedState',
-                        args_block + '        } else if (arg == "--isolated" || arg == "--no-persist") {\n            s_isolatedState', "args")
-    text = replace_once(text, "    double lastFrameTime = glfwGetTime();", config + "    double lastFrameTime = glfwGetTime();", "config")
-    text = replace_once(text, "        ImGui::NewFrame();",
-                        "        if (uiScenario.active()) {\n            uiScenario.beginFrame(ImGui::GetIO());\n        }\n        ImGui::NewFrame();", "newframe")
-    text = replace_once(text, "        glfwSwapBuffers(window);", end_hook + "        glfwSwapBuffers(window);", "swap")
-    text = '#include "imgui/UiScenarioHarness.h"\n' + text
-
-    text = replace_once(
-        text, '                if (ImGui::Button(ICON_MDI_DELETE_OUTLINE " Clear")) {\n',
-        '                const bool loggerClearClicked = ImGui::Button(ICON_MDI_DELETE_OUTLINE " Clear");\n'
-        '                ux3d::imgui::UiProbe::item("log.clear", 0);\n'
-        '                if (loggerClearClicked) {\n', "clear")
-    text = replace_once(
-        text, '                if (ImGui::Button(ICON_MDI_CONTENT_COPY " Copy")) {\n',
-        '                const bool loggerCopyClicked = ImGui::Button(ICON_MDI_CONTENT_COPY " Copy");\n'
-        '                ux3d::imgui::UiProbe::item("log.copy", 0);\n'
-        '                if (loggerCopyClicked) {\n', "copy")
-    text = replace_once(
-        text, '                ImGui::Checkbox(ICON_MDI_WRAP " Wrap", &s_loggerWrap);\n',
-        '                ImGui::Checkbox(ICON_MDI_WRAP " Wrap", &s_loggerWrap);\n'
-        '                ux3d::imgui::UiProbe::item("log.wrap", 0);\n', "wrap")
-    text = replace_once(
-        text, '                ImGui::Checkbox("Auto-Scroll", &s_loggerAutoScroll);\n',
-        '                ImGui::Checkbox("Auto-Scroll", &s_loggerAutoScroll);\n'
-        '                ux3d::imgui::UiProbe::item("log.autoscroll", 0);\n', "autoscroll")
-    text = replace_once(
-        text, '                    ImGui::TextColored(entry.color, "%s", entry.text.c_str());\n',
-        '                    ImGui::TextColored(entry.color, "%s", entry.text.c_str());\n'
-        '                    ux3d::imgui::UiProbe::item("log.row", static_cast<long long>(&entry - s_consoleLogs.entries().data()));\n', "row")
-    return text
+    describe_base = slice_between(base, "static std::string describeUiSelection", "int main(")
+    describe_cand = slice_between(candidate, "static std::string describeUiSelection", "int main(")
+    return replace_once(base, describe_base, describe_cand, "describeUiSelection")
 
 
-def baseline_resources(base: str) -> str:
+def baseline_hierarchy(base: str) -> str:
     text = eol(base)
     text = replace_once(text, "#include <imgui.h>\n", '#include <imgui.h>\n#include "imgui/UiProbe.h"\n', "include")
     text = replace_once(
         text,
-        '    ImGui::InputTextWithHint("##ResourceSearch", ICON_MDI_MAGNIFY " Filter resources...", s_resourceSearchBuffer, sizeof(s_resourceSearchBuffer));\n',
-        '    ImGui::InputTextWithHint("##ResourceSearch", ICON_MDI_MAGNIFY " Filter resources...", s_resourceSearchBuffer, sizeof(s_resourceSearchBuffer));\n'
-        '    ux3d::imgui::UiProbe::item("res.search", 0);\n', "search")
-    text = replace_once(
-        text, "        if (ImGui::TreeNodeEx(cache.header.c_str(), catFlags)) {",
-        "        const bool categoryOpen = ImGui::TreeNodeEx(cache.header.c_str(), catFlags);\n"
-        "        ux3d::imgui::UiProbe::item(categoryTitle, -1);\n"
-        "        if (categoryOpen) {", "category")
-    row = '                ImGui::TreeNodeEx(reinterpret_cast<void*>(static_cast<intptr_t>(item.m_ID + idOffset)), flags, "%s", itemCache.label.c_str());\n'
-    text = replace_once(text, row, row + "                ux3d::imgui::UiProbe::item(categoryTitle, static_cast<long long>(item.m_ID));\n", "row")
-    text = replace_once(
-        text, "        if (ImGui::TreeNodeEx(variantCache.header.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {",
-        "        const bool variantsOpen = ImGui::TreeNodeEx(variantCache.header.c_str(), ImGuiTreeNodeFlags_DefaultOpen);\n"
-        '        ux3d::imgui::UiProbe::item("Material Variants", -1);\n'
-        "        if (variantsOpen) {", "variants")
-    var = '                ImGui::TreeNodeEx(reinterpret_cast<void*>(static_cast<intptr_t>(var.m_ID + 900000)), flags, "%s", variantItem.label.c_str());\n'
-    text = replace_once(text, var, var + '                ux3d::imgui::UiProbe::item("Material Variants", static_cast<long long>(var.m_ID));\n', "variant row")
-    return text
-
-
-def baseline_validation(base: str) -> str:
-    text = eol(base)
-    text = replace_once(text, "#include <imgui.h>\n", '#include <imgui.h>\n#include "imgui/UiProbe.h"\n', "include")
+        '    ImGui::InputTextWithHint("##HierarchySearch", ICON_MDI_MAGNIFY " Filter nodes...", s_searchBuffer, sizeof(s_searchBuffer));\n',
+        '    ImGui::InputTextWithHint("##HierarchySearch", ICON_MDI_MAGNIFY " Filter nodes...", s_searchBuffer, sizeof(s_searchBuffer));\n'
+        '    ux3d::imgui::UiProbe::item("hier.search", 0);\n', "search")
     text = replace_once(
         text,
-        '    ImGui::InputTextWithHint("##IssueSearch", "Search issues...", s_searchBuffer, sizeof(s_searchBuffer));\n',
-        '    ImGui::InputTextWithHint("##IssueSearch", "Search issues...", s_searchBuffer, sizeof(s_searchBuffer));\n'
-        '    ux3d::imgui::UiProbe::item("val.search", 0);\n', "search")
+        '        if (ImGui::TreeNodeEx(sceneLabel.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {\n',
+        '        const bool sceneOpen = ImGui::TreeNodeEx(sceneLabel.c_str(), ImGuiTreeNodeFlags_DefaultOpen);\n'
+        '        ux3d::imgui::UiProbe::item("hier.scene", static_cast<long long>(activeScene->m_ID));\n'
+        '        if (sceneOpen) {\n', "scene")
     text = replace_once(
         text,
-        "            if (ImGui::Selectable(rowSelectableId, isSelected, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick)) {",
-        "            const bool rowClicked = ImGui::Selectable(rowSelectableId, isSelected, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick);\n"
-        '            ux3d::imgui::UiProbe::item("val.row", rowIdx);\n'
-        "            if (rowClicked) {", "selectable")
-    text = replace_once(text, "            ImGui::TextUnformatted(issue.message.c_str());\n",
-                        "            ImGui::TextUnformatted(issue.message.c_str());\n"
-                        '            ux3d::imgui::UiProbe::item("val.msg", rowIdx);\n', "message")
-    text = replace_once(text, "                ImGui::BeginTooltip();\n",
-                        "                ImGui::BeginTooltip();\n"
-                        '                ux3d::imgui::UiProbe::mark("val.tooltip", rowIdx);\n', "tooltip")
-    text = replace_once(text, "        ImGui::EndTable();\n",
-                        '        ux3d::imgui::UiProbe::mark("val.selected", s_selectedIssueIndex);\n        ImGui::EndTable();\n', "endtable")
+        '    bool open = ImGui::TreeNodeEx(reinterpret_cast<void*>(static_cast<intptr_t>(node->m_ID)), flags, "%s", cached->label.c_str());\n',
+        '    bool open = ImGui::TreeNodeEx(reinterpret_cast<void*>(static_cast<intptr_t>(node->m_ID)), flags, "%s", cached->label.c_str());\n'
+        '    ux3d::imgui::UiProbe::item("hier.node", static_cast<long long>(node->m_ID));\n', "node")
+    text = replace_once(
+        text,
+        '            bool meshOpen = ImGui::TreeNodeEx(reinterpret_cast<void*>(static_cast<intptr_t>(mesh->m_ID + 2000000)), meshFlags, "%s", cached->meshLabel.c_str());\n',
+        '            bool meshOpen = ImGui::TreeNodeEx(reinterpret_cast<void*>(static_cast<intptr_t>(mesh->m_ID + 2000000)), meshFlags, "%s", cached->meshLabel.c_str());\n'
+        '            ux3d::imgui::UiProbe::item("hier.mesh", static_cast<long long>(mesh->m_ID));\n', "mesh")
+    text = replace_once(
+        text,
+        '                    bool primOpen = ImGui::TreeNodeEx(reinterpret_cast<void*>(static_cast<intptr_t>(mesh->m_ID * 1000 + primIdx + 3000000)), primFlags, "%s", primLabel.c_str());\n',
+        '                    bool primOpen = ImGui::TreeNodeEx(reinterpret_cast<void*>(static_cast<intptr_t>(mesh->m_ID * 1000 + primIdx + 3000000)), primFlags, "%s", primLabel.c_str());\n'
+        '                    ux3d::imgui::UiProbe::item("hier.primitive", static_cast<long long>(primIdx));\n', "prim")
+    text = replace_once(
+        text,
+        '                        ImGui::TreeNodeEx(reinterpret_cast<void*>(static_cast<intptr_t>(mat->m_ID + 4000000)), matFlags, "%s", matLabel.c_str());\n',
+        '                        ImGui::TreeNodeEx(reinterpret_cast<void*>(static_cast<intptr_t>(mat->m_ID + 4000000)), matFlags, "%s", matLabel.c_str());\n'
+        '                        ux3d::imgui::UiProbe::item("hier.material", static_cast<long long>(mat->m_ID));\n', "mat")
+    text = replace_once(
+        text,
+        '            ImGui::TreeNodeEx(reinterpret_cast<void*>(static_cast<intptr_t>(cam->m_ID + 5000000)), camFlags, "%s", cached->cameraLabel.c_str());\n',
+        '            ImGui::TreeNodeEx(reinterpret_cast<void*>(static_cast<intptr_t>(cam->m_ID + 5000000)), camFlags, "%s", cached->cameraLabel.c_str());\n'
+        '            ux3d::imgui::UiProbe::item("hier.camera", static_cast<long long>(cam->m_ID));\n', "cam")
+    text = replace_once(
+        text,
+        '            ImGui::TreeNodeEx(reinterpret_cast<void*>(static_cast<intptr_t>(light->m_ID + 6000000)), lightFlags, "%s", cached->lightLabel.c_str());\n',
+        '            ImGui::TreeNodeEx(reinterpret_cast<void*>(static_cast<intptr_t>(light->m_ID + 6000000)), lightFlags, "%s", cached->lightLabel.c_str());\n'
+        '            ux3d::imgui::UiProbe::item("hier.light", static_cast<long long>(light->m_ID));\n', "light")
+    text = replace_once(
+        text,
+        '        if (ImGui::TreeNodeEx(vpHeader.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {\n',
+        '        const bool vpHeaderOpen = ImGui::TreeNodeEx(vpHeader.c_str(), ImGuiTreeNodeFlags_DefaultOpen);\n'
+        '        ux3d::imgui::UiProbe::item("hier.viewports_header", 0);\n'
+        '        if (vpHeaderOpen) {\n', "vpHeader")
+    text = replace_once(
+        text,
+        '                ImGui::TreeNodeEx((void*)(intptr_t)vp->id, nodeFlags, "%s", itemLabel.c_str());\n',
+        '                ImGui::TreeNodeEx((void*)(intptr_t)vp->id, nodeFlags, "%s", itemLabel.c_str());\n'
+        '                ux3d::imgui::UiProbe::item("hier.viewport", static_cast<long long>(vp->id));\n', "vp")
+    text = replace_once(
+        text,
+        '    std::string btnLabel = std::string(icon) + "##eye_n_" + std::to_string(node->m_ID);\n'
+        '    if (ImGui::Button(btnLabel.c_str(), ImVec2(buttonWidth, ImGui::GetFrameHeight()))) {\n',
+        '    std::string btnLabel = std::string(icon) + "##eye_n_" + std::to_string(node->m_ID);\n'
+        '    const bool nodeEyeClicked = ImGui::Button(btnLabel.c_str(), ImVec2(buttonWidth, ImGui::GetFrameHeight()));\n'
+        '    ux3d::imgui::UiProbe::item("hier.node_eye", static_cast<long long>(node->m_ID));\n'
+        '    if (nodeEyeClicked) {\n', "node_eye")
+    text = replace_once(
+        text,
+        '    std::string btnLabel = std::string(icon) + "##eye_m_" + std::to_string(mesh->m_ID);\n'
+        '    if (ImGui::Button(btnLabel.c_str(), ImVec2(buttonWidth, ImGui::GetFrameHeight()))) {\n',
+        '    std::string btnLabel = std::string(icon) + "##eye_m_" + std::to_string(mesh->m_ID);\n'
+        '    const bool meshEyeClicked = ImGui::Button(btnLabel.c_str(), ImVec2(buttonWidth, ImGui::GetFrameHeight()));\n'
+        '    ux3d::imgui::UiProbe::item("hier.mesh_eye", static_cast<long long>(mesh->m_ID));\n'
+        '    if (meshEyeClicked) {\n', "mesh_eye")
+    text = replace_once(
+        text,
+        '    if (ImGui::Button(eyeBtnId.c_str(), ImVec2(buttonWidth, ImGui::GetFrameHeight()))) {\n',
+        '    const bool vpEyeClicked = ImGui::Button(eyeBtnId.c_str(), ImVec2(buttonWidth, ImGui::GetFrameHeight()));\n'
+        '    ux3d::imgui::UiProbe::item("hier.vp_eye", static_cast<long long>(vp->id));\n'
+        '    if (vpEyeClicked) {\n', "vp_eye")
     return text
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--commit", default="009c062")
-    parser.add_argument("--output", type=Path, default=REPO / "build" / "p2.3-baseline" / "Glider.exe")
+    parser.add_argument("--commit", default="fc6a89b")
+    parser.add_argument("--output", type=Path, default=REPO / "build" / "p2.4-baseline" / "Glider.exe")
     parser.add_argument("--backup", type=Path, required=True)
     parser.add_argument("--build-dir", type=Path, default=REPO / "build")
     args = parser.parse_args()
@@ -161,8 +153,7 @@ def main() -> int:
         sources = {
             "source/imgui/main.cpp": baseline_main(git_show(args.commit, "source/imgui/main.cpp"),
                                                    candidate["source/imgui/main.cpp"].decode("utf-8")),
-            "source/imgui/ResourcesPanel.cpp": baseline_resources(git_show(args.commit, "source/imgui/ResourcesPanel.cpp")),
-            "source/imgui/ValidationPanel.cpp": baseline_validation(git_show(args.commit, "source/imgui/ValidationPanel.cpp")),
+            "source/imgui/SceneHierarchyPanel.cpp": baseline_hierarchy(git_show(args.commit, "source/imgui/SceneHierarchyPanel.cpp")),
         }
         for rel, text in sources.items():
             (REPO / rel).write_text(text, encoding="utf-8", newline="\n")

@@ -575,7 +575,7 @@ void ResourcesPanel::render(ux3d::gltf::Gltf& gltfModel,
                 if (isSelected) flags |= ImGuiTreeNodeFlags_Selected;
 
                 ImGui::TreeNodeEx(reinterpret_cast<void*>(static_cast<intptr_t>(item.m_ID + idOffset)), flags, "%s", itemCache.label.c_str());
-                ux3d::imgui::UiProbe::item(categoryTitle, static_cast<long long>(item.m_ID));
+                ux3d::imgui::UiProbe::item(categoryTitle, static_cast<long long>(item.m_ID), false, isSelected);
                 if (ImGui::IsItemClicked()) {
                     selectFn(item);
                 }

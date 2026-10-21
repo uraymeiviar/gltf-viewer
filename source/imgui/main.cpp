@@ -1980,6 +1980,9 @@ static std::string describeUiSelection(const ux3d::imgui::SelectionState& select
     text += "|mesh=" + nameOf(selection.selectedMesh);
     text += "|material=" + nameOf(selection.selectedMaterial);
     text += "|variant=" + nameOf(selection.selectedVariant);
+    text += "|camera=" + nameOf(selection.selectedCamera);
+    text += "|light=" + nameOf(selection.selectedLight);
+    text += "|viewport=" + std::to_string(selection.selectedViewportId);
     return text;
 }
 
@@ -4336,6 +4339,7 @@ int main(int argc, char** argv)
             uiFrame.logErrors = s_consoleLogs.counts().errors;
             uiFrame.logWarnings = s_consoleLogs.counts().warnings;
             uiFrame.logInfo = s_consoleLogs.counts().info;
+            uiFrame.hierarchyBuildCount = ux3d::imgui::SceneHierarchyPanel::rowModelBuildCount();
             uiFrame.expectedCopyText = [&]() {
                 std::string expected;
                 for (const auto& entry : s_consoleLogs.entries()) {
@@ -4364,6 +4368,18 @@ int main(int argc, char** argv)
                 const bool loaded = loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, isSceneDirty);
                 updateWindowTitle(window, currentFilePath);
                 return loaded;
+            };
+            uiFrame.pickNode = [&](int id) {
+                for (const auto& node : gltfModel.getNodes()) {
+                    if (static_cast<int>(node.m_ID) == id) {
+                        auto* pickedNode = const_cast<ux3d::gltf::Node*>(&node);
+                        selection.selectNode(pickedNode);
+                        ux3d::imgui::SceneHierarchyPanel::requestScrollToSelectedNode();
+                        isSceneDirty = true;
+                        return true;
+                    }
+                }
+                return false;
             };
             uiScenario.endFrame(window, uiFrame);
             if (uiScenario.failed()) {

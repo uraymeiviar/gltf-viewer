@@ -65,85 +65,102 @@ struct SelectionState {
     ux3d::gltf::BufferView* selectedBufferView = nullptr;
     ux3d::gltf::Buffer* selectedBuffer = nullptr;
     uint32_t selectedViewportId = 0;
+    uint64_t revision = 0;
 
     void selectViewport(uint32_t vpId) {
         type = SelectionType::Viewport;
         selectedViewportId = vpId;
+        ++revision;
     }
 
     void selectNode(const ux3d::gltf::Node* node) {
         type = SelectionType::Node;
         selectedNode = const_cast<ux3d::gltf::Node*>(node);
+        ++revision;
     }
 
     void selectMaterial(ux3d::gltf::Material* mat) {
         type = SelectionType::Material;
         selectedMaterial = mat;
+        ++revision;
     }
 
     void selectMesh(ux3d::gltf::Mesh* mesh) {
         type = SelectionType::Mesh;
         selectedMesh = mesh;
+        ++revision;
     }
 
     void selectCamera(ux3d::gltf::Camera* cam) {
         type = SelectionType::Camera;
         selectedCamera = cam;
+        ++revision;
     }
 
     void selectLight(ux3d::gltf::Light* light) {
         type = SelectionType::Light;
         selectedLight = light;
+        ++revision;
     }
 
     void selectTexture(ux3d::gltf::Texture* tex) {
         type = SelectionType::Texture;
         selectedTexture = tex;
+        ++revision;
     }
 
     void selectImage(ux3d::gltf::Image* img) {
         type = SelectionType::Image;
         selectedImage = img;
+        ++revision;
     }
 
     void selectAnimation(ux3d::gltf::Animation* anim) {
         type = SelectionType::Animation;
         selectedAnimation = anim;
+        ++revision;
     }
 
     void selectSkin(ux3d::gltf::Skin* skin) {
         type = SelectionType::Skin;
         selectedSkin = skin;
+        ++revision;
     }
 
     void selectVariant(ux3d::gltf::MaterialVariant* variant) {
         type = SelectionType::MaterialVariant;
         selectedVariant = variant;
+        ++revision;
     }
 
     void selectScene(ux3d::gltf::Scene* scene) {
         type = SelectionType::Scene;
         selectedScene = scene;
+        ++revision;
     }
 
     void selectSampler(ux3d::gltf::Sampler* sampler) {
         type = SelectionType::Sampler;
         selectedSampler = sampler;
+        ++revision;
     }
 
     void selectAccessor(ux3d::gltf::Accessor* accessor) {
         type = SelectionType::Accessor;
         selectedAccessor = accessor;
+        ++revision;
     }
 
     void selectBufferView(ux3d::gltf::BufferView* bv) {
         type = SelectionType::BufferView;
         selectedBufferView = bv;
+        ++revision;
     }
 
     void selectBuffer(ux3d::gltf::Buffer* buf) {
         type = SelectionType::Buffer;
         selectedBuffer = buf;
+        ++revision;
     }
 };
 

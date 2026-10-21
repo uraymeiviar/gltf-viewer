@@ -15,6 +15,8 @@ struct UiProbeEntry {
     bool hovered = false;
     bool focused = false;
     bool isMark = false;
+    bool open = false;
+    bool selected = false;
 };
 
 // Records the screen rectangles of visible UI items so the in-process scenario
@@ -35,7 +37,7 @@ public:
     }
 
     // Call immediately after the item is submitted.
-    static void item(const char* tag, long long id)
+    static void item(const char* tag, long long id, bool open = false, bool selected = false)
     {
         if (!enabled()) {
             return;
@@ -45,7 +47,7 @@ public:
         if (!ImGui::IsRectVisible(itemMin, itemMax)) {
             return;
         }
-        entries().push_back({ tag, id, itemMin, itemMax, ImGui::IsItemHovered(), ImGui::IsItemFocused(), false });
+        entries().push_back({ tag, id, itemMin, itemMax, ImGui::IsItemHovered(), ImGui::IsItemFocused(), false, open, selected });
     }
 
     // For content drawn directly to the draw list without submitting an item.
@@ -54,7 +56,7 @@ public:
         if (!enabled() || !ImGui::IsRectVisible(rectMin, rectMax)) {
             return;
         }
-        entries().push_back({ tag, id, rectMin, rectMax, false, false, false });
+        entries().push_back({ tag, id, rectMin, rectMax, false, false, false, false });
     }
 
     static void mark(const char* tag, long long id)
@@ -62,7 +64,7 @@ public:
         if (!enabled()) {
             return;
         }
-        entries().push_back({ tag, id, ImVec2(), ImVec2(), false, false, true });
+        entries().push_back({ tag, id, ImVec2(), ImVec2(), false, false, true, false });
     }
 };
 

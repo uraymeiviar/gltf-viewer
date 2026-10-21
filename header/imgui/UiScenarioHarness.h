@@ -29,10 +29,12 @@ struct UiScenarioFrame {
     int logErrors = 0;
     int logWarnings = 0;
     int logInfo = 0;
+    uint64_t hierarchyBuildCount = 0;
     std::function<std::string()> expectedCopyText;
     std::function<void(const std::string&, int)> appendLog;
     std::function<bool(const std::string&)> saveFrame;
     std::function<bool(const std::string&)> loadModel;
+    std::function<bool(int)> pickNode;
 };
 
 // Drives real ImGui frames from a text script (--ui-script) by queueing mouse,
@@ -332,7 +334,7 @@ private:
             return;
         }
         const std::string& cmd = args[0];
-        if (args.size() > 1 && (cmd == "hoverp" || cmd == "clickp" || cmd == "dclickp" || cmd == "clickrow" || cmd == "dclickrow" || cmd == "hoverrow")) {
+        if (args.size() > 1 && (cmd == "hoverp" || cmd == "clickp" || cmd == "dclickp" || cmd == "clickarrowp" || cmd == "clickrow" || cmd == "dclickrow" || cmd == "hoverrow" || cmd == "clickarrowrow")) {
             std::replace(args[1].begin(), args[1].end(), '_', ' '); // tags such as "Material Variants" are written with underscores
         }
         try {
@@ -370,8 +372,14 @@ private:
             queueMove(center(*entry));
             if (cmd == "clickp") queueClicks(1);
             if (cmd == "dclickp") queueClicks(2);
-        } else if (cmd == "clickrow" || cmd == "dclickrow" || cmd == "hoverrow") {
-            // clickrow|dclickrow|hoverrow <tag> <k> <window>: k-th visible row (by y) of that tag, negative counts from the end.
+        } else if (cmd == "clickarrowp") {
+            if (!need(3)) return;
+            const UiProbeEntry* entry = findProbe(args[1], std::stoll(args[2]));
+            if (entry == nullptr) { fail("probe not visible: " + line); return; }
+            queueMove(ImVec2(entry->min.x + 8.0f, (entry->min.y + entry->max.y) * 0.5f));
+            queueClicks(1);
+        } else if (cmd == "clickrow" || cmd == "dclickrow" || cmd == "hoverrow" || cmd == "clickarrowrow") {
+            // clickrow|dclickrow|hoverrow|clickarrowrow <tag> <k> <window>: k-th visible row (by y) of that tag, negative counts from the end.
             if (!need(4)) return;
             std::vector<const UiProbeEntry*> rows;
             for (const UiProbeEntry& entry : UiProbe::entries()) {
@@ -381,8 +389,14 @@ private:
             int k = std::stoi(args[2]);
             if (k < 0) k += static_cast<int>(rows.size());
             if (k < 0 || k >= static_cast<int>(rows.size())) { fail("no such visible row: " + line); return; }
-            queueMove(clickPoint(*rows[static_cast<size_t>(k)], findWindow(args[3])));
-            if (cmd != "hoverrow") queueClicks(cmd == "dclickrow" ? 2 : 1);
+            if (cmd == "clickarrowrow") {
+                queueMove(ImVec2(rows[static_cast<size_t>(k)]->min.x + 8.0f,
+                                 (rows[static_cast<size_t>(k)]->min.y + rows[static_cast<size_t>(k)]->max.y) * 0.5f));
+                queueClicks(1);
+            } else {
+                queueMove(clickPoint(*rows[static_cast<size_t>(k)], findWindow(args[3])));
+                if (cmd != "hoverrow") queueClicks(cmd == "dclickrow" ? 2 : 1);
+            }
         } else if (cmd == "click" || cmd == "dclick") {
             if (!need(3)) return;
             queueMove(ImVec2(std::stof(args[1]), std::stof(args[2])));
@@ -428,6 +442,12 @@ private:
             // reload <path>: goes through the application's loadGltfModel, as File > Open does.
             if (need(2)) {
                 if (!frame.loadModel || !frame.loadModel(args[1])) fail("model load failed: " + args[1]);
+                m_waitFrames = kSettleFrames;
+            }
+        } else if (cmd == "picknode") {
+            // picknode <id>: viewport picking simulation invoking selection.selectNode and requestScrollToSelectedNode
+            if (need(2)) {
+                if (!frame.pickNode || !frame.pickNode(std::stoi(args[1]))) fail("picknode failed: " + line);
                 m_waitFrames = kSettleFrames;
             }
         } else if (cmd == "snap") {
@@ -519,12 +539,13 @@ private:
             << ",\"hoveredWindow\":\"" << escape(ImGui::GetCurrentContext()->HoveredWindow ? ImGui::GetCurrentContext()->HoveredWindow->Name : "") << "\""
             << ",\"selection\":\"" << escape(frame.selection) << "\""
             << ",\"camera\":\"" << escape(frame.camera) << "\""
+            << ",\"hierarchyBuildCount\":" << frame.hierarchyBuildCount
             << ",\"logger\":{\"entries\":" << frame.logEntries << ",\"errors\":" << frame.logErrors
             << ",\"warnings\":" << frame.logWarnings << ",\"info\":" << frame.logInfo << "}";
 
         out << ",\"windows\":{";
         bool firstWindow = true;
-        for (const char* name : { "LoggerScrollArea", "ResourcesTreeScrollRegion", "IssuesTable" }) {
+        for (const char* name : { "LoggerScrollArea", "ResourcesTreeScrollRegion", "IssuesTable", "HierarchyTreeScrollRegion" }) {
             ImGuiWindow* tracked = findWindow(name);
             if (tracked == nullptr) {
                 continue;
@@ -558,7 +579,9 @@ private:
                 << ",\"x0\":" << num(entry.min.x) << ",\"y0\":" << num(entry.min.y)
                 << ",\"x1\":" << num(entry.max.x) << ",\"y1\":" << num(entry.max.y)
                 << ",\"hovered\":" << (entry.hovered ? "true" : "false")
-                << ",\"focused\":" << (entry.focused ? "true" : "false") << "}";
+                << ",\"focused\":" << (entry.focused ? "true" : "false")
+                << ",\"open\":" << (entry.open ? "true" : "false")
+                << ",\"selected\":" << (entry.selected ? "true" : "false") << "}";
             firstProbe = false;
         }
         out << "],\"marks\":[" << marks.str() << "]";

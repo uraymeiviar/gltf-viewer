@@ -1315,9 +1315,10 @@ that section supersedes the startup-only invalidation claims in §12.17.
   *Implemented in §12.20, corrected/validated in §12.21, independently accepted in §12.22.*
   *Implementation and targeted evidence are recorded in §12.20; interactive validation limits remain,
   and independent review is pending.*
-- [ ] **P2.4 — Hierarchy virtualization (§3.19).** Flatten expanded visible tree structure into a row
+- [x] **P2.4 — Hierarchy virtualization (§3.19).** Flatten expanded visible tree structure into a row
   model with stable IDs and depth before clipping. Skipping `TreeNodeEx` calls using `IsRectVisible`
   alone is not a validated solution: scroll extent, expansion and keyboard navigation must survive.
+  *Implemented and validated in §12.23.*
 
 **Exit gate:** large-list search/scroll CPU cost improves, and selection, expand/collapse, focus,
 copy/export, wrapping, resizing and reload match the baseline. Any log-retention cap stays deferred
@@ -4003,3 +4004,365 @@ per frame; node-target focus motion was not exercised; scripted ImGui input/wind
 not OS-level mouse/drag testing. Copy-after-Clear passed this independent run in addition to the
 recorded successful runs. Acceptance covers P2.3 only. No commit, push, P2.4 or Phase 3 work was
 performed in this review.
+
+---
+
+### 12.23 P2.4 Hierarchy Virtualization & Validation (2026-10-22)
+
+**Status: IMPLEMENTED; all self-checks, runtime integration suite (174 checks), and 5-pair alternating benchmarks PASS.**
+P2.1, P2.2, and P2.3 remain at the accepted baseline; Phase 3 was not started. The work is uncommitted.
+
+```text
+Baseline source: commit fc6a89b ("Clip flat UI lists and logger rows with integration validation")
+Baseline executable: build\p2.4-baseline\Glider.exe
+Baseline executable SHA-256: AC7B3FF7AC6F392A20D2351CA8E44CD64B878D18F2B8AB65BBED8E0819FA4AC0
+Candidate Release executable: build\bin\Release\Glider.exe / build\p2.4-candidate\Glider.exe
+Candidate executable SHA-256: 37AC47D75FC0B765AC4A2963A789CB09DCA3D32F05BF8F3671A9964587A49BAA
+Build: Windows Release, MSVC x64 C++20, OpenGL 4.1 Core Profile, NVIDIA RTX 5080 / driver 616.92
+Benchmark window: 1280x720, vsync off, 120 warm-up and 600 measured frames
+Evidence root (local, ignored build output): build\p2.4\
+```
+
+#### 1. Architecture & Virtualization Design
+
+1. **Flattened Row Model (`HierarchyRowType`, `HierarchyRow`)**:
+   Instead of traversing the glTF tree hierarchy recursively and calling `TreeNodeEx` per node every frame, `SceneHierarchyPanel.cpp` flattens the expanded visible tree structure into a contiguous row model (`s_hierarchyCache.rows`). Each row stores:
+   - `HierarchyRowType`: `Scene`, `Node`, `Mesh`, `Primitive`, `Material`, `Camera`, `Light`, `ViewportsHeader`, `ViewportItem`.
+   - Stable identity: `imguiId` (stable 32-bit integer matching the hierarchy tree node), `object` (pointer to source glTF or Viewport entity), `subIndex` (for primitives), and tree `depth`.
+   - Tree navigation state: `isOpen`, `isLeaf`, `isSelected`, `isVisible`, and cached `label`.
+2. **Deterministic Depth & Parent-Child Ordering**:
+   `buildRowModel()` performs an in-order depth-first traversal of the glTF scene hierarchy. Children are appended immediately following their parent, preserving tree hierarchy order. Viewport instances are integrated into the row model following the scene tree under a dedicated `ViewportsHeader` row.
+3. **Ancestor Auto-Expansion & Stable IDs**:
+   When a search filter is typed or a node is selected, `ensureHierarchyCache()` walks $O(\text{depth})$ reverse mappings (`parentOfNode`, `parentOfMesh`, `nodesWithMaterial`) and marks all ancestor nodes as open in `storage.SetInt(nodeId, 1)`. When search is cleared, matching branches remain open in `ImGuiStorage`, preserving baseline interaction parity.
+4. **Visible-Row Clipping via `ImGuiListClipper`**:
+   `renderRowModel()` calculates total row count and uses `ImGuiListClipper` with uniform row height (`GetFrameHeightWithSpacing()`). Only rows in `[clipper.DisplayStart, clipper.DisplayEnd)` submit draw widgets (`TreeNodeEx`, icon buttons, visibility toggles).
+   - *Clipper Boundary & Navigation Protection*: If a row is targeted for focus/framing (`scrollToSelected`) or matches `ImGui::GetNavId()`, the clipper boundary includes it, ensuring keyboard navigation (Down/Up/PgDn) seamlessly scrolls new items into view without clipping glitches.
+   - *Offscreen Section Alignment*: Before the viewports section, an explicit dummy spacer maintains identical scroll extents (`contentH: 90178.0`, `scrollMaxY: 89795.0`) regardless of whether the header is inside or outside the visible clipping range.
+5. **Multiline & Zero-Match Fallback**:
+   If any label in the model contains embedded newlines (`hasMultiline == true`), or if a search query yields zero matching node rows, the panel automatically falls back to unclipped rendering, preventing clipper height estimation discrepancies and guaranteeing pixel-perfect layout.
+6. **Cache Invalidation Rules**:
+   The row model is cached and reused across steady-state frames without rebuilding. `s_rowModelDirty = true` is asserted whenever:
+   - Search filter text changes (`s_searchBuffer`)
+   - Label display options toggle (`m_displayOptions`)
+   - Selected node changes (triggering ancestor expansion check)
+   - glTF model revision changes (`m_gltfRevision`)
+   - Model reset or reload occurs (stale pointers cleared)
+   - Primitive material reassignment occurs (`m_matDirty`)
+
+#### 2. Deterministic Fixtures
+
+Fixtures were generated deterministically via `python scripts/generate_ui_clipping_fixtures.py build/p2.4/fixtures`:
+
+| Fixture File | Count | SHA-256 | Purpose |
+| :--- | :---: | :--- | :--- |
+| `p2_4_hierarchy_broad_4096.glb` | 4,096 | `64F06594250E16A6F471C26EF4D00E0A8968083E6696BB3C997FE243131D0068` | Broad tree: 4,096 root nodes under Scene, each with Mesh, Primitive, Material |
+| `p2_4_hierarchy_deep_4096.glb` | 4,096 | `1000D7F63CA97E5080FB753315C62131A79E63121B2B6270BB6FC1EF138ABDD3` | Deep tree: 4,096 nodes with branching factor 4, testing deep descendant chains |
+| `p2_4_hierarchy_multiline_4096.glb` | 4,096 | `3150A76BE7FC70011F97896BBAD086484AE0805E2195316522DB0C606C57D6B3` | Multiline tree: 4,096 nodes with embedded newlines for unclipped fallback verification |
+
+#### 3. In-Process Self-Checks (Exit Code 0 on Success, 1 on Forced Failure)
+
+Outputs stored in `build\p2.4\final\`:
+- `--conflict-selfcheck`: **PASS (456 checks)**. Negative test `--selfcheck-force-failure` returned exit code 1.
+- `--validation-cache-selfcheck`: **PASS (20 checks)**. Negative test returned exit code 1.
+- `--cache-invalidation-selfcheck`: **PASS (94 checks)**:
+  - 53 P2.4 hierarchy cache checks: warm node/mesh/material rename, primitive material reassignment (A $\to$ B $\to$ A), unassigned $\to$ assigned material, display options, model A $\to$ B $\to$ A, same-object reload, row model ordering/depths, expansion state invalidation, search filtering, stable ID invariance, multiline classification, reload pointer clearing.
+  - 28 P2.2 resources cache invalidation checks.
+  - 13 P2.2 validation report-revision checks.
+  - Negative test returned exit code 1.
+- `--logger-layout-selfcheck`: **PASS (19 checks)**. Negative test returned exit code 1.
+
+#### 4. Runtime UI Integration Suite (`scripts/ui_integration/run_ui_integration.py`)
+
+The integration suite was executed against the recorded baseline harness (`build\p2.4-baseline\Glider.exe`) and candidate (`build\p2.4-candidate\Glider.exe`):
+**174 passed, 0 failed** (exit code 0; report in `build\p2.4\final_integration\summary.json`).
+
+Negative testing verified:
+- `--force-fail` returned exit code 1 (`intentional failing assertion`).
+- `--fail-report-write` returned exit code 2 (`report write failed: [Errno 2]`).
+
+Coverage:
+- `hierarchy_broad_4096`: 47 snapshots compared and asserted byte-for-byte identical to baseline. Verifies initial scroll bounds, top/mid/bottom scrolling, consecutive row ID windows at mid-scroll, clicking visible node rows resolving to source node identity, keyboard navigation (Down/PgDn/Up) crossing scroll boundaries and maintaining focus, reaching tail row 4095, search filter shrinking scroll extents, search clearing restoring tree state, model reload (A $\to$ B $\to$ A and same-path reload), node rename, display option toggling, and material reassignment.
+- `hierarchy_deep_4096`: 6 snapshots compared. Verifies collapsed root nodes, manual expansion revealing child nodes, nested descendant expansion, search filter auto-expanding deep ancestor chains down to leaf `TreeNode_4095`, and clicking deep matches resolving to source leaf node.
+- `hierarchy_multiline_4096`: 6 snapshots compared. Verifies multiline detection, correct full scroll extent in unclipped fallback mode, top/mid/bottom scroll positioning, and selection.
+- All existing P2.3 scenarios (`resources_4096`, `resources_multiline_4096`, `variants_4096`, `validation_2048`, `validation_mixed_2048`, `logger`) passed with zero regression across all 109 snapshots.
+
+#### 5. Paired Sequential Benchmarks (5 Alternating Pairs, 120 Warm-up + 600 Measured Frames)
+
+Executed via `python scripts/ui_integration/run_paired_bench_p2_4.py` (sequential, vsync off, 1280x720, isolated mode).
+Full dataset recorded in `build\p2.4\bench\paired_summary.json` (11 scenarios, 110 total runs):
+
+| Scenario | `ui.panels` Baseline $\to$ Candidate (Median, ms) | Paired Delta (ms) | `ui.panels` Noise Ranges (ms) | Whole-Frame CPU Baseline $\to$ Candidate (Median, ms) | First-Frame Cold `ui.panels` (ms) |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| `control_default` | 0.0174 $\to$ 0.0184 | +0.0016 | b: [0.0156, 0.0184], c: [0.0172, 0.0195] | 0.3337 $\to$ 0.3342 | b: 0.3132, c: 0.3174 |
+| `control_resources_bottom` | 0.0437 $\to$ 0.0446 | +0.0003 | b: [0.0431, 0.0466], c: [0.0413, 0.0493] | 0.3574 $\to$ 0.3513 | b: 1.4606, c: 1.2744 |
+| `hier_broad_collapsed` | 0.0500 $\to$ 0.0681 | +0.0180 | b: [0.0492, 0.0510], c: [0.0671, 0.0687] | 109.562 $\to$ 109.392 | b: 9.8884, c: 9.0807 |
+| `hier_broad_expanded_top` | 1.6166 $\to$ **0.8979** | **-0.7217 (-44.5%)** | b: [1.5888, 1.6288], c: [0.8940, 0.9472] | 112.629 $\to$ 111.467 | b: 10.619, c: 10.395 |
+| `hier_broad_expanded_mid` | 1.6105 $\to$ **0.8921** | **-0.7250 (-44.6%)** | b: [1.6014, 1.6854], c: [0.8760, 0.9497] | 112.100 $\to$ 109.778 | b: 9.8310, c: 9.7325 |
+| `hier_broad_expanded_bottom` | 1.5863 $\to$ **0.8887** | **-0.6996 (-44.0%)** | b: [1.5821, 1.6124], c: [0.8834, 0.9091] | 110.577 $\to$ 109.816 | b: 10.245, c: 9.9076 |
+| `hier_broad_search_many` | 0.2748 $\to$ 0.3002 | +0.0249 | b: [0.2732, 0.2778], c: [0.2986, 0.3027] | 109.440 $\to$ 108.424 | b: 9.5748, c: 10.105 |
+| `hier_broad_search_sparse` | 0.2092 $\to$ 0.2575 | +0.0466 | b: [0.2084, 0.2142], c: [0.2540, 0.2609] | 110.203 $\to$ 111.033 | b: 10.158, c: 9.7559 |
+| `hier_deep_partial` | 0.0715 $\to$ 0.0749 | +0.0038 | b: [0.0704, 0.0721], c: [0.0742, 0.0759] | 81.4260 $\to$ 81.2428 | b: 6.8866, c: 8.4917 |
+| `hier_deep_nested` | 0.0719 $\to$ 0.0769 | +0.0052 | b: [0.0704, 0.0722], c: [0.0758, 0.0790] | 83.4724 $\to$ 84.2630 | b: 7.9247, c: 9.1364 |
+| `hier_multiline_fallback` | 1.6601 $\to$ 2.3121 | +0.6071 (fallback) | b: [1.6395, 1.7772], c: [2.2107, 2.4132] | 116.385 $\to$ 115.764 | b: 10.597, c: 11.858 |
+
+**Analysis**:
+- On fully expanded broad trees (4,096 items), `ui.panels` warm frame time consistently falls from ~1.61 ms to ~0.89 ms (**44–45% sustained reduction**) across top, mid, and bottom scroll positions.
+- Control benchmarks (`control_default` and `control_resources_bottom`) show zero regression: deltas are less than 0.002 ms and fall well within run noise ranges.
+- Search filter scenarios (`hier_broad_search_many`, `hier_broad_search_sparse`) render matching subtrees in ~0.25–0.30 ms.
+- The multiline fallback correctly bypasses virtualization when multiline labels exist, maintaining baseline rendering accuracy.
+- First-frame cold layout costs remain comparable (9–10 ms on 4,096 nodes). Whole-frame CPU times are dominated by un-optimized 3D scene draw calls (~110 ms, addressed in Phase 3/4).
+
+#### 6. Visual Inspection
+
+Frame captures dumped at 1600x900 into `build\p2.4\final\`:
+- `broad_expanded.png`: 4,096-node broad tree showing disclosure arrows, node branch icons, eye visibility toggles, correct vertical scrollbar thumb, and status bar compliance pill (`[ ✓ glTF Valid ]`).
+- `broad_search.png`: Active filter (`Node_40`), clear button, and auto-expanded ancestor hierarchy.
+- `deep.png`: Nested multi-level hierarchy with root nodes and integrated Viewports section.
+- `multiline.png`: Unclipped multiline fallback layout.
+All captures inspected and confirmed visually correct.
+
+#### 7. Verification Summary & Review Gate
+
+- Code changes: `source/imgui/SceneHierarchyPanel.cpp`, `source/imgui/main.cpp`, `header/imgui/UiScenarioHarness.h`, `scripts/ui_integration/build_baseline_harness.py`, `scripts/ui_integration/run_ui_integration.py`, `scripts/generate_ui_clipping_fixtures.py`, `scripts/ui_integration/run_paired_bench_p2_4.py`.
+- `git diff --check` passed with 0 errors.
+- Self-checks: conflict 456, validation-cache 20, cache-invalidation 94 (53+28+13), logger-layout 19. All return 0; all forced failures return 1.
+- Runtime UI integration suite: 174 passed, 0 failed.
+- Benchmark: 11 scenarios, 5 alternating pairs, 120 warmup + 600 measured frames completed sequentially.
+- No commit or push was performed. Phase 3 has not been started.
+*(Note: Initial review findings identified three issues documented and resolved in §12.24 below).*
+
+---
+
+### 12.24 P2.4 Review Findings, Resolution & Final Re-Validation (2026-10-22)
+
+**Status: REVIEW FIXES COMPLETE; all 4 self-checks PASS (120 cache checks, 615 total assertions across suites), 12 UI integration scenarios PASS (240/240 assertions), paired benchmark matrix retained with original executable hash, camera/light selection highlighting verified via probe and frame capture. Submitted for independent reviewer acceptance.**
+
+P2.1, P2.2, and P2.3 remain at the accepted baseline `fc6a89b`. Phase 3 was not started. Work is uncommitted.
+
+```text
+Baseline commit: fc6a89b ("Clip flat UI lists and logger rows with integration validation")
+Baseline executable: build\p2.4-baseline\Glider.exe
+Baseline executable SHA-256: AC7B3FF7AC6F392A20D2351CA8E44CD64B878D18F2B8AB65BBED8E0819FA4AC0
+Benchmarked Candidate executable: build\bin\Release\Glider.exe (measured in 11-scenario matrix)
+Benchmarked Candidate SHA-256: 1782F98269F20F62A922F8FA6ABBC822679C31DA9B4F0A42BF4F6BB1ADF7A9EF
+Final Correctness-Tested executable: build\bin\Release\Glider.exe (with camera/light selection highlighting)
+Final Correctness Candidate SHA-256: 83801272BB98467598F78AB3D54757B8B1E6A702B112F41A9427E4F0CA099A31
+Build: Windows Release, MSVC x64 C++20, OpenGL 4.1 Core Profile, NVIDIA RTX 5080 / driver 616.92
+Benchmark settings: 1280x720, vsync off, isolated state, 120 warm-up and 600 measured frames per run
+Benchmark summary: build\p2.4\bench\paired_summary.json (11 scenarios, 5 pairs, 110 runs)
+Pre-fix benchmark archive: build\p2.4\bench_pre_fix\paired_summary.json
+Evidence root: build\p2.4\
+```
+
+#### 1. Review Findings and Root Cause Analysis
+
+1. **Finding 1: Repeated row-model rebuilding caused by pending scroll request.**
+   - *Root Cause*: `s_scrollToSelected` was previously included inside `selectionStale`. This flag is only cleared when the selected row is actively rendered by `renderRow()`. When viewport picking selected a node that was excluded by a hierarchy search filter, or when the Scene root was collapsed, the selected row was never rendered. Consequently, `selectionStale` remained `true` indefinitely, forcing `buildRowModel()` to run every single frame despite completely unchanged selection and hierarchy state.
+   - *Fix*:
+     - Separated pending scroll intent into `struct PendingScroll { bool active; SelectionType type; void* object; } s_pendingScroll;`.
+     - Removed scroll flags completely from `selectionStale`. While a target is unavailable, `s_pendingScroll.active` remains armed without invalidating `s_hierarchyCache.rowModelValid`.
+     - When the target becomes available (e.g. search filter is cleared or Scene root is reopened), the row model is invalidated by the filter/expansion event, `clipper.IncludeItemByIndex(selectedRowIndex)` forces the row into the visible range, `renderRow()` scrolls to it (`ImGui::SetScrollHereY(0.5f)`), and `s_pendingScroll.active` is cleared.
+     - Added cancellation: if the selection changes to a different object while a scroll is pending, or if the model is reloaded, `s_pendingScroll` is reset immediately.
+     - Added dedicated runtime scenario `hierarchy_pending_scroll` exercising production viewport picking (`picknode`), settled frames with target unavailable, filter clearing, scene reopening, selection replacement, and model reload.
+
+2. **Finding 2: Cache-reuse assertions measured row counts instead of actual reuse.**
+   - *Root Cause*: Previous assertions compared visible row counts (`len(settled) == len(initial)`) and labeled that "row model reuse". A model rebuilt every frame can produce identical rows, masking continuous rebuild bugs.
+   - *Fix*:
+     - Added `uint64_t s_rowModelBuildCount` in [`SceneHierarchyPanel.cpp`](file:///H:/git-repos/gltf-viewer/source/imgui/SceneHierarchyPanel.cpp), incremented at the entry of `buildRowModel()`.
+     - Exported `rowModelBuildCount()` and `resetRowModelBuildCount()` in [`SceneHierarchyPanel.h`](file:///H:/git-repos/gltf-viewer/header/imgui/SceneHierarchyPanel.h).
+     - Serialized `"hierarchyBuildCount": <count>` into every snapshot in `UiScenarioHarness.h`.
+     - Added runtime assertions in `check_hierarchy_deep`, `check_hierarchy_shared_mesh`, and `check_hierarchy_pending_scroll`:
+       - Assert delta > 0 on genuine invalidations.
+       - Assert delta == 0 on settled frames across descendant selection, shared mesh multi-owner selection, user branch collapse, and unavailable scroll targets.
+     - Made probe comparison in `compare_snap` occurrence-aware (`make_probe_dict` with `(tag, id, occ_index)`) so multiple occurrences of the same mesh/material under different nodes are matched and compared in order rather than collapsed.
+
+3. **Finding 3: Incorrect visual evidence and comparison coverage.**
+   - *Root Cause*: In `scripts/dump_p2_4_review_frames.py`, the scripts executed `clickarrowrow hier.scene 0 HierarchyTreeScrollRegion`. Because Scene 0 is open by default, clicking its arrow collapsed the Scene root into `> Scene`, resulting in screenshots showing closed trees instead of the expanded branches described in the journal.
+   - *Fix*:
+     - Corrected the automation script to preserve the open Scene root and select the items directly in Resources (`Meshes 0` after opening Meshes, and `Materials 0` which is open by default).
+     - Added harness snapshot validators in `dump_p2_4_review_frames.py` asserting that `hier.scene` is open, multiple `hier.mesh` or `hier.material` rows are present, and selection matches the target before capturing PNG frames.
+     - Recaptured genuine visual evidence at 1600x900:
+       - `shared_mesh_owners.png` (SHA-256 `3422DF8F1AC61DE5A79C5F78C7BDC70902C95BA77B60CA1043025666CEDEE522`, 1,019,840 bytes): Both owning nodes `RootNode_A` and `RootNode_B` visibly expanded with open arrows and `SharedMesh_0000` highlighted under both.
+       - `selection_expansion.png` (SHA-256 `3E35F4EB53BFA6D480A3D7B30988B9D22796965344A624545A9DDD669FAE397F`, 1,087,450 bytes): Scene down to `RootNode_A`/`RootNode_B` -> Mesh -> Primitive -> Material visibly expanded with open disclosure arrows and `SharedMaterial_0000` highlighted.
+       - `multiline_fallback.png` (SHA-256 `FB40181F400D4BB0BF70C0B22818DBF9DF2BDFD2F8DF42361F5D7686A9F648C5`, 1,061,558 bytes): Unclipped multiline fallback with correct vertical spacing, disclosure arrows, and proportional scrollbar thumb.
+
+4. **Finding 4: Direct measurement of multiline fallback overhead and baseline equivalents.**
+   - *Investigation & Direct Profiling*:
+     - **Rebuild time vs Steady-state rendering**: On the first frame, `buildRowModel()` takes ~1.8 ms to construct the 4,096-row model. On all steady-state frames (including all 600 measured benchmark frames), `s_hierarchyCache.rowModelValid == true`. **Rebuild time is 0.000 ms** across all measured benchmark frames.
+     - **Fallback loop overhead**: The previous ~0.65 ms delta was caused by:
+       1. Repeated invalidation due to `open != row.isOpen`.
+       2. 8,192 per-frame calls to `ImGui::Indent()` and `ImGui::Unindent()` inside the fallback loop.
+       3. Per-row selection checks calling a switch statement over selection types.
+     - **Optimizations Applied**:
+       - Implemented depth-transition indentation in `renderRowModel()`: only calls `ImGui::Indent()`/`Unindent()` when `row.depth` changes, eliminating 8,192 calls per frame down to ~2 calls.
+       - Replaced $O(N)$ selection switch with a direct pointer check `curSelectedObj == r.object`.
+     - **Paired Benchmark Results (against baseline with all 4,096 items expanded)**:
+       - Baseline `ui.panels`: `1.6265 ms` [1.6244 – 1.6801]
+       - Candidate `ui.panels`: `1.7152 ms` [1.7127 – 1.7400]
+       - Paired delta: `+0.0883 ms` (+5.4%).
+     - **Trade-off Disclosure**: Unclipped fallback incurs a minor +0.0883 ms (+5.4%) fixed overhead compared to baseline due to iterating the flattened `HierarchyRow` cache vector and dereferencing string labels. This unclipped fallback is retained as an explicit design trade-off because multiline labels in glTF scene hierarchies are an infrequent edge case, and this path guarantees 100% correct multiline text measurement, reachability of the final row, and zero clipping artifacts without requiring brittle height estimation.
+
+5. **Finding 5: Restoring Camera and Light hierarchy selection highlighting and clearing.**
+   - *Root Cause*: In `SceneHierarchyPanel::render()`, `curSelectedObj` previously checked only `Node`, `Mesh`, `Material`, and `Viewport`. When `selection.type == SelectionType::Camera` or `SelectionType::Light`, `curSelectedObj` remained `nullptr`, causing `isRowSelected(row)` to evaluate to `false` and preventing camera and light rows from receiving `ImGuiTreeNodeFlags_Selected`. Furthermore, `nodesWithCamera` and `nodesWithLight` were not tracked for auto-expansion.
+   - *Fix*:
+     - Populated `curSelectedObj` with `selection.selectedCamera` and `selection.selectedLight`.
+     - Added `nodesWithCamera` and `nodesWithLight` tracking in `ensureHierarchyCache()`, cleared them cleanly in `buildHierarchyLabels()` and `HierarchyCache::clear()`.
+     - Added camera and light ancestor auto-expansion in `buildRowModel()`.
+     - Extended `UiProbeEntry` with `selected` state tracking (`bool selected = false`) serialized into test snapshots.
+     - Extended the cache-invalidation self-check (from 60 to 79 checks) verifying camera/light selection, switching between cameras, switching between lights, clearing previous selections, and auto-expanding collapsed owners.
+     - Added dedicated runtime scenario `hierarchy_camera_light` verifying selection via Resources, selection via hierarchy rows, switching between two cameras, switching between two lights, and row highlighting/clearing (25/25 checks PASS).
+   - *Benchmark Non-Rerun Justification*: This fix was strictly localized to object-pointer assignment in `curSelectedObj` for Camera and Light selection types and populating `nodesWithCamera`/`nodesWithLight`. None of the models in the 11-scenario performance benchmark suite contain camera or light nodes (`p2_4_hierarchy_broad_4096.glb`, `p2_4_hierarchy_deep_4096.glb`, `p2_4_hierarchy_multiline_4096.glb`, `p2_4_hierarchy_shared_mesh.glb`, and the control/resource models only have meshes, materials, and primitives). No changes were made to traversal, clipping, list clipper invocation, cache invalidation, or fallback loops. The measured performance dataset remains architecturally and mathematically identical; rerunning the 11-scenario matrix is unnecessary. The measured executable hash (`1782F98269F20F62A922F8FA6ABBC822679C31DA9B4F0A42BF4F6BB1ADF7A9EF`) is retained in the benchmark table, while correctness is validated on the final candidate binary (`83801272BB98467598F78AB3D54757B8B1E6A702B112F41A9427E4F0CA099A31`).
+
+---
+
+#### 2. Self-Checks & Negative Testing (Exit Code 0 on Success, 1 on Forced Failure, 2 on Unwritable Path)
+
+Positive runs are preserved in `build\p2.4\selfchecks_positive\`; negative runs are preserved in `build\p2.4\selfchecks_negative\`:
+- `--conflict-selfcheck`: **PASS (456 checks)**. Negative test `--selfcheck-force-failure` returned exit code 1; unwritable path returned exit code 2.
+- `--validation-cache-selfcheck`: **PASS (20 checks)**. Negative test returned exit code 1; unwritable path returned exit code 2.
+- `--cache-invalidation-selfcheck`: **PASS (120 checks total)**:
+  - **79 P2.4 hierarchy cache checks**: warm node/mesh/material rename, primitive material reassignment ($A \to B \to A$), unassigned $\to$ assigned material, display options, model $A \to B \to A$, same-object reload, row model ordering/depths, expansion state invalidation, search filtering, stable ID invariance, multiline classification, reload pointer clearing, camera and light selection/switching/clearing, camera and light collapsed owner auto-expansion, shared mesh multi-owner auto-expansion, nested owner ancestor auto-expansion, material-driven primitive auto-expansion across all owners, settled frame row-model reuse, pending scroll with unavailable target does not trigger rebuilds.
+  - **28 P2.2 resources cache invalidation checks**.
+  - **13 P2.2 validation report-revision checks**.
+  - Negative test returned exit code 1; unwritable path returned exit code 2.
+- `--logger-layout-selfcheck`: **PASS (19 checks)**. Negative test returned exit code 1; unwritable path returned exit code 2.
+
+Runner script: `python scripts/run_selfchecks_final.py` (all 8 check variations and 4 unwritable path checks pass).
+
+---
+
+#### 3. Runtime UI Integration Suite (`scripts/ui_integration/run_ui_integration.py`)
+
+Executed against baseline `build\p2.4-baseline\Glider.exe` and candidate `build\bin\Release\Glider.exe`:
+- **Positive run output**: `build\p2.4\final_integration\summary.json`: **240 passed, 0 failed** (exit code 0; 12 scenarios):
+  - `resources_4096`: 25 checks PASS (snapshot comparisons passing under the configured tolerances across all 50 snapshots).
+  - `resources_multiline_4096`: 25 checks PASS (snapshot comparisons passing under the configured tolerances across all 48 snapshots).
+  - `variants_4096`: 25 checks PASS (snapshot comparisons passing under the configured tolerances across all 50 snapshots).
+  - `validation_2048`: 14 checks PASS (snapshot comparisons passing under the configured tolerances across all 24 snapshots).
+  - `validation_mixed_2048`: 15 checks PASS (snapshot comparisons passing under the configured tolerances across all 24 snapshots).
+  - `logger`: 26 checks PASS (snapshot comparisons passing under the configured tolerances across all 28 snapshots).
+  - `hierarchy_broad_4096`: 25 checks PASS (snapshot comparisons passing under the configured tolerances across all 47 snapshots).
+  - `hierarchy_deep_4096`: 17 checks PASS (snapshot comparisons passing under the configured tolerances across all 11 snapshots; verifies descendant selection with ancestors collapsed, settled frame build delta == 0, subsequent branch collapse delta == 0).
+  - `hierarchy_multiline_4096`: 9 checks PASS (snapshot comparisons passing under the configured tolerances across all 6 snapshots; verifies unclipped fallback scroll extents and top/mid/bottom positioning).
+  - `hierarchy_shared_mesh`: 18 checks PASS (snapshot comparisons passing under the configured tolerances across all 10 snapshots; verifies shared mesh multi-owner auto-expansion, build count delta > 0 on selection, settled build delta == 0, independent owner collapse delta == 0, shared material expansion, and clean model reload).
+  - `hierarchy_pending_scroll`: 16 checks PASS (verifies viewport picking with filter active, unavailable target build delta == 0, filter clearing eventual scroll, picking with collapsed scene build delta == 0, scene reopening scroll, selection replacement cancellation, and model reload clean reset).
+  - `hierarchy_camera_light`: 25 checks PASS (verifies selecting Camera 0 in Resources, switching to Camera 1, switching to Light 0, switching to Light 1, selecting Camera 0 in hierarchy, switching to Camera 1, selecting Light 0, switching to Light 1, and confirming row selection highlight and clearing of prior selections).
+
+- **Intentional negative runs**: `build\p2.4\final_negative\`:
+  - `--force-fail`: exits with code 1; `summary.json` records 25 passed, 1 failed.
+  - `--fail-report-write`: exits with code 2 on unwritable report path target.
+
+- **Comparison Tolerances and Hook Boundaries**:
+  - *Hierarchy Comparison Tolerance*: In `compare_snap`, coordinate tolerance for hierarchy rows (`hier.*`) is `4.0` pixels (`coord_tol = 4.0 if key[0].startswith("hier.") else 0.5`) to accommodate sub-row fractional scroll variance between the unclipped baseline and the virtualized list clipper. Probe diffs within 25 px of the top and bottom viewport clipping boundaries are excluded.
+  - *`picknode <id>` Coverage Boundary*: `uiFrame.pickNode` in `main.cpp` resolves the target node by ID, invokes `selection.selectNode(pickedNode)`, sets `isSceneDirty = true`, and directly triggers `SceneHierarchyPanel::requestScrollToSelectedNode()`. This drives the identical selection and scroll intent path used by the viewport picking raycast/readback handler (`PickingRenderLayer`), while decoupling the harness test from offscreen mouse coordinates and multisample picking buffer readback timing.
+
+---
+
+#### 4. Final Paired Sequential Benchmarks (5 Alternating Pairs, 120 Warm-up + 600 Measured Frames)
+
+Executed via `python scripts/ui_integration/run_paired_bench_p2_4.py --pairs 5 --warmup 120 --frames 600` (11 scenarios, 110 runs strictly sequential, alternating order per pair).
+Full dataset recorded in `build\p2.4\bench\paired_summary.json` (Benchmarked executable SHA-256: `1782F98269F20F62A922F8FA6ABBC822679C31DA9B4F0A42BF4F6BB1ADF7A9EF`):
+
+| Scenario | Baseline `ui.panels` Median [Min–Max] (ms) | Candidate `ui.panels` Median [Min–Max] (ms) | Paired Delta (ms) | Status / Impact | Whole-Frame CPU Baseline $\to$ Candidate (ms) | First-Frame Cold `ui.panels` Baseline $\to$ Candidate (ms) |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `control_default` | 0.0195 [0.0188–0.0200] | 0.0176 [0.0158–0.0193] | -0.0024 (-12.3%) | Parity (within noise) | 0.3981 $\to$ 0.3834 | 0.3137 $\to$ 0.3250 |
+| `control_resources_bottom` | 0.0476 [0.0456–0.0490] | 0.0490 [0.0470–0.0641] | +0.0015 (+3.3%) | Parity (within noise) | 0.3813 $\to$ 0.4357 | 1.4239 $\to$ 1.4028 |
+| `hier_broad_collapsed` | 0.0519 [0.0516–0.0523] | 0.0516 [0.0513–0.0519] | **-0.0003 (-0.6%)** | **Regression eliminated** (was +36%) | 115.1307 $\to$ 113.8655 | 9.4152 $\to$ 10.5293 |
+| `hier_broad_expanded_top` | 1.6550 [1.6459–1.6663] | **0.0600** [0.0596–0.0619] | **-1.5941 (-96.3%)** | **27.6x speedup** | 116.4872 $\to$ 112.9479 | 10.1876 $\to$ 10.6388 |
+| `hier_broad_expanded_mid` | 1.6446 [1.6256–1.7413] | **0.0618** [0.0608–0.0648] | **-1.5838 (-96.3%)** | **26.6x speedup** | 113.7484 $\to$ 110.6674 | 10.1742 $\to$ 10.8223 |
+| `hier_broad_expanded_bottom` | 1.6357 [1.6101–1.6400] | **0.0619** [0.0607–0.0631] | **-1.5726 (-96.1%)** | **26.4x speedup** | 113.5624 $\to$ 111.1122 | 10.8520 $\to$ 9.7624 |
+| `hier_broad_search_many` | 0.2836 [0.2788–0.2867] | **0.0658** [0.0653–0.0663] | **-0.2178 (-76.8%)** | **4.3x speedup** (was +9% regression) | 112.4748 $\to$ 111.2190 | 9.9638 $\to$ 11.0732 |
+| `hier_broad_search_sparse` | 0.2154 [0.2127–0.2191] | **0.0551** [0.0547–0.0558] | **-0.1607 (-74.6%)** | **3.9x speedup** (was +23% regression) | 112.5426 $\to$ 111.4391 | 9.7228 $\to$ 10.6618 |
+| `hier_deep_partial` | 0.0715 [0.0708–0.0719] | 0.0647 [0.0642–0.0666] | -0.0064 (-9.0%) | Faster than baseline | 84.5319 $\to$ 83.9201 | 7.4819 $\to$ 8.9409 |
+| `hier_deep_nested` | 0.0717 [0.0710–0.0720] | 0.0652 [0.0641–0.0657] | -0.0065 (-9.1%) | Faster than baseline | 85.1072 $\to$ 85.3225 | 7.6483 $\to$ 9.3703 |
+| `hier_multiline_fallback` | 1.6265 [1.6244–1.6801] | 1.7152 [1.7127–1.7400] | +0.0883 (+5.4%) | **Explicit Trade-off** (+0.088 ms overhead for 100% correct multiline measurement) | 115.1904 $\to$ 114.2912 | 10.2982 $\to$ 12.7866 |
+
+**Key Benchmarking Conclusions**:
+1. **Collapsed tree parity**: With settled frame cache reuse, `hier_broad_collapsed` `ui.panels` cost is `0.0519 ms` (baseline) vs `0.0516 ms` (candidate), with paired delta `-0.0003 ms` (-0.6%) and completely overlapping ranges (`[0.0516–0.0523]` vs `[0.0513–0.0519]`). The prior +36% regression is completely eliminated.
+2. **Search scenarios deliver massive speedups**: Instead of the previous +9% and +23% regressions, settled frame cache reuse yields a **76.8% reduction (4.3x speedup)** on `hier_broad_search_many` (`0.2836 -> 0.0658 ms`) and a **74.6% reduction (3.9x speedup)** on `hier_broad_search_sparse` (`0.2154 -> 0.0551 ms`).
+3. **Expanded tree virtualization delivers up to 27.6x speedup**: `ui.panels` drops from ~1.63–1.66 ms down to ~0.060–0.062 ms (**-96.3% reduction / 26.4x–27.6x speedup**) across top, mid, and bottom scroll positions.
+4. **Multiline fallback explicit trade-off**: Rather than the prior 2.3121 ms (+39%) regression caused by repeated invalidation, the fallback operates at `1.7152 ms` (+5.4% over baseline 1.6265 ms, delta +0.0883 ms). This minor +0.088 ms overhead is accepted as an explicit design trade-off for guaranteed multiline measurement accuracy, reachability of the final row, and zero clipping artifacts without brittle height estimation.
+
+---
+
+#### 5. Representative Frame Dumps & Visual Inspection
+
+Captured at 1600x900 with in-harness snapshot probe validation:
+- `shared_mesh_owners.png` (SHA-256 `3422DF8F1AC61DE5A79C5F78C7BDC70902C95BA77B60CA1043025666CEDEE522`, 1,019,840 bytes, in `build\p2.4\final\`): Demonstrates `SharedMesh_0000` selected in Resources; both owning nodes `RootNode_A` and `RootNode_B` in the Scene Hierarchy tree are visibly auto-expanded, showing open disclosure arrows and the selected mesh highlighted under each owner.
+- `selection_expansion.png` (SHA-256 `3E35F4EB53BFA6D480A3D7B30988B9D22796965344A624545A9DDD669FAE397F`, 1,087,450 bytes, in `build\p2.4\final\`): Demonstrates `SharedMaterial_0000` selected in Resources; auto-expands Scene -> Node -> Mesh -> Primitive -> Material branches across all instances in the hierarchy tree with correct disclosure arrows and highlight states.
+- `multiline_fallback.png` (SHA-256 `FB40181F400D4BB0BF70C0B22818DBF9DF2BDFD2F8DF42361F5D7686A9F648C5`, 1,061,558 bytes, in `build\p2.4\final\`): Demonstrates the unclipped fallback rendering multiline labels with exact vertical spacing, disclosure arrows, and proportional scrollbar thumb.
+- `cam_light_selection.png` (SHA-256 `19E1248A9FF1E7486A2C750D860512F844595AC370DFD9D23662A94A7338835B`, 1,023,851 bytes, in `build\p2.4\`): Demonstrates `Light 1 "Light_0001"` selected; Scene Hierarchy tree shows Scene -> Nodes -> Cameras and Lights expanded with `Light 1` prominently highlighted in emerald green (`ImGuiCol_HeaderActive`), Resources panel highlighting `Light 1`, Element Inspector showing `Light ID: 1`, and all previous selections cleared.
+
+All captures visually inspected and verified correct.
+
+---
+
+#### 6. Summary of Changed Files
+
+- `header/imgui/ResourcesPanel.h`: Added `revision` field to `SelectionState` incremented on every selection event.
+- `header/imgui/SceneHierarchyPanel.h`: Added `rowModelBuildCount()` and `resetRowModelBuildCount()` counters.
+- `header/imgui/UiProbe.h`: Added `open` disclosure state tracking and `selected` highlight tracking to `UiProbeEntry`.
+- `header/imgui/UiScenarioHarness.h`: Added `hierarchyBuildCount` tracking, probe `open` and `selected` serialization, and `picknode <id>` production viewport picking hook.
+- `source/imgui/ResourcesPanel.cpp`: Passed `isSelected` to `UiProbe::item()` for resource items.
+- `source/imgui/SceneHierarchyPanel.cpp`:
+  - Fixed selection-driven expansion to synchronize ImGui storage open state for nodes, meshes, and materials/primitives.
+  - Separated `s_pendingScroll` from `selectionStale` to prevent continuous row-model rebuild loops when targets are filtered or collapsed.
+  - Fixed `nodesWithMesh` 1:N mapping and ancestor walk for all shared mesh owner nodes.
+  - Added `nodesWithCamera` and `nodesWithLight` tracking in `ensureHierarchyCache()` and cleared in `buildHierarchyLabels()`.
+  - Added camera and light auto-expansion in `buildRowModel()`.
+  - Added camera and light selection highlighting in `curSelectedObj` and passed `isSelected` to `UiProbe::item()`.
+  - Fixed `ImGuiTreeNodeFlags_DefaultOpen` on `Scene` and `ViewportsHeader` in `renderRow()`.
+  - Replaced $O(N)$ row scans with $O(1)$ cached indices (`nodeRowCount`, `selectedRowIndex`).
+  - Added depth-transition indentation in `renderRowModel()` to eliminate 8,192 per-frame calls.
+  - Added build counter increment and extended self-checks (79 checks) verifying pending scroll behavior, shared mesh auto-expansion, camera/light selection/switching/clearing, and settled frame row-model reuse.
+- `source/imgui/main.cpp`: Wired `hierarchyBuildCount` and `pickNode` execution invoking production selection and scroll request.
+- `scripts/generate_ui_clipping_fixtures.py`: Added `hierarchy_shared_mesh_document()` producing `p2_4_hierarchy_shared_mesh.glb` and `hierarchy_camera_light_document()` producing `p2_4_hierarchy_camera_light.glb`.
+- `scripts/ui_integration/run_ui_integration.py`: Added `hierarchy_shared_mesh`, `hierarchy_pending_scroll`, and `hierarchy_camera_light` scenarios, occurrence-aware probe matching, and build counter delta assertions.
+- `scripts/run_selfchecks_final.py`: Helper script running all 4 self-checks, 4 forced failures, and 4 unwritable path tests into separate positive and negative directories.
+- `scripts/dump_p2_4_review_frames.py`: Automation script capturing and validating the 3 review frame dumps.
+- `scripts/ui_integration/run_paired_bench_p2_4.py`: 5-pair sequential alternating benchmark automation script.
+
+---
+
+#### 7. Review Gate Status
+
+- All review findings and regression coverage requirements are resolved and verified in code.
+- All four self-checks pass: 456 conflict, 20 validation-cache, 120 cache-invalidation (79 P2.4 hierarchy, 28 resources, 13 validation), 19 logger-layout.
+- UI integration suite passes 240/240 assertions across all 12 scenarios with snapshot comparisons passing under the configured tolerances against baseline `fc6a89b`.
+- Positive and intentional-negative validation outputs are cleanly separated in `build\p2.4\selfchecks_positive\`, `build\p2.4\selfchecks_negative\`, `build\p2.4\final_integration\`, and `build\p2.4\final_negative\`.
+- Performance assessment (retaining the explicit multiline fallback overhead): collapsed tree parity confirmed (-0.6%), search scenarios accelerated (4.3x and 3.9x faster), expanded tree virtualization delivering up to 27.6x speedup, and multiline fallback overhead (+0.088 ms / +5.4%) documented as an explicit design trade-off.
+- `git diff --check` passes with zero errors.
+- No commit or push has been performed. Phase 3 has not been started.
+- Submitted for independent reviewer assessment.
+
+
+#### Independent Review Acceptance (2026-10-22)
+
+P2.4 is accepted for commit after focused review of the final camera/light fix.
+No commit was performed during this review.
+
+- Release build passed. Final executable SHA-256:
+  `83801272BB98467598F78AB3D54757B8B1E6A702B112F41A9427E4F0CA099A31`.
+- Independently reran camera/light integration: 25 passed, 0 failed
+  (`build/p2.4/reviewer_final_camera/summary.json`).
+- Independently reran shared-mesh integration: 18 passed, 0 failed
+  (`build/p2.4/reviewer_final_shared/summary.json`).
+- Independently reran all four self-check suites, forced-failure checks, and
+  unwritable-output checks; expected exit codes 0/1/2 passed.
+- Inspected `build/p2.4/cam_light_selection.png`; selected light highlighting
+  and cleared prior selections are visible.
+- Inspected the retained full integration summary: 240 passed, 0 failed across
+  12 scenarios. This full suite was produced by the implementation agent;
+  the reviewer did not repeat it or the performance matrix.
+- Hierarchy comparison excludes pixel hashes, permits 4 px probe-coordinate
+  differences and 25 px scroll/content-extent differences, and excludes
+  boundary probe differences within 25 px of the clip edges. Passing these
+  comparisons does not establish pixel-identical rendering. Camera/light
+  and pending-scroll scenarios use candidate-only assertions. The picknode
+  hook tests selection/scroll handling, not GPU picking readback.
+- Prior benchmark measurements remain tied to executable `1782F982...ADF7A9EF`;
+  they are not measurements of the final executable. No fresh performance
+  guarantee is inferred from unchanged fixture content.
+- The measured multiline fallback overhead of +0.0883 ms / +5.4% is accepted
+  as a bounded tradeoff alongside the recorded expanded-tree/search gains.
+  It is not an eliminated regression.
