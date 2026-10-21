@@ -3,6 +3,7 @@
 #pragma once
 
 #include "imgui/ResourcesPanel.h"
+#include "imgui/SelfCheckResult.h"
 #include "imgui/AntiAliasing.h"
 #include "imgui/ViewportInstance.h"
 #include "renderViewInput/CameraActor.h"
@@ -32,6 +33,10 @@ public:
     static void requestScrollToSelectedNode();
     static void resetSearch();
     static void setSearchFilter(const std::string& filter);
+
+    // Focused P2.2 warm-cache invalidation check used by the command-line
+    // regression run. It calls the same cache implementation used by render().
+    static SelfCheckResult runCacheInvalidationSelfCheck(bool forceFailure = false);
 };
 
 } // namespace ux3d::imgui

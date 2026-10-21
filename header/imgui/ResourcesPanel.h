@@ -18,6 +18,7 @@
 #include "gltf/Accessor.h"
 #include "gltf/BufferView.h"
 #include "gltf/Buffer.h"
+#include "imgui/SelfCheckResult.h"
 #include <string>
 
 namespace ux3d::renderer {
@@ -155,6 +156,10 @@ public:
                        bool* pOpen = nullptr);
     static void resetSearch();
     static void setSearchFilter(const std::string& filter);
+
+    // Focused P2.2 warm-cache invalidation check used by the command-line
+    // regression run. It calls the same category cache used by render().
+    static SelfCheckResult runCacheInvalidationSelfCheck(bool forceFailure = false);
 };
 
 } // namespace ux3d::imgui

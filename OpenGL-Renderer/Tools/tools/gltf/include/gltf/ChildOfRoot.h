@@ -8,6 +8,7 @@
 #include "gltf/GltfObject.h"
 #include "gltf/GltfResult.h"
 
+#include <atomic>
 #include <optional>
 
 namespace ux3d::gltf {
@@ -20,19 +21,28 @@ public:
 protected:
     std::optional<core::string> m_Name;
 
+    static void bumpNameRevision() { s_nameRevision.fetch_add(1, std::memory_order_relaxed); }
+
 public:
     virtual ~ChildOfRoot() = default;
 
     virtual GltfType getGltfType() const = 0;
+
+    static uint64_t getNameRevision() { return s_nameRevision.load(std::memory_order_relaxed); }
 
     bool hasName() const { return m_Name.has_value(); }
     core::string getName() const { return m_Name.value_or(""); }
     GltfResult setName(const core::string& _Name)
     {
         m_Name = _Name;
+        bumpNameRevision();
         return GltfResult::Success;
     }
-    void unsetName() { m_Name.reset(); }
+    void unsetName()
+    {
+        m_Name.reset();
+        bumpNameRevision();
+    }
 
     virtual bool isValid() const = 0;
 
@@ -55,5 +65,8 @@ protected:
         , m_Name(_Source.m_Name)
     {
     }
+
+private:
+    inline static std::atomic<uint64_t> s_nameRevision{ 0 };
 };
 }

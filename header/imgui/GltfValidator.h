@@ -4,6 +4,7 @@
 
 #include "gltf/Gltf.h"
 #include "imgui/ResourcesPanel.h" // For SelectionType
+#include <cstdint>
 #include <string>
 #include <vector>
 #include <memory>
@@ -82,8 +83,17 @@ public:
 
     // Get or clear last validation report
     const ValidationReport& getLastReport() const { return m_lastReport; }
-    void clearReport() { m_lastReport.clear(); }
-    void setReport(const ValidationReport& report) { m_lastReport = report; }
+    uint64_t getReportRevision() const { return m_reportRevision; }
+    void clearReport()
+    {
+        m_lastReport.clear();
+        ++m_reportRevision;
+    }
+    void setReport(const ValidationReport& report)
+    {
+        m_lastReport = report;
+        ++m_reportRevision;
+    }
 
 private:
     GltfValidator();
@@ -95,6 +105,7 @@ private:
     struct Impl;
     std::unique_ptr<Impl> m_impl;
     ValidationReport m_lastReport;
+    uint64_t m_reportRevision = 0;
 };
 
 } // namespace ux3d::imgui

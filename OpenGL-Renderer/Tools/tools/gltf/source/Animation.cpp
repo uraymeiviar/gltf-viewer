@@ -26,7 +26,7 @@ Animation::Animation(uint32_t _id, const Animation& _source)
             pChannel->getTarget().setNode(*const_cast<Node*>(pTargetNode));
         }
         if (sourceChannel.getTarget().m_animationPointer.has_value()) {
-            pChannel->getTarget().m_animationPointer = sourceChannel.getTarget().m_animationPointer;
+            pChannel->getTarget().setAnimationPointer(sourceChannel.getTarget().m_animationPointer.value());
         }
     }
 

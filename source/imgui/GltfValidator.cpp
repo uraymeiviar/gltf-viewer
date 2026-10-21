@@ -797,6 +797,7 @@ ValidationReport GltfValidator::validate(const std::string& filePath, ux3d::gltf
     report.validated = true;
 
     m_lastReport = report;
+    ++m_reportRevision;
     return report;
 }
 

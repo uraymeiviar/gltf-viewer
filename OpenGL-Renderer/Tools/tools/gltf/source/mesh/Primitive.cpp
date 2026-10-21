@@ -78,6 +78,7 @@ GltfResult Primitive::setPrimitiveMode(PrimitiveMode _Mode)
 GltfResult Primitive::setMaterial(Material& _Material)
 {
     m_pMaterial = &_Material;
+    bumpMaterialRevision();
     return GltfResult::Success;
 }
 

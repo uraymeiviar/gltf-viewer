@@ -50,7 +50,7 @@ void AnimationMerger::resolveChannelTargets(const Animation& _SourceAnimation, A
                 targetIndex = m_Indices[static_cast<Light*>(gltfObject)];
                 newTargetObject = &m_Destination.getLights().at(targetIndex);
             }
-            channel.getTarget().m_animationPointer = std::tuple<ChildOfRoot*, std::string>(newTargetObject, localPath);
+            channel.getTarget().setAnimationPointer(std::tuple<ChildOfRoot*, std::string>(newTargetObject, localPath));
         }
 
         channelIter++;

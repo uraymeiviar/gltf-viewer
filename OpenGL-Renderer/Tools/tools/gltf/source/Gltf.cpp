@@ -527,6 +527,7 @@ bool Gltf::merge(const Gltf& _other)
 
 void Gltf::reset()
 {
+    ++m_revision;
     m_scenes.clear();
     m_nodes.clear();
     m_cameras.clear();
@@ -685,6 +686,7 @@ GltfResult Gltf::loadBinaryDataToMemory(const std::optional<filesystem::Dir>& gl
 
 void Gltf::deleteElement(ChildOfRoot& _element)
 {
+    bumpRevision();
     switch (_element.getGltfType()) {
     case GltfType::Scene: {
         deleteScene(static_cast<Scene&>(_element));

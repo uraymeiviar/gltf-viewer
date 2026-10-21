@@ -5,6 +5,7 @@
 #include "AnimationPath.h"
 #include "gltf/GltfObject.h"
 #include "gltf/GltfResult.h"
+#include <atomic>
 #include <optional>
 #include <string>
 
@@ -48,7 +49,11 @@ public:
     AnimationPath getPath() const { return m_Path; }
 
     GltfResult setNode(Node& _Node);
-    void unsetNode() { m_pNode = nullptr; }
+    void unsetNode()
+    {
+        m_pNode = nullptr;
+        bumpTargetRevision();
+    }
     GltfResult setPath(AnimationPath _Path);
     bool m_animationHasChanged = false;
 
@@ -57,10 +62,29 @@ public:
 
     std::optional<std::tuple<ChildOfRoot*, std::string>> m_animationPointer = std::nullopt; // e.g. Material, Node + color, intensity, rotation
 
+    void setAnimationPointer(const std::tuple<ChildOfRoot*, std::string>& _pointer)
+    {
+        m_animationPointer = _pointer;
+        bumpTargetRevision();
+    }
+    void unsetAnimationPointer()
+    {
+        m_animationPointer.reset();
+        bumpTargetRevision();
+    }
+
+    static uint64_t getTargetRevision() { return s_targetRevision.load(std::memory_order_relaxed); }
+    static void markTargetsChanged() { bumpTargetRevision(); }
+
     bool operator==(const AnimationChannelTarget& other) const;
 
     // When node isn't defined, channel should be ignored
     bool isValid() const { return true; }
     bool isIgnored() const { return m_pNode == nullptr; }
+
+private:
+    static void bumpTargetRevision() { s_targetRevision.fetch_add(1, std::memory_order_relaxed); }
+
+    inline static std::atomic<uint64_t> s_targetRevision{ 0 };
 };
 }

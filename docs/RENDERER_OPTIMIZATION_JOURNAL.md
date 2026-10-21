@@ -1293,17 +1293,22 @@ per-task gates; P1.2 is behaviorally correct with a neutral steady-state effect;
 for P1.4-P1.6 remain INCONCLUSIVE where recorded. The cumulative review in §12.15 now covers the
 supported S6 per-viewport settings and picking cases and records S9 scene switching and viewport
 destruction as not applicable to the current viewer. The independent reviewer acceptance is recorded
-at the end of §12.15; no blocking Phase 1 finding remains. No Phase 2 work has started.
+at the end of §12.15; no blocking Phase 1 finding remains. **Phase 2 has started:** P2.1 and P2.2 are
+implemented and validated in §12.16-§12.17, remain uncommitted for review, and P2.3/P2.4 have not
+started. The P2.1/P2.2 review findings and their fixes are recorded in §12.18; that section supersedes
+the startup-only invalidation claims in §12.17.
 
 ### 5.4 Phase 2 - UI Caches and Visible-Row Rendering (R2)
 
 **Entry:** Phase 0; P1.5 before logger clipping. No dependency on renderer caching.
 
-- [ ] **P2.1 — Animation conflict index (§3.24).** First compare indexed answers with the existing
+- [x] **P2.1 — Animation conflict index (§3.24).** First compare indexed answers with the existing
   algorithm on ordinary and pointer targets; then use it in both animation controls and status popup.
   Preserve deterministic selection order and invalidate on channel/model/active-set changes.
-- [ ] **P2.2 — Search/label caches (§3.19, §3.22).** Separate cache construction from row rendering.
+  *Implemented and validated in §12.16; review exit-code fix in §12.18; independently accepted in §12.19.*
+- [x] **P2.2 — Search/label caches (§3.19, §3.22).** Separate cache construction from row rendering.
   Validate rename, options, search/severity filters, report replacement and model reload.
+  *Implemented and validated in §12.17; warm-cache review fixes in §12.18; independently accepted in §12.19.*
 - [ ] **P2.3 — Flat-list and logger clipping (§3.22, §3.23).** Start with fixed-height rows; implement
   multiline/wrapped height accounting as a separate substep. Preserve Copy, selection and auto-scroll.
 - [ ] **P2.4 — Hierarchy virtualization (§3.19).** Flatten expanded visible tree structure into a row
@@ -3277,3 +3282,402 @@ the full performance series in this final review. The attached-camera post-selec
 a separate pre-existing issue, reproduced in P1.0. Scene switching and runtime viewport destruction
 remain not applicable until those features exist. Phase 1 is ready to commit upon user instruction;
 no commit or Phase 2 implementation was performed during this review.
+
+### 12.16 P2.1 - Animation conflict index (2026-10-21)
+
+```text
+Task ID / title: P2.1 - Animation conflict index (R2, Phase 2)
+Status: PASS (behavioral equivalence and targeted conflict-query speed); review exit-code fix in §12.18;
+  uncommitted, awaiting review
+Source state: no commit. Changed relative to 3d682fa:
+  OpenGL-Renderer/Tools/tools/gltf/include/gltf/Animation.h
+  OpenGL-Renderer/Tools/tools/gltf/include/gltf/ChildOfRoot.h
+  OpenGL-Renderer/Tools/tools/gltf/include/gltf/Gltf.h
+  OpenGL-Renderer/Tools/tools/gltf/include/gltf/animation/AnimationChannelTarget.h
+  OpenGL-Renderer/Tools/tools/gltf/source/Animation.cpp
+  OpenGL-Renderer/Tools/tools/gltf/source/Gltf.cpp
+  OpenGL-Renderer/Tools/tools/gltf/source/animation/AnimationChannelTarget.cpp
+  OpenGL-Renderer/Tools/tools/gltf/source/json/AnimationsFromJson.cpp
+  OpenGL-Renderer/Tools/tools/gltf/source/merge/AnimationMerger.cpp
+  header/imgui/AnimationPlayer.h
+  source/imgui/AnimationPlayer.cpp
+  source/imgui/main.cpp
+Accepted baseline: G:\temp\uray-codex\opencode\glider-p2\builds\p2_baseline.exe
+  SHA-256 46F37730934B12E3902770264B5B4E76F2711239BF4D58C2BAC9F5568E41BDF7
+Candidate executable: H:\git-repos\gltf-viewer\build\bin\Release\Glider.exe
+  SHA-256 D577CF5E7AA65AB604FFBDAE8FA9454ECFC21C93CC7F9CE5BF64EB620A4ABB66
+Evidence root: G:\temp\uray-codex\opencode\glider-p2\review-fix\
+  conflict_pass.txt
+  conflict_forced_fail.txt
+Original P2.1 evidence: G:\temp\uray-codex\opencode\glider-p2\p2_1\
+```
+
+**Change.** `AnimationPlayer` now caches, once per clip, the unique set of conflict targets. A target is
+the pair `(ChildOfRoot*, path)`, using the same path string as the legacy algorithm; a channel with an
+`m_animationPointer` resolves to the pointed-to `ChildOfRoot` and pointer path. Duplicate channels are
+deduplicated per clip. A second cache maps each active target to the number of playing clips that use
+it. `isAnimationConflictingWithActive` answers by looking up the clip's targets in that active map and
+subtracting the clip itself when it is playing. `areAllPossibleAnimationsSelected` and
+`selectAllPossibleAnimations` use the same counts; selection still visits clips in index order and keeps
+the first non-conflicting clip, so the resulting set and its order match the legacy greedy algorithm.
+The pairwise `checkConflict` remains in the class as the reference used by the diagnostic.
+
+Cache invalidation uses revisions rather than scanning clip data each frame:
+
+- `Gltf::getRevision()` changes on reset and element creation/import/duplicate/delete.
+- `AnimationChannelTarget::getTargetRevision()` changes on node/path/pointer changes and channel creation.
+- `Animation::getPlayingRevision()` changes on every effective `setPlaying` change, including undo/redo and
+  JSON loading that bypass `AnimationPlayer`.
+- Model, target and playing revisions are checked on each query; a changed model or target rebuilds the
+  clip target sets, and a changed active set rebuilds the active-target counts. Channel mutation therefore
+  invalidates the clip cache without requiring an editor callback.
+
+**Correctness.** `Glider.exe --isolated --conflict-selfcheck <report>` runs `runConflictSelfCheck()`,
+which builds a synthetic 11-clip model covering ordinary node targets, pointer targets, duplicate targets
+inside one clip, disjoint clips, null targets, repeated toggles, a direct `setPlaying` active-set change,
+a channel-target mutation and replacement by a three-clip model. It compares indexed answers with the
+legacy pairwise algorithm for every pair and every toggled state.
+
+```text
+Result: PASS
+Checks: 456
+Coverage: ordinary, pointer, duplicate, disjoint, null-target, repeated toggles, direct-playing, channel/model invalidation
+Case clips: 11, conflicting pairs: 12, disjoint pairs: 43
+Benchmark clips: 300, channels/clip: 4, selected: 24
+Initial selection legacy: 0.884 ms; indexed: 0.037 ms; speedup: 24.016x
+Per-row conflict scan legacy: 1.561 ms; indexed: 0.037 ms; speedup: 41.861x
+Conflicting rows: 276/300
+```
+
+The 300-clip benchmark contains four channels per clip, 24 selected clips and 276 conflicting rows. The
+indexed selection order and the per-row conflict answers matched the legacy reference in all cases. The
+direct-playing test is important because undo/redo and JSON restore can change `isPlaying` without going
+through the player controls.
+
+**Measurement.** The self-check timing is an algorithm microbenchmark without rendering, GL, or UI work.
+The legacy selection and row scans used 3 repetitions and the indexed queries used 100; the reported
+values are best-of-run, not medians. Absolute times are small and vary between runs, so the ratios are
+directional and are not a whole-frame claim.
+
+| Query | Legacy | Indexed | Ratio |
+| :--- | ---: | ---: | ---: |
+| Initial greedy selection, 300 clips x 4 channels | 0.884 ms | 0.037 ms | **24.016x** |
+| Per-row conflict scan, 300 rows | 1.561 ms | 0.037 ms | **41.861x** |
+
+**Limits and rollback boundary.** The benchmark covers the conflict-query algorithm only; it does not
+measure animation sampling or the Animation panel's row submission. Rebuilding the index remains
+O(total channels) after a model or target mutation, and each query walks the targets of the queried clip.
+Paths are stored as strings and hashed only when the index is rebuilt. The playing revision is process
+global, which is harmless for the single player instance in this viewer but would need a per-model key if
+multiple independent players were added. The pairwise `checkConflict` path is retained for diagnostics
+and is not removed. Rollback is confined to `AnimationPlayer` plus the revision fields and revision bumps
+in the four glTF types; removing the diagnostic flag and `runConflictSelfCheck` does not affect the
+runtime path. P2.2 is the next task; P2.3/P2.4 were not started.
+
+### 12.17 P2.2 - Search and label caches (2026-10-21)
+
+```text
+Task ID / title: P2.2 - Search/label caches (R2, Phase 2)
+Status: PASS (hierarchy/resources targeted UI; validation behavior and no material regression);
+  warm-cache review fixes in §12.18
+Source state: no commit. Changed relative to 3d682fa:
+  OpenGL-Renderer/Tools/tools/gltf/include/gltf/ChildOfRoot.h
+  OpenGL-Renderer/Tools/tools/gltf/include/gltf/Gltf.h
+  OpenGL-Renderer/Tools/tools/gltf/include/gltf/mesh/Primitive.h
+  OpenGL-Renderer/Tools/tools/gltf/source/mesh/Primitive.cpp
+  header/imgui/GltfValidator.h
+  header/imgui/ResourcesPanel.h
+  header/imgui/SceneHierarchyPanel.h
+  header/imgui/SelfCheckResult.h
+  header/imgui/ValidationPanel.h
+  source/imgui/GltfValidator.cpp
+  source/imgui/ResourcesPanel.cpp
+  source/imgui/SceneHierarchyPanel.cpp
+  source/imgui/ValidationPanel.cpp
+  source/imgui/main.cpp
+Accepted baseline: G:\temp\uray-codex\opencode\glider-p2\builds\p2_baseline.exe
+  SHA-256 46F37730934B12E3902770264B5B4E76F2711239BF4D58C2BAC9F5568E41BDF7
+Candidate executable: H:\git-repos\gltf-viewer\build\bin\Release\Glider.exe
+  SHA-256 D577CF5E7AA65AB604FFBDAE8FA9454ECFC21C93CC7F9CE5BF64EB620A4ABB66
+Evidence roots:
+  G:\temp\uray-codex\opencode\glider-p2\p2_2\       (original P2.2 captures)
+  G:\temp\uray-codex\opencode\glider-p2\review-fix\ (review-fix checks and final dumps)
+```
+
+**Change.** The three row-heavy panels now separate cache construction from row rendering:
+
+- **Scene Hierarchy.** One cache entry per node holds the icon/title/index label, normalized node and
+  mesh names, the node's own filter match, and a cached subtree-match flag. Labels and normalized names
+  are rebuilt only when the model, name revision or display-option mask changes. A filter or active-scene
+  change recomputes subtree matches by walking the cached tree; it does not rebuild label strings. The
+  render path still walks the same expanded `TreeNodeEx` hierarchy and submits the same rows, selection
+  and focus behavior.
+- **Resources.** Each category caches formatted labels, normalized names, per-filter match flags and, for
+  materials, variant labels and match flags. The cache key is model pointer, model revision, global name
+  revision, display-option mask and item count. Search builds a match vector once per filter key; row
+  rendering then walks the same category order and uses the live element pointers for selection.
+- **Validation.** `GltfValidator` exposes a report revision that advances when a new report replaces the
+  old one. `ValidationPanel` caches normalized code/message/pointer strings and the visible source issue
+  indices, keyed by report revision, search string and severity mask. Table rows are still identified by
+  the source issue index, not the filtered row position, so select/double-click/focus keeps its meaning
+  after filtering. Copy Report still calls `report.toMarkdown()` on the live report; column resize,
+  reorder, scroll and the existing message tooltip are unchanged.
+
+Name revisions on `ChildOfRoot` are shared by nodes, meshes and materials, so renaming any of them
+invalidates both the hierarchy and resources caches. Reloading a model changes the model pointer/revision
+and rebuilds the caches; replacing the validation report advances the report revision and rebuilds the
+visible index.
+
+**Behavior checks.** The release candidate was exercised at the default 1600x900 window and at
+1024x640. The baseline and candidate default window dumps are byte-identical:
+`0F61DB6F581EAFD6A2D37E4EEDDBF7692BE33A92F322A75E9C799C248C761804` (`baseline_default_final.jpg`,
+`candidate_default_final.jpg`). The hierarchy fixture contains 64 groups plus 4096 children (4160 nodes);
+the resources fixture contains 4096 meshes.
+
+| Check | Result |
+| :--- | :--- |
+| Hierarchy search `Child_4095` | baseline/candidate screenshots byte-identical, SHA-256 `DF113D76BC9D51D7FAA0FAD2583109A67A76C68ADC9BD3994888E51DF87DB88C` |
+| Resources search `Mesh_4095` | baseline/candidate screenshots byte-identical, SHA-256 `78FE847807F2D09F16F74F907CDBF4CC0DE7D84ABE3F99586683B086F08603FC` |
+| Hierarchy rename (startup-order only) | `Child_4095` was renamed by a control executed before the first panel render; the initial cache was therefore built with `RenamedChild`, and the old filter had no rows (`hierarchy_rename.png`, `hierarchy_old_name_no_match.png`) |
+| Resources rename (startup-order only) | material `TexturedCube` was renamed before the first render; the initial resource cache contained the new name (`resources_rename_candidate.png`) |
+| Display options (startup-order only) | icons/title/index/name mask was set before the first render; the initial hierarchy labels used names-only (`hierarchy_options_nameonly.png`) |
+| Selection/focus | selecting a hierarchy row still selects the node and keeps it in the Inspector (`hierarchy_selected.png`); filtering does not change selection identity |
+| Model reload (startup-order only) | the startup model was the 4096-mesh stats fixture instead of the hierarchy fixture; initial tree/resources construction used the stats model (`reload_hierarchy_to_resources.png`) |
+| Report replacement (startup-order only) | the startup model was HelloCube instead of the validation fixture; the initial report was the valid 0-error state (`reload_validation_to_valid.png`) |
+| Resize | hierarchy and validation panels rendered at 1024x640 with the existing table/tree layout (`hierarchy_resize_1024x640.png`, `validation_resize_1024x640.png`) |
+| Validation filters | all 2048 rows, errors-only, warnings-only, a single-pointer search and a no-match search were captured (`validation_all.png`, `validation_errors.png`, `validation_warnings.png`, `validation_search_one.png`, `validation_search_none.png`) |
+
+**Correction (review finding 2).** The `--rename-*`, `--hierarchy-display`, `--resource-display`,
+`--reload-model` and validation startup controls execute before the first panel render. The captures
+listed as startup-order above verify initial cache construction with the mutated name/options/model;
+they do **not** prove invalidation of an already populated cache. In particular,
+`hierarchy_old_name_no_match.png` is not evidence that a warm hierarchy cache was invalidated. The
+warm-cache checks that call the actual cache implementations are recorded in §12.18.
+
+The validation fixture is `p2_validation_2048.glb` (1024 `MESH_NO_PRIMITIVES` errors and 1024
+`POSITION_MISSING_MIN_MAX` warnings, SHA-256
+`DA8CF8B742BAEB7FDBB85502144C4EA6703D1F9AED892ABBC3F4049E9E52EA59`). The hierarchy fixture is
+`p2_hierarchy_4096.glb` (SHA-256
+`57562AFC0A48CCDB5D6D6ED13763E4A4BC887EEEB2F6EB6A2DF730BD26BC36B8`). The search, selected-node,
+startup rename/options/reload and 1024x640 captures were opened and inspected. Following the review,
+these are treated as startup/render regressions only, not as warm-cache invalidation evidence.
+
+**Validation cache diagnostic.** `Glider.exe --isolated --validation-cache-selfcheck <report>` builds a
+20,000-issue synthetic report (6,667 errors, 6,667 warnings, 6,666 infos) and compares the cached visible
+index with the legacy filter over all-severity and single-severity masks and searches, including
+no-match and pointer searches. Final result: `PASS`, 18 checks. On the all-severity `needle` search case
+(40 matches), the legacy filter measured 1.949 ms, the warm cached filter 0.381 ms (5.119x) and the cold
+build+filter 2.792 ms. This is a microbenchmark of the filter index, not a whole-panel frame measurement;
+absolute timings vary between runs.
+
+**Warm-cache invalidation diagnostic (review fix).**
+`Glider.exe --cache-invalidation-selfcheck <report>` calls the same hierarchy, resource and validation
+cache functions used by `render()` after each cache has been populated. It covers warm node/mesh/material
+renames and old/new search matches, hierarchy primitive material A→B, B→A and unassigned→assigned,
+display-option changes, model A→B→A with a same-object `Gltf::reset()`, and validation report replacement
+with an equal issue count but different codes, pointers and severities. Final result: `PASS`, 62 checks
+(30 hierarchy + 20 resources + 12 validation). Details and exact exit-code tests are in §12.18.
+
+**Performance.** Workloads used 1280x720, vsync off, no AA, `--profile`, 60 warmup and 240 measured
+frames except validation, which used 100 warmup and 600 frames. Executables alternated in five pairs for
+all workloads. Negative deltas mean the candidate was faster. CPU noise is the baseline run-to-run
+spread; the absolute panel times are small, so the high candidate noise on the hierarchy cases is
+recorded rather than hidden.
+
+| Workload | Total CPU delta | Baseline CPU noise | Improved pairs | `ui.panels` delta |
+| :--- | ---: | ---: | ---: | ---: |
+| Hierarchy `Child`, all 4160 labels rendered | **-20.67%** | 21.49% | 5/5 | **-29.48%** |
+| Hierarchy `Group`, 64 groups but 4096 subtree scans | **-23.18%** | 10.43% | 5/5 | **-61.36%** |
+| Resources `Mesh_`, 4096 labels and matches | **-61.12%** | 2.89% | 5/5 | **-75.76%** |
+| Validation all 2048 rows, no search | -0.39% | 4.09% | 3/5 | -0.78% |
+
+The hierarchy and resources cases improve every pair, including the label-heavy all-4160-row case; the
+subtree case isolates the benefit of caching descendant matches. The validation all-row case is neutral
+within the measured baseline noise and is not presented as a speedup: rendering 2048 table rows still
+dominates, and filtering is only materially cheaper when a search or severity mask excludes rows. The
+filtered-validation UI could not be paired against the accepted baseline because that binary has no
+`--filter-validation` control; the validation microbenchmark supplies the filtered-path measurement and
+the all-row paired run supplies the no-regression evidence.
+
+The paired UI runs above used link
+`177B6618CE64D20A01E4613BE9B2369A51861948074DFDBBB4989F692E371ADC`; they were not rerun after the
+review fixes. The final link is
+`D577CF5E7AA65AB604FFBDAE8FA9454ECFC21C93CC7F9CE5BF64EB620A4ABB66`. Since the paired runs, the
+hierarchy key gained a primitive-material revision read and the self-check/CLI paths changed. The table
+above is therefore pre-review-fix performance evidence, not a measurement of the final link. The final
+link was rerun through all passing/failing self-checks and the default, hierarchy-search and
+resources-search dumps; those results are in §12.18. No whole-panel benchmark was rerun.
+
+**Limits.** The validation fixture has no INFO issues, so INFO-mask coverage comes from the synthetic
+cache self-check, not a rendered asset. The runtime display-menu click path was not automated; startup
+options and the option-mask rebuild key were verified, and the menu calls the same setter used by the
+test control. The 1024x640 captures verify rendering at a second size, not continuous interactive drag
+resizing. Copy Report was left untouched and was not exercised through the Windows clipboard in this
+task. The caches do not virtualize rows: all matching tree rows and validation rows are still submitted
+to ImGui; visible-row clipping remains P2.4. The hierarchy cache assumes structural reparenting, if it is
+ever added, bumps the model revision or otherwise invalidates the subtree cache; the current viewer has
+no reparent UI. Resources category caches are process-static and keyed by model/revision; they are not
+evicted when an unrelated model is closed, but their memory is bounded by the categories of models
+loaded in the process. No commit or push was performed.
+
+**Decision.** P2.1 and P2.2 are implemented and validated, with P2.1 PASS on exact indexed/legacy
+answers and P2.2 PASS on hierarchy/resources behavior and targeted timing, neutral on the unfiltered
+validation table. Both remain uncommitted for review. Rollback boundaries are the panel caches plus
+`GltfValidator` report revision for P2.2, and `AnimationPlayer` plus the four glTF revision fields for
+P2.1. P2.3 and P2.4 were not started; Phase 3 was not started.
+
+### 12.18 P2.1/P2.2 review fixes (2026-10-21)
+
+```text
+Task ID / title: P2.1/P2.2 review fixes - warm-cache invalidation, evidence correction, self-check exit codes
+Status: PASS on the focused review checks; uncommitted, awaiting independent review
+Source state: no commit. Review-fix changes relative to 3d682fa:
+  OpenGL-Renderer/Tools/tools/gltf/include/gltf/mesh/Primitive.h
+  OpenGL-Renderer/Tools/tools/gltf/source/mesh/Primitive.cpp
+  header/imgui/AnimationPlayer.h
+  header/imgui/ResourcesPanel.h
+  header/imgui/SceneHierarchyPanel.h
+  header/imgui/SelfCheckResult.h
+  header/imgui/ValidationPanel.h
+  source/imgui/AnimationPlayer.cpp
+  source/imgui/ResourcesPanel.cpp
+  source/imgui/SceneHierarchyPanel.cpp
+  source/imgui/ValidationPanel.cpp
+  source/imgui/main.cpp
+  docs/RENDERER_OPTIMIZATION_JOURNAL.md
+Accepted baseline: G:\temp\uray-codex\opencode\glider-p2\builds\p2_baseline.exe
+  SHA-256 46F37730934B12E3902770264B5B4E76F2711239BF4D58C2BAC9F5568E41BDF7
+Final review-fix executable: H:\git-repos\gltf-viewer\build\bin\Release\Glider.exe
+  SHA-256 D577CF5E7AA65AB604FFBDAE8FA9454ECFC21C93CC7F9CE5BF64EB620A4ABB66
+Evidence root: G:\temp\uray-codex\opencode\glider-p2\review-fix\
+  conflict_pass.txt, validation_pass.txt, cache_invalidation_pass.txt
+  conflict_forced_fail.txt, validation_forced_fail.txt, cache_forced_fail.txt
+  default_final.jpg, hierarchy_search_final.png, resources_search_final.png,
+  validation_search_final.png
+  commands.txt
+```
+
+**Finding 1 - hierarchy primitive-material label invalidation.** `Primitive` now exposes a monotonic
+`getMaterialRevision()`. Both `setMaterial()` and `unsetMaterial()` bump that revision. The hierarchy
+cache key includes it alongside the model, name, option and model revisions, so the next hierarchy render
+rebuilds labels once; frames with no material assignment do not rebuild. The test populates the cache,
+then performs A→B, B→A and unassigned→assigned. For each state it checks the cached primitive label (the
+string submitted by the hierarchy row), the live `prim.getMaterial()` pointer, and a `SelectionState`
+populated from that same pointer. It also covers node/mesh/material renames, display-option changes,
+model A→B→A and a same-object `Gltf::reset()`. Result: 30 checks, PASS.
+
+The ImGui mouse click and the Inspector material combo were not automated. Selection identity was
+checked through the live pointer that the hierarchy row passes to `SelectionState::selectMaterial()`; the
+click wiring itself is code-inspection evidence, not a synthetic mouse-event test.
+
+**Finding 2 - warm-cache invalidation evidence.** The earlier startup controls run before the first panel
+render, so the §12.17 rename/options/reload captures only prove initial cache construction. They are now
+labelled startup-order only, and the journal no longer claims that
+`hierarchy_old_name_no_match.png` proves warm-cache invalidation. The replacement check calls the actual
+cache functions used by `render()` after the caches are populated:
+
+- Hierarchy: 30 checks, including the primitive-material transitions above, warm node/mesh/material
+  renames, old/new filter matches, display options, model A→B→A and same-object reload.
+- Resources: 20 checks. Node, mesh and material renames are made after the category caches exist; the
+  old name must stop matching, the new name must match, and labels must update. It also covers display
+  options and A→B→A with model A reset while model B is current.
+- Validation: 12 checks. Two four-issue reports have different codes, pointers and severities. The report
+  revision must change; with errors-only + `alpha` unchanged across replacement, stale alpha rows must
+  disappear; then errors/beta, warnings/beta and infos/beta must return the new rows. This checks
+  invalidation independently of issue count, which stays four.
+
+The combined `--cache-invalidation-selfcheck` result is PASS with 62 checks (30 + 20 + 12). These are
+focused code-level checks against the production cache implementations, not frame-dump evidence.
+
+**Finding 3 - self-check exit contract.** `SelfCheckResult { bool success; std::string report; }` is now
+returned by the conflict, validation-cache and cache-invalidation checks. `main.cpp` writes the report
+through one helper and returns `0` only when `success` is true and the report was opened, written,
+flushed and closed successfully. The contract is:
+
+- `0`: all checks passed and the report was written.
+- `1`: at least one check failed; the FAIL report was written.
+- `2`: the report path could not be opened or written.
+
+No report text is parsed to determine success. `--selfcheck-force-failure` injects one failure only when
+that diagnostic flag is present; it is not an unconditional production failure. Failure-path results:
+forced failure returned `1` for all three self-check commands, and passing an existing directory as the
+report path returned `2` for all three. Passing runs returned `0` and their reports contain `Result: PASS`.
+
+**Commands and measured results.**
+
+```text
+cmake --build build --config Release --target Glider
+Get-FileHash build\bin\Release\Glider.exe -Algorithm SHA256
+
+Glider.exe --conflict-selfcheck <root>\conflict_pass.txt
+  exit 0; PASS; 456 checks
+  initial selection 0.884 ms legacy, 0.037 ms indexed (24.016x)
+  per-row scan 1.561 ms legacy, 0.037 ms indexed (41.861x)
+
+Glider.exe --validation-cache-selfcheck <root>\validation_pass.txt
+  exit 0; PASS; 18 checks
+  legacy filter 1.949 ms, warm cached 0.381 ms (5.119x), cold 2.792 ms
+
+Glider.exe --cache-invalidation-selfcheck <root>\cache_invalidation_pass.txt
+  exit 0; PASS; 62 checks (30 hierarchy + 20 resources + 12 validation)
+
+Glider.exe <self-check> <root>\<name>_forced_fail.txt --selfcheck-force-failure
+  exit 1 for conflict, validation cache and cache invalidation; FAIL report written
+
+Glider.exe <self-check> <root>
+  exit 2 for conflict, validation cache and cache invalidation; each reports that the
+  output could not be opened
+```
+
+**Frame dumps and regressions.** The final link was run at the default 1600x900 window. The default,
+hierarchy-search and resources-search dumps remain byte-identical to the previously accepted/compared
+captures:
+
+| Dump | SHA-256 | Check |
+| :--- | :--- | :--- |
+| `default_final.jpg` | `0F61DB6F581EAFD6A2D37E4EEDDBF7692BE33A92F322A75E9C799C248C761804` | matches accepted default baseline |
+| `hierarchy_search_final.png` | `DF113D76BC9D51D7FAA0FAD2583109A67A76C68ADC9BD3994888E51DF87DB88C` | matches prior hierarchy `Child_4095` capture |
+| `resources_search_final.png` | `78FE847807F2D09F16F74F907CDBF4CC0DE7D84ABE3F99586683B086F08603FC` | matches prior resources `Mesh_4095` capture |
+| `validation_search_final.png` | `1E429EBF1DD104EA93BB0EAC660A0F0953A48E63F72EF6BACDEE40EF9B1E663D` | opened and inspected: 1024 errors with errors-only + `MESH_NO_PRIMITIVES` |
+
+The validation dump hash is not compared byte-for-byte across runs because the displayed scan time can
+change pixels; visual inspection is the evidence for that capture.
+
+**Measured, inspected and startup-only evidence.** Measured: self-check counts, timings, exit codes,
+executable hash and dump hashes above. Code-inspected: the hierarchy row's material selection call, the
+revision guard and single rebuild, the cache functions used by the tests, and the report writer's
+open/write/flush/close checks. Startup-only: the §12.17 rename, display-option, model-reload and
+validation-reload captures; they are not presented as warm-cache invalidation.
+
+**Limitations.** Actual ImGui mouse interaction with the hierarchy material selector and the Inspector
+material combo was not automated; the focused test exercises the same cached label string and live
+material pointer at the cache boundary. The validation replacement reports are synthetic and have no
+rendered asset behind them. The A→B→A checks use in-process model objects, including `Gltf::reset()`, not
+a file-open dialog. Copy Report and clipboard behavior were not exercised. The full paired UI benchmark
+in §12.17 was not rerun after these review fixes, so its timings are not claimed for the final link; the
+self-check and dump regressions above were rerun. No commit or push was performed.
+
+**Decision.** The three review findings are addressed in the working tree: material-assignment labels
+invalidate on a revision instead of every frame, warm-cache checks call the real cache implementations,
+the startup-only claims are corrected, and self-checks use structured success plus an explicit 0/1/2
+exit contract. P2.3, P2.4 and Phase 3 remain not started.
+
+### 12.19 Independent P2.1/P2.2 re-review (2026-10-21)
+
+**Decision: accepted for the reviewed P2.1/P2.2 scope; no blocking findings remain.**
+The reviewer inspected the material-assignment revision and hierarchy invalidation guard, the
+production-cache tests, and the structured report writer. Release built successfully; its SHA-256
+remains `D577CF5E7AA65AB604FFBDAE8FA9454ECFC21C93CC7F9CE5BF64EB620A4ABB66`.
+
+Independent runs passed 456 conflict checks, 18 validation-filter checks and 62 warm-cache
+invalidation checks (30 hierarchy, 20 resources, 12 equal-length report replacement). For each of
+the three commands, the passing run returned 0, forced failure returned 1, and a directory used as
+the output path returned 2. The post-open write/flush/close failure handling was inspected in code;
+a disk-full or similar post-open failure was not injected.
+
+A fresh default frame dump was opened and inspected and matched the baseline SHA-256
+`0F61DB6F581EAFD6A2D37E4EEDDBF7692BE33A92F322A75E9C799C248C761804`.
+Review artifacts are in `H:\git-repos\gltf-viewer\build\p2-rereview\`.
+The full paired UI timing series and mouse/clipboard interactions were not repeated; the limits
+in §12.18 remain applicable. This accepts P2.1/P2.2 only, not the unfinished Phase 2 as a whole.
+No commit, push or P2.3/P2.4 implementation was performed during this review.

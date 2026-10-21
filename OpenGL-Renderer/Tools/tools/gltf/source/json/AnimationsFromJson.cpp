@@ -321,7 +321,7 @@ ConversionResult AnimationsFromJson::resolveChannelTarget(const nlohmann::json& 
                     continue;
                 }
 
-                _target.m_animationPointer = _target.fromAnimationPointer(m_pointerLookup, globalPointer);
+                _target.setAnimationPointer(_target.fromAnimationPointer(m_pointerLookup, globalPointer));
             }
         }
     }

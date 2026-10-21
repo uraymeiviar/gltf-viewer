@@ -54,6 +54,7 @@
 #include "imgui/AppSettings.h"
 #include "imgui/SearchPathsPanel.h"
 #include "imgui/SceneHierarchyPanel.h"
+#include "imgui/SelfCheckResult.h"
 #include "imgui/StatusBar.h"
 #include "imgui/ViewportInstance.h"
 
@@ -82,6 +83,39 @@
 #include <deque>
 
 static bool s_outputFailed = false;
+
+// Self-check exit contract:
+//   0 = all checks passed and the report was written
+//   1 = one or more checks failed (a FAIL report was still written)
+//   2 = the report could not be opened/written
+static int writeSelfCheckReport(const ux3d::imgui::SelfCheckResult& result,
+                                const std::string& path,
+                                const char* label)
+{
+    std::ofstream output(path, std::ios::binary);
+    if (!output) {
+        std::fprintf(stderr, "Could not open %s self-check output '%s'\n", label, path.c_str());
+        return 2;
+    }
+
+    output << result.report;
+    output.flush();
+    if (!output.good()) {
+        std::fprintf(stderr, "Could not write %s self-check output '%s'\n", label, path.c_str());
+        return 2;
+    }
+    output.close();
+    if (!output.good()) {
+        std::fprintf(stderr, "Could not close %s self-check output '%s'\n", label, path.c_str());
+        return 2;
+    }
+
+    if (!result.success) {
+        std::fprintf(stderr, "%s self-check failed; report: %s\n", label, path.c_str());
+        return 1;
+    }
+    return 0;
+}
 
 static bool saveImage(const char* filename, int width, int height, const uint8_t* rgba) {
     if (!filename || width <= 0 || height <= 0 || !rgba) return false;
@@ -1852,11 +1886,19 @@ int main(int argc, char** argv)
     gltfLayer->renderSettings.enableSpecular = true;
 
     std::string modelToLoad = resolveSampleModelPath();
+    std::string reloadModelArg;
     std::string dumpFramePath = "";
     int dumpFrameCountdown = -1;
     bool exitAfterDump = false;
     std::string selectNodeArg;
     std::string hideNodeArg;
+    std::string renameNodeArg;
+    std::string renameMeshArg;
+    std::string renameMaterialArg;
+    bool hierarchyDisplayProvided = false;
+    bool resourceDisplayProvided = false;
+    ux3d::imgui::HierarchyDisplayOptions hierarchyDisplayValue;
+    ux3d::imgui::ResourceDisplayOptions resourceDisplayValue;
     std::string selectMaterialArg;
     std::string selectImageArg;
     std::string selectTextureArg;
@@ -1868,6 +1910,10 @@ int main(int argc, char** argv)
     bool showLoggerArg = false;
     size_t logTestCountArg = 0;
     float animTimeArg = -1.0f;
+    std::string conflictSelfCheckOutputPath;
+    std::string validationCacheSelfCheckOutputPath;
+    std::string cacheInvalidationSelfCheckOutputPath;
+    bool selfCheckForceFailure = false;
     std::string scenarioReportPath;
     std::string scenarioName = "default";
     bool cameraYawProvided = false;
@@ -1884,6 +1930,23 @@ int main(int argc, char** argv)
     float cameraFovArg = 0.0f;
     std::string cameraProjectionArg;
     bool modelLoaded = false;
+
+    auto parseDisplayOptions = [](const std::string& spec, ux3d::imgui::HierarchyDisplayOptions& options) {
+        std::stringstream stream(spec);
+        std::string token;
+        int part = 0;
+        while (std::getline(stream, token, ',') && part < 4) {
+            const bool enabled = token == "1" || toLowerAscii(token) == "true" || toLowerAscii(token) == "on";
+            switch (part) {
+                case 0: options.showIcon = enabled; break;
+                case 1: options.showTitle = enabled; break;
+                case 2: options.showIndex = enabled; break;
+                case 3: options.showName = enabled; break;
+                default: break;
+            }
+            ++part;
+        }
+    };
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -1967,6 +2030,20 @@ int main(int argc, char** argv)
             selectNodeArg = argv[++i];
         } else if (arg == "--hide-node" && i + 1 < argc) {
             hideNodeArg = argv[++i];
+        } else if (arg == "--reload-model" && i + 1 < argc) {
+            reloadModelArg = argv[++i];
+        } else if (arg == "--rename-node" && i + 1 < argc) {
+            renameNodeArg = argv[++i];
+        } else if (arg == "--rename-mesh" && i + 1 < argc) {
+            renameMeshArg = argv[++i];
+        } else if (arg == "--rename-material" && i + 1 < argc) {
+            renameMaterialArg = argv[++i];
+        } else if (arg == "--hierarchy-display" && i + 1 < argc) {
+            hierarchyDisplayProvided = true;
+            parseDisplayOptions(argv[++i], hierarchyDisplayValue);
+        } else if (arg == "--resource-display" && i + 1 < argc) {
+            resourceDisplayProvided = true;
+            parseDisplayOptions(argv[++i], resourceDisplayValue);
         } else if (arg == "--select-material" && i + 1 < argc) {
             selectMaterialArg = argv[++i];
         } else if (arg == "--select-image" && i + 1 < argc) {
@@ -1991,6 +2068,27 @@ int main(int argc, char** argv)
             ux3d::imgui::SceneHierarchyPanel::setSearchFilter(argv[++i]);
         } else if (arg == "--filter-resource" && i + 1 < argc) {
             ux3d::imgui::ResourcesPanel::setSearchFilter(argv[++i]);
+        } else if (arg == "--filter-validation" && i + 1 < argc) {
+            ux3d::imgui::ValidationPanel::setSearchFilter(argv[++i]);
+        } else if (arg == "--validation-severity" && i + 1 < argc) {
+            const std::string severity = toLowerAscii(argv[++i]);
+            if (severity == "errors" || severity == "error") {
+                ux3d::imgui::ValidationPanel::setSeverityFilter(true, false, false);
+            } else if (severity == "warnings" || severity == "warning") {
+                ux3d::imgui::ValidationPanel::setSeverityFilter(false, true, false);
+            } else if (severity == "infos" || severity == "info") {
+                ux3d::imgui::ValidationPanel::setSeverityFilter(false, false, true);
+            } else {
+                ux3d::imgui::ValidationPanel::setSeverityFilter(true, true, true);
+            }
+        } else if (arg == "--conflict-selfcheck" && i + 1 < argc) {
+            conflictSelfCheckOutputPath = argv[++i];
+        } else if (arg == "--validation-cache-selfcheck" && i + 1 < argc) {
+            validationCacheSelfCheckOutputPath = argv[++i];
+        } else if (arg == "--cache-invalidation-selfcheck" && i + 1 < argc) {
+            cacheInvalidationSelfCheckOutputPath = argv[++i];
+        } else if (arg == "--selfcheck-force-failure") {
+            selfCheckForceFailure = true;
         } else if ((arg == "--env" || arg == "--hdr") && i + 1 < argc) {
             std::string customHdr = argv[++i];
             auto path = ux3d::imgui::StdFileSystem::instance().toPath(customHdr.c_str());
@@ -2068,6 +2166,40 @@ int main(int argc, char** argv)
         return 1;
     }
 
+    if (!conflictSelfCheckOutputPath.empty()) {
+        return writeSelfCheckReport(
+            animationPlayer.runConflictSelfCheck(selfCheckForceFailure),
+            conflictSelfCheckOutputPath,
+            "conflict");
+    }
+
+    if (!validationCacheSelfCheckOutputPath.empty()) {
+        return writeSelfCheckReport(
+            ux3d::imgui::ValidationPanel::runCacheSelfCheck(selfCheckForceFailure),
+            validationCacheSelfCheckOutputPath,
+            "validation cache");
+    }
+
+    if (!cacheInvalidationSelfCheckOutputPath.empty()) {
+        const auto hierarchyResult =
+            ux3d::imgui::SceneHierarchyPanel::runCacheInvalidationSelfCheck(selfCheckForceFailure);
+        const auto resourcesResult =
+            ux3d::imgui::ResourcesPanel::runCacheInvalidationSelfCheck(selfCheckForceFailure);
+        const auto validationResult =
+            ux3d::imgui::ValidationPanel::runReportRevisionSelfCheck(selfCheckForceFailure);
+
+        ux3d::imgui::SelfCheckResult combined;
+        combined.success = hierarchyResult.success && resourcesResult.success && validationResult.success;
+        std::ostringstream report;
+        report << hierarchyResult.report;
+        report << "\n";
+        report << resourcesResult.report;
+        report << "\n";
+        report << validationResult.report;
+        combined.report = report.str();
+        return writeSelfCheckReport(combined, cacheInvalidationSelfCheckOutputPath, "cache invalidation");
+    }
+
     if (!s_isolatedState) {
         ux3d::imgui::AppSettings::instance().loadSettings();
         s_recentFiles = loadRecentFiles();
@@ -2081,9 +2213,44 @@ int main(int argc, char** argv)
         ux3d::imgui::AppSettings::instance().setIniFilePath(tempSettings.string());
     }
 
+    if (hierarchyDisplayProvided) {
+        ux3d::imgui::AppSettings::instance().setHierarchyOptions(hierarchyDisplayValue);
+    }
+    if (resourceDisplayProvided) {
+        ux3d::imgui::AppSettings::instance().setResourceOptions(resourceDisplayValue);
+    }
+
     if (ux3d::imgui::StdFileSystem::instance().isFile(ux3d::imgui::StdFileSystem::instance().toFile(modelToLoad.c_str()))) {
         modelLoaded = loadGltfModel(modelToLoad, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, isSceneDirty);
         updateWindowTitle(window, currentFilePath);
+
+        auto renameNamedElement = [](auto& elements, const std::string& assignment, const char* label) {
+            const size_t separator = assignment.find('=');
+            if (separator == std::string::npos) {
+                return false;
+            }
+            const std::string oldName = assignment.substr(0, separator);
+            const std::string newName = assignment.substr(separator + 1);
+            for (auto& element : elements) {
+                if (element.hasName() && element.getName() == oldName.c_str()) {
+                    element.setName(newName.c_str());
+                    std::printf("Renamed %s '%s' to '%s'\n", label, oldName.c_str(), newName.c_str());
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        if (!renameNodeArg.empty()) {
+            renameNamedElement(gltfModel.getNodes(), renameNodeArg, "node");
+        }
+        if (!renameMeshArg.empty()) {
+            renameNamedElement(gltfModel.getMeshes(), renameMeshArg, "mesh");
+        }
+        if (!renameMaterialArg.empty()) {
+            renameNamedElement(gltfModel.getElements<ux3d::gltf::Material>(), renameMaterialArg, "material");
+        }
+
         if (!selectNodeArg.empty()) {
             for (auto& node : gltfModel.getNodes()) {
                 if (node.hasName() && node.getName() == selectNodeArg.c_str()) {
@@ -2191,6 +2358,12 @@ int main(int argc, char** argv)
         }
     } else {
         updateWindowTitle(window, "untitled.glb");
+    }
+
+    if (!reloadModelArg.empty()) {
+        modelLoaded = loadGltfModel(reloadModelArg, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, isSceneDirty);
+        updateWindowTitle(window, currentFilePath);
+        std::printf("Reloaded model: %s\n", reloadModelArg.c_str());
     }
 
     // P0.1 explicit camera/projection controls are applied after model load and

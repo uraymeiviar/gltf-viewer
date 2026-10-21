@@ -7,6 +7,7 @@
 #include "animation/AnimationChannel.h"
 #include "animation/AnimationSampler.h"
 #include "core/LinkedList.h"
+#include <atomic>
 
 // See https://github.com/KhronosGroup/glTF/tree/master/specification/2.0#animation
 
@@ -38,7 +39,15 @@ public:
     const core::LinkedList<AnimationSampler>& getSamplers() const { return m_Samplers; }
 
     bool isPlaying() const { return m_isPlaying; }
-    void setPlaying(bool _isPlaying) { m_isPlaying = _isPlaying; }
+    void setPlaying(bool _isPlaying)
+    {
+        if (m_isPlaying != _isPlaying) {
+            m_isPlaying = _isPlaying;
+            s_playingRevision.fetch_add(1, std::memory_order_relaxed);
+        }
+    }
+
+    static uint64_t getPlayingRevision() { return s_playingRevision.load(std::memory_order_relaxed); }
 
     bool hasXMPPacket() const { return m_xmpPacket.has_value(); }
     std::optional<PacketContainer>& getXMPPacket() { return m_xmpPacket; }
@@ -46,11 +55,18 @@ public:
     GltfResult setXMPPacket(Packet* _xmpPacket);
     GltfResult unsetXMPPacket();
 
-    AnimationChannel* createChannel() { return m_Channels.emplace_back(*this); }
+    AnimationChannel* createChannel()
+    {
+        AnimationChannelTarget::markTargetsChanged();
+        return m_Channels.emplace_back(*this);
+    }
 
     AnimationSampler* createSampler() { return m_Samplers.emplace_back(*this); }
 
     bool isValid() const override;
     GltfResult getInvalidProperties(core::Vector<core::string>& _InvalidProperties) const override;
+
+private:
+    inline static std::atomic<uint64_t> s_playingRevision{ 0 };
 };
 }

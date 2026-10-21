@@ -14,6 +14,8 @@
 #include "gltf/HelperVisible.h"
 #include "gltf/StorageFormats.h"
 #include "gltf/mesh/MaterialVariantsMapping.h"
+#include <atomic>
+#include <cstdint>
 #include <optional>
 
 //See https://github.com/KhronosGroup/glTF/tree/master/specification/2.0#primitive
@@ -75,6 +77,8 @@ public:
     Material* getMaterial() { return m_pMaterial; }
     const Material* getMaterial() const { return m_pMaterial; }
 
+    static uint64_t getMaterialRevision() { return s_materialRevision.load(std::memory_order_relaxed); }
+
     core::LinkedList<Accessor*> getAllReferencedAccessors();
 
     GltfResult enableDracoMeshCompression(DracoEncoder& _encoder, DracoDecoder& _decoder);
@@ -93,12 +97,21 @@ public:
     GltfResult createMaterialVariantsMapping();
     void unsetMaterialVariantsMapping() { m_materialVariantsMapping.reset(); }
 
-    void unsetMaterial() { m_pMaterial = nullptr; }
+    void unsetMaterial()
+    {
+        m_pMaterial = nullptr;
+        bumpMaterialRevision();
+    }
     void unsetIndicesAccessor() { m_pIndicesAccessor = nullptr; }
 
     bool isValid() const;
     GltfResult getInvalidProperties(core::Vector<core::string>& _InvalidProperties) const;
 
     uint32_t getMeshByteSize() const;
+
+private:
+    static void bumpMaterialRevision() { s_materialRevision.fetch_add(1, std::memory_order_relaxed); }
+
+    inline static std::atomic<uint64_t> s_materialRevision{ 0 };
 };
 }

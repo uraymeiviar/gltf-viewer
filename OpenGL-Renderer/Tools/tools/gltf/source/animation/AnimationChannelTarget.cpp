@@ -16,6 +16,7 @@ ux3d::gltf::GltfResult ux3d::gltf::AnimationChannelTarget::setNode(Node& _Node)
 {
     m_pNode = &_Node;
     m_animationHasChanged = true;
+    bumpTargetRevision();
     return GltfResult::Success;
 }
 
@@ -23,6 +24,7 @@ ux3d::gltf::GltfResult ux3d::gltf::AnimationChannelTarget::setPath(AnimationPath
 {
     m_Path = _Path;
     m_animationHasChanged = true;
+    bumpTargetRevision();
     return GltfResult::Success;
 }
 

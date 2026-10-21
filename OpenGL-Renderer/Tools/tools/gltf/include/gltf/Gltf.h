@@ -65,6 +65,11 @@ class Gltf : public GltfObject {
     Extensions m_requiredKnownExtensions;
     std::unordered_set<core::string> m_requiredUnknownExtensions;
 
+    // Monotonic revision for UI caches. It changes whenever the model is reset
+    // or an element is created, so cached pointers and labels can be rejected
+    // without walking the whole document.
+    uint64_t m_revision = 0;
+
     struct GltfTypeIDs {
         uint32_t nextScenesId = 0;
         uint32_t nextNodesId = 0;
@@ -97,6 +102,8 @@ public:
     bool merge(const Gltf& _other);
 
     void reset();
+
+    uint64_t getRevision() const { return m_revision; }
 
     Extensions getUsedExtensions() const override;
 
@@ -248,8 +255,14 @@ public:
     core::Vector<TextureInfo*> getTextureInfos();
 
 private:
+    void bumpRevision() { ++m_revision; }
+
     template <typename TChildOfRoot>
-    uint32_t getNextGltfTypeID() { return id<TChildOfRoot>()++; }
+    uint32_t getNextGltfTypeID()
+    {
+        bumpRevision();
+        return id<TChildOfRoot>()++;
+    }
 
     template <typename TChildOfRoot>
     bool isFreeGltfTypeID(uint32_t _id) { return id<TChildOfRoot>() <= _id; }
@@ -276,6 +289,7 @@ TChildOfRoot* Gltf::create(std::optional<uint32_t> _id, Args&&... _additionalArg
     {
         if (_id.has_value() && isFreeGltfTypeID<TChildOfRoot>(_id.value())) {
             reserveGltfTypeID<TChildOfRoot>(_id.value());
+            bumpRevision();
 
             return getElements<TChildOfRoot>()
                 .emplace_back(_id.value(), std::forward<Args>(_additionalArgs)...);
