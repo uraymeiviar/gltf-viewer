@@ -6,6 +6,8 @@
 #include "renderer/gl/GL.h"
 #include "renderer/gl/Sampler.h"
 
+#include <optional>
+
 namespace ux3d::renderer {
 class Command;
 
@@ -23,6 +25,8 @@ public:
     gl::SamplerCache& getSamplerCache() { return m_samplerCache; }
     const gl::SamplerCache& getSamplerCache() const { return m_samplerCache; }
 
+    std::optional<gl::PolygonMode> getActivePolygonMode() const { return m_activePolygonMode; }
+
 private:
     void draw(const Command& command);
     void clear(const Command& command) const;
@@ -32,7 +36,7 @@ private:
     void setupVertexArray(const Command& command);
     void setupBlendFunc(const Command& command) const;
     void setupCulling(const Command& command) const;
-    void setupPolygonMode(const Command& command) const;
+    void setupPolygonMode(const Command& command);
     void setupFrontFace(const Command& command) const;
     void setupDepthTest(const Command& command) const;
     void setupScissorTest(const Command& command) const;
@@ -42,6 +46,7 @@ private:
     gl::GL* m_gl;
     GLint m_maxTextureUnits = 0;
     GLuint m_activeVertexArray = gl::invalid;
+    std::optional<gl::PolygonMode> m_activePolygonMode = std::nullopt;
     GLint m_maxBoundTextureUnit = -1;
     gl::SamplerCache m_samplerCache;
 };

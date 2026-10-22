@@ -221,6 +221,7 @@ void GladGL::cullFace(GLenum mode)
 void GladGL::polygonMode(GLenum face, GLenum mode)
 {
     ux3d::imgui::profiling::countGlCall();
+    ux3d::imgui::profiling::countPolygonModeCall();
     glPolygonMode(face, mode);
 }
 

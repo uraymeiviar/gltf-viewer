@@ -48,6 +48,7 @@ struct FrameCounters {
     uint64_t samplerBinds = 0;
     uint64_t samplerParameterCalls = 0;
     uint64_t texParameterCalls = 0;
+    uint64_t polygonModeCalls = 0;
 
     uint64_t bufferUploads = 0;
     uint64_t bufferUploadBytes = 0;
@@ -185,6 +186,11 @@ inline void countSamplerParameter(uint64_t count = 1)
 inline void countTexParameter(uint64_t count = 1)
 {
     if (g_countingEnabled) frameCounters().texParameterCalls += count;
+}
+
+inline void countPolygonModeCall(uint64_t count = 1)
+{
+    if (g_countingEnabled) frameCounters().polygonModeCalls += count;
 }
 
 inline void countBufferUpload(uint64_t bytes)

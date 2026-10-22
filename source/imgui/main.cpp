@@ -52,6 +52,7 @@
 #include "imgui/AntiAliasing.h"
 #include "imgui/SamplerTest.h"
 #include "imgui/VaoTest.h"
+#include "imgui/PolygonModeTest.h"
 #include "imgui/BoundingBoxRenderer.h"
 #include "imgui/Theme.h"
 #include "imgui/IconsMaterialDesignIcons.h"
@@ -2223,6 +2224,8 @@ int main(int argc, char** argv)
     std::string samplerDumpPatternPath;
     std::string vaoSelfCheckOutputPath;
     std::string vaoSelfCheckCase = "all";
+    std::string polygonModeSelfCheckOutputPath;
+    std::string polygonModeSelfCheckCase = "all";
     bool selfCheckForceFailure = false;
     std::string scenarioReportPath;
     std::string scenarioName = "default";
@@ -2421,6 +2424,10 @@ int main(int argc, char** argv)
             vaoSelfCheckOutputPath = argv[++i];
         } else if (arg == "--vao-selfcheck-case" && i + 1 < argc) {
             vaoSelfCheckCase = argv[++i];
+        } else if (arg == "--polygon-mode-selfcheck" && i + 1 < argc) {
+            polygonModeSelfCheckOutputPath = argv[++i];
+        } else if (arg == "--polygon-mode-selfcheck-case" && i + 1 < argc) {
+            polygonModeSelfCheckCase = argv[++i];
         } else if (arg == "--selfcheck-force-failure") {
             selfCheckForceFailure = true;
         } else if ((arg == "--env" || arg == "--hdr") && i + 1 < argc) {
@@ -2448,6 +2455,15 @@ int main(int argc, char** argv)
             else if (aaVal == "msaa8" || aaVal == "3") activeViewport->settings.antiAliasingIdx = 3;
             else if (aaVal == "fxaa" || aaVal == "4") activeViewport->settings.antiAliasingIdx = 4;
             else if (aaVal == "taa" || aaVal == "5") activeViewport->settings.antiAliasingIdx = 5;
+        } else if (arg == "--render-mode" && i + 1 < argc) {
+            std::string rmVal = toLowerAscii(argv[++i]);
+            if (rmVal == "wireframe" || rmVal == "1") {
+                activeViewport->settings.renderMode = ux3d::renderer::RenderMode::Wireframe;
+                activeViewport->settings.renderModeIdx = 1;
+            } else if (rmVal == "default" || rmVal == "shaded" || rmVal == "0" || rmVal == "none") {
+                activeViewport->settings.renderMode = ux3d::renderer::RenderMode::None;
+                activeViewport->settings.renderModeIdx = 0;
+            }
         } else if (!arg.empty() && arg[0] != '-') {
             modelToLoad = arg;
         }
@@ -2582,6 +2598,21 @@ int main(int argc, char** argv)
                                          glRenderer.get(), commandGenerator.get(), reloadAndDraw),
             vaoSelfCheckOutputPath,
             "VAO reuse and cache");
+    }
+
+    if (!polygonModeSelfCheckOutputPath.empty()) {
+        auto reloadAndDraw = [&](const std::string& path) -> bool {
+            bool ok = loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, isSceneDirty);
+            if (!ok || activeScene == nullptr) return false;
+            auto [scene, reverseMapping] = gltfLayer->createScene(activeScene);
+            commandGenerator->update(scene);
+            return glRenderer->draw({ commandGenerator.get() });
+        };
+        return writeSelfCheckReport(
+            ux3d::imgui::runPolygonModeSelfCheck(gladGL.get(), selfCheckForceFailure, polygonModeSelfCheckCase,
+                                                 glRenderer.get(), commandGenerator.get(), reloadAndDraw),
+            polygonModeSelfCheckOutputPath,
+            "polygon mode cache");
     }
 
     if (!s_isolatedState) {

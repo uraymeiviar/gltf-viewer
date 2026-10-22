@@ -1340,6 +1340,7 @@ until retention/truncation/Copy behavior is explicitly chosen; it is not necessa
 - [ ] **P3.4 — Executor shadow state (§3.3).** Introduce one state category per substep. Invalidate at
   external-function commands, renderer boundaries and context changes. Test grid/bounds, ImGui, AA,
   transparency/transmission, wireframe and multiple viewports interleaved with scene rendering.
+  *P3.4.1 (Polygon mode cache) implemented and validated in §12.28; overall P3.4 remains open.*
 
 **Exit gate:** diagnostic build and frame comparisons pass the render-state matrix; repeated
 open/close/reload cycles show no accumulating owned GL objects. Intended driver-call/creation counts
@@ -4969,3 +4970,151 @@ captures of commit 6636b28; no broad image matrix or earlier-phase suite was
 repeated for this review. No frame-time speedup is claimed from object counts.
 No remaining blocking findings. Only this journal was edited during review;
 no commit or push was performed.
+
+### 12.28 P3.4.1 — CommandExecutor Polygon Mode Cache (2026-10-22)
+
+#### 1. Context & Accepted Baseline
+
+- **Accepted Baseline**: Commit `b506b3c` ("Reuse vertex layouts with per-mesh invalidation and lifecycle validation").
+- **Task Scope**: P3.4.1 only. Cache polygon mode in `CommandExecutor`. Suppress redundant `glPolygonMode` driver calls across consecutive draws requesting identical polygon mode while strictly preserving rendering behavior. Invalidate cache at `CommandExecutor::resetState()`, `Renderer::draw()` boundaries (entry, error exit, successful exit), `CommandExecutor::init()`, and `CommandTag::ExternalFunction`.
+- **Exclusions**: Do not cache culling, front-face winding, depth, blend, programs, textures, samplers, framebuffers, or other state in this task. Do not start Phase 4. Preserve scene rebuild frequency, draw ordering, shaders, rendering quality, standalone single-executable architecture, and OpenGL 4.1 Core Profile compatibility. Preserve accepted P3.2 sampler behavior and P3.3 VAO behavior. Do not commit or push. Stop for review when complete.
+
+#### 2. Ownership, Mutation Boundaries & Architecture
+
+1. **State Ownership & Cache Invalidation in CommandExecutor**:
+   - `CommandExecutor` now tracks active polygon mode via `std::optional<gl::PolygonMode> m_activePolygonMode`:
+     ```cpp
+     void ux3d::renderer::CommandExecutor::setupPolygonMode(const Command& command)
+     {
+         if (!m_activePolygonMode.has_value() || m_activePolygonMode.value() != command.polygonMode) {
+             m_activePolygonMode = command.polygonMode;
+             m_gl->polygonMode(GL_FRONT_AND_BACK, GLenum(command.polygonMode));
+             GLIDER_HOT_GL_CHECK(m_gl, "Failed to set polygon mode");
+         }
+     }
+     ```
+   - **Boundary Invalidation Points**:
+     - `CommandExecutor::init()`: Resets `m_activePolygonMode` to `std::nullopt`. Invoked once during renderer initialization (`Renderer::init()`).
+     - `CommandExecutor::resetState()`: Resets `m_activePolygonMode` to `std::nullopt`. Invoked at the entry of every `Renderer::draw()`, at every error return, and at successful completion. (`Renderer::draw()` calls `resetState()` on every draw; it does not call `init()` per draw).
+     - `CommandTag::ExternalFunction`: Resets `m_activePolygonMode` to `std::nullopt` before delegating control to the external callback. This prevents external GL state modifications from desynchronizing the executor.
+
+2. **Analysis of External Mutation Boundaries**:
+   - In `main.cpp`, polygon mode is directly modified in several rendering passes outside `Renderer::draw()`:
+     - `glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)` in `main.cpp:3745` after main scene draw.
+     - `glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)` in `main.cpp:3754` for viewport wireframe overlay.
+     - `glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)` in `main.cpp:3768` after wireframe overlay.
+     - Grid renderer, bounding box renderer, and Dear ImGui rendering passes.
+   - Because `CommandExecutor` resets `m_activePolygonMode` at `Renderer::draw()` entry/exit and `CommandTag::ExternalFunction`, external mutations outside the executor never lead to stale cache hits. The first command in any subsequent `Renderer::draw()` or post-callback draw will always issue `glPolygonMode` to re-synchronize driver state.
+
+3. **Diagnostic Profiling Instrumentation**:
+   - Extended `FrameCounters` in `header/imgui/Profiling.h` and `source/imgui/Profiling.cpp` with `uint64_t polygonModeCalls`.
+   - Instrumented `GladGL::polygonMode()` (`source/imgui/GladGL.cpp`) to call `countPolygonModeCall()`.
+   - Exposed `getActivePolygonMode()` inspector on `CommandExecutor` for direct white-box assertions.
+
+#### 3. Verification & Validation Evidence
+
+1. **Diagnostic Self-Check Suite (`--polygon-mode-selfcheck`)**:
+   - 34 total assertions evaluated across 4 core sections, **34 PASS, 0 FAIL** (exit code 0):
+     - **Section 1: Call Suppression and Mode Transitions (16 assertions)**:
+       - Evaluated a 5-draw command sequence: `Fill` -> `Fill` -> `Line` -> `Line` -> `Fill`.
+       - Draw 1 (Fill): issued driver call (`polygonModeCalls = 1`), cached `PolygonMode::Fill`.
+       - Draw 2 (Fill): redundant call suppressed (`polygonModeCalls = 1`).
+       - Draw 3 (Line): transition issued driver call (`polygonModeCalls = 2`), cached `PolygonMode::Line`.
+       - Draw 4 (Line): redundant call suppressed (`polygonModeCalls = 2`).
+       - Draw 5 (Fill): transition back issued driver call (`polygonModeCalls = 3`), cached `PolygonMode::Fill`.
+       - `resetState()`: invalidated cache (`activePolygonMode == nullopt`).
+       - Draw 6 (Fill): re-issued driver call despite matching pre-reset mode (`polygonModeCalls = 4`).
+     - **Section 2: External Callback Boundary Isolation (10 assertions)**:
+       - Drew quad in `Fill` mode (`activePolygonMode == Fill`).
+       - Submitted `CommandTag::ExternalFunction` modifying driver state to `GL_LINE`. Asserted cache invalidated.
+       - Next nominal `Fill` draw re-issued `glPolygonMode`, queried driver state confirmed restored to `GL_FILL`.
+       - Pixel readback at center `(32, 32)` confirmed solid green `[0, 255, 0, 255]`.
+     - **Section 3: Renderer Boundary Isolation (11 assertions)**:
+       - Executed `Renderer::draw()` on `HelloCube.glb`. Queried driver state confirmed `GL_FILL`.
+       - Modified driver state to `GL_LINE` outside the renderer.
+       - Executed second `Renderer::draw()`. Verified driver state restored to `GL_FILL` without assumptions.
+       - Verified zero-sampler unbinding on unit 0 and 0 GL errors.
+     - **Section 4: Visual Correctness with Explicit Readback Tolerances (9 assertions)**:
+       - Rendered indexed quad to offscreen 64x64 RGBA8 FBO under controlled shaders.
+       - **Solid Fill Pass**: Interior off-diagonal point `(43, 21)` read back solid cyan `[0, 255, 255, 255]`; background outside `(2, 2)` read back black `[0, 0, 0, 255]`.
+       - **Wireframe Line Pass**: Interior off-diagonal point `(43, 21)` read back unpainted black `[0, 0, 0, 255]` (visible distinction tolerance $>200$ channel diff from Fill); boundary edge pixel `(54, 32)` contained rendered line color.
+       - **Restoration Pass**: Re-rendered `Fill`, verifying interior `(43, 21)` restored to solid cyan `[0, 255, 255, 255]`.
+   - **Negative Testing**:
+     - `--selfcheck-force-failure`: returned exit code 1 with valid FAIL report.
+     - Unwritable report destination (`Z:/nonexistent/...`): returned exit code 2.
+
+2. **Automated Validation Runner (`scripts/validate_p3_4_1.py`)**:
+   - `python scripts/validate_p3_4_1.py`: **ALL CHECKS PASSED** (exit code 0).
+   - Focused runner cases verified individually:
+     - `--only transitions`: PASS (exit code 0)
+     - `--only boundary`: PASS (exit code 0)
+     - `--only renderer-boundary`: PASS (exit code 0)
+     - `--only visual`: PASS (exit code 0)
+     - `--only benefit`: PASS (exit code 0)
+     - `--only visual-dumps`: PASS (exit code 0)
+
+3. **Call-Count Reduction Quantification**:
+   - In the verified five-draw sequence (`Fill`, `Fill`, `Line`, `Line`, `Fill`), driver calls were reduced from 5 to 3 (40.0% reduction).
+   - Suppression applies strictly to an uninterrupted sequence of draws requesting the same polygon mode after invalidation. Within such a sequence, redundant `glPolygonMode` calls are suppressed (1 driver call for that sequence instead of per-draw calls). Multiple renderer calls, callbacks, or mode transitions within a frame will re-issue driver calls as required by design.
+
+4. **Visual Differentiation Gate**:
+   - Captured full-window 1600x900 frames under default shaded mode vs wireframe mode:
+     - `build/p3.4/candidate/frame_solid.jpg`
+     - `build/p3.4/candidate/frame_wireframe.jpg`
+   - Comparison metric: 88,436 differing pixels (6.14% of total pixels), max channel diff 205, average diff 43.62.
+   - Visually confirmed clean wireframe edges vs solid filled faces on candidate binary.
+
+5. **Linter & Code Standards**:
+   - `git diff --check` passed with 0 whitespace errors.
+   - Candidate binary SHA-256: `BC0DFB97C3F116C0B2AE2E5F56B7CA500604F6DC6CF4F810A88ABED1DC03BFCE`.
+
+#### 4. Review Findings & Validation Script Repair (2026-10-22)
+
+1. **Reviewer Findings in Validation Script (`--only benefit`)**:
+   - *Stale Report Reuse*: The runner previously reused pre-existing `polygon_selfcheck_all.txt` without confirming it was freshly generated by the current candidate binary.
+   - *False-Positive Assertion Matching*: The check performed naive substring search (`"Draw 2 (Fill)..." in report_text`) without checking whether the line was prefixed by `PASS:` or `FAIL:` and without requiring `Result: PASS`. The reviewer reproduced a false pass by injecting a failing report.
+
+2. **Repairs Applied**:
+   - Pre-existing report file unlinked before process execution.
+   - `--only benefit` explicitly executes `--polygon-mode-selfcheck-case transitions` against the reviewed candidate executable and asserts exit code 0.
+   - Implemented unified `validate_report_text` / `validate_selfcheck_report`: requires non-empty file, requires `Result: PASS`, strictly forbids `FAIL:`, and requires every specified assertion to be prefixed with `PASS:`.
+   - Added focused deterministic negative tests (`run_parser_negative_checks` / `--only parser`):
+     - Accepted: Valid synthetic report containing all expected passing assertions and `Result: PASS`.
+     - Rejected: Synthetic report containing expected descriptions prefixed by `FAIL:` and ending in `Result: FAIL` (asserted `AssertionError`).
+     - Rejected: Incomplete synthetic report missing required assertions (asserted `AssertionError`).
+     - Rejected: Nonexistent report path (asserted `AssertionError`).
+     - Rejected: Empty report file (asserted `AssertionError`).
+
+3. **Newly Run Evidence vs Reused Evidence**:
+   - **Reused from Independent Review**: Release build compilation, complete P3.4.1 self-check suite (`all`, `transitions`, `boundary`, `renderer-boundary`, `visual`), production transition counts, reset behavior, external callback / renderer boundary isolation, visual readback tolerances, negative exit-code handling (exit 1 on forced failure, exit 2 on unwritable path), P3.2 sampler boundary checks, P3.3 VAO boundary checks, fresh solid/wireframe captures and visual inspection of wireframe.
+   - **Newly Run Evidence for this Repair**:
+     - `python scripts/validate_p3_4_1.py --only parser`: PASS (exit code 0; all 5 deterministic parser test cases verified).
+     - `python scripts/validate_p3_4_1.py --only benefit`: PASS (exit code 0; parser negative checks + fresh executable transitions execution + report verification passed).
+     - `git diff --check`: PASS (exit code 0; zero whitespace or formatting issues).
+
+#### 5. Scope & Guardrails Compliance
+
+- P3.4.1 implemented and validated in strict isolation. No production C++ code was modified for this script repair.
+- Overall P3.4 remains open; subsequent substeps (culling, winding, depth, blend) deferred.
+- Phase 4 was not started.
+- Scene rebuild frequency, draw ordering, shaders, and rendering quality remain unchanged.
+- Standalone single-executable architecture and OpenGL 4.1 Core Profile compatibility preserved.
+- Status: **SUBMITTED FOR REVIEW**; no commit or push performed.
+
+#### 6. Independent review acceptance (2026-10-22)
+
+P3.4.1 is accepted for commit. Reviewer inspected the repaired report validation
+and ran `python scripts/validate_p3_4_1.py --only benefit`. This invocation passed
+all five deterministic parser cases and generated a fresh transitions report
+from the reviewed executable. The required passing assertions confirm five
+draws issue three polygon-mode calls, and the first draw after reset issues a
+new call. Stale reports are removed before execution; missing, empty, incomplete,
+and explicitly failing reports cannot satisfy this benefit check.
+
+Executable SHA-256 remains
+`BC0DFB97C3F116C0B2AE2E5F56B7CA500604F6DC6CF4F810A88ABED1DC03BFCE`.
+`git diff --check` passed. Earlier independent build, rendering, sampler/VAO
+boundary, and image evidence was reused; no rebuild or visual rerun was needed
+for this script/documentation repair. Journal boundary and call-reduction wording
+now matches the implementation. Overall P3.4 remains open. No blocking findings
+remain. No commit or push was performed during review.

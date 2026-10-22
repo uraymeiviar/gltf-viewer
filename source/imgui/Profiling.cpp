@@ -260,6 +260,7 @@ json countersToJson(const FrameCounters& counters)
         { "samplerBinds", counters.samplerBinds },
         { "samplerParameterCalls", counters.samplerParameterCalls },
         { "texParameterCalls", counters.texParameterCalls },
+        { "polygonModeCalls", counters.polygonModeCalls },
         { "bufferUploads", counters.bufferUploads },
         { "bufferUploadBytes", counters.bufferUploadBytes },
         { "bufferAllocations", counters.bufferAllocations },

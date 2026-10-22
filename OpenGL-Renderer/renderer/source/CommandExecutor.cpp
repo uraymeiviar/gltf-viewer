@@ -17,12 +17,14 @@ void ux3d::renderer::CommandExecutor::init()
     m_samplerCache.init(m_gl);
     m_gl->getIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS, &m_maxTextureUnits);
     m_gl->enable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
+    m_activePolygonMode.reset();
 }
 
 void ux3d::renderer::CommandExecutor::resetState()
 {
     unbindSamplers();
     m_activeVertexArray = gl::invalid;
+    m_activePolygonMode.reset();
 }
 
 void ux3d::renderer::CommandExecutor::unbindSamplers()
@@ -59,6 +61,7 @@ void ux3d::renderer::CommandExecutor::execute(const Command& command)
     case CommandTag::ExternalFunction:
         unbindSamplers();
         m_activeVertexArray = gl::invalid;
+        m_activePolygonMode.reset();
         command.externalFunction();
         break;
     default:
@@ -189,11 +192,13 @@ void ux3d::renderer::CommandExecutor::setupCulling(const Command& command) const
     GLIDER_HOT_GL_CHECK(m_gl, "Failed to set culling mode");
 }
 
-void ux3d::renderer::CommandExecutor::setupPolygonMode(const Command& command) const
+void ux3d::renderer::CommandExecutor::setupPolygonMode(const Command& command)
 {
-    m_gl->polygonMode(GL_FRONT_AND_BACK, GLenum(command.polygonMode));
-
-    GLIDER_HOT_GL_CHECK(m_gl, "Failed to set polygon mode");
+    if (!m_activePolygonMode.has_value() || m_activePolygonMode.value() != command.polygonMode) {
+        m_activePolygonMode = command.polygonMode;
+        m_gl->polygonMode(GL_FRONT_AND_BACK, GLenum(command.polygonMode));
+        GLIDER_HOT_GL_CHECK(m_gl, "Failed to set polygon mode");
+    }
 }
 
 void ux3d::renderer::CommandExecutor::setupFrontFace(const Command& command) const
