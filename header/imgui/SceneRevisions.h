@@ -77,9 +77,15 @@ constexpr uint32_t kAllSceneChanges = (1u << kSceneChangeCount) - 1u;
 //   attached glTF camera looked up in the load-time mapping) and its aspect and
 //   projection are re-derived from stored parameters each frame. Edits to glTF
 //   camera properties are SceneCamera and still sync.
+// - AnimationTime (P4.3): playback ticks and seeks only change which pose is
+//   applied. The player evaluates the active clips itself, and every channel,
+//   including KHR_animation_pointer, writes renderer objects, not the model.
+//   The sync point re-applies the pose instead of rebuilding. Clip-set changes
+//   are AnimationSet and still rebuild.
 constexpr uint32_t kRendererSyncChanges = kAllSceneChanges
     & ~sceneChangeBit(SceneChange::Selection)
-    & ~sceneChangeBit(SceneChange::ViewCamera);
+    & ~sceneChangeBit(SceneChange::ViewCamera)
+    & ~sceneChangeBit(SceneChange::AnimationTime);
 
 // Per-kind monotonically increasing revisions plus the set of kinds marked
 // since the last consume. Revisions never reset, so a cache can key on the
@@ -116,6 +122,28 @@ public:
     // Total number of mark() calls, including repeated marks of a pending kind.
     uint64_t markCount() const { return m_markCount; }
 
+    // Records that the renderer is already synchronized with the current
+    // revision of a kind (P4.3: loadGltfModel runs its own full sync). The kind
+    // stays pending for other consumers; only the renderer sync may skip it,
+    // and only while no later mark has advanced its revision.
+    void noteSynced(SceneChange change)
+    {
+        const size_t index = static_cast<size_t>(change);
+        if (index >= kSceneChangeCount) return;
+        m_syncedRevisions[index] = m_revisions[index];
+    }
+
+    // Pending kinds whose latest revision has not been noted as synced.
+    uint32_t unsyncedPendingMask() const
+    {
+        uint32_t mask = 0;
+        for (size_t i = 0; i < kSceneChangeCount; ++i) {
+            const uint32_t bit = 1u << i;
+            if ((m_pending & bit) != 0 && m_revisions[i] != m_syncedRevisions[i]) mask |= bit;
+        }
+        return mask;
+    }
+
     static std::string maskToString(uint32_t mask)
     {
         std::string text;
@@ -131,6 +159,7 @@ public:
 
 private:
     std::array<uint64_t, kSceneChangeCount> m_revisions{};
+    std::array<uint64_t, kSceneChangeCount> m_syncedRevisions{};
     uint64_t m_markCount = 0;
     uint32_t m_pending = 0;
 };

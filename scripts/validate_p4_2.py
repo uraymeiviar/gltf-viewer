@@ -151,9 +151,7 @@ click 1135 350
 wait 8
 snap inspect_material
 shot @OUT@/fx_inspect_material.png
-click 650 418
-wait 3
-click 650 418
+dclick 650 418
 wait 8
 snap vp_reclick
 shot @OUT@/fx_vp_reclick.png
@@ -177,7 +175,7 @@ FIXTURE_STEPS = [
     ("vp_pick2", "focus_key", {}, 0),                                    # F focuses without a mark (as before)
     ("focus_key", "inspect_material", {}, 0),                            # inspector link: unmarked selection path
     ("vp_reclick", "idle", {}, 0),
-    ("idle", "reloaded", {"Topology": 1}, 1),
+    ("idle", "reloaded", {"Topology": 1}, 0),   # 1 before P4.3 (load syncs itself)
 ]
 
 if section("selfcheck"):
@@ -230,7 +228,7 @@ wait 2
             ("loaded", "mesh_node", {"Selection": 1}, 0),
             ("mesh_node", "joint_node", {"Selection": 1}, 0),
             ("joint_node", "joint_focus", {}, 0),
-            ("joint_focus", "reloaded", {"Topology": 1}, 1),
+            ("joint_focus", "reloaded", {"Topology": 1}, 0),
         ])
 
     if section("multivp"):
@@ -306,9 +304,7 @@ click 90 127
 wait 10
 snap hier_focus
 shot @OUT@/cam_hier_focus.png
-click 440 640
-wait 3
-click 440 640
+dclick 440 640
 wait 10
 snap vp_dclick
 shot @OUT@/cam_vp_dclick.png
@@ -329,7 +325,7 @@ CAMERA_STEPS = [
     ("detached_inspector", "reattached", {"ViewCamera": 1}, 0),
     ("reattached", "detached_dropdown", {"ViewCamera": 1}, 0),
     ("detached_dropdown", "hier_focus", {"Selection": 1, "ViewCamera": 1}, 0),
-    ("idle", "reloaded", {"Topology": 1}, 1),
+    ("idle", "reloaded", {"Topology": 1}, 0),   # 1 before P4.3 (load syncs itself)
 ]
 
 
@@ -376,7 +372,10 @@ wait 2
         s = {k: v["revisions"] for k, v in run["snaps"].items()}
         ticks = s["picked_playing"]["AnimationTime"] - s["playing"]["AnimationTime"]
         syncs = s["picked_playing"]["syncs"] - s["playing"]["syncs"]
-        check(ticks >= 20 and syncs == ticks, f"playback keeps one sync per tick while selecting ({syncs} syncs, {ticks} ticks)")
+        applies = s["picked_playing"]["animationApplies"] - s["playing"]["animationApplies"]
+        # Since P4.3 playback ticks re-apply the pose instead of rebuilding.
+        check(ticks >= 20 and syncs == 0 and applies == ticks,
+              f"playback applies the pose once per tick while selecting ({applies} applies, {syncs} rebuilds, {ticks} ticks)")
         check(s["picked_playing"]["Selection"] - s["playing"]["Selection"] == 1, "selection during playback recorded")
         check("node=b_Hip_01" in run["snaps"]["picked_playing"]["selection"], "joint selected during playback")
         check(s["picked_paused"]["syncs"] == s["paused"]["syncs"], "selection after pause does not sync")

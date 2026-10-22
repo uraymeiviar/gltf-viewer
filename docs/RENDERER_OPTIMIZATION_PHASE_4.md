@@ -2,7 +2,7 @@
 
 [Journal index](RENDERER_OPTIMIZATION_JOURNAL.md) · [Reference audit](RENDERER_OPTIMIZATION_REFERENCE.md) · [Validation rules](RENDERER_OPTIMIZATION_VALIDATION.md)
 
-**Status:** In progress. P4.1 PASS ([§12.32](#section-12-32)) and P4.2 PASS ([§12.33](#section-12-33)), committed as `ebd4384`; P4.3–P4.7 not started.
+**Status:** In progress. P4.1 PASS ([§12.32](#section-12-32)) and P4.2 PASS ([§12.33](#section-12-33)), committed as `ebd4384`; P4.3 PASS ([§12.34](#section-12-34)), uncommitted; P4.4–P4.7 not started.
 
 This file contains the phase task list and its implementation/review history. Original section numbers are retained for traceability.
 
@@ -20,9 +20,10 @@ on-demand rendering: stale caches are easier to detect while all passes still ex
 - [x] **P4.2 — Selection-only updates ([§3.8](RENDERER_OPTIMIZATION_REFERENCE.md#section-3-8)).** Remove full synchronization only after verifying all
   selection entry points and their actual side effects. Verify inspector, focus, OBB and camera gizmo.
   *Implemented and validated in [§12.33](#section-12-33).*
-- [ ] **P4.3 — Playback and initial-load decoupling ([§3.15](RENDERER_OPTIMIZATION_REFERENCE.md#section-3-15), [§3.27](RENDERER_OPTIMIZATION_REFERENCE.md#section-3-27)).** Separate these into two measured
+- [x] **P4.3 — Playback and initial-load decoupling ([§3.15](RENDERER_OPTIMIZATION_REFERENCE.md#section-3-15), [§3.27](RENDERER_OPTIMIZATION_REFERENCE.md#section-3-27)).** Separate these into two measured
   changes. Preserve pointer-driven material updates, scrubbing, stop/reset, clip toggles and initial pose.
   Do not rebuild everything each tick or blindly clear dirty flags set by initialization callbacks.
+  *Implemented and validated in [§12.34](#section-12-34).*
 - [ ] **P4.4 — Bounds/reverse-map caches ([§3.18](RENDERER_OPTIMIZATION_REFERENCE.md#section-3-18), [§4.1](RENDERER_OPTIMIZATION_REFERENCE.md#section-4-1), [§4.2](RENDERER_OPTIMIZATION_REFERENCE.md#section-4-2)).** Key by appropriate model/scene/transform
   generations, not raw addresses alone. Handle subtree changes, scene switching and deforming geometry
   conservatively. Validate selection IDs after reload and with multiple viewports.
@@ -252,4 +253,96 @@ Limits: the Viewport menu "Detach from Camera" item and the "Num 5" key (the har
 keys) were not scripted; they write the same fields as the tested paths. Attach was tested with a single
 perspective glTF camera; no orthographic glTF camera or animated camera node fixture is available.
 There is no timing claim.
+
+<a id="section-12-34"></a>
+
+### 12.34 P4.3 — Playback and Initial-Load Decoupling (2026-10-23)
+
+**Status:** PASS (uncommitted). R2/R3. This was done as two separate changes with separate evidence:
+P4.3a (playback ticks) and P4.3b (duplicate sync after load).
+
+#### 1. Audit (before editing)
+
+- Playback order per frame: `AnimationPlayer::update()` advances time and already calls
+  `applyAnimationTime(t)`. The sync point then ran `updateGltf` + `updateScene` + `applyAnimationTime(t)`
+  again, so each tick did two applies plus a full rebuild.
+- Every animation target, including all `KHR_animation_pointer` targets (material factor uniforms,
+  `KHR_texture_transform`, node TRS/weights, mesh weights, camera and light parameters), writes
+  renderer objects through callbacks. Nothing writes the glTF model. With an unchanged clip set, the
+  per-tick rebuild only re-derives renderer state from an unchanged model, and the next channel
+  evaluation overwrites the animated parts.
+- Clip-set changes (toggle, select all, active clip) are `AnimationSet`. They recreate the animation
+  mapping, and `updateScene` restores the rest pose of nodes that are no longer animated, so they keep the
+  full rebuild. Stop, seek and the toolbar first/last buttons call `applyAnimationTime` directly.
+- Load: `loadGltfModel` runs `updateGltf` → `updateScene` → `applyAnimationTime(0)`. Then
+  `AnimationPlayer::setModel` selects the playable clips, updates the animation mapping and applies time 0.
+  Only then does it mark `Topology`, which made the next frame rebuild everything again.
+- Initialization flags: `recalculateBones` (set by skin/animation mapping callbacks) is read only by
+  `EditorRenderLayer`, which the app does not use. Transform dirtiness is resolved inside
+  `applyAnimationTime`. No flag is cleared by this change.
+
+#### 2. Changes
+
+- P4.3a: `AnimationTime` is removed from `kRendererSyncChanges`. When it is the only pending
+  renderer-relevant kind, the sync point calls `applyAnimationTime(currentTime)` instead of the full
+  rebuild. The redundant re-apply is kept deliberately (P4.7 may drop it). An `animationApplies` counter
+  is added to UI snapshots.
+- P4.3b: `SceneRevisions::noteSynced(kind)` and `unsyncedPendingMask()`. After its own sync,
+  `loadGltfModel` (and `newEmptyGltf`) marks `Topology` and notes that revision as synced. The sync point
+  rebuilds only for pending kinds whose revision is unsynced. The `Topology` bit stays pending for other
+  consumers (TAA blend, counters), and any later mark makes the kind unsynced again. This follows §3.27:
+  "clear only dirty revisions already consumed".
+- Diagnostics: `--fixed-frame-time <s>` gives deterministic playback, and `--force-full-sync` restores
+  the P4.1 mapping as an A/B reference.
+- Fixture: `scripts/generate_pointer_animation_fixture.py` writes
+  `resources/test_models/pointer_animation_fixture.gltf`. It is not packed into the exe. It animates
+  `baseColorFactor` and `emissiveFactor` through `KHR_animation_pointer`, plus a node rotation.
+- Self-check: 85 assertions (+2 for the AnimationTime/AnimationSet mask, +6 for noteSynced semantics).
+
+#### 3. Validation (`python scripts/validate_p4_3.py`; outputs in `build/p4.3/`)
+
+P4.3a uses the same binary twice, once normally and once with `--force-full-sync`, both with
+`--fixed-frame-time 0.05`. The Phase 3 binary cannot be compared mid-playback because playback there
+follows wall-clock time. P4.3b compares against the accepted Phase 3 binary (`2A57417C…`). Final
+candidate SHA-256 `26509DD4…`.
+
+| Scenario | Result |
+|---|---|
+| Pointer fixture, AA none: play; loop wrap; pause; status-bar seek; stop; replay; clip off; clip on; reload | PASS: 13 snapshots and 10 screenshots match the reference. Playback windows of 10 and 33 ticks: 0 rebuilds and exactly one pose apply per tick; the reference rebuilt every tick. Seek and stop: 0 rebuilds. Clip off and clip on each still rebuild, and clip off shows the rest pose (red, unrotated). Reload: Topology +1, 0 rebuilds. |
+| Pointer fixture, TAA, two viewports | PASS: screenshots identical, and playback uses pose applies only |
+| Fox, skinned, with loop wrap | PASS: windows of 28 and 48 ticks, 0 rebuilds. Screenshots identical, including a joint pick during playback. |
+| AnimatedMorphCube, morph weights | PASS: two windows of 13 ticks, 0 rebuilds, screenshots identical |
+| Startup loads vs Phase 3 (7 cases: cube, fixture MSAA4, Fox TAA at t=0.75, pointer at t=1.5, morph FXAA, Duck with `--create-viewport-cam 1`, fixture with `--hide-node`) | PASS: the first presented frame and frame 30 are byte-identical in every case. Rebuilds after load: 1 → 0 when nothing else is pending; 1 → 1 for the camera viewport (ViewportLayout) and `--hide-node` (Visibility), as intended. |
+| Scripted reloads vs Phase 3: fixture → Fox (joint pick) → fixture → Duck attached to its glTF camera → reload while attached → detach | PASS: all snapshots and 5 screenshots identical. Each reload: Topology +1, 0 rebuilds. The attached camera is re-resolved after reload. |
+| Earlier suites rerun on the final binary | `validate_p4_1.py` 68/68, `validate_p4_2.py` 305/305, `validate_p4_3.py` 119/119 |
+| Viewed | `candidate/ptr_play_b.png` (pointer colour and rotation mid-clip), `candidate/morph_play_b.png`, `candidate/rl_duck_reloaded_attached.png` |
+| `git diff --check` | PASS |
+
+Distinctness: the 14 sampled playback and transport screenshots have distinct hashes, so the
+identical-to-reference results are not vacuous.
+
+Test-only fixes: the P4.1/P4.2 expectations were updated to the new contract (playback applies instead of
+rebuilds; reloads do not rebuild). Their baseline comparisons now accept only frames whose consumed kinds
+are all no-rebuild kinds (Selection, ViewCamera, AnimationTime, synced Topology). Viewport double-clicks
+now use the harness `dclick` command: two separate clicks 3 frames apart were occasionally split by
+ImGui's wall-clock double-click window under TAA. That failure reproduced once and passed three times on
+rerun. It is unrelated to this change; the Duck fixture has no animation.
+
+#### 4. Benefit and limits
+
+- Deterministic work reduction: during playback, each tick drops 1 `updateGltf` and 1 `updateScene`
+  (reference: one full rebuild per tick; candidate: none). Each load drops the duplicate first-frame
+  rebuild.
+- No timing claim. On these small fixtures the rebuild is too cheap to measure. The large-scene
+  playback estimate in §3.15 remains unmeasured.
+- Not covered: `KHR_texture_transform` pointer animation (no fixture), multiple simultaneous active
+  clips on separate targets, the toolbar first/last buttons, and loading while playback is running.
+  Inactive-clip filtering in `applyAnimationTime` (§3.15 item 2) and dropping the redundant per-tick
+  re-apply are left for P4.7.
+
+#### 5. Decision
+
+PASS. Rollback boundary: the `AnimationTime` mask change and the pose-only branch in `main.cpp` (P4.3a);
+`noteSynced`/`unsyncedPendingMask` and the two loader calls (P4.3b); the diagnostic flags, the fixture
+and its generator, `scripts/validate_p4_3.py`, and the P4.1/P4.2 script updates.
 

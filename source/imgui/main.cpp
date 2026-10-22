@@ -578,6 +578,12 @@ static std::string s_profileReportPath;
 static bool s_exitAfterProfile = false;
 static bool s_profileReportAttempted = false;
 static bool s_profileReportDeferredLogged = false;
+
+// P4.3 diagnostics. --fixed-frame-time advances playback by a constant step per
+// frame so runs are reproducible; --force-full-sync restores the P4.1 mapping
+// (any pending change runs the full renderer sync) as an A/B reference.
+static float s_fixedFrameTime = -1.0f;
+static bool s_forceFullSync = false;
 static std::deque<ux3d::imgui::profiling::FrameSample> s_frameSamples;
 static uint64_t s_frameSamplesDropped = 0;
 static ux3d::imgui::profiling::FrameSample s_firstFrameSample;
@@ -1029,6 +1035,11 @@ static bool loadGltfModel(const std::string& filePath,
         }
 
         revisions.mark(ux3d::imgui::SceneChange::Topology);
+        if (gltfLayer != nullptr) {
+            // The renderer was synchronized above; the next frame need not
+            // repeat it unless something else changes (P4.3).
+            revisions.noteSynced(ux3d::imgui::SceneChange::Topology);
+        }
         logMessage("Loaded successfully: " + filePath, ImVec4(0.2f, 1.0f, 0.4f, 1.0f));
 
         // Auto-run glTF 2.0 validation
@@ -1097,6 +1108,9 @@ static bool loadGltfModel(const std::string& filePath,
         cameraActor.fitCameraToScene(*activeScene, &gltfModel);
     }
     revisions.mark(ux3d::imgui::SceneChange::Topology);
+    if (gltfLayer != nullptr) {
+        revisions.noteSynced(ux3d::imgui::SceneChange::Topology);
+    }
     logMessage("Created new empty glTF", ImVec4(0.4f, 1.0f, 0.4f, 1.0f));
 }
 
@@ -2137,6 +2151,7 @@ int main(int argc, char** argv)
     uint64_t lastRevisionMarkCount = 0;
     uint64_t sceneSyncCount = 0;
     uint64_t skippedSceneSyncCount = 0;
+    uint64_t animationOnlySyncCount = 0;
     uint32_t lastFrameSceneChanges = 0;
 
     ux3d::imgui::AnimationPlayer animationPlayer;
@@ -2323,6 +2338,10 @@ int main(int argc, char** argv)
             s_benchmarkEnabled = true;
         } else if (arg == "--vsync" && i + 1 < argc) {
             ++i; // Applied by the pre-scan before window creation.
+        } else if (arg == "--fixed-frame-time" && i + 1 < argc) {
+            s_fixedFrameTime = std::stof(argv[++i]);
+        } else if (arg == "--force-full-sync") {
+            s_forceFullSync = true;
         } else if (arg == "--anim-time" && i + 1 < argc) {
             animTimeArg = std::stof(argv[++i]);
         } else if (arg == "--scenario-report" && i + 1 < argc) {
@@ -2997,6 +3016,7 @@ int main(int argc, char** argv)
         float deltaTime = static_cast<float>(currentTime - lastFrameTime);
         lastFrameTime = currentTime;
         if (deltaTime > 0.1f) deltaTime = 0.1f;
+        if (s_fixedFrameTime >= 0.0f) deltaTime = s_fixedFrameTime;
 
         // Update animation player
         const auto animationUpdateStart = ux3d::imgui::profiling::Clock::now();
@@ -3343,11 +3363,33 @@ int main(int argc, char** argv)
             sceneRevisions.mark(ux3d::imgui::SceneChange::AnimationTime);
         }
 
-        // Every kind except Selection and ViewCamera (P4.2) still maps to the full
-        // rebuild below. Later Phase 4 tasks narrow the remaining kinds.
-        const bool rendererSyncPending = (sceneRevisions.pendingMask() & ux3d::imgui::kRendererSyncChanges) != 0;
-        if (sceneRevisions.hasPending() && !rendererSyncPending) {
+        // Kinds in kRendererSyncChanges run the full rebuild below. Selection and
+        // ViewCamera need no renderer work (P4.2); AnimationTime alone only
+        // re-applies the animation pose (P4.3), since the player already
+        // evaluated the clips and no model data changed.
+        // A model load synchronizes the renderer itself and notes its Topology
+        // revision as synced, so that revision alone does not rebuild again.
+        const uint32_t pendingChanges = sceneRevisions.pendingMask();
+        const bool rendererSyncPending = s_forceFullSync
+            ? pendingChanges != 0
+            : (sceneRevisions.unsyncedPendingMask() & ux3d::imgui::kRendererSyncChanges) != 0;
+        const bool animationApplyPending = !rendererSyncPending
+            && (pendingChanges & ux3d::imgui::sceneChangeBit(ux3d::imgui::SceneChange::AnimationTime)) != 0;
+        if (pendingChanges != 0 && !rendererSyncPending) {
             ++skippedSceneSyncCount;
+        }
+        if (animationApplyPending && gltfLayer != nullptr) {
+            ++animationOnlySyncCount;
+            const auto stageStart = ux3d::imgui::profiling::Clock::now();
+            gltfLayer->applyAnimationTime(animationPlayer.getCurrentTime());
+            if (s_profilingEnabled) {
+                ++ux3d::imgui::profiling::frameCounters().applyAnimationCalls;
+                const auto& animationProfile = gltfLayer->getLastAnimationProfile();
+                frameSample.stages.push_back({ "animation.channels", animationProfile.channelsMs });
+                frameSample.stages.push_back({ "animation.transforms", animationProfile.transformsMs });
+                frameSample.stages.push_back({ "animation.skins", animationProfile.skinsMs });
+            }
+            markStage("scene.applyAnimation", stageStart);
         }
         if (rendererSyncPending && gltfLayer != nullptr) {
             ux3d::imgui::profiling::countDirtySync();
@@ -4544,6 +4586,7 @@ int main(int argc, char** argv)
             {
                 std::string revisionsJson = "{\"syncs\":" + std::to_string(sceneSyncCount)
                     + ",\"skippedSyncs\":" + std::to_string(skippedSceneSyncCount)
+                    + ",\"animationApplies\":" + std::to_string(animationOnlySyncCount)
                     + ",\"marks\":" + std::to_string(sceneRevisions.markCount())
                     + ",\"lastConsumed\":\"" + ux3d::imgui::SceneRevisions::maskToString(lastFrameSceneChanges) + "\""
                     + ",\"pending\":\"" + ux3d::imgui::SceneRevisions::maskToString(sceneRevisions.pendingMask()) + "\"";

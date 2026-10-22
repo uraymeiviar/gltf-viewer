@@ -71,18 +71,36 @@ SelfCheckResult SceneRevisions::runSelfCheck(bool forceFailure)
     check(revisions.pendingMask() == sceneChangeBit(SceneChange::AnimationTime) && revisions.revision(SceneChange::Count) == 0,
           "Count sentinel ignored");
 
-    // Renderer sync mask: everything except Selection and ViewCamera (P4.2).
+    // Renderer sync mask: everything except Selection, ViewCamera (P4.2) and AnimationTime (P4.3).
     check((kRendererSyncChanges & sceneChangeBit(SceneChange::Selection)) == 0, "Selection does not require renderer sync");
     check((kRendererSyncChanges & sceneChangeBit(SceneChange::ViewCamera)) == 0, "ViewCamera does not require renderer sync");
     check((kRendererSyncChanges & sceneChangeBit(SceneChange::SceneCamera)) != 0, "SceneCamera still requires renderer sync");
+    check((kRendererSyncChanges & sceneChangeBit(SceneChange::AnimationTime)) == 0, "AnimationTime does not require renderer sync");
+    check((kRendererSyncChanges & sceneChangeBit(SceneChange::AnimationSet)) != 0, "AnimationSet still requires renderer sync");
     bool othersRequireSync = true;
     for (size_t i = 0; i < kSceneChangeCount; ++i) {
         const auto change = static_cast<SceneChange>(i);
-        if (change == SceneChange::Selection || change == SceneChange::ViewCamera) continue;
+        if (change == SceneChange::Selection || change == SceneChange::ViewCamera || change == SceneChange::AnimationTime) continue;
         if ((kRendererSyncChanges & sceneChangeBit(change)) == 0) othersRequireSync = false;
     }
     check(othersRequireSync, "every other kind still requires renderer sync");
     check((kRendererSyncChanges & ~kAllSceneChanges) == 0, "sync mask has no bits beyond the defined kinds");
+
+    // noteSynced (P4.3): an already-synced revision is excluded from the
+    // unsynced mask but stays pending; a later mark makes it unsynced again.
+    SceneRevisions loaded;
+    check(loaded.unsyncedPendingMask() == 0, "fresh: nothing unsynced");
+    loaded.mark(SceneChange::Topology);
+    check(loaded.unsyncedPendingMask() == sceneChangeBit(SceneChange::Topology), "marked kind is unsynced");
+    loaded.noteSynced(SceneChange::Topology);
+    check(loaded.unsyncedPendingMask() == 0 && loaded.isPending(SceneChange::Topology), "noted kind is synced but still pending");
+    loaded.mark(SceneChange::Visibility);
+    check(loaded.unsyncedPendingMask() == sceneChangeBit(SceneChange::Visibility), "other kinds stay unsynced");
+    loaded.mark(SceneChange::Topology);
+    check((loaded.unsyncedPendingMask() & sceneChangeBit(SceneChange::Topology)) != 0, "a later mark of the noted kind is unsynced again");
+    loaded.consumePending();
+    loaded.noteSynced(SceneChange::Topology);
+    check(loaded.unsyncedPendingMask() == 0, "consume clears unsynced mask");
 
     if (forceFailure) check(false, "forced failure");
 

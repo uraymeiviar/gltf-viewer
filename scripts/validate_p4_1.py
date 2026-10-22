@@ -35,6 +35,13 @@ parser.add_argument("--only", choices=["selfcheck", "transitions", "startup", "c
 args = parser.parse_args()
 CAND.mkdir(parents=True, exist_ok=True)
 failures = []
+# Kinds that no longer rebuild on their own: Selection/ViewCamera (P4.2),
+# AnimationTime (P4.3a) and the Topology revision a load already synced (P4.3b).
+NO_REBUILD_KINDS = {"Selection", "ViewCamera", "AnimationTime", "Topology"}
+
+
+def no_sync_frame(kinds):
+    return bool(kinds) and set(kinds.split("|")) <= NO_REBUILD_KINDS
 FIXTURE_SCRIPT = f"""wait 8
 reload {FIXTURE}
 wait 12
@@ -137,7 +144,7 @@ if section("transitions"):
             check(1 <= sync_delta <= 2, f"{before}->{after}: syncs +{sync_delta} in [1, 2]")
             check(snaps[after]["pending"] == "", f"{after}: nothing left pending")
         expect(snaps, "shown", "shown_idle", {}, 0)
-        expect(snaps, "shown_idle", "reloaded", {"Topology": 1}, 1)
+        expect(snaps, "shown_idle", "reloaded", {"Topology": 1}, 0)  # 1 before P4.3 (load syncs itself)
         check(snaps["reloaded"]["lastConsumed"] in ("", "Topology"), "reload consumed only Topology")
 
     print("[transitions: animation playback]")
@@ -162,7 +169,9 @@ wait 2
         changed, sync_delta = delta(snaps, "idle", "playing")
         ticks = changed.get("AnimationTime", 0)
         check(set(changed) == {"AnimationTime"} and ticks >= 30, f"playback marks only AnimationTime ({changed})")
-        check(sync_delta == ticks, f"one sync per playback tick ({sync_delta} syncs, {ticks} ticks)")
+        applies = snaps["playing"]["animationApplies"] - snaps["idle"]["animationApplies"]
+        # Since P4.3 playback ticks re-apply the pose instead of rebuilding.
+        check(sync_delta == 0 and applies == ticks, f"one pose apply per playback tick ({applies} applies, {sync_delta} rebuilds, {ticks} ticks)")
         changed, _ = delta(snaps, "playing", "paused")
         check(set(changed) <= {"AnimationTime"}, f"pause marks nothing new ({changed})")
         expect(snaps, "paused", "paused_idle", {}, 0)
@@ -205,11 +214,17 @@ if section("compare"):
                 if ok:
                     frames = json.loads(prof.read_text(encoding="utf-8"))["frames"]
                     results[label] = (sha(png), [(f["counters"]["dirtySyncs"], f["counters"]["updateGltfCalls"],
-                                                  f["counters"]["updateSceneCalls"]) for f in frames])
+                                                  f["counters"]["updateSceneCalls"]) for f in frames],
+                                      [f["counters"].get("sceneChanges", "") for f in frames])
             if len(results) == 2:
                 check(results["baseline"][0] == results["candidate"][0], f"{name}: viewport capture byte-identical")
-                check(results["baseline"][1] == results["candidate"][1],
-                      f"{name}: per-frame sync counters identical ({sum(c[0] for c in results['candidate'][1])} syncs)")
+                # Since P4.2/P4.3 a frame may consume changes without rebuilding
+                # only when every consumed kind is a no-rebuild kind.
+                expected = [(0, 0, 0) if no_sync_frame(kinds) else counters
+                            for counters, kinds in zip(results["baseline"][1], results["candidate"][2])]
+                check(expected == results["candidate"][1],
+                      f"{name}: per-frame sync counters match baseline minus no-rebuild frames "
+                      f"({sum(c[0] for c in results['baseline'][1])} -> {sum(c[0] for c in results['candidate'][1])} syncs)")
         # Interactive control: the same producer sequence on both binaries must
         # trigger the full sync on exactly the same frames.
         script = CAND / "compare_interactive.txt"
@@ -229,10 +244,10 @@ if section("compare"):
             check(ok, f"interactive {label} run (exit {result.returncode})")
             if ok:
                 frames = json.loads(prof.read_text(encoding="utf-8"))["frames"]
-                no_sync_frames = [f["frame"] for f in frames if f["counters"].get("sceneChanges") in ("Selection", "ViewCamera", "Selection|ViewCamera", "ViewCamera|Selection")]
+                no_sync_frames = [f["frame"] for f in frames if no_sync_frame(f["counters"].get("sceneChanges", ""))]
                 seqs[label] = ([f["frame"] for f in frames if f["counters"]["dirtySyncs"]], sha(png), no_sync_frames)
         if len(seqs) == 2:
-            # Since P4.2, frames whose only changes are Selection/ViewCamera skip the sync the
+            # Since P4.2/P4.3, frames whose consumed kinds are all no-rebuild kinds skip the sync the
             # baseline performed; every other sync frame must be unchanged.
             skipped = seqs["candidate"][2]
             expected = [f for f in seqs["baseline"][0] if f not in skipped]
