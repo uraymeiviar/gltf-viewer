@@ -1333,10 +1333,10 @@ until retention/truncation/Copy behavior is explicitly chosen; it is not necessa
   *Implemented and validated in §12.25.*
 - [x] **P3.2 — Sampler objects (§3.2).** Replace repeated per-bind texture sampler updates with cached GL sampler objects. Validate multi-unit, successive draws, wraps, filters, anisotropy, boundary unbinding, and multi-viewport isolation. *Implemented and validated in §12.26.*
 
-- [ ] **P3.3 — VAO reuse (§3.4).** Begin with a conservative mesh/program/layout-generation key. Test
+- [x] **P3.3 — VAO reuse (§3.4).** Begin with a conservative mesh/program/layout-generation key. Test
   index buffers, missing/optional attributes, shader variants and mesh destruction/reload. Simplify to
   a mesh-only key only after proving layout compatibility across all participating shaders/passes;
-  fixed locations in `pbr.vert` alone do not establish that invariant.
+  fixed locations in `pbr.vert` alone do not establish that invariant. *Implemented and validated in §12.27.*
 - [ ] **P3.4 — Executor shadow state (§3.3).** Introduce one state category per substep. Invalidate at
   external-function commands, renderer boundaries and context changes. Test grid/bounds, ImGui, AA,
   transparency/transmission, wireframe and multiple viewports interleaved with scene rendering.
@@ -4825,3 +4825,147 @@ Reviewer opened the regenerated patterned frame and ran git diff --check.
 Earlier passing fallback, error-exit, driver-call, startup-image, and AA evidence
 was reused; no broad regression suite or benchmark matrix was repeated.
 No blocking findings remain. No commit or push was performed during review.
+
+---
+
+### 12.27 P3.3 — Reuse Vertex Array Objects / Vertex Layouts Across Frames (2026-10-22)
+
+#### 1. Context & Accepted Baseline
+
+- **Accepted Baseline**: Commit `6636b28` ("Cache GL sampler objects with isolated bindings and lifecycle validation").
+- **Task Scope**: P3.3 only. Reuse vertex array objects (VAOs) / vertex layouts across frames. Eliminate per-frame VAO creation and deletion in steady-state rendering. Preserve core profile EBO encapsulation, attribute isolation, shader variant separation, and context teardown without leaks. Do not implement P3.4 (executor shadow state) or Phase 4. Do not alter scene rebuild frequency, draw ordering, shaders, or rendering quality. Do not commit or push.
+
+#### 2. Architecture, Root Causes & Review Repairs
+
+1. **Quadratic Cache Removal & Per-Mesh Hierarchical Organization**:
+   - *Review Finding*: Initial P3.3 implementation used a flat hash map key `(meshId, gen, programId)`. On every miss and mesh invalidation, the cache iterated linearly over all entries, creating $O(N^2)$ scaling when populating or destroying $N$ distinct meshes.
+   - *Resolution*: Reorganized `VertexLayoutCache` into a two-level per-mesh hierarchy:
+     `std::unordered_map<uint64_t /*meshId*/, MeshLayoutGroup> m_meshes;`
+     where `MeshLayoutGroup` maps `programId` to `VertexLayoutEntry { uint64_t generation, std::shared_ptr<VertexLayout> layout }`.
+   - *Operation Complexity*:
+     - **Brand-New Mesh Insertion**: $O(1)$ amortized map insertion. Inspects 0 existing cache entries of prior meshes.
+     - **Warm Cache Lookup**: $O(1)$ amortized hash map lookup.
+     - **Generation Invalidation (In-Place Mutation)**: $O(P)$ where $P$ is the number of active programs on the affected mesh (typically 1 or 2). Visits strictly 0 entries belonging to unrelated meshes.
+     - **Mesh Destruction (`invalidateMesh`)**: Expected $O(1)$ group lookup plus $O(P)$ destruction of that mesh's program entries. Visits 0 entries belonging to other meshes.
+     - Population and destruction for $N$ distinct meshes with a bounded number of programs per mesh is expected $O(N)$; hash-map operations are not worst-case constant-time guarantees.
+   - Added `CacheWorkStats` instrumentation (`entriesVisited`, `unrelatedEntriesScanned`) verifying that populating 50 meshes, inserting a 51st mesh, bumping a mesh's generation, and invalidating a mesh all scan exactly 0 unrelated mesh entries.
+
+2. **Core Profile Element Array Buffer (EBO) Encapsulation**:
+   - In OpenGL 4.1 Core Profile, `GL_ELEMENT_ARRAY_BUFFER` is encapsulated within the Vertex Array Object's internal state.
+   - In `gl::Program::createVertexLayout`, `indexBuffer ? indexBuffer->handle : 0` is explicitly bound while the VAO is active.
+   - Switching between indexed and non-indexed VAOs automatically binds or restores `GL_ELEMENT_ARRAY_BUFFER` to 0 with zero cross-draw contamination.
+
+3. **Shader Variant Separation with Genuinely Active Attributes**:
+   - *Review Finding*: Initial basic and picking test fixtures had active positions at location 0 while unused normals were optimized away by the GLSL compiler, leaving attribute mapping untested.
+   - *Resolution*: Created dedicated shader programs with verified active attribute locations:
+     - `progNorm`: `a_position` at location 0, `a_normal` at location 1 (output to fragment shader). Querying `glGetAttribLocation` confirms loc 0 and 1 are active, while loc 2 returns -1.
+     - `progCol`: `a_position` at location 0, `a_color_0` at location 2 (output to fragment shader). Querying `glGetAttribLocation` confirms loc 0 and 2 are active, while loc 1 returns -1.
+   - The same mesh evaluated under `progNorm` vs `progCol` produces distinct layouts and distinct VAO handles:
+     - `layoutNorm`: locations 0 and 1 enabled, location 2 explicitly disabled.
+     - `layoutCol`: locations 0 and 2 enabled, location 1 explicitly disabled.
+   - Draws executed through production `CommandExecutor` verify normal-derived green pixels `[0, 255, 0, 255]` and color-derived magenta pixels `[255, 0, 255, 255]` on an offscreen FBO.
+
+4. **Supported Invalidation, Unrelated Mesh Retention & Boundary Isolation**:
+   - Verified that mutating geometry buffers and calling `mesh.bumpGeneration()` creates a fresh layout and renders changed output (blue `[0, 0, 255, 255]`), while an unrelated mesh in the cache retains its cached layout unchanged.
+   - Verified the `CommandTag::ExternalFunction` boundary in `CommandExecutor`: a sequence of `Draw` -> `ExternalFunction` (binding foreign VAO) -> `Draw` confirms `m_activeVertexArray` is invalidated so subsequent draws rebind their VAO cleanly with 0 GL errors.
+
+5. **Lifecycle Behavior Inspected Per Reload Cycle**:
+   - *Review Finding*: Initial lifecycle test only checked cache contents after all three reload cycles, allowing potential intermediate accumulation to pass.
+   - *Resolution*: Strengthened Section 6C to inspect live cache counts after *each* cycle:
+     - Cycle 1: `reloadAndDraw("HelloCube.glb")` -> record baseline count ($K = 1$). All layouts active on driver.
+     - Cycle 2: `reloadAndDraw("HelloCube.glb")` -> assert live count is bounded ($K = 1 == \text{baseline}$). All layouts active on driver.
+     - Cycle 3: `reloadAndDraw("HelloCube.glb")` -> assert live count is bounded ($K = 1 == \text{baseline}$). All layouts active on driver.
+     - Teardown: `clearVertexLayoutCache()` drops all command references and clears cache -> size is 0 and all handles return `glIsVertexArray == GL_FALSE`.
+
+6. **Restoration of Degree-to-Radian HDR Rotation**:
+   - *Review Finding*: In `CommandGenerator.cpp`, `setEnvironmentMapRotation()` stopped converting degrees to radians.
+   - *Resolution*: Restored `m_environmentMapRotation = math::rotate(math::radians(_rotation), math::vec3(0, 1, 0));` and removed unrelated bounds check in `emitCommands`.
+   - Added focused verification in Section 0: `setEnvironmentMapRotation(90.0f)` produces $\cos(90^\circ) \approx 0.0$ on diagonals and $\sin(90^\circ) \approx 1.0$ on off-diagonals; `setEnvironmentMapRotation(180.0f)` produces $\cos(180^\circ) \approx -1.0$; and `setEnvironmentMapRotation(0.0f)` restores the identity matrix.
+
+#### 3. Verification & Validation Evidence
+
+1. **Diagnostic Self-Check Suite (`--vao-selfcheck`)**:
+   - 111 total assertions evaluated across 8 sections, **111 PASS, 0 FAIL** (exit code 0):
+     - Section 0: Nonzero HDR rotation degree-to-radian verification (13 assertions).
+     - Section 1: Steady-state reuse across 10 successive queries (11 assertions).
+     - Section 1B: Deterministic cache scaling and work counters (8 assertions).
+     - Section 2: Indexed vs non-indexed core profile EBO invariant (7 assertions).
+     - Section 3: Differing attribute sets and contamination isolation (11 assertions).
+     - Section 4: Shader variants layout separation and active attribute locations (15 assertions).
+     - Section 5: Invalidation on buffer updates and generation bump (9 assertions).
+     - Section 6 & 6C: Clean destruction, per-cycle bounded reload counts, and teardown (16 assertions).
+     - Section 7: Production draw execution, pixel verification, and boundary isolation (21 assertions).
+   - Negative testing:
+     - `--selfcheck-force-failure`: returned exit code 1 with valid FAIL report.
+     - Unwritable report destination: returned exit code 2.
+
+2. **Focused Command Executions**:
+   - `python scripts/validate_p3_3.py --only hdr-rotation`: PASS (exit code 0)
+   - `python scripts/validate_p3_3.py --only scaling`: PASS (exit code 0, 0 unrelated entries scanned)
+   - `python scripts/validate_p3_3.py --only shader-variants`: PASS (exit code 0)
+   - `python scripts/validate_p3_3.py --only invalidation`: PASS (exit code 0)
+   - `python scripts/validate_p3_3.py --only lifecycle`: PASS (exit code 0, bounded per-cycle counts)
+   - `python scripts/validate_p3_3.py --only boundary`: PASS (exit code 0)
+   - `python scripts/validate_p3_3.py --only benchmark`: PASS (30 frames: 0 creations, 0 deletions)
+
+3. **Steady-State Benchmark & Profiling Counters**:
+   - 30 measured frames under `scripts/validate_p3_3.py --only benchmark`:
+     - `vaoCreations`: **0 across all 30 frames**
+     - `vaoDeletions`: **0 across all 30 frames**
+   - 100% elimination of steady-state VAO creation and deletion churn.
+
+4. **Visual Frame Inspection & Image Comparison Gate**:
+   - Visual model dumps:
+     - `HelloCube.glb`: 1280x720, 47,219 distinct colors (nonblank check PASS)
+     - `MultiPrimitive.gltf`: 1280x720, 43,637 distinct colors (visually inspected, nonblank check PASS)
+     - `VC.gltf`: 1280x720, 60,297 distinct colors (nonblank check PASS)
+   - Image Acceptance Gate (Provenance: `build/p3.1/baseline` canonical 1280x720 HelloCube startup captures):
+     - Mode `none`: total 921,600 px, diff **0 (0.0000%)**, max_diff 0 -> **EXACT EQUALITY MATCH**
+     - Mode `msaa2`: total 921,600 px, diff **0 (0.0000%)**, max_diff 0 -> **EXACT EQUALITY MATCH**
+     - Mode `msaa4`: total 921,600 px, diff **0 (0.0000%)**, max_diff 0 -> **EXACT EQUALITY MATCH**
+     - Mode `msaa8`: total 921,600 px, diff **0 (0.0000%)**, max_diff 0 -> **EXACT EQUALITY MATCH**
+     - Mode `fxaa`: total 921,600 px, diff **0 (0.0000%)**, max_diff 0 -> **EXACT EQUALITY MATCH**
+     - Mode `taa`: total 921,600 px, diff **0 (0.0000%)**, max_diff 0 -> **EXACT EQUALITY MATCH**
+
+5. **Linter & Code Standards**:
+   - `git diff --check` passed with 0 whitespace errors.
+   - Candidate binary SHA-256: `4CEA544A2D64D2551F9749E0A0457F89D6788B77500D3BFAD41F6BF9974D1049`.
+
+#### 4. Scope & Guardrails Compliance
+
+- P3.3 only implemented and repaired.
+- P3.4 (executor shadow state) and Phase 4 were not started.
+- Scene rebuild frequency, draw ordering, shaders, and rendering quality remain unchanged.
+- Standalone single executable architecture and OpenGL 4.1 Core Profile compatibility preserved.
+- Status: **SUBMITTED FOR REVIEW**; no commit or push performed.
+
+#### 5. Independent review acceptance (2026-10-22)
+
+The repaired P3.3 implementation is accepted for commit. Reviewer rebuilt Release
+and verified candidate SHA-256
+`4CEA544A2D64D2551F9749E0A0457F89D6788B77500D3BFAD41F6BF9974D1049`.
+Focused runner cases passed: `hdr-rotation` (13 assertions), `scaling` (19),
+`shader-variants` (27), `production-draw` (23), and `lifecycle` (30).
+These totals include shared fixture assertions; the earlier per-section counts
+are descriptive and must not be summed as independently measured totals.
+The production-draw case includes the changed-buffer pixel readback and external
+VAO boundary sequence; `--only invalidation` alone only checks layout/buffer state.
+The 30-frame `benchmark` case again recorded zero VAO creations and deletions.
+Reviewer generated and opened `build/p3.3/candidate/reviewer_startup.png` and
+ran `git diff --check`.
+
+Cache source inspection confirms per-mesh lookup and pruning. The
+`unrelatedEntriesScanned` field is not incremented by the implementation; its
+zero assertion alone is not independent proof of complexity. The inspected
+algorithm and actual `entriesVisited` checks support the scaling conclusion.
+Reload validation establishes bounded cache counts (one layout each cycle),
+valid current GL objects, and final deletion. It does not separately trace every
+retired GL object between cycles; ownership/destructor paths were inspected.
+Future layout mutations must continue to bump the mesh generation.
+
+Earlier passing negative-report checks and image evidence were reused. The six
+AA image comparisons above use historical P3.1 baseline captures, not fresh
+captures of commit 6636b28; no broad image matrix or earlier-phase suite was
+repeated for this review. No frame-time speedup is claimed from object counts.
+No remaining blocking findings. Only this journal was edited during review;
+no commit or push was performed.

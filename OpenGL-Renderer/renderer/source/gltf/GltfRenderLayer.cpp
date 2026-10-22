@@ -1082,6 +1082,8 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
             }
         }
 
+        mesh->bumpGeneration();
+
         return true;
     };
 

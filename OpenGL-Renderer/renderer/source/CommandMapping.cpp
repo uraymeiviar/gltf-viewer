@@ -181,10 +181,8 @@ std::optional<CmdDesc> CommandMapping::makeCommand(MeshMaterialTuple meshMat)
         return std::nullopt;
     }
 
-    if (program != command->program || true) { // ToDo: optimize in the future to not recreate vertexLayout every frame
-        command->program = program;
-        command->vertexLayout = program->createVertexLayout(mesh->attributes);
-    }
+    command->program = program;
+    command->vertexLayout = m_scene.getVertexLayoutCache().getOrCreate(mesh, program);
 
     command->culling = material->isDoubleSided ? gl::Culling::None : gl::Culling::Back;
     command->winding = mesh->frontFace;

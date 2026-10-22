@@ -6,12 +6,14 @@
 #include "UniformBinding.h"
 #include "VertexLayout.h"
 
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <string>
 #include <vector>
 
 namespace ux3d::renderer::gl {
+class Buffer;
 class Uniform;
 class UniformBlock;
 struct Sampler;
@@ -22,7 +24,7 @@ public:
     Program(Program&&) noexcept;
     ~Program();
 
-    std::unique_ptr<VertexLayout> createVertexLayout(const std::vector<Attribute>& attributes) const;
+    std::unique_ptr<VertexLayout> createVertexLayout(const std::vector<Attribute>& attributes, const Buffer* indexBuffer = nullptr) const;
 
     void commitSampler(const Sampler& sampler, GLint textureUnit, GLuint samplerHandle = 0) const;
     void commitUniform(const Uniform& uniform) const;
@@ -31,10 +33,12 @@ public:
     void use() const;
 
     GLuint getHandle() const { return m_handle; }
+    uint64_t getId() const noexcept { return m_id; }
 
 private:
     GL* m_gl;
     GLuint m_handle;
+    uint64_t m_id = 0;
 
     std::map<std::string, UniformBinding> m_uniformBindings;
     std::map<std::string, UniformBlockBinding> m_uniformBlockLocations;

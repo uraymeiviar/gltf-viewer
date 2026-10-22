@@ -58,6 +58,7 @@ void ux3d::renderer::CommandExecutor::execute(const Command& command)
         break;
     case CommandTag::ExternalFunction:
         unbindSamplers();
+        m_activeVertexArray = gl::invalid;
         command.externalFunction();
         break;
     default:

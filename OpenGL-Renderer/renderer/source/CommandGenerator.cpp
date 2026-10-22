@@ -8,7 +8,8 @@
 #include <algorithm>
 
 ux3d::renderer::CommandGenerator::CommandGenerator(gl::GL* gl, const filesystem::Path& _shaderPath)
-    : m_shaderCache(gl, _shaderPath)
+    : m_vertexLayoutCache(gl)
+    , m_shaderCache(gl, _shaderPath)
     , m_commandMapping(gl, *this, m_shaderCache)
     , m_environmentMapRotationUniform("u_EnvRotation")
     , m_environmentMapIntensityUniform("u_EnvIntensity")
@@ -28,7 +29,6 @@ void ux3d::renderer::CommandGenerator::update(const RendererScene& scene)
     m_activeCamera = scene.camera;
     m_activeEnvironmentMap = scene.environmentMap;
     m_commandMapping.update(scene.drawables, m_commands);
-
     emitCommands();
 }
 

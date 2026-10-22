@@ -51,6 +51,7 @@
 #include "imgui/AnimationPlayer.h"
 #include "imgui/AntiAliasing.h"
 #include "imgui/SamplerTest.h"
+#include "imgui/VaoTest.h"
 #include "imgui/BoundingBoxRenderer.h"
 #include "imgui/Theme.h"
 #include "imgui/IconsMaterialDesignIcons.h"
@@ -2220,6 +2221,8 @@ int main(int argc, char** argv)
     std::string samplerSelfCheckOutputPath;
     std::string samplerSelfCheckCase = "all";
     std::string samplerDumpPatternPath;
+    std::string vaoSelfCheckOutputPath;
+    std::string vaoSelfCheckCase = "all";
     bool selfCheckForceFailure = false;
     std::string scenarioReportPath;
     std::string scenarioName = "default";
@@ -2414,6 +2417,10 @@ int main(int argc, char** argv)
             samplerSelfCheckCase = argv[++i];
         } else if (arg == "--sampler-dump-pattern" && i + 1 < argc) {
             samplerDumpPatternPath = argv[++i];
+        } else if (arg == "--vao-selfcheck" && i + 1 < argc) {
+            vaoSelfCheckOutputPath = argv[++i];
+        } else if (arg == "--vao-selfcheck-case" && i + 1 < argc) {
+            vaoSelfCheckCase = argv[++i];
         } else if (arg == "--selfcheck-force-failure") {
             selfCheckForceFailure = true;
         } else if ((arg == "--env" || arg == "--hdr") && i + 1 < argc) {
@@ -2560,6 +2567,21 @@ int main(int argc, char** argv)
                                              glRenderer.get(), reloadAndDraw),
             samplerSelfCheckOutputPath,
             "sampler objects and cache");
+    }
+
+    if (!vaoSelfCheckOutputPath.empty()) {
+        auto reloadAndDraw = [&](const std::string& path) -> bool {
+            bool ok = loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, isSceneDirty);
+            if (!ok || activeScene == nullptr) return false;
+            auto [scene, reverseMapping] = gltfLayer->createScene(activeScene);
+            commandGenerator->update(scene);
+            return glRenderer->draw({ commandGenerator.get() });
+        };
+        return writeSelfCheckReport(
+            ux3d::imgui::runVaoSelfCheck(gladGL.get(), selfCheckForceFailure, vaoSelfCheckCase,
+                                         glRenderer.get(), commandGenerator.get(), reloadAndDraw),
+            vaoSelfCheckOutputPath,
+            "VAO reuse and cache");
     }
 
     if (!s_isolatedState) {
@@ -4519,6 +4541,10 @@ int main(int argc, char** argv)
     if (glRenderer != nullptr) {
         glRenderer->uninit();
         glRenderer.reset();
+    }
+    if (commandGenerator != nullptr) {
+        commandGenerator->clearVertexLayoutCache();
+        commandGenerator.reset();
     }
 
     ImGui_ImplOpenGL3_Shutdown();

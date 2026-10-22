@@ -3,14 +3,65 @@
 #include "renderer/Mesh.h"
 #include "renderer/gl/Texture.h"
 
+#include <algorithm>
+#include <atomic>
+#include <mutex>
 #include <string>
+#include <vector>
 
 using namespace ux3d;
 using namespace ux3d::renderer;
 
+namespace {
+
+static std::atomic<uint64_t> s_nextMeshId{ 1 };
+static std::vector<std::pair<void*, Mesh::MeshDestroyCallback>> s_destroyCallbacks;
+static std::mutex s_callbacksMutex;
+
+void notifyMeshDestroyed(uint64_t meshId)
+{
+    std::lock_guard<std::mutex> lock(s_callbacksMutex);
+    for (const auto& [_, cb] : s_destroyCallbacks) {
+        if (cb) {
+            cb(meshId);
+        }
+    }
+}
+
+} // namespace
+
+void Mesh::addMeshDestroyCallback(void* ownerKey, MeshDestroyCallback cb)
+{
+    if (ownerKey == nullptr || !cb) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(s_callbacksMutex);
+    auto it = std::find_if(s_destroyCallbacks.begin(), s_destroyCallbacks.end(),
+        [ownerKey](const auto& pair) { return pair.first == ownerKey; });
+    if (it != s_destroyCallbacks.end()) {
+        it->second = std::move(cb);
+    } else {
+        s_destroyCallbacks.emplace_back(ownerKey, std::move(cb));
+    }
+}
+
+void Mesh::removeMeshDestroyCallback(void* ownerKey)
+{
+    if (ownerKey == nullptr) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(s_callbacksMutex);
+    s_destroyCallbacks.erase(
+        std::remove_if(s_destroyCallbacks.begin(), s_destroyCallbacks.end(),
+            [ownerKey](const auto& pair) { return pair.first == ownerKey; }),
+        s_destroyCallbacks.end());
+}
+
 Mesh::Mesh(gl::GL* gl)
     : m_gl(gl)
     , m_morphTargetSampler("u_MorphTargetsSampler")
+    , m_id(s_nextMeshId++)
+    , m_generation(1)
 {
     m_morphTargetSamplerState.magFilter = gl::TextureMagFilter::Nearest;
     m_morphTargetSamplerState.minFilter = gl::TextureMinFilter::Nearest;
@@ -40,6 +91,8 @@ Mesh::Mesh(Mesh&& other)
     , m_morphTargetSampler(other.m_morphTargetSampler)
     , m_morphTargetTexture(std::move(other.m_morphTargetTexture))
     , jointsSampler(other.jointsSampler)
+    , m_id(other.m_id)
+    , m_generation(other.m_generation)
 {
     other.jointsSampler = nullptr;
     other.m_morphTargetTexture = nullptr;
@@ -47,6 +100,40 @@ Mesh::Mesh(Mesh&& other)
     other.vertexCount = 0u;
     other.indexCount = 0u;
     other.indexByteOffset = 0u;
+    other.m_id = 0;
+    other.m_generation = 0;
+}
+
+Mesh::Mesh(const Mesh& other)
+    : indexCount(other.indexCount)
+    , indexByteOffset(other.indexByteOffset)
+    , vertexCount(other.vertexCount)
+    , primitiveTopology(other.primitiveTopology)
+    , polygonMode(other.polygonMode)
+    , frontFace(other.frontFace)
+    , indexFormat(other.indexFormat)
+    , attributes(other.attributes)
+    , defines(other.defines)
+    , uniforms(other.uniforms)
+    , uniformBlocks(other.uniformBlocks)
+    , vertexShader(other.vertexShader)
+    , indexBuffer(other.indexBuffer)
+    , m_transform(other.m_transform)
+    , m_gl(other.m_gl)
+    , m_morphTargetSamplerState(other.m_morphTargetSamplerState)
+    , m_morphTargetSampler(other.m_morphTargetSampler)
+    , m_morphTargetTexture(other.m_morphTargetTexture)
+    , jointsSampler(other.jointsSampler)
+    , m_id(s_nextMeshId++)
+    , m_generation(1)
+{
+}
+
+Mesh::~Mesh()
+{
+    if (m_id != 0) {
+        notifyMeshDestroyed(m_id);
+    }
 }
 
 void Mesh::updateTransform(const math::mat4x4& transform)

@@ -110,6 +110,8 @@ set(GLIDER_SOURCES
 	"header/imgui/stb_image_write.h"
 	"source/imgui/SamplerTest.cpp"
 	"header/imgui/SamplerTest.h"
+	"source/imgui/VaoTest.cpp"
+	"header/imgui/VaoTest.h"
 )
 
 find_package(Python3 COMPONENTS Interpreter QUIET)

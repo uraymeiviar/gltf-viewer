@@ -644,6 +644,7 @@ void GladGL::genVertexArrays(GLsizei n, GLuint* arrays)
 void GladGL::deleteVertexArrays(GLsizei n, const GLuint* arrays)
 {
     ux3d::imgui::profiling::countGlCall();
+    ux3d::imgui::profiling::countVaoDeletion(n > 0 ? static_cast<uint64_t>(n) : 0);
     glDeleteVertexArrays(n, arrays);
 }
 

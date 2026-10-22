@@ -36,6 +36,7 @@ struct FrameCounters {
     uint64_t appDrawCalls = 0;
 
     uint64_t vaoCreations = 0;
+    uint64_t vaoDeletions = 0;
     uint64_t bufferCreations = 0;
     uint64_t textureCreations = 0;
     uint64_t framebufferCreations = 0;
@@ -124,6 +125,11 @@ inline void countAppDrawCall()
 inline void countVaoCreation(uint64_t count = 1)
 {
     if (g_countingEnabled) frameCounters().vaoCreations += count;
+}
+
+inline void countVaoDeletion(uint64_t count = 1)
+{
+    if (g_countingEnabled) frameCounters().vaoDeletions += count;
 }
 
 inline void countBufferCreation(uint64_t count = 1)

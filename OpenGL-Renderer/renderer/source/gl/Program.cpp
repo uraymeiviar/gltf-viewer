@@ -2,15 +2,22 @@
 
 #include "renderer/gl/Program.h"
 #include "core/Logger.h"
+#include "renderer/gl/Buffer.h"
 #include "renderer/gl/Sampler.h"
 #include "renderer/gl/Uniform.h"
 #include "renderer/gl/UniformBlock.h"
 
 #include <algorithm>
+#include <atomic>
+
+namespace {
+static std::atomic<uint64_t> s_nextProgramId{ 1 };
+}
 
 ux3d::renderer::gl::Program::Program(GL* gl, GLuint handle)
     : m_gl(gl)
     , m_handle(handle)
+    , m_id(s_nextProgramId++)
 {
     if (handle == invalid) {
         return;
@@ -63,11 +70,13 @@ ux3d::renderer::gl::Program::Program(GL* gl, GLuint handle)
 ux3d::renderer::gl::Program::Program(Program&& other) noexcept
     : m_gl(other.m_gl)
     , m_handle(other.m_handle)
+    , m_id(other.m_id)
     , m_uniformBindings(std::move(other.m_uniformBindings))
     , m_uniformBlockLocations(std::move(other.m_uniformBlockLocations))
     , m_attributeLocations(std::move(other.m_attributeLocations))
 {
     other.m_handle = invalid;
+    other.m_id = 0;
 }
 
 ux3d::renderer::gl::Program::~Program()
@@ -105,7 +114,7 @@ void ux3d::renderer::gl::Program::commitUniformBlock(const UniformBlock& uniform
     uniformBlock.commit(m_gl, iter->second);
 }
 
-auto ux3d::renderer::gl::Program::createVertexLayout(const std::vector<Attribute>& attributes) const -> std::unique_ptr<VertexLayout>
+auto ux3d::renderer::gl::Program::createVertexLayout(const std::vector<Attribute>& attributes, const Buffer* indexBuffer) const -> std::unique_ptr<VertexLayout>
 {
     auto vertexLayout = std::make_unique<VertexLayout>(m_gl);
     m_gl->bindVertexArray(vertexLayout->handle);
@@ -130,6 +139,12 @@ auto ux3d::renderer::gl::Program::createVertexLayout(const std::vector<Attribute
             attribute.normalized,
             attribute.stride,
             reinterpret_cast<const void*>(static_cast<size_t>(attribute.offset)));
+    }
+
+    if (indexBuffer != nullptr) {
+        m_gl->bindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer->handle);
+    } else {
+        m_gl->bindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
     }
 
     m_gl->bindVertexArray(0);

@@ -248,6 +248,7 @@ json countersToJson(const FrameCounters& counters)
         { "rendererDrawCalls", counters.rendererDrawCalls },
         { "appDrawCalls", counters.appDrawCalls },
         { "vaoCreations", counters.vaoCreations },
+        { "vaoDeletions", counters.vaoDeletions },
         { "bufferCreations", counters.bufferCreations },
         { "textureCreations", counters.textureCreations },
         { "framebufferCreations", counters.framebufferCreations },

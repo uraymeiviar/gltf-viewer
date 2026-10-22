@@ -11,6 +11,8 @@
 #include "renderer/Defines.h"
 #include "renderer/gl/Sampler.h"
 
+#include <cstdint>
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -23,7 +25,8 @@ class Mesh {
 public:
     Mesh(gl::GL*);
     Mesh(Mesh&&);
-    Mesh(const Mesh&) = default;
+    Mesh(const Mesh&);
+    ~Mesh();
 
     void updateTransform(const math::mat4x4& transform);
     math::vec3 getPosition() const { return math::vec3(m_transform[3]); }
@@ -40,6 +43,14 @@ public:
     const gl::Sampler& getMorphTargetSampler() const { return m_morphTargetSampler; }
 
     void resetWeightsUpdated();
+
+    uint64_t getId() const noexcept { return m_id; }
+    uint64_t getGeneration() const noexcept { return m_generation; }
+    void bumpGeneration() noexcept { ++m_generation; }
+
+    using MeshDestroyCallback = std::function<void(uint64_t meshId)>;
+    static void addMeshDestroyCallback(void* ownerKey, MeshDestroyCallback cb);
+    static void removeMeshDestroyCallback(void* ownerKey);
 
     std::vector<gl::Attribute> attributes;
     std::vector<gl::Uniform> uniforms;
@@ -65,6 +76,9 @@ private:
     gl::Sampler m_morphTargetSampler;
     gl::SamplerState m_morphTargetSamplerState;
     math::mat4x4 m_transform = math::mat4x4(1.0f);
+
+    uint64_t m_id = 0;
+    uint64_t m_generation = 1;
 
     bool weightsUpdated = false; // indicates whether the weights have been updated already this frame
 };

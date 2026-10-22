@@ -20,6 +20,7 @@
 #include "renderer/gl/Buffer.h"
 #include "renderer/gl/ShaderCache.h"
 #include "renderer/gl/Texture.h"
+#include "renderer/gl/VertexLayoutCache.h"
 
 #include "filesystem/Path.h"
 
@@ -56,6 +57,7 @@ public:
     void setIBLEnabled(bool _enabled);
     void setPunctualLightsEnabled(bool _enabled);
     void setEnvironmentMapRotation(float _rotation);
+    const glm::mat3x3& getEnvironmentMapRotation() const { return m_environmentMapRotation; }
     void setEnvironmentMapBlurNormalized(float _blur);
     void setEnvironmentMapIntensity(float _value);
     void setToneMapping(ToneMappingsEnum _toneMapping);
@@ -68,9 +70,20 @@ public:
     const std::array<Pass, RenderPassType::MaxRenderPasses>& getPassCommands() const { return m_passCommands; }
     std::array<Pass, RenderPassType::MaxRenderPasses>& getPassCommands() { return m_passCommands; }
 
+    gl::VertexLayoutCache& getVertexLayoutCache() { return m_vertexLayoutCache; }
+    const gl::VertexLayoutCache& getVertexLayoutCache() const { return m_vertexLayoutCache; }
+    void clearVertexLayoutCache() {
+        m_commands.clear();
+        for (auto& pass : m_passCommands) {
+            pass.clear();
+        }
+        m_vertexLayoutCache.clear();
+    }
+
 protected:
     std::vector<CmdDesc> m_commands;
     std::array<Pass, RenderPassType::MaxRenderPasses> m_passCommands;
+    gl::VertexLayoutCache m_vertexLayoutCache;
     CommandMapping m_commandMapping;
     gl::ShaderCache m_shaderCache;
 
