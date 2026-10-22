@@ -49,6 +49,9 @@ struct FrameCounters {
     uint64_t samplerParameterCalls = 0;
     uint64_t texParameterCalls = 0;
     uint64_t polygonModeCalls = 0;
+    uint64_t cullFaceEnableCalls = 0;
+    uint64_t cullFaceSelectionCalls = 0;
+    uint64_t frontFaceCalls = 0;
 
     uint64_t bufferUploads = 0;
     uint64_t bufferUploadBytes = 0;
@@ -191,6 +194,21 @@ inline void countTexParameter(uint64_t count = 1)
 inline void countPolygonModeCall(uint64_t count = 1)
 {
     if (g_countingEnabled) frameCounters().polygonModeCalls += count;
+}
+
+inline void countCullFaceEnable(uint64_t count = 1)
+{
+    if (g_countingEnabled) frameCounters().cullFaceEnableCalls += count;
+}
+
+inline void countCullFaceSelection(uint64_t count = 1)
+{
+    if (g_countingEnabled) frameCounters().cullFaceSelectionCalls += count;
+}
+
+inline void countFrontFace(uint64_t count = 1)
+{
+    if (g_countingEnabled) frameCounters().frontFaceCalls += count;
 }
 
 inline void countBufferUpload(uint64_t bytes)

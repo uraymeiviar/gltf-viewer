@@ -81,12 +81,18 @@ const GLubyte* GladGL::getStringi(GLenum name, GLuint index)
 void GladGL::enable(GLenum cap)
 {
     ux3d::imgui::profiling::countGlCall();
+    if (cap == GL_CULL_FACE) {
+        ux3d::imgui::profiling::countCullFaceEnable();
+    }
     glEnable(cap);
 }
 
 void GladGL::disable(GLenum cap)
 {
     ux3d::imgui::profiling::countGlCall();
+    if (cap == GL_CULL_FACE) {
+        ux3d::imgui::profiling::countCullFaceEnable();
+    }
     glDisable(cap);
 }
 
@@ -215,6 +221,7 @@ void GladGL::viewport(GLint x, GLint y, GLsizei width, GLsizei height)
 void GladGL::cullFace(GLenum mode)
 {
     ux3d::imgui::profiling::countGlCall();
+    ux3d::imgui::profiling::countCullFaceSelection();
     glCullFace(mode);
 }
 
@@ -234,6 +241,7 @@ void GladGL::scissor(GLint x, GLint y, GLsizei width, GLsizei height)
 void GladGL::frontFace(GLenum mode)
 {
     ux3d::imgui::profiling::countGlCall();
+    ux3d::imgui::profiling::countFrontFace();
     glFrontFace(mode);
 }
 

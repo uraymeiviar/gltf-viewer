@@ -53,6 +53,7 @@
 #include "imgui/SamplerTest.h"
 #include "imgui/VaoTest.h"
 #include "imgui/PolygonModeTest.h"
+#include "imgui/CullWindingTest.h"
 #include "imgui/BoundingBoxRenderer.h"
 #include "imgui/Theme.h"
 #include "imgui/IconsMaterialDesignIcons.h"
@@ -2226,6 +2227,8 @@ int main(int argc, char** argv)
     std::string vaoSelfCheckCase = "all";
     std::string polygonModeSelfCheckOutputPath;
     std::string polygonModeSelfCheckCase = "all";
+    std::string cullWindingSelfCheckOutputPath;
+    std::string cullWindingSelfCheckCase = "all";
     bool selfCheckForceFailure = false;
     std::string scenarioReportPath;
     std::string scenarioName = "default";
@@ -2428,6 +2431,14 @@ int main(int argc, char** argv)
             polygonModeSelfCheckOutputPath = argv[++i];
         } else if (arg == "--polygon-mode-selfcheck-case" && i + 1 < argc) {
             polygonModeSelfCheckCase = argv[++i];
+        } else if (arg == "--cull-winding-selfcheck" && i + 1 < argc) {
+            cullWindingSelfCheckOutputPath = argv[++i];
+        } else if (arg == "--cull-winding-selfcheck-case" && i + 1 < argc) {
+            cullWindingSelfCheckCase = argv[++i];
+        } else if (arg == "--force-double-sided") {
+            activeViewport->settings.forceDoubleSided = true;
+        } else if (arg == "--invert-winding") {
+            activeViewport->settings.invertWinding = true;
         } else if (arg == "--selfcheck-force-failure") {
             selfCheckForceFailure = true;
         } else if ((arg == "--env" || arg == "--hdr") && i + 1 < argc) {
@@ -2613,6 +2624,21 @@ int main(int argc, char** argv)
                                                  glRenderer.get(), commandGenerator.get(), reloadAndDraw),
             polygonModeSelfCheckOutputPath,
             "polygon mode cache");
+    }
+
+    if (!cullWindingSelfCheckOutputPath.empty()) {
+        auto reloadAndDraw = [&](const std::string& path) -> bool {
+            bool ok = loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, isSceneDirty);
+            if (!ok || activeScene == nullptr) return false;
+            auto [scene, reverseMapping] = gltfLayer->createScene(activeScene);
+            commandGenerator->update(scene);
+            return glRenderer->draw({ commandGenerator.get() });
+        };
+        return writeSelfCheckReport(
+            ux3d::imgui::runCullWindingSelfCheck(gladGL.get(), selfCheckForceFailure, cullWindingSelfCheckCase,
+                                                 glRenderer.get(), commandGenerator.get(), reloadAndDraw),
+            cullWindingSelfCheckOutputPath,
+            "culling and winding cache");
     }
 
     if (!s_isolatedState) {

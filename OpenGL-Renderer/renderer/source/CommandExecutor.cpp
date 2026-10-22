@@ -18,6 +18,9 @@ void ux3d::renderer::CommandExecutor::init()
     m_gl->getIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS, &m_maxTextureUnits);
     m_gl->enable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
     m_activePolygonMode.reset();
+    m_cullingEnabled.reset();
+    m_cullFace.reset();
+    m_activeWinding.reset();
 }
 
 void ux3d::renderer::CommandExecutor::resetState()
@@ -25,6 +28,9 @@ void ux3d::renderer::CommandExecutor::resetState()
     unbindSamplers();
     m_activeVertexArray = gl::invalid;
     m_activePolygonMode.reset();
+    m_cullingEnabled.reset();
+    m_cullFace.reset();
+    m_activeWinding.reset();
 }
 
 void ux3d::renderer::CommandExecutor::unbindSamplers()
@@ -62,6 +68,9 @@ void ux3d::renderer::CommandExecutor::execute(const Command& command)
         unbindSamplers();
         m_activeVertexArray = gl::invalid;
         m_activePolygonMode.reset();
+        m_cullingEnabled.reset();
+        m_cullFace.reset();
+        m_activeWinding.reset();
         command.externalFunction();
         break;
     default:
@@ -180,13 +189,22 @@ void ux3d::renderer::CommandExecutor::setupBlendFunc(const Command& command) con
     GLIDER_HOT_GL_CHECK(m_gl, "Failed to set blend mode");
 }
 
-void ux3d::renderer::CommandExecutor::setupCulling(const Command& command) const
+void ux3d::renderer::CommandExecutor::setupCulling(const Command& command)
 {
     if (command.culling != gl::Culling::None) {
-        m_gl->enable(GL_CULL_FACE);
-        m_gl->cullFace(GLenum(command.culling));
+        if (!m_cullingEnabled.has_value() || !m_cullingEnabled.value()) {
+            m_cullingEnabled = true;
+            m_gl->enable(GL_CULL_FACE);
+        }
+        if (!m_cullFace.has_value() || m_cullFace.value() != command.culling) {
+            m_cullFace = command.culling;
+            m_gl->cullFace(GLenum(command.culling));
+        }
     } else {
-        m_gl->disable(GL_CULL_FACE);
+        if (!m_cullingEnabled.has_value() || m_cullingEnabled.value()) {
+            m_cullingEnabled = false;
+            m_gl->disable(GL_CULL_FACE);
+        }
     }
 
     GLIDER_HOT_GL_CHECK(m_gl, "Failed to set culling mode");
@@ -201,9 +219,13 @@ void ux3d::renderer::CommandExecutor::setupPolygonMode(const Command& command)
     }
 }
 
-void ux3d::renderer::CommandExecutor::setupFrontFace(const Command& command) const
+void ux3d::renderer::CommandExecutor::setupFrontFace(const Command& command)
 {
-    m_gl->frontFace(GLenum(command.winding));
+    if (!m_activeWinding.has_value() || m_activeWinding.value() != command.winding) {
+        m_activeWinding = command.winding;
+        m_gl->frontFace(GLenum(command.winding));
+        GLIDER_HOT_GL_CHECK(m_gl, "Failed to set front face winding");
+    }
 }
 
 void ux3d::renderer::CommandExecutor::setupDepthTest(const Command& command) const

@@ -1340,7 +1340,7 @@ until retention/truncation/Copy behavior is explicitly chosen; it is not necessa
 - [ ] **P3.4 — Executor shadow state (§3.3).** Introduce one state category per substep. Invalidate at
   external-function commands, renderer boundaries and context changes. Test grid/bounds, ImGui, AA,
   transparency/transmission, wireframe and multiple viewports interleaved with scene rendering.
-  *P3.4.1 (Polygon mode cache) implemented and validated in §12.28; overall P3.4 remains open.*
+  *P3.4.1 (Polygon mode), P3.4.2 (Culling state), and P3.4.3 (Front-face winding) implemented and validated in §12.28 and §12.29; overall P3.4 remains open for depth and blending.*
 
 **Exit gate:** diagnostic build and frame comparisons pass the render-state matrix; repeated
 open/close/reload cycles show no accumulating owned GL objects. Intended driver-call/creation counts
@@ -5118,3 +5118,167 @@ boundary, and image evidence was reused; no rebuild or visual rerun was needed
 for this script/documentation repair. Journal boundary and call-reduction wording
 now matches the implementation. Overall P3.4 remains open. No blocking findings
 remain. No commit or push was performed during review.
+
+### 12.29 P3.4.2 & P3.4.3 — CommandExecutor Culling and Winding Cache (2026-10-22)
+
+#### 1. Context & Accepted Baseline
+
+- **Accepted Baseline**: Commit `4c54193` ("Cache executor polygon mode with boundary and call-count validation").
+- **Task Scope**: Batch implementation of P3.4.2 (executor culling-state caching) and P3.4.3 (executor front-face winding caching). Suppress redundant `glEnable(GL_CULL_FACE)`, `glDisable(GL_CULL_FACE)`, `glCullFace()`, and `glFrontFace()` driver calls across consecutive draws while strictly preserving rendering behavior. Invalidate cache at `CommandExecutor::resetState()`, `Renderer::draw()` boundaries, `CommandExecutor::init()`, and `CommandTag::ExternalFunction`.
+- **Exclusions**: Do not cache depth test, blending, programs, textures, samplers, framebuffers, or other state categories in this batch. Do not start Phase 4. Preserve scene rebuild frequency, draw ordering, shaders, rendering quality, standalone single-executable architecture, and OpenGL 4.1 Core Profile compatibility. Preserve accepted P3.2 sampler, P3.3 VAO, and P3.4.1 polygon-mode caching behavior. Do not commit or push. Stop for review when complete.
+
+#### 2. Ownership, Mutation Boundaries & Architecture
+
+1. **State Ownership & Invalidation in CommandExecutor**:
+   - `CommandExecutor` now tracks culling and winding state via three distinct shadow variables:
+     ```cpp
+     std::optional<bool> m_cullingEnabled = std::nullopt;
+     std::optional<gl::Culling> m_cullFace = std::nullopt;
+     std::optional<gl::Winding> m_activeWinding = std::nullopt;
+     ```
+   - **Culling Caching Logic (`setupCulling`)**:
+     - Separates `GL_CULL_FACE` enablement from cull-face selection. Disabling culling (`glDisable(GL_CULL_FACE)`) does not reset the driver's selected cull face.
+     - When culling is requested (`command.culling != gl::Culling::None`), `m_cullingEnabled` is checked and set, and `m_cullFace` is checked and set via `glCullFace(GLenum(command.culling))`.
+     - When culling is disabled (`command.culling == gl::Culling::None`), `m_cullingEnabled` is set to `false`, but `m_cullFace` is not mutated. If `m_cullFace` was `nullopt` after invalidation, it remains `nullopt`, ensuring a subsequent enabled draw cannot make an unsupported assumption about driver cull-face state.
+   - **Winding Caching Logic (`setupFrontFace`)**:
+     - Tracks front-face winding convention independently via `m_activeWinding`.
+     - Sets `glFrontFace(GLenum(command.winding))` only when `m_activeWinding` is unset or differs.
+     - Correctly preserves winding established during draws with culling disabled when culling is later re-enabled, and preserves mirrored geometry behavior (negative determinant world transforms).
+   - **Boundary Invalidation Points**:
+     - `CommandExecutor::init()`: Resets `m_cullingEnabled`, `m_cullFace`, and `m_activeWinding` to `std::nullopt`. Invoked once during `Renderer::init()`.
+     - `CommandExecutor::resetState()`: Resets all three shadow variables to `std::nullopt`. Invoked at `Renderer::draw()` entry, at all error returns, and at successful completion.
+     - `CommandTag::ExternalFunction`: Resets all three shadow variables to `std::nullopt` prior to delegating control to external callbacks.
+
+2. **External GL Mutations Isolated**:
+   - Dear ImGui, AntiAliasing (SMAA/FXAA/TAA), BoundingBoxRenderer, and GridRenderer passes mutate GL culling/winding outside the executor.
+   - Because `CommandExecutor` invalidates shadow state at `Renderer::draw()` entry/exit and `CommandTag::ExternalFunction`, external mutations cannot corrupt executor state.
+
+3. **Diagnostic Profiling Instrumentation**:
+   - Extended `FrameCounters` in `header/imgui/Profiling.h` and `source/imgui/Profiling.cpp` with:
+     - `uint64_t cullFaceEnableCalls` (tracked in `GladGL::enable` and `GladGL::disable` for `GL_CULL_FACE`).
+     - `uint64_t cullFaceSelectionCalls` (tracked in `GladGL::cullFace`).
+     - `uint64_t frontFaceCalls` (tracked in `GladGL::frontFace`).
+   - Exposed inspector methods on `CommandExecutor`: `getCullingEnabled()`, `getCullFace()`, and `getActiveWinding()`.
+
+#### 3. Verification & Validation Evidence
+
+1. **Diagnostic Self-Check Suite (`--cull-winding-selfcheck`)**:
+   - 92 total assertions evaluated across 4 core sections, **92 PASS, 0 FAIL** (exit code 0):
+     - **Section 1: Call Counts and Mode Transitions (35 assertions)**:
+       - Exercised 10-draw sequence:
+         - Draw 1 (`Back`, `CCW`): issued enable (1), cullFace (1), frontFace (1). All 3 cached.
+         - Draw 2 (`Back`, `CCW`): redundant draw, all 3 calls suppressed (counts remain 1, 1, 1).
+         - Draw 3 (`None`, `CCW`): disable issued (enableCalls=2), cullFace untouched (1), winding suppressed (1).
+         - Draw 4 (`None`, `CW`): redundant disable suppressed (2), winding transition issued (frontFaceCalls=2).
+         - Draw 5 (`Back`, `CW`): re-enabling culling issued enable (3); cullFace matched driver Back (suppressed, 1); winding matched driver CW (suppressed, 2). Only 1 call issued!
+         - Draw 6 (`Front`, `CW`): enable suppressed (3), cullFace transition issued (2), winding suppressed (2).
+         - Draw 7 (`Front`, `CW`): redundant draw, all 3 calls suppressed (counts remain 3, 2, 2).
+         - Draw 8 (`None`, `CW`): disable issued (4), cullFace untouched (2), winding suppressed (2).
+         - Draw 9 (`Front`, `CCW`): enable issued (5), cullFace matched driver Front (suppressed, 2), winding transition issued (3).
+         - Draw 10 (`Back`, `CCW`): enable suppressed (5), cullFace transition issued (3), winding suppressed (3).
+         - Invalidation: `resetState()` invalidated all 3 shadow variables (`nullopt`).
+         - Draw 11 (`Back`, `CCW`): first draw after reset re-issued all 3 calls (enableCalls=6, selectionCalls=4, frontFaceCalls=4).
+     - **Section 2: Rendering Correctness with Pixel Readbacks (13 assertions)**:
+       - Evaluated on offscreen 64x64 RGBA8 FBO with two distinct planar triangles: Left CCW (Green, interior sample `(20, 20)`) and Right CW (Blue, interior sample `(44, 20)`).
+       - *Pass A (Culling Disabled)*: Both Left (Green) and Right (Blue) visible.
+       - *Pass B (Cull Back, CCW)*: Left visible (Green), Right back-facing culled (Black `[0, 0, 0, 255]`).
+       - *Pass C (Cull Back, CW)*: Left back-facing culled (Black), Right front-facing visible (Blue `[0, 0, 255, 255]`).
+       - *Pass D (Cull Front, CCW)*: Left front-facing culled (Black), Right back-facing visible (Blue).
+       - *Pass E (Culling Restored None)*: Both Left Green and Right Blue restored.
+       - *Pass F (Suppressed Draw)*: Correct visual output retained while redundant driver calls suppressed.
+     - **Section 3: Boundary Isolation (17 assertions)**:
+       - `CommandTag::ExternalFunction`: Callback executed with direct driver mutations (`glDisable(GL_CULL_FACE)`, `glCullFace(GL_FRONT)`, `glFrontFace(GL_CW)`). Confirmed executor shadow variables invalidated (`nullopt`). Subsequent draw re-established driver state (`GL_TRUE`, `GL_BACK`, `GL_CCW`) and verified correct pixel readback.
+       - `Renderer::draw`: Inter-frame driver state corruption between renderer calls did not leak; second `Renderer::draw` succeeded with 0 GL errors and left sampler 0 unbound.
+     - **Section 4: Application Integration Case (7 assertions)**:
+       - Created compact glTF fixture `build/p3.4/fixtures/cull_winding_fixture.gltf` covering single-sided front-facing (Green), single-sided back-facing (Red), double-sided back-facing (Yellow), and mirrored negative-scale geometry (`scale: [-1, 1, 1]`, Cyan).
+       - Rendered fixture with 0 GL errors; verified driver state following draw was `GL_CULL_FACE=GL_TRUE`, `GL_CULL_FACE_MODE=GL_BACK`, and `GL_FRONT_FACE=GL_CW` (from mirrored geometry).
+       - Additional `HelloCube.glb` smoke render completed with 0 GL errors; this is not a baseline image comparison.
+   - **Negative Testing**:
+     - `--selfcheck-force-failure`: returned exit code 1 with valid `Result: FAIL` report.
+     - Unwritable report destination (`Z:/nonexistent/...`): returned exit code 2.
+
+2. **Automated Validation Runner (`scripts/validate_p3_4.py`)**:
+   - `python scripts/validate_p3_4.py`: **ALL CHECKS PASSED** (exit code 0).
+   - Focused runner cases verified individually:
+     - `--only transitions`: PASS (exit code 0)
+     - `--only correctness`: PASS (exit code 0)
+     - `--only boundary`: PASS (exit code 0)
+     - `--only integration`: PASS (exit code 0)
+     - `--only benefit`: PASS (exit code 0; unlinked pre-existing report, executed fresh binary run, strictly validated report)
+     - `--only parser`: PASS (exit code 0; 5/5 synthetic parser tests passed)
+     - `--only visual-dumps`: PASS (exit code 0)
+
+3. **Call-Count Reduction Quantification**:
+   - In the verified 10-draw sequence:
+     - Enable/disable calls: 5 actual calls vs 10 baseline (5 calls suppressed).
+     - Cull-face selection calls: 3 actual calls vs 7 baseline (4 calls suppressed); the old implementation skipped selection on the three culling-disabled draws.
+     - Front-face winding calls: 3 actual calls vs 10 baseline (7 calls suppressed).
+     - Total: 11 actual calls vs 27 baseline calls (**59.3% reduction / 16 calls suppressed**). Baseline counts are inferred from the accepted unconditional implementation, not a separate timed run.
+   - Suppression applies strictly to uninterrupted sequences requesting matching culling/winding after invalidation. Intervening transitions, callbacks, or renderer boundaries re-issue driver calls as required.
+
+4. **Visual Differentiation Gate (`build/p3.4/candidate/`)**:
+   - Full-window 1600x900 captures on `cull_winding_fixture.gltf`:
+     - Standard view: Quad 1 (Green), Quad 3 (Yellow), Quad 4 (Cyan) visible; Quad 2 (Red back-facing) culled.
+     - Standard vs ForceDoubleSided: 16,183 differing pixels (1.12%), max diff 102 (Quad 2 revealed).
+     - Standard vs InvertWinding: 61,573 differing pixels (4.28%), max diff 130 (Quads 1 & 4 culled, Quad 2 revealed).
+   - Confirmed expected visual distinction on candidate binary.
+
+5. **Shared Boundary Regressions Check**:
+   - `python scripts/validate_p3_4_1.py --only benefit`: PASS (exit code 0).
+   - `python scripts/validate_p3_3.py --only boundary`: PASS (exit code 0).
+   - `python scripts/validate_p3_2.py --only boundary`: PASS (exit code 0).
+
+6. **Linter & Code Standards**:
+   - `git diff --check` passed with 0 whitespace errors.
+   - Candidate binary SHA-256: `88D58080EEA98C40C31E006BCC9C383BFAEB281EE84562FC615AFB3CAAA5E3B5`.
+
+#### 4. Newly Run Evidence vs Reused Evidence
+
+- **Newly Run Evidence for P3.4.2 + P3.4.3**:
+  - Full automated runner: `python scripts/validate_p3_4.py` (exit code 0).
+  - All focused cases: `transitions`, `correctness`, `boundary`, `integration`, `benefit`, `parser`, `visual-dumps`.
+  - Negative exit-code tests: exit code 1 on forced failure, exit code 2 on unwritable path.
+  - Shared boundary regression checks: P3.4.1 benefit, P3.3 VAO boundary, P3.2 sampler boundary.
+  - Candidate binary hash `88D58080EEA98C40C31E006BCC9C383BFAEB281EE84562FC615AFB3CAAA5E3B5` and `git diff --check`.
+- **Reused Evidence**:
+  - Independent acceptance of baseline `4c54193` (P3.4.1).
+  - Full AA matrix captures and long steady-state benchmark runs from earlier phases.
+
+#### 5. Scope & Guardrails Compliance
+
+- Batch implementation strictly limited to P3.4.2 (culling state) and P3.4.3 (front-face winding).
+- Overall P3.4 remains open; depth testing and blending caching deferred.
+- Phase 4 was not started.
+- Scene rebuild frequency, draw ordering, shaders, and rendering quality remain unchanged.
+- Standalone single-executable architecture and OpenGL 4.1 Core Profile compatibility preserved.
+- Status: **SUBMITTED FOR REVIEW**; no commit or push performed.
+
+#### 6. Independent review acceptance and small validation repairs (2026-10-22)
+
+P3.4.2 and P3.4.3 are accepted for commit. Reviewer built Release and ran the
+complete small batch runner on submitted candidate 88D58080EEA98C40C31E006BCC9C383BFAEB281EE84562FC615AFB3CAAA5E3B5.
+Transition, pixel correctness, integration, negative-report, and visual checks
+passed. Reviewer opened standard and inverted-winding fixture captures and
+confirmed the expected visible/culled quads. Image-difference thresholds alone
+are not proof of baseline equivalence; no baseline image comparison is claimed.
+
+Reviewer corrected the inferred baseline counts in the script and journal:
+10 enable/disable + 7 cull selections + 10 winding calls = 27 calls, versus
+11 measured candidate calls (59.3% reduction). Disabled draws never selected a
+cull face in the accepted baseline.
+
+Reviewer strengthened the renderer-boundary test to reuse the existing command
+generator in a second Renderer::draw and assert restored GL_CULL_FACE,
+GL_CULL_FACE_MODE, and GL_FRONT_FACE after deliberate external mutations.
+The explicit single-sided mirrored fixture supplies the expected Back/CW state;
+HelloCube must not be assumed to end with culling enabled. This was a test-only
+repair; production renderer code was unchanged.
+
+Final candidate SHA-256:
+`7C81FB694E27EA534B158DC15C7AFD5699EAE8D777088C891619E8B86B182394`.
+The repaired `--only boundary` passed all 25 assertions. The corrected
+`--only benefit` passed its fresh transitions run and five parser cases.
+P3.4.1 polygon, P3.3 VAO, and P3.2 sampler `--only boundary` checks passed during
+this review; subsequent edits only adjusted this new boundary fixture, so those
+results and visual evidence were reused. No broad regression matrix was run.
+No blocking findings remain. Overall P3.4 stays open. No commit or push performed.

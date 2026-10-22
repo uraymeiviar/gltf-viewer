@@ -26,6 +26,9 @@ public:
     const gl::SamplerCache& getSamplerCache() const { return m_samplerCache; }
 
     std::optional<gl::PolygonMode> getActivePolygonMode() const { return m_activePolygonMode; }
+    std::optional<bool> getCullingEnabled() const { return m_cullingEnabled; }
+    std::optional<gl::Culling> getCullFace() const { return m_cullFace; }
+    std::optional<gl::Winding> getActiveWinding() const { return m_activeWinding; }
 
 private:
     void draw(const Command& command);
@@ -35,9 +38,9 @@ private:
 
     void setupVertexArray(const Command& command);
     void setupBlendFunc(const Command& command) const;
-    void setupCulling(const Command& command) const;
+    void setupCulling(const Command& command);
     void setupPolygonMode(const Command& command);
-    void setupFrontFace(const Command& command) const;
+    void setupFrontFace(const Command& command);
     void setupDepthTest(const Command& command) const;
     void setupScissorTest(const Command& command) const;
     void readPixel(const Command& command) const;
@@ -47,6 +50,9 @@ private:
     GLint m_maxTextureUnits = 0;
     GLuint m_activeVertexArray = gl::invalid;
     std::optional<gl::PolygonMode> m_activePolygonMode = std::nullopt;
+    std::optional<bool> m_cullingEnabled = std::nullopt;
+    std::optional<gl::Culling> m_cullFace = std::nullopt;
+    std::optional<gl::Winding> m_activeWinding = std::nullopt;
     GLint m_maxBoundTextureUnit = -1;
     gl::SamplerCache m_samplerCache;
 };
