@@ -2,7 +2,7 @@
 
 [Journal index](RENDERER_OPTIMIZATION_JOURNAL.md) · [Reference audit](RENDERER_OPTIMIZATION_REFERENCE.md) · [Validation rules](RENDERER_OPTIMIZATION_VALIDATION.md)
 
-**Status:** In progress. P4.1 PASS ([§12.32](#section-12-32)); P4.2 PASS ([§12.33](#section-12-33)); P4.3–P4.7 not started.
+**Status:** In progress. P4.1 PASS ([§12.32](#section-12-32)) and P4.2 PASS ([§12.33](#section-12-33)), committed as `ebd4384`; P4.3–P4.7 not started.
 
 This file contains the phase task list and its implementation/review history. Original section numbers are retained for traceability.
 
@@ -45,7 +45,7 @@ in reload/scene-switch/animation/multi-viewport sequences. Full frame comparison
 
 ### 12.32 P4.1 — Revision Contract (2026-10-23)
 
-**Status:** PASS (uncommitted). R0/R2 bookkeeping only: every change kind still triggers the same full
+**Status:** PASS; committed as `ebd4384`. R0/R2 bookkeeping only: every change kind still triggers the same full
 rebuild, so rendering and rebuild frequency are unchanged by design.
 
 #### 1. Mechanism
@@ -144,7 +144,7 @@ Everything else in the suite is unchanged and still passes on the P4.2 binary.
 
 ### 12.33 P4.2 — Selection-Only Updates (2026-10-23)
 
-**Status:** PASS (uncommitted). R2. A frame whose only pending changes are `Selection` and/or `ViewCamera` (§6) no longer runs
+**Status:** PASS; committed as `ebd4384`. R2. A frame whose only pending changes are `Selection` and/or `ViewCamera` (§6) no longer runs
 `updateGltf` → `updateScene` → `applyAnimationTime`.
 
 #### 1. Side-effect audit (before editing)
@@ -214,7 +214,7 @@ expectation update.
 
 #### 6. Extension: ViewCamera-only changes (2026-10-23)
 
-**Status:** PASS (uncommitted). `ViewCamera` is removed from `kRendererSyncChanges`; `SceneCamera` (glTF
+**Status:** PASS; committed as `ebd4384`. `ViewCamera` is removed from `kRendererSyncChanges`; `SceneCamera` (glTF
 camera property edits) still syncs. The tables in §3 above describe the selection-only binary
 (`04590C6E…`). Results below are for the extended binary (`105349F1…`); the whole suite was rerun on it.
 
