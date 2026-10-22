@@ -5,6 +5,8 @@
 #include <glad/glad.h>
 #include <glm/glm.hpp>
 #include <cstdint>
+#include <cstddef>
+#include "imgui/SelfCheckResult.h"
 
 namespace ux3d::imgui {
 
@@ -44,8 +46,37 @@ public:
 
     void resetHistory();
 
+    // Target management (P3.1)
+    void releaseTargets();
+    void releaseFxaaTargets();
+    void releaseTaaTargets();
+
+    // Diagnostic & verification inspection (P3.1)
+    size_t getOwnedTargetCount() const;
+    size_t getOwnedFramebufferCount() const;
+    uint64_t getEstimatedLiveBytes() const;
+    uint64_t getTargetAllocationCount() const { return m_targetAllocationCount; }
+    uint64_t getTargetDeletionCount() const { return m_targetDeletionCount; }
+    void resetTargetCounters();
+
+    GLuint getFxaaTexture() const { return m_fxaaTexture; }
+    GLuint getFxaaFbo() const { return m_fxaaFbo; }
+    GLuint getTaaTexture(int index) const { return (index >= 0 && index < 2) ? m_taaTexture[index] : 0; }
+    GLuint getTaaFbo(int index) const { return (index >= 0 && index < 2) ? m_taaFbo[index] : 0; }
+    bool isHistoryValid() const { return m_historyValid; }
+    int getWidth() const { return m_width; }
+    int getHeight() const { return m_height; }
+
+    uint64_t getTargetGeneration() const { return m_targetGeneration; }
+    bool getLastTaaHistoryValid() const { return m_lastTaaHistoryValid; }
+    float getLastTaaBlendFactor() const { return m_lastTaaBlendFactor; }
+    uint64_t getLastTaaTargetGeneration() const { return m_lastTaaTargetGeneration; }
+
+    static SelfCheckResult runTargetAllocationSelfCheck(bool forceFailure = false);
+
 private:
-    void ensureBuffers(int width, int height);
+    void ensureFxaaBuffers(int width, int height);
+    void ensureTaaBuffers(int width, int height);
 
     // Quad VAO & VBO
     GLuint m_quadVao = 0;
@@ -75,6 +106,14 @@ private:
 
     uint32_t m_frameIndex = 0;
     glm::mat4 m_lastViewProj = glm::mat4(1.0f);
+
+    uint64_t m_targetAllocationCount = 0;
+    uint64_t m_targetDeletionCount = 0;
+
+    uint64_t m_targetGeneration = 0;
+    bool m_lastTaaHistoryValid = false;
+    float m_lastTaaBlendFactor = 0.0f;
+    uint64_t m_lastTaaTargetGeneration = 0;
 };
 
 } // namespace ux3d::imgui

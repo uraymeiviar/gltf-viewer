@@ -23,6 +23,26 @@
 namespace ux3d::imgui {
 
 struct UiScenarioFrame {
+    struct ViewportInfo {
+        uint32_t id = 0;
+        std::string name;
+        bool open = false;
+        int renderW = 0;
+        int renderH = 0;
+        int aaMode = 0;
+        int aaW = 0;
+        int aaH = 0;
+        size_t aaTargets = 0;
+        size_t aaFbos = 0;
+        uint64_t aaBytes = 0;
+        bool aaHistoryValid = false;
+        uint64_t aaAllocs = 0;
+        uint64_t aaDeletes = 0;
+        uint64_t targetGeneration = 0;
+        bool lastTaaHistoryValid = false;
+        float lastTaaBlendFactor = 0.0f;
+        uint64_t lastTaaTargetGeneration = 0;
+    };
     std::string selection;
     std::string camera;
     size_t logEntries = 0;
@@ -30,11 +50,15 @@ struct UiScenarioFrame {
     int logWarnings = 0;
     int logInfo = 0;
     uint64_t hierarchyBuildCount = 0;
+    std::vector<ViewportInfo> viewports;
     std::function<std::string()> expectedCopyText;
     std::function<void(const std::string&, int)> appendLog;
     std::function<bool(const std::string&)> saveFrame;
     std::function<bool(const std::string&)> loadModel;
     std::function<bool(int)> pickNode;
+    std::function<bool()> createViewport;
+    std::function<bool(const std::string&, uint32_t)> setAaMode;
+    std::function<bool(uint32_t)> toggleViewport;
 };
 
 // Drives real ImGui frames from a text script (--ui-script) by queueing mouse,
@@ -102,6 +126,26 @@ public:
             finish(window);
             return;
         }
+
+        if (m_catchReallocVpId != 0) {
+            for (const auto& v : frame.viewports) {
+                if (v.id == m_catchReallocVpId && v.targetGeneration > m_catchReallocBaseGen) {
+                    if (!m_catchReallocShot.empty() && frame.saveFrame) {
+                        if (!frame.saveFrame(m_catchReallocShot)) {
+                            fail("frame capture failed: " + m_catchReallocShot);
+                        }
+                    }
+                    if (!m_catchReallocSnap.empty()) {
+                        snap({ "snap", m_catchReallocSnap }, window, frame);
+                    }
+                    m_catchReallocVpId = 0;
+                    m_catchReallocShot.clear();
+                    m_catchReallocSnap.clear();
+                    break;
+                }
+            }
+        }
+
         if (m_scroll.active) {
             stepScroll();
             return;
@@ -159,6 +203,10 @@ private:
     ScrollTask m_scroll;
     bool m_hasMouse = false;
     ImVec2 m_mousePos;
+    uint32_t m_catchReallocVpId = 0;
+    uint64_t m_catchReallocBaseGen = 0;
+    std::string m_catchReallocShot;
+    std::string m_catchReallocSnap;
 
     static std::string escape(const std::string& text)
     {
@@ -450,6 +498,37 @@ private:
                 if (!frame.pickNode || !frame.pickNode(std::stoi(args[1]))) fail("picknode failed: " + line);
                 m_waitFrames = kSettleFrames;
             }
+        } else if (cmd == "aamode") {
+            if (need(2)) {
+                uint32_t vpId = 0;
+                if (args.size() > 2) {
+                    vpId = static_cast<uint32_t>(std::stoul(args[2]));
+                }
+                if (!frame.setAaMode || !frame.setAaMode(args[1], vpId)) fail("aamode failed: " + line);
+                m_waitFrames = 8;
+            }
+        } else if (cmd == "vpcreate") {
+            if (!frame.createViewport || !frame.createViewport()) fail("vpcreate failed");
+            m_waitFrames = 8;
+        } else if (cmd == "catch_realloc") {
+            if (need(4)) {
+                m_catchReallocVpId = static_cast<uint32_t>(std::stoul(args[1]));
+                m_catchReallocShot = args[2];
+                m_catchReallocSnap = args[3];
+                m_catchReallocBaseGen = 0;
+                for (const auto& v : frame.viewports) {
+                    if (v.id == m_catchReallocVpId) {
+                        m_catchReallocBaseGen = v.targetGeneration;
+                        break;
+                    }
+                }
+            }
+        } else if (cmd == "vptoggle") {
+            if (need(2)) {
+                uint32_t vpId = static_cast<uint32_t>(std::stoul(args[1]));
+                if (!frame.toggleViewport || !frame.toggleViewport(vpId)) fail("vptoggle failed: " + line);
+                m_waitFrames = 4;
+            }
         } else if (cmd == "snap") {
             if (need(2)) snap(args, window, frame);
         } else {
@@ -599,7 +678,31 @@ private:
                 << ",\"equalsExpected\":" << (text == expected ? "true" : "false")
                 << ",\"isSentinel\":" << (text == "UI_SCENARIO_CLIPBOARD_SENTINEL" ? "true" : "false") << "}";
         }
-        out << "}";
+        out << ",\"viewports\":[";
+        bool firstVp = true;
+        for (const auto& v : frame.viewports) {
+            out << (firstVp ? "" : ",") << "{\"id\":" << v.id
+                << ",\"name\":\"" << escape(v.name) << "\""
+                << ",\"open\":" << (v.open ? "true" : "false")
+                << ",\"renderW\":" << v.renderW
+                << ",\"renderH\":" << v.renderH
+                << ",\"aaMode\":" << v.aaMode
+                << ",\"aaW\":" << v.aaW
+                << ",\"aaH\":" << v.aaH
+                << ",\"aaTargets\":" << v.aaTargets
+                << ",\"aaFbos\":" << v.aaFbos
+                << ",\"aaBytes\":" << v.aaBytes
+                << ",\"aaHistoryValid\":" << (v.aaHistoryValid ? "true" : "false")
+                << ",\"aaAllocs\":" << v.aaAllocs
+                << ",\"aaDeletes\":" << v.aaDeletes
+                << ",\"targetGeneration\":" << v.targetGeneration
+                << ",\"lastTaaHistoryValid\":" << (v.lastTaaHistoryValid ? "true" : "false")
+                << ",\"lastTaaBlendFactor\":" << num(v.lastTaaBlendFactor)
+                << ",\"lastTaaTargetGeneration\":" << v.lastTaaTargetGeneration
+                << "}";
+            firstVp = false;
+        }
+        out << "]}";
         m_snaps.push_back(out.str());
         m_waitFrames = 1;
     }

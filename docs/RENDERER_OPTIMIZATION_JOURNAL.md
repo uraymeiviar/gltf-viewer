@@ -1328,8 +1328,9 @@ until retention/truncation/Copy behavior is explicitly chosen; it is not necessa
 
 **Entry:** Phase 0; P1.1 before P3.2. Keep scene rebuild frequency unchanged for comparisons.
 
-- [ ] **P3.1 — AA allocation by mode (§3.20).** Allocate only needed targets; validate resize, rapid
+- [x] **P3.1 — AA allocation by mode (§3.20).** Allocate only needed targets; validate resize, rapid
   mode switches, viewport closure and TAA history reset. Measure live bytes and creation/deletion counts.
+  *Implemented and validated in §12.25.*
 - [ ] **P3.2 — Sampler objects (§3.2).** Test a single texture used with different samplers, mip filters,
   wraps, anisotropy and multiple viewports. Preserve effective sampler behavior across every draw.
 - [ ] **P3.3 — VAO reuse (§3.4).** Begin with a conservative mesh/program/layout-generation key. Test
@@ -4366,3 +4367,304 @@ No commit was performed during this review.
 - The measured multiline fallback overhead of +0.0883 ms / +5.4% is accepted
   as a bounded tradeoff alongside the recorded expanded-tree/search gains.
   It is not an eliminated regression.
+
+
+### 12.25 P3.1 — Anti-Aliasing Target Allocation by Active Mode (2026-10-22)
+
+#### 1. Context and Problem Statement
+
+Prior to P3.1 (§3.20), rendering the first post-processed frame in FXAA or TAA unconditionally allocated
+all three full-resolution RGBA8 textures and three framebuffers:
+1. One FXAA output texture + FBO (`m_fxaaTexture`, `m_fxaaFbo`).
+2. Two TAA ping-pong history textures + FBOs (`m_taaTexture[0..1]`, `m_taaFbo[0..1]`).
+
+Under that baseline implementation:
+- Active **FXAA** allocated and retained two unused TAA history targets (2× unneeded storage).
+- Active **TAA** allocated and retained one unused FXAA target (1× unneeded storage).
+- Switching from FXAA or TAA back to **None** or **MSAA** never freed the post-processing textures;
+  all three full-resolution targets remained alive indefinitely in GPU memory.
+- In multi-viewport configurations, each viewport accumulated all three targets, multiplying dead storage.
+
+At 4K UHD (3840×2160), each RGBA8 texture requires approximately 31.64 MiB (33.18 MB) of estimated pixel storage.
+Retaining unused targets wasted up to 63.28 MiB per viewport in FXAA and 94.92 MiB per viewport in None/MSAA.
+
+#### 2. Implementation & Architecture
+
+Changes were implemented strictly within `header/imgui/AntiAliasing.h`, `source/imgui/AntiAliasing.cpp`, and callers in `source/imgui/main.cpp`.
+
+1. **Target Ownership and Release Policy:**
+   - Active mode **None** and **MSAA (2x/4x/8x)**: Owns 0 post-process textures and 0 post-process FBOs.
+     `AntiAliasing::releaseTargets()` releases all FXAA and TAA targets immediately when these modes become active.
+   - Active mode **FXAA**: Owns exactly 1 output texture (`m_fxaaTexture`) and 1 FBO (`m_fxaaFbo`).
+     Any allocated TAA targets are released immediately via `releaseTaaTargets()`.
+   - Active mode **TAA**: Owns exactly 2 ping-pong history/output textures (`m_taaTexture[0..1]`) and 2 FBOs (`m_taaFbo[0..1]`).
+     Any allocated FXAA target is released immediately via `releaseFxaaTargets()`.
+   - **Viewport Closure Lifecycle**: When a viewport is closed (`!vp->isOpen`), `main.cpp` calls `vp->antiAliasing.releaseTargets()`,
+     releasing all targets and dropping live pixel storage to 0 bytes while closed. Reopening reallocates only the active mode's targets.
+
+2. **ImGui Draw Data Lifetime Invariant:**
+   - In Dear ImGui, `ImGui::Image((ImTextureID)textureId, ...)` queues an `ImDrawCmd` referencing `textureId`.
+     The OpenGL draw submission occurs at frame end inside `ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData())`.
+   - Target allocation, reallocation (on resize), and inactive target releases occur exclusively at the start of
+     `AntiAliasing::render()`, before the returned texture is submitted to `ImGui::Image()`.
+   - The previous frame's ImGui draw list was already rendered and presented at the end of the previous frame.
+   - This ordering supports safe texture lifetime during normal per-viewport rendering. Actual mixed-mode viewport closure/reopening through the application remains a targeted validation gap; the direct-object self-check does not exercise ImGui draw-data consumption.
+
+3. **TAA History Invalidation & Reset:**
+   - Any mode switch entering TAA, dimension changes (resizing), camera orientation jumps, or viewport re-openings
+     explicitly set `m_historyValid = false` and `m_frameIndex = 0`.
+   - On frames where `!m_historyValid`, `blendFactor` is forced to `1.0f` and the current input texture is bound
+     as history (`m_historyValid ? m_taaTexture[prev] : inputColorTexture`), completely discarding stale history
+     and preventing ghosting or smearing artifacts.
+
+4. **Zero & Minimized Dimensions Safety:**
+   - If `width <= 0 || height <= 0`, `render()` safely returns `inputColorTexture` without allocating 0×0 targets or executing post-process passes.
+   - Restoration to valid positive dimensions reallocates cleanly without errors.
+
+5. **Diagnostic Inspection API:**
+   - Added public inspection queries on `AntiAliasing`:
+     - `getOwnedTargetCount()`: returns current count of owned GL textures (0, 1, or 2).
+     - `getOwnedFramebufferCount()`: returns current count of owned GL FBOs (0, 1, or 2).
+     - `getEstimatedLiveBytes()`: returns total live pixel bytes ($W \times H \times 4 \times \text{owned}$).
+     - `getTargetAllocationCount()` / `getTargetDeletionCount()` / `resetTargetCounters()`.
+     - `runTargetAllocationSelfCheck(bool forceFailure)`: comprehensive automated self-check suite.
+
+#### 3. Target Counts and Estimated Live Storage Comparison
+
+*Note: Live storage calculations reflect uncompressed RGBA8 pixel storage ($W \times H \times 4\text{ bytes per texture}$) and are reported separately from driver-managed VRAM.*
+
+| Resolution | Bpp | Mode | Baseline Targets | Baseline Live Storage | P3.1 Targets | P3.1 Live Storage | Storage Delta |
+| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
+| **1280×720** (720p) | 4 | None / MSAA | 3 (retained) | 10.55 MiB (11.06 MB) | **0** | **0.00 MiB** | **-10.55 MiB (-100%)** |
+| | 4 | FXAA | 3 | 10.55 MiB (11.06 MB) | **1** | **3.52 MiB (3.69 MB)** | **-7.03 MiB (-66.7%)** |
+| | 4 | TAA | 3 | 10.55 MiB (11.06 MB) | **2** | **7.03 MiB (7.37 MB)** | **-3.52 MiB (-33.3%)** |
+| **1920×1080** (1080p) | 4 | None / MSAA | 3 (retained) | 23.73 MiB (24.88 MB) | **0** | **0.00 MiB** | **-23.73 MiB (-100%)** |
+| | 4 | FXAA | 3 | 23.73 MiB (24.88 MB) | **1** | **7.91 MiB (8.29 MB)** | **-15.82 MiB (-66.7%)** |
+| | 4 | TAA | 3 | 23.73 MiB (24.88 MB) | **2** | **15.82 MiB (16.59 MB)** | **-7.91 MiB (-33.3%)** |
+| **2560×1440** (1440p) | 4 | None / MSAA | 3 (retained) | 42.19 MiB (44.24 MB) | **0** | **0.00 MiB** | **-42.19 MiB (-100%)** |
+| | 4 | FXAA | 3 | 42.19 MiB (44.24 MB) | **1** | **14.06 MiB (14.75 MB)** | **-28.13 MiB (-66.7%)** |
+| | 4 | TAA | 3 | 42.19 MiB (44.24 MB) | **2** | **28.13 MiB (29.49 MB)** | **-14.06 MiB (-33.3%)** |
+| **3840×2160** (4K UHD) | 4 | None / MSAA | 3 (retained) | 94.92 MiB (99.53 MB) | **0** | **0.00 MiB** | **-94.92 MiB (-100%)** |
+| | 4 | FXAA | 3 | 94.92 MiB (99.53 MB) | **1** | **31.64 MiB (33.18 MB)** | **-63.28 MiB (-66.7%)** |
+| | 4 | TAA | 3 | 94.92 MiB (99.53 MB) | **2** | **63.28 MiB (66.36 MB)** | **-31.64 MiB (-33.3%)** |
+
+#### 4. Validation Results & Verification Evidence
+
+1. **Deterministic Self-Check Suite (`--aa-target-selfcheck`)**:
+   - 101/101 programmatic assertions passing (`build/p3.1/selfchecks_positive/aa_target_selfcheck.txt`).
+   - Verifies:
+     - Initial state (0 targets, 0 FBOs, 0 live bytes).
+     - None & MSAA startup: 0 targets owned; 10 steady-state frames produce 0 allocations and 0 deletions.
+     - FXAA startup: exactly 1 target, 1 FBO, 0 TAA targets; 10 steady-state frames produce 0 allocations and 0 deletions.
+     - FXAA -> TAA transition: 1 FXAA target deleted, 2 TAA targets allocated.
+     - TAA steady-state: 10 frames with ping-pong index alternation and 0 allocations/deletions.
+     - TAA -> None transition: 2 TAA targets deleted, live bytes drops to 0.
+     - None -> TAA transition: 2 TAA targets allocated, 0 FXAA targets.
+     - Resizing in TAA (800×600 -> 1280×720): 2 old targets deleted, 2 new targets allocated, history invalidated; steady state post-resize produces 0 allocations/deletions.
+     - Resizing in FXAA (1280×720 -> 1920×1080): 1 old target deleted, 1 new target allocated; steady state post-resize produces 0 allocations/deletions.
+     - 50 rapid mode-switching cycles: total allocations (150) equal total deletions (150) with zero resource leaks; `glGetError() == GL_NO_ERROR`.
+     - Zero/negative dimensions: safe return, no 0×0 texture allocation, clean restoration.
+     - Multi-viewport independent allocation: 3 viewports in FXAA, TAA, and MSAA operate independently; closing viewport 2 drops its targets without affecting viewport 1.
+
+2. **Negative Self-Check Coverage**:
+   - Forced failure (`--aa-target-selfcheck ... --selfcheck-force-failure`): exit code 1 (`build/p3.1/selfchecks_negative/aa_target_forced_failure.txt`).
+   - Unwritable path (directory target): exit code 2.
+   - All 8 existing self-checks and negative checks pass identically.
+
+3. **Visual Evidence (coverage limitations identified in review)**:
+   - Compared stored candidate and baseline images (`HelloCube.glb`, 1280×720, frame 8 dump). These files compare exactly, but the runner does not regenerate the six candidate startup captures or enforce a mismatch threshold:
+     - `frame_none.png`: 921,600 px, 0 differing (0.0000%), max channel diff 0.
+     - `frame_msaa2.png`: 921,600 px, 0 differing (0.0000%), max channel diff 0.
+     - `frame_msaa4.png`: 921,600 px, 0 differing (0.0000%), max channel diff 0.
+     - `frame_msaa8.png`: 921,600 px, 0 differing (0.0000%), max channel diff 0.
+     - `frame_fxaa.png`: 921,600 px, 0 differing (0.0000%), max channel diff 0.
+     - `frame_taa.png`: 921,600 px, 0 differing (0.0000%), max channel diff 0.
+   - Dynamic UI script scenarios:
+     - `frame_post_switch_taa.png`: valid non-blank (luminance [0, 239]), no ghosting or smearing.
+     - `frame_post_resize_taa.png`: valid non-blank (luminance [0, 239]), but not evidence of resize reconstruction: the script requests 1280×720 after launching at that same size.
+     - `frame_post_switch_fxaa.png`: valid non-blank (luminance [0, 239]), clean FXAA output.
+   - All dumped frames inspected and verified per AGENTS.md.
+
+4. **Targeted Performance Benchmark (60 frames, 20 warmup, 1280×720)**:
+   - Control (`msaa4`): median CPU frame time 0.5898 ms.
+   - Candidate (`fxaa`): median CPU frame time 0.6156 ms.
+   - Candidate (`taa`): median CPU frame time 0.6150 ms.
+   - These are candidate-only timings for different AA modes, not a before/after performance comparison. They do not establish absence of runtime overhead. No further timing run is required for acceptance; allocation counts and estimated live storage are the primary metrics.
+
+#### 5. Summary of Changed Files
+
+- `header/imgui/AntiAliasing.h`:
+  - Added target release methods: `releaseTargets()`, `releaseFxaaTargets()`, `releaseTaaTargets()`.
+  - Added target query and diagnostic methods: `getOwnedTargetCount()`, `getOwnedFramebufferCount()`, `getEstimatedLiveBytes()`, `getTargetAllocationCount()`, `getTargetDeletionCount()`, `resetTargetCounters()`, `getFxaaTexture()`, `getFxaaFbo()`, `getTaaTexture()`, `getTaaFbo()`, `isHistoryValid()`, `getWidth()`, `getHeight()`.
+  - Added diagnostic self-check: `runTargetAllocationSelfCheck(bool forceFailure)`.
+  - Replaced monolithic `ensureBuffers()` with `ensureFxaaBuffers()` and `ensureTaaBuffers()`.
+  - Added allocation and deletion tracking counters.
+- `source/imgui/AntiAliasing.cpp`:
+  - Implemented active-mode target allocation in `ensureFxaaBuffers()` (1 target) and `ensureTaaBuffers()` (2 targets).
+  - Implemented immediate release of inactive targets in `render()` and `cleanup()`.
+  - Updated profiling counters (`countTextureCreation`, `countFramebufferCreation`, `countTextureAllocation`) to report exact per-mode counts rather than hardcoded 3×.
+  - Implemented comprehensive `runTargetAllocationSelfCheck()` covering all 12 validation requirements.
+- `header/imgui/UiScenarioHarness.h`:
+  - Added `setAaMode` callback to `UiScenarioFrame`.
+  - Added `aamode <mode>` script command for dynamic scenario execution.
+- `source/imgui/main.cpp`:
+  - Added `--aa-target-selfcheck <output>` CLI flag handling.
+  - Wired `uiFrame.setAaMode` for interactive UI script scenarios.
+  - Added target release on viewport closure in the viewport render loop (`!vp->isOpen`).
+- `scripts/validate_p3_1.py`:
+  - New automated validation suite running all positive self-checks, forced failures, unwritable path checks, dynamic UI scenarios, and bit-exact pixel image comparisons.
+
+#### 6. Review Gate Status
+
+- Baseline commit: `b4b88ad`.
+- Final candidate executable SHA-256: `C47D7775780E626DF02BF815A496B066D680A429013DA9EEDD148320BF0375A0`.
+- Implementation submitted; acceptance remains pending the focused validation repairs below.
+- Target counts and live storage verified: FXAA reduces post-process targets from 3 to 1 (-66.7%), TAA from 3 to 2 (-33.3%), None/MSAA from 3 to 0 (-100%).
+- Texture lifetime is supported by code ordering; actual mixed-mode application viewport close/reopen validation remains pending.
+- Direct AA object resize allocation checks and mode-switch captures pass. Actual application resize and first post-resize TAA visual checks remain pending.
+- Steady-state frames produce 0 allocations and 0 deletions.
+- 50 mode-switch cycles confirm 0 leaks.
+- 101/101 self-check assertions pass; exit codes 0/1/2 verified.
+- Stored startup captures for all 6 AA modes compare exactly. Fresh capture generation and an enforced image-comparison failure gate remain pending.
+- Existing self-check suite passes completely.
+- `git diff --check` passes with zero errors.
+- No commit or push has been performed. P3.2–P3.4 and Phase 4 have not been started.
+- Submitted for review.
+
+
+#### 7. Independent Review and Reduced Follow-up Scope (2026-10-22)
+
+Reviewer rebuilt Release, matched the candidate hash above, reran
+`scripts/validate_p3_1.py`, inspected the TAA frame, and ran `git diff --check`.
+Existing self-check success/failure/output-error paths pass. No confirmed
+rendering defect was identified; the outstanding items concern validation.
+
+Required focused repairs:
+- Resize the application to a genuinely different size, assert changed viewport
+  and AA target dimensions, and capture first post-resize and settled TAA output.
+- Regenerate candidate startup captures, enforce a documented image comparison
+  threshold, and demonstrate failure on a deliberately mismatched image. Missing
+  image tooling must produce an explicit incomplete/failure result, not success.
+- Exercise two real application viewports in different AA modes; close/reopen one
+  through production lifecycle handling a few times. Assert release/recreation,
+  independent target ownership, valid output, and no accumulating owned targets.
+
+Validation budget policy:
+- Test-only/script/documentation changes require only the repaired scenarios and
+  comparator negative check. Reuse already passing evidence for unchanged code.
+- If C++ harness instrumentation changes, build once and run the affected scenarios;
+  do not automatically rerun unrelated hierarchy/resources/validation suites.
+- If production AA allocation, lifetime, or history behavior changes, rerun the AA
+  target self-check and affected mode/resize/lifecycle visual scenarios. Broaden
+  only for a concrete dependency, observed failure, or unresolved regression risk.
+- Run the six fresh startup captures once for the final candidate, not after every
+  edit. Keep existing baseline captures if provenance/settings remain applicable.
+- Do not run the P2.4 benchmark matrix, long timing tests, or another full suite
+  solely because the executable hash changed. Record which evidence was rerun
+  and which was reused, with the corresponding executable hashes.
+- The follow-up gate remains submitted for review. No commit or push is authorized.
+
+
+#### 8. Follow-up Validation Repairs & Final Evidence Record (2026-10-22)
+
+All three validation findings identified in §12.25.7 were addressed using the reduced testing budget policy.
+
+1. **Repaired Gap 1: Real Resize Scenario with TAA History Invalidation Oracle & Accurate First-Frame Capture**:
+   - **Diagnostic Mechanism**: Added state observation directly to `AntiAliasing` and `UiScenarioFrame::ViewportInfo`:
+     - `m_targetGeneration`: Monotonically increments when targets are allocated or reallocated on resize.
+     - `m_lastTaaTargetGeneration`: Records target generation at the time of the TAA pass.
+     - `m_lastTaaHistoryValid`: Observes the history validity state *prior* to rendering (before the pass sets `m_historyValid = true`).
+     - `m_lastTaaBlendFactor`: Observes the effective history blend factor used during the pass ($1.0$ for discarded history, $0.10$ for stationary accumulation).
+   - **Accurate First-Frame Capture Trigger (`catch_realloc`)**:
+     - Eliminated arbitrary wait counts (`wait 8`). Replaced with a narrowly scoped harness command `catch_realloc <vp_id> <shot_path> <snap_label>`.
+     - In `UiScenario::endFrame()`, on the exact frame where `v.targetGeneration > m_catchReallocBaseGen` (the first frame rendered using the resized targets), the harness captures the window framebuffer and records the snapshot before buffer swap.
+   - **Acceptance Oracle Verification**:
+     - Pre-resize (734×616): `targetGen = 1`, `allocs = 2`, `deletes = 0`.
+     - Post-resize first frame (1054×796): `targetGen = 2`, `lastTaaTargetGen = 2`, `lastTaaHistValid = False`, `lastTaaBlendFactor = 1.0`.
+     - Asserts `lastTaaTargetGen == targetGen`, proving the observation belongs to the current target generation.
+     - Asserts `lastTaaHistValid is False`, proving previous history was discarded.
+     - Asserts `lastTaaBlendFactor == 1.0`, proving no blend with invalid or stale history occurred.
+     - Post-resize settled frame (1054×796): `lastTaaHistValid = True`, `lastTaaBlendFactor = 0.10` (stationary convergence).
+   - **Intentional-Negative Oracle Demonstration**:
+     - Tested oracle against 4 synthetic defective records: erroneously valid history (`lastTaaHistoryValid = True`), wrong blend factor (`lastTaaBlendFactor = 0.10`), stale generation (`lastTaaTargetGeneration = 1`), and unadvanced generation (`targetGeneration = 1`).
+     - Oracle correctly rejected all 4 defective records, logging proof to `build/p3.1/selfchecks_negative/resize_history_oracle_negative.txt`.
+   - **Dimension & Reallocation Assertions**:
+     - Viewport render dimensions changed from 734×616 to 1054×796.
+     - Target dimensions updated to 1054×796 (`aaTargets = 2`).
+     - Reallocation delta: exactly $+2$ allocations and $+2$ deletions (clean destruction & recreation).
+     - Steady state post-resize: $0$ allocations and $0$ deletions.
+   - **Visual Verification & Observation vs Oracle**:
+     - Captured artifacts: `frame_post_resize_first_taa.png` (1600×900, 1,204,550 bytes) and `frame_post_resize_settled_taa.png` (1600×900, 1,222,761 bytes) opened and inspected per AGENTS.md.
+     - Pixel differences between first frame (single-sample geometry) and settled frame (16-sample Halton jitter accumulation) are reported as an **observation only** of multi-frame convergence (206,496 edge diff pixels, 14.3400%, max channel diff 94), explicitly not the acceptance oracle.
+     - Diagnostic report logged to `build/p3.1/selfchecks_positive/resize_scenario_validation.txt`.
+
+2. **Repaired Gap 2: Image Comparison Acceptance Gate & Intentional-Negative Demonstration**:
+   - **Dependency Gate**: Enforced hard import of PIL/Pillow at startup; aborts with exit code 1 if unavailable.
+   - **Synthetic Comparator Positive & Negative Checks**:
+     - Positive test: Compared two identical 64×64 RGBA images; exact equality confirmed (0 differing pixels, max diff 0).
+     - Negative test: Created two 64×64 RGBA images with pixel (32, 32) altered by $\Delta g = 5$. The comparator detected the mismatch (1 differing pixel, max channel diff 5, 0.0244%) and rejected equality.
+     - Saved negative evidence to `build/p3.1/selfchecks_negative/comparator_synth_a.png`, `build/p3.1/selfchecks_negative/comparator_synth_b.png`, and `build/p3.1/selfchecks_negative/comparator_negative_result.txt`.
+   - **Fresh Candidate Startup Captures**:
+     - Deleted all stale candidate files before execution.
+     - Generated fresh candidate startup captures for all 6 AA modes (`none`, `msaa2`, `msaa4`, `msaa8`, `fxaa`, `taa`) using `--isolated --window-size 1280x720 --aa <mode> --dump-frame <path> --exit-after-dump`.
+   - **Exact Equality Acceptance Gate**:
+     - Compared fresh candidate images against baseline (`build/p3.1/baseline/frame_<mode>.png`):
+       - `none`: 921,600 px, 0 diff (0.0000%), max diff 0 (EXACT MATCH).
+       - `msaa2`: 921,600 px, 0 diff (0.0000%), max diff 0 (EXACT MATCH).
+       - `msaa4`: 921,600 px, 0 diff (0.0000%), max diff 0 (EXACT MATCH).
+       - `msaa8`: 921,600 px, 0 diff (0.0000%), max diff 0 (EXACT MATCH).
+       - `fxaa`: 921,600 px, 0 diff (0.0000%), max diff 0 (EXACT MATCH).
+       - `taa`: 921,600 px, 0 diff (0.0000%), max diff 0 (EXACT MATCH).
+     - Logged to `build/p3.1/selfchecks_positive/startup_modes_image_comparison.txt`.
+
+3. **Repaired Gap 3: Application Viewport Lifecycle Behavior**:
+   - **Mechanism**: Added `vpcreate`, `vptoggle`, and `viewports` state reporting to `UiScenarioHarness`, exercising production viewport creation (`Viewport -> New Viewport`) and production window close handling (`!vp->isOpen` triggering `vp->antiAliasing.releaseTargets()`).
+   - **Multi-Viewport Lifecycle Scenario**:
+     - Opened two real application viewports: VP1 (FXAA) and VP2 (TAA).
+     - Verified independent ownership: VP1 owns 1 target and 1 FBO (3.52 MiB); VP2 owns 2 targets and 2 FBOs (7.03 MiB).
+     - Closed VP2 via `vptoggle 2` (`vp->isOpen = false`).
+     - Verified release: VP2 post-process targets and FBOs dropped to 0 (0 live bytes); VP1 remained completely valid and intact (1 target, 1 FBO).
+     - Reopened VP2 via `vptoggle 2` (`vp->isOpen = true`).
+     - Verified recreation: VP2 reallocated 2 targets and 2 FBOs; VP1 remained intact.
+     - Repeated 3 close/reopen cycles: verified zero accumulation of owned targets or FBOs (VP1 remained 1 target, VP2 remained 2 targets).
+     - Inspected representative frame `build/p3.1/candidate/frame_multi_viewport_lifecycle.png` (1280×720, non-blank luminance [0, 240], both viewport tabs visible and active).
+     - Logged to `build/p3.1/selfchecks_positive/viewport_lifecycle_validation.txt`.
+
+4. **Evidence Provenance & Execution Summary**:
+   - Final candidate executable SHA-256: `3B8F56FD285AA331040FB0E19373B7122DBC6771533C886E5072C182AD7A5297`.
+   - Baseline commit: `b4b88ad`.
+   - Focused execution command: `python scripts/validate_p3_1.py --only resize-history`.
+   - Newly Run Evidence for this repair:
+     - Synthetic oracle rejection demonstration: 4 defective records rejected (`resize_history_oracle_negative.txt`).
+     - Real application resize/history scenario with `catch_realloc`: verified target generation advance, discarded history, blend factor 1.0, and settled state (`resize_scenario_validation.txt`).
+     - AA target self-checks: positive 107 assertions, forced-failure, and unwritable dir (`aa_target_selfcheck.txt`).
+     - Viewed artifact: `frame_post_resize_first_taa.png` (1600×900, 1,204,550 bytes).
+   - Reused Passing Evidence (independently verified on candidate `CCEACF7CB26FB1816F304961474EEC368AEFEEEBAF8AF51955BAAF5691C22693`):
+     - Fresh startup captures for all 6 AA modes (`frame_<mode>.png`).
+     - Baseline captures in `build/p3.1/baseline/`.
+     - Image comparator positive & negative checks (`comparator_negative_result.txt`).
+     - Application viewport lifecycle scenario (`multi_viewport_lifecycle.report.json`, `frame_multi_viewport_lifecycle.png`).
+     - Mode switch scenarios (`frame_post_switch_taa.png`, `frame_post_switch_fxaa.png`).
+     - Unchanged subsystem self-checks: `conflict_selfcheck.txt`, `validation_cache_selfcheck.txt`, `cache_invalidation_selfcheck.txt`, `logger_layout_selfcheck.txt`.
+
+5. **Status**:
+   - All validation findings resolved under strict acceptance gates.
+   - Submitted for review. No commit or push has been performed. P3.2–P3.4 and Phase 4 have not been started.
+
+#### 9. Independent Review Acceptance
+
+P3.1 is accepted for commit. The reviewer rebuilt Release and matched final
+candidate SHA-256 `3B8F56FD285AA331040FB0E19373B7122DBC6771533C886E5072C182AD7A5297`.
+Only `python scripts/validate_p3_1.py --only resize-history` was rerun in this
+review; earlier passing startup, lifecycle, switching, and self-check evidence
+was reused as documented above.
+
+The focused run passed all four synthetic rejection cases and the real resize:
+target generation 1 -> 2; first resized TAA pass observed invalid history and
+blend factor 1.0; settled pass observed valid history and blend factor 0.1.
+The capture hook executes on the first observed target-generation advance,
+before harness wait handling. Dimensions changed from 734x616 to 1054x796,
+with exactly two allocations and two deletions and no settled-frame churn.
+The reviewer opened the regenerated first-frame image and confirmed visible
+scene output. `git diff --check` passed. No benchmark matrix or unrelated
+suite was repeated, and no commit or push was performed during review.

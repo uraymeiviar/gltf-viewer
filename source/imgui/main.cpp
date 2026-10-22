@@ -2213,6 +2213,7 @@ int main(int argc, char** argv)
     std::string validationCacheSelfCheckOutputPath;
     std::string cacheInvalidationSelfCheckOutputPath;
     std::string loggerLayoutSelfCheckOutputPath;
+    std::string aaTargetSelfCheckOutputPath;
     bool selfCheckForceFailure = false;
     std::string scenarioReportPath;
     std::string scenarioName = "default";
@@ -2399,6 +2400,8 @@ int main(int argc, char** argv)
             cacheInvalidationSelfCheckOutputPath = argv[++i];
         } else if (arg == "--logger-layout-selfcheck" && i + 1 < argc) {
             loggerLayoutSelfCheckOutputPath = argv[++i];
+        } else if (arg == "--aa-target-selfcheck" && i + 1 < argc) {
+            aaTargetSelfCheckOutputPath = argv[++i];
         } else if (arg == "--selfcheck-force-failure") {
             selfCheckForceFailure = true;
         } else if ((arg == "--env" || arg == "--hdr") && i + 1 < argc) {
@@ -2523,6 +2526,13 @@ int main(int argc, char** argv)
             runConsoleLogLayoutSelfCheck(selfCheckForceFailure),
             loggerLayoutSelfCheckOutputPath,
             "logger layout");
+    }
+
+    if (!aaTargetSelfCheckOutputPath.empty()) {
+        return writeSelfCheckReport(
+            ux3d::imgui::AntiAliasing::runTargetAllocationSelfCheck(selfCheckForceFailure),
+            aaTargetSelfCheckOutputPath,
+            "AA target allocation");
     }
 
     if (!s_isolatedState) {
@@ -3208,7 +3218,10 @@ int main(int argc, char** argv)
         // Viewport Windows (Multi-Viewport)
         // -------------------------------------------------------------
         for (auto& vp : viewports) {
-            if (!vp->isOpen) continue;
+            if (!vp->isOpen) {
+                vp->antiAliasing.releaseTargets();
+                continue;
+            }
 
             std::string wndTitle = std::string(ICON_MDI_CUBE_OUTLINE " ") + vp->name + "###Viewport_" + std::to_string(vp->id);
 
@@ -3217,6 +3230,12 @@ int main(int argc, char** argv)
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
             bool isVpVisible = ImGui::Begin(wndTitle.c_str(), &vp->isOpen);
             ImGui::PopStyleVar();
+
+            if (!vp->isOpen) {
+                vp->antiAliasing.releaseTargets();
+                ImGui::End();
+                continue;
+            }
 
             if (vp->requestFocus) {
                 ImGui::SetWindowFocus();
@@ -4375,6 +4394,82 @@ int main(int argc, char** argv)
                         auto* pickedNode = const_cast<ux3d::gltf::Node*>(&node);
                         selection.selectNode(pickedNode);
                         ux3d::imgui::SceneHierarchyPanel::requestScrollToSelectedNode();
+                        isSceneDirty = true;
+                        return true;
+                    }
+                }
+                return false;
+            };
+            for (const auto& vp : viewports) {
+                if (!vp) continue;
+                ux3d::imgui::UiScenarioFrame::ViewportInfo vinfo;
+                vinfo.id = vp->id;
+                vinfo.name = vp->name;
+                vinfo.open = vp->isOpen;
+                vinfo.renderW = vp->sceneFbo.getWidth();
+                vinfo.renderH = vp->sceneFbo.getHeight();
+                vinfo.aaMode = vp->settings.antiAliasingIdx;
+                vinfo.aaW = vp->antiAliasing.getWidth();
+                vinfo.aaH = vp->antiAliasing.getHeight();
+                vinfo.aaTargets = vp->antiAliasing.getOwnedTargetCount();
+                vinfo.aaFbos = vp->antiAliasing.getOwnedFramebufferCount();
+                vinfo.aaBytes = vp->antiAliasing.getEstimatedLiveBytes();
+                vinfo.aaHistoryValid = vp->antiAliasing.isHistoryValid();
+                vinfo.aaAllocs = vp->antiAliasing.getTargetAllocationCount();
+                vinfo.aaDeletes = vp->antiAliasing.getTargetDeletionCount();
+                vinfo.targetGeneration = vp->antiAliasing.getTargetGeneration();
+                vinfo.lastTaaHistoryValid = vp->antiAliasing.getLastTaaHistoryValid();
+                vinfo.lastTaaBlendFactor = vp->antiAliasing.getLastTaaBlendFactor();
+                vinfo.lastTaaTargetGeneration = vp->antiAliasing.getLastTaaTargetGeneration();
+                uiFrame.viewports.push_back(vinfo);
+            }
+            uiFrame.setAaMode = [&](const std::string& modeStr, uint32_t vpId) {
+                ux3d::imgui::ViewportInstance* targetVp = activeViewport;
+                if (vpId != 0) {
+                    for (const auto& vp : viewports) {
+                        if (vp && vp->id == vpId) {
+                            targetVp = vp.get();
+                            break;
+                        }
+                    }
+                }
+                if (!targetVp) return false;
+                std::string m = toLowerAscii(modeStr);
+                if (m == "none" || m == "0") targetVp->settings.antiAliasingIdx = 0;
+                else if (m == "msaa2" || m == "1") targetVp->settings.antiAliasingIdx = 1;
+                else if (m == "msaa4" || m == "2") targetVp->settings.antiAliasingIdx = 2;
+                else if (m == "msaa8" || m == "3") targetVp->settings.antiAliasingIdx = 3;
+                else if (m == "fxaa" || m == "4") targetVp->settings.antiAliasingIdx = 4;
+                else if (m == "taa" || m == "5") targetVp->settings.antiAliasingIdx = 5;
+                else return false;
+                isSceneDirty = true;
+                return true;
+            };
+            uiFrame.createViewport = [&]() {
+                uint32_t nextId = 1;
+                for (const auto& vp : viewports) {
+                    if (vp && vp->id >= nextId) nextId = vp->id + 1;
+                }
+                std::string vpName = "Viewport " + std::to_string(nextId);
+                auto newVp = std::make_unique<ux3d::imgui::ViewportInstance>(nextId, vpName, gladGL.get());
+                if (activeViewport != nullptr) {
+                    newVp->settings = activeViewport->settings;
+                    if (activeScene != nullptr) {
+                        newVp->cameraActor.fitCameraToScene(*activeScene, &gltfModel);
+                    }
+                }
+                newVp->requestFocus = true;
+                activeViewport = newVp.get();
+                selection.selectViewport(newVp->id);
+                viewports.push_back(std::move(newVp));
+                isSceneDirty = true;
+                return true;
+            };
+            uiFrame.toggleViewport = [&](uint32_t vpId) {
+                for (const auto& vp : viewports) {
+                    if (vp && vp->id == vpId) {
+                        vp->isOpen = !vp->isOpen;
+                        if (vp->isOpen) vp->requestFocus = true;
                         isSceneDirty = true;
                         return true;
                     }
