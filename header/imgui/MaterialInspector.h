@@ -3,6 +3,7 @@
 #pragma once
 
 #include "gltf/Gltf.h"
+#include "imgui/SceneRevisions.h"
 #include "gltf/Material.h"
 #include "gltf/Texture.h"
 
@@ -12,7 +13,7 @@ class MaterialInspector {
 public:
     // Renders the full material inspector GUI
     // Returns true if any material property was modified
-    static bool render(ux3d::gltf::Material* material, ux3d::gltf::Gltf& gltfModel, bool& isSceneDirty);
+    static bool render(ux3d::gltf::Material* material, ux3d::gltf::Gltf& gltfModel, SceneRevisions& revisions);
 
 private:
     static bool renderTextureSlot(const char* label,

@@ -3,6 +3,7 @@
 #pragma once
 
 #include "gltf/Gltf.h"
+#include "imgui/SceneRevisions.h"
 #include "gltf/GltfObject.h"
 #include <nlohmann/json.hpp>
 #include <string>
@@ -41,7 +42,7 @@ public:
     // Returns true if any property was modified.
     bool renderExtensions(ux3d::gltf::GltfObject* object,
                           ux3d::gltf::Gltf& gltfModel,
-                          bool& isSceneDirty);
+                          SceneRevisions& revisions);
 
     // Checks if a schema is available for this extension name
     bool hasSchema(const std::string& extensionName);

@@ -1,6 +1,7 @@
 // Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
 
 #include "imgui/Profiling.h"
+#include "imgui/SceneRevisions.h"
 
 #include <nlohmann/json.hpp>
 
@@ -288,6 +289,9 @@ json countersToJson(const FrameCounters& counters)
         { "renderbufferAllocationUnknownCalls", counters.renderbufferAllocationUnknownCalls },
         { "renderbufferAllocationBytesComplete", counters.renderbufferAllocationUnknownCalls == 0 },
         { "dirtySyncs", counters.dirtySyncs },
+        { "sceneChangeMask", counters.sceneChangeMask },
+        { "sceneChanges", SceneRevisions::maskToString(static_cast<uint32_t>(counters.sceneChangeMask)) },
+        { "revisionMarks", counters.revisionMarks },
         { "updateGltfCalls", counters.updateGltfCalls },
         { "updateSceneCalls", counters.updateSceneCalls },
         { "applyAnimationCalls", counters.applyAnimationCalls },

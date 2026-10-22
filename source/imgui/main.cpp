@@ -65,6 +65,7 @@
 #include "imgui/SelfCheckResult.h"
 #include "imgui/StatusBar.h"
 #include "imgui/ViewportInstance.h"
+#include "imgui/SceneRevisions.h"
 #include "imgui/UiScenarioHarness.h"
 
 #include <glm/glm.hpp>
@@ -747,12 +748,12 @@ static void focusCameraOnNode(ux3d::gltf::Node* node,
                               ux3d::renderer::GltfRenderLayer* gltfLayer,
                               ux3d::editor::CameraActor& cameraActor,
                               ux3d::imgui::AntiAliasing& antiAliasing,
-                              bool& sceneDirty)
+                              ux3d::imgui::SceneRevisions& revisions)
 {
     if (node == nullptr) return;
     cameraActor.presentFocusNode(gltfLayer, node, &gltfModel);
     antiAliasing.resetHistory();
-    sceneDirty = true;
+    revisions.mark(ux3d::imgui::SceneChange::ViewCamera);
 }
 
 
@@ -949,7 +950,7 @@ static bool loadGltfModel(const std::string& filePath,
                           std::vector<std::unique_ptr<ux3d::imgui::ViewportInstance>>& viewports,
                           ux3d::renderer::GltfRenderLayer* gltfLayer,
                           ux3d::imgui::AnimationPlayer& animPlayer,
-                          bool& sceneDirty)
+                          ux3d::imgui::SceneRevisions& revisions)
 {
     logMessage("Opening file: " + filePath);
     ux3d::imgui::StatisticsPanel::invalidate();
@@ -1027,7 +1028,7 @@ static bool loadGltfModel(const std::string& filePath,
             logMessage(boundsBuf, ImVec4(0.7f, 0.7f, 0.9f, 1.0f));
         }
 
-        sceneDirty = true;
+        revisions.mark(ux3d::imgui::SceneChange::Topology);
         logMessage("Loaded successfully: " + filePath, ImVec4(0.2f, 1.0f, 0.4f, 1.0f));
 
         // Auto-run glTF 2.0 validation
@@ -1072,7 +1073,7 @@ static bool loadGltfModel(const std::string& filePath,
                          ux3d::editor::CameraActor& cameraActor,
                          ux3d::renderer::GltfRenderLayer* gltfLayer,
                          ux3d::imgui::AnimationPlayer& animPlayer,
-                         bool& sceneDirty)
+                         ux3d::imgui::SceneRevisions& revisions)
 {
     gltfModel.reset();
     ux3d::imgui::StatisticsPanel::invalidate();
@@ -1095,7 +1096,7 @@ static bool loadGltfModel(const std::string& filePath,
     if (activeScene != nullptr) {
         cameraActor.fitCameraToScene(*activeScene, &gltfModel);
     }
-    sceneDirty = true;
+    revisions.mark(ux3d::imgui::SceneChange::Topology);
     logMessage("Created new empty glTF", ImVec4(0.4f, 1.0f, 0.4f, 1.0f));
 }
 
@@ -2132,7 +2133,11 @@ int main(int argc, char** argv)
     ux3d::gltf::Scene* activeScene = nullptr;
     ux3d::imgui::SelectionState selection;
     std::string currentFilePath = "";
-    bool isSceneDirty = false;
+    ux3d::imgui::SceneRevisions sceneRevisions;
+    uint64_t lastRevisionMarkCount = 0;
+    uint64_t sceneSyncCount = 0;
+    uint64_t skippedSceneSyncCount = 0;
+    uint32_t lastFrameSceneChanges = 0;
 
     ux3d::imgui::AnimationPlayer animationPlayer;
 
@@ -2221,6 +2226,7 @@ int main(int argc, char** argv)
     std::string validationCacheSelfCheckOutputPath;
     std::string cacheInvalidationSelfCheckOutputPath;
     std::string loggerLayoutSelfCheckOutputPath;
+    std::string revisionSelfCheckOutputPath;
     std::string aaTargetSelfCheckOutputPath;
     std::string samplerSelfCheckOutputPath;
     std::string samplerSelfCheckCase = "all";
@@ -2421,6 +2427,8 @@ int main(int argc, char** argv)
             cacheInvalidationSelfCheckOutputPath = argv[++i];
         } else if (arg == "--logger-layout-selfcheck" && i + 1 < argc) {
             loggerLayoutSelfCheckOutputPath = argv[++i];
+        } else if (arg == "--revision-selfcheck" && i + 1 < argc) {
+            revisionSelfCheckOutputPath = argv[++i];
         } else if (arg == "--aa-target-selfcheck" && i + 1 < argc) {
             aaTargetSelfCheckOutputPath = argv[++i];
         } else if (arg == "--sampler-selfcheck" && i + 1 < argc) {
@@ -2588,6 +2596,13 @@ int main(int argc, char** argv)
             "logger layout");
     }
 
+    if (!revisionSelfCheckOutputPath.empty()) {
+        return writeSelfCheckReport(
+            ux3d::imgui::SceneRevisions::runSelfCheck(selfCheckForceFailure),
+            revisionSelfCheckOutputPath,
+            "scene revision");
+    }
+
     if (!aaTargetSelfCheckOutputPath.empty()) {
         return writeSelfCheckReport(
             ux3d::imgui::AntiAliasing::runTargetAllocationSelfCheck(selfCheckForceFailure),
@@ -2597,7 +2612,7 @@ int main(int argc, char** argv)
 
     if (!samplerSelfCheckOutputPath.empty()) {
         auto reloadAndDraw = [&](const std::string& path) -> bool {
-            bool ok = loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, isSceneDirty);
+            bool ok = loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, sceneRevisions);
             if (!ok || activeScene == nullptr) return false;
             auto [scene, reverseMapping] = gltfLayer->createScene(activeScene);
             commandGenerator->update(scene);
@@ -2612,7 +2627,7 @@ int main(int argc, char** argv)
 
     if (!vaoSelfCheckOutputPath.empty()) {
         auto reloadAndDraw = [&](const std::string& path) -> bool {
-            bool ok = loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, isSceneDirty);
+            bool ok = loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, sceneRevisions);
             if (!ok || activeScene == nullptr) return false;
             auto [scene, reverseMapping] = gltfLayer->createScene(activeScene);
             commandGenerator->update(scene);
@@ -2627,7 +2642,7 @@ int main(int argc, char** argv)
 
     if (!polygonModeSelfCheckOutputPath.empty()) {
         auto reloadAndDraw = [&](const std::string& path) -> bool {
-            bool ok = loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, isSceneDirty);
+            bool ok = loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, sceneRevisions);
             if (!ok || activeScene == nullptr) return false;
             auto [scene, reverseMapping] = gltfLayer->createScene(activeScene);
             commandGenerator->update(scene);
@@ -2642,7 +2657,7 @@ int main(int argc, char** argv)
 
     if (!cullWindingSelfCheckOutputPath.empty()) {
         auto reloadAndDraw = [&](const std::string& path) -> bool {
-            bool ok = loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, isSceneDirty);
+            bool ok = loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, sceneRevisions);
             if (!ok || activeScene == nullptr) return false;
             auto [scene, reverseMapping] = gltfLayer->createScene(activeScene);
             commandGenerator->update(scene);
@@ -2657,7 +2672,7 @@ int main(int argc, char** argv)
 
     if (!depthSelfCheckOutputPath.empty()) {
         auto reloadAndDraw = [&](const std::string& path) -> bool {
-            bool ok = loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, isSceneDirty);
+            bool ok = loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, sceneRevisions);
             if (!ok || activeScene == nullptr) return false;
             auto [scene, reverseMapping] = gltfLayer->createScene(activeScene);
             commandGenerator->update(scene);
@@ -2672,7 +2687,7 @@ int main(int argc, char** argv)
 
     if (!blendSelfCheckOutputPath.empty()) {
         auto reloadAndDraw = [&](const std::string& path) -> bool {
-            bool ok = loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, isSceneDirty);
+            bool ok = loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, sceneRevisions);
             if (!ok || activeScene == nullptr) return false;
             auto [scene, reverseMapping] = gltfLayer->createScene(activeScene);
             commandGenerator->update(scene);
@@ -2706,7 +2721,7 @@ int main(int argc, char** argv)
     }
 
     if (ux3d::imgui::StdFileSystem::instance().isFile(ux3d::imgui::StdFileSystem::instance().toFile(modelToLoad.c_str()))) {
-        modelLoaded = loadGltfModel(modelToLoad, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, isSceneDirty);
+        modelLoaded = loadGltfModel(modelToLoad, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, sceneRevisions);
         updateWindowTitle(window, currentFilePath);
 
         auto renameNamedElement = [](auto& elements, const std::string& assignment, const char* label) {
@@ -2741,7 +2756,7 @@ int main(int argc, char** argv)
                 if (node.hasName() && node.getName() == selectNodeArg.c_str()) {
                     selection.selectNode(&node);
                     if (activeViewport) {
-                        focusCameraOnNode(&node, gltfModel, gltfLayer.get(), activeViewport->cameraActor, activeViewport->antiAliasing, isSceneDirty);
+                        focusCameraOnNode(&node, gltfModel, gltfLayer.get(), activeViewport->cameraActor, activeViewport->antiAliasing, sceneRevisions);
                     }
                     break;
                 }
@@ -2756,7 +2771,7 @@ int main(int argc, char** argv)
                 if ((node.hasName() && (node.getName() == target || node.getName() == hideNodeArg)) ||
                     std::to_string(node.m_ID) == hideNodeArg) {
                     node.setVisible(false);
-                    isSceneDirty = true;
+                    sceneRevisions.mark(ux3d::imgui::SceneChange::Visibility);
                     std::printf("Hiding node %u: %s\n", node.m_ID, node.hasName() ? node.getName().c_str() : "");
                     break;
                 }
@@ -2820,7 +2835,7 @@ int main(int argc, char** argv)
                         newVp->requestFocus = true;
                         activeViewport = newVp.get();
                         viewports.push_back(std::move(newVp));
-                        isSceneDirty = true;
+                        sceneRevisions.mark(ux3d::imgui::SceneChange::ViewportLayout);
                         return;
                     }
                 }
@@ -2846,7 +2861,7 @@ int main(int argc, char** argv)
     }
 
     if (!reloadModelArg.empty()) {
-        modelLoaded = loadGltfModel(reloadModelArg, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, isSceneDirty);
+        modelLoaded = loadGltfModel(reloadModelArg, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, sceneRevisions);
         updateWindowTitle(window, currentFilePath);
         std::printf("Reloaded model: %s\n", reloadModelArg.c_str());
     }
@@ -2900,7 +2915,7 @@ int main(int argc, char** argv)
         }
 
         viewport.antiAliasing.resetHistory();
-        isSceneDirty = true;
+        sceneRevisions.mark(ux3d::imgui::SceneChange::ViewCamera);
     }
 
     // UI state
@@ -3036,11 +3051,11 @@ int main(int argc, char** argv)
                 if (ImGui::IsKeyPressed(ImGuiKey_1)) {
                     activeViewport->settings.renderMode = ux3d::renderer::RenderMode::None;
                     activeViewport->settings.renderModeIdx = 0;
-                    isSceneDirty = true;
+                    sceneRevisions.mark(ux3d::imgui::SceneChange::ViewportSettings);
                 } else if (ImGui::IsKeyPressed(ImGuiKey_2)) {
                     activeViewport->settings.renderMode = ux3d::renderer::RenderMode::Wireframe;
                     activeViewport->settings.renderModeIdx = 1;
-                    isSceneDirty = true;
+                    sceneRevisions.mark(ux3d::imgui::SceneChange::ViewportSettings);
                 }
             }
         }
@@ -3093,7 +3108,7 @@ int main(int argc, char** argv)
             if (ImGui::IsKeyPressed(ImGuiKey_O)) {
                 auto openResult = pfd::open_file("Open glTF / GLB", "", { "glTF files (*.gltf *.glb)", "*.gltf *.glb" }).result();
                 if (!openResult.empty()) {
-                    loadGltfModel(openResult[0], gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, isSceneDirty);
+                    loadGltfModel(openResult[0], gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, sceneRevisions);
                     updateWindowTitle(window, currentFilePath);
                 }
             }
@@ -3126,7 +3141,7 @@ int main(int argc, char** argv)
                 if (ImGui::MenuItem(ICON_MDI_FOLDER_OPEN " Open ...", "Ctrl+O")) {
                     auto openResult = pfd::open_file("Open glTF / GLB", "", { "glTF files (*.gltf *.glb)", "*.gltf *.glb" }).result();
                     if (!openResult.empty()) {
-                        loadGltfModel(openResult[0], gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, isSceneDirty);
+                        loadGltfModel(openResult[0], gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, sceneRevisions);
                         updateWindowTitle(window, currentFilePath);
                     }
                 }
@@ -3146,7 +3161,7 @@ int main(int argc, char** argv)
                             saveRecentFiles(s_recentFiles);
                         }
                         if (!fileToOpen.empty()) {
-                            loadGltfModel(fileToOpen, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, isSceneDirty);
+                            loadGltfModel(fileToOpen, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, sceneRevisions);
                             updateWindowTitle(window, currentFilePath);
                         }
                     }
@@ -3250,7 +3265,7 @@ int main(int argc, char** argv)
                     activeViewport->attachedCameraNode = nullptr;
                     activeViewport->attachedCameraNodeId = 0;
                     activeViewport->attachedCameraNodeName = "";
-                    isSceneDirty = true;
+                    sceneRevisions.mark(ux3d::imgui::SceneChange::ViewCamera);
                 }
 
                 if (ImGui::BeginMenu(ICON_MDI_COMPASS_OUTLINE " Orientation", hasActiveVp && !isAttached)) {
@@ -3287,7 +3302,7 @@ int main(int argc, char** argv)
                             if (ImGui::MenuItem(item.label, item.shortcut, isSelected)) {
                                 activeViewport->settings.renderMode = item.mode;
                                 activeViewport->settings.renderModeIdx = getIndexFromRenderMode(item.mode);
-                                isSceneDirty = true;
+                                sceneRevisions.mark(ux3d::imgui::SceneChange::ViewportSettings);
                             }
                         }
                     }
@@ -3325,11 +3340,18 @@ int main(int argc, char** argv)
         markStage("ui.chrome", uiChromeStart);
         const auto dirtySyncStart = ux3d::imgui::profiling::Clock::now();
         if (animationPlayer.isPlaying()) {
-            isSceneDirty = true;
+            sceneRevisions.mark(ux3d::imgui::SceneChange::AnimationTime);
         }
 
-        if (isSceneDirty && gltfLayer != nullptr) {
+        // Every kind except Selection and ViewCamera (P4.2) still maps to the full
+        // rebuild below. Later Phase 4 tasks narrow the remaining kinds.
+        const bool rendererSyncPending = (sceneRevisions.pendingMask() & ux3d::imgui::kRendererSyncChanges) != 0;
+        if (sceneRevisions.hasPending() && !rendererSyncPending) {
+            ++skippedSceneSyncCount;
+        }
+        if (rendererSyncPending && gltfLayer != nullptr) {
             ux3d::imgui::profiling::countDirtySync();
+            ++sceneSyncCount;
             auto stageStart = ux3d::imgui::profiling::Clock::now();
             gltfLayer->updateGltf(gltfModel);
             if (s_profilingEnabled) {
@@ -3361,8 +3383,14 @@ int main(int argc, char** argv)
         }
         markStage("scene.dirtySync", dirtySyncStart);
 
-        bool frameSceneDirty = isSceneDirty;
-        isSceneDirty = false;
+        const uint32_t frameSceneChanges = sceneRevisions.consumePending();
+        const bool frameSceneDirty = frameSceneChanges != 0;
+        if (s_profilingEnabled) {
+            ux3d::imgui::profiling::frameCounters().sceneChangeMask = frameSceneChanges;
+            ux3d::imgui::profiling::frameCounters().revisionMarks = sceneRevisions.markCount() - lastRevisionMarkCount;
+        }
+        lastRevisionMarkCount = sceneRevisions.markCount();
+        lastFrameSceneChanges = frameSceneChanges;
 
         // -------------------------------------------------------------
         // Viewport Windows (Multi-Viewport)
@@ -3500,7 +3528,7 @@ int main(int argc, char** argv)
                     if (ImGui::Selectable("Default", !gltfLayer || !gltfLayer->getMaterialVariant().has_value())) {
                         if (gltfLayer) {
                             gltfLayer->setMaterialVariant(std::nullopt);
-                            isSceneDirty = true;
+                            sceneRevisions.mark(ux3d::imgui::SceneChange::Material);
                         }
                     }
                     for (const auto& v : variants) {
@@ -3509,7 +3537,7 @@ int main(int argc, char** argv)
                         if (ImGui::Selectable(vLabel.c_str(), isSel)) {
                             if (gltfLayer) {
                                 gltfLayer->setMaterialVariant(v.m_ID);
-                                isSceneDirty = true;
+                                sceneRevisions.mark(ux3d::imgui::SceneChange::Material);
                             }
                         }
                     }
@@ -3572,7 +3600,7 @@ int main(int argc, char** argv)
                     vp->attachedCameraNode = nullptr;
                     vp->attachedCameraNodeId = 0;
                     vp->attachedCameraNodeName = "";
-                    isSceneDirty = true;
+                    sceneRevisions.mark(ux3d::imgui::SceneChange::ViewCamera);
                 }
                 ImGui::Separator();
 
@@ -3589,7 +3617,7 @@ int main(int argc, char** argv)
                             vp->attachedCameraNode = camNode;
                             vp->attachedCameraNodeId = camNode->m_ID;
                             vp->attachedCameraNodeName = cName;
-                            isSceneDirty = true;
+                            sceneRevisions.mark(ux3d::imgui::SceneChange::ViewCamera);
                         }
                     }
                 }
@@ -3616,7 +3644,7 @@ int main(int argc, char** argv)
                         if (ImGui::MenuItem(item.label, item.shortcut, isSelected)) {
                             vp->settings.renderMode = item.mode;
                             vp->settings.renderModeIdx = getIndexFromRenderMode(item.mode);
-                            isSceneDirty = true;
+                            sceneRevisions.mark(ux3d::imgui::SceneChange::ViewportSettings);
                         }
                     }
                 }
@@ -4091,22 +4119,22 @@ int main(int argc, char** argv)
                                     auto* pickedNode = const_cast<ux3d::gltf::Node*>(it->second);
                                     selection.selectNode(pickedNode);
                                     ux3d::imgui::SceneHierarchyPanel::requestScrollToSelectedNode();
-                                    isSceneDirty = true;
+                                    sceneRevisions.mark(ux3d::imgui::SceneChange::Selection);
                                     logMessage("Picked: " + (pickedNode->hasName() ? pickedNode->getName() : ("Node " + std::to_string(pickedNode->m_ID))));
                                     if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-                                        focusCameraOnNode(pickedNode, gltfModel, gltfLayer.get(), vp->cameraActor, vp->antiAliasing, isSceneDirty);
+                                        focusCameraOnNode(pickedNode, gltfModel, gltfLayer.get(), vp->cameraActor, vp->antiAliasing, sceneRevisions);
                                     }
                                 } else {
                                     selection = ux3d::imgui::SelectionState();
-                                    isSceneDirty = true;
+                                    sceneRevisions.mark(ux3d::imgui::SceneChange::Selection);
                                 }
                             } else {
                                 selection = ux3d::imgui::SelectionState();
-                                isSceneDirty = true;
+                                sceneRevisions.mark(ux3d::imgui::SceneChange::Selection);
                             }
                         } else {
                             selection = ux3d::imgui::SelectionState();
-                            isSceneDirty = true;
+                            sceneRevisions.mark(ux3d::imgui::SceneChange::Selection);
                         }
                     }
                 }
@@ -4134,7 +4162,7 @@ int main(int argc, char** argv)
                 gltfModel, activeScene, selection, gltfLayer.get(),
                 activeViewport ? activeViewport->cameraActor : dummyActor,
                 activeViewport ? activeViewport->antiAliasing : dummyAA,
-                isSceneDirty, &showHierarchy, &viewports, &activeViewport
+                sceneRevisions, &showHierarchy, &viewports, &activeViewport
             );
         }
 
@@ -4142,7 +4170,7 @@ int main(int argc, char** argv)
         // Resources Panel
         // -------------------------------------------------------------
         if (showResources) {
-            ux3d::imgui::ResourcesPanel::render(gltfModel, selection, gltfLayer.get(), &isSceneDirty, &showResources);
+            ux3d::imgui::ResourcesPanel::render(gltfModel, selection, gltfLayer.get(), &sceneRevisions, &showResources);
         }
 
         // -------------------------------------------------------------
@@ -4150,7 +4178,7 @@ int main(int argc, char** argv)
         // -------------------------------------------------------------
         if (showInspector) {
             if (ImGui::Begin(WND_INSPECTOR, &showInspector)) {
-                ux3d::imgui::ElementInspector::render(selection, gltfModel, isSceneDirty, &animationPlayer, gltfLayer.get(), &viewports, commandGenerator.get());
+                ux3d::imgui::ElementInspector::render(selection, gltfModel, sceneRevisions, &animationPlayer, gltfLayer.get(), &viewports, commandGenerator.get());
             }
             ImGui::End();
         }
@@ -4179,7 +4207,7 @@ int main(int argc, char** argv)
         if (showSearchPaths) {
             ux3d::imgui::renderSearchPathsWindow(&showSearchPaths, [&]() {
                 if (!currentFilePath.empty()) {
-                    loadGltfModel(currentFilePath, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, isSceneDirty);
+                    loadGltfModel(currentFilePath, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, sceneRevisions);
                 }
             });
         }
@@ -4312,7 +4340,7 @@ int main(int argc, char** argv)
         // -------------------------------------------------------------
         markStage("ui.panels", panelsStart);
         const auto statusBarStart = ux3d::imgui::profiling::Clock::now();
-        ux3d::imgui::StatusBar::render(gltfModel, gltfLayer.get(), animationPlayer, isSceneDirty, showLogger, showValidation, s_consoleLogs.counts(), activeViewport ? &activeViewport->antiAliasing : nullptr);
+        ux3d::imgui::StatusBar::render(gltfModel, gltfLayer.get(), animationPlayer, sceneRevisions, showLogger, showValidation, s_consoleLogs.counts(), activeViewport ? &activeViewport->antiAliasing : nullptr);
         markStage("ui.statusBar", statusBarStart);
 
         // Rendering main window
@@ -4513,6 +4541,21 @@ int main(int argc, char** argv)
             uiFrame.logWarnings = s_consoleLogs.counts().warnings;
             uiFrame.logInfo = s_consoleLogs.counts().info;
             uiFrame.hierarchyBuildCount = ux3d::imgui::SceneHierarchyPanel::rowModelBuildCount();
+            {
+                std::string revisionsJson = "{\"syncs\":" + std::to_string(sceneSyncCount)
+                    + ",\"skippedSyncs\":" + std::to_string(skippedSceneSyncCount)
+                    + ",\"marks\":" + std::to_string(sceneRevisions.markCount())
+                    + ",\"lastConsumed\":\"" + ux3d::imgui::SceneRevisions::maskToString(lastFrameSceneChanges) + "\""
+                    + ",\"pending\":\"" + ux3d::imgui::SceneRevisions::maskToString(sceneRevisions.pendingMask()) + "\"";
+                for (size_t i = 0; i < ux3d::imgui::kSceneChangeCount; ++i) {
+                    const auto change = static_cast<ux3d::imgui::SceneChange>(i);
+                    revisionsJson += ",\"";
+                    revisionsJson += ux3d::imgui::sceneChangeName(change);
+                    revisionsJson += "\":" + std::to_string(sceneRevisions.revision(change));
+                }
+                revisionsJson += "}";
+                uiFrame.revisionsJson = revisionsJson;
+            }
             uiFrame.expectedCopyText = [&]() {
                 std::string expected;
                 for (const auto& entry : s_consoleLogs.entries()) {
@@ -4538,7 +4581,7 @@ int main(int argc, char** argv)
                 return saveImage(path.c_str(), displayW, displayH, pixels.data());
             };
             uiFrame.loadModel = [&](const std::string& path) {
-                const bool loaded = loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, isSceneDirty);
+                const bool loaded = loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, sceneRevisions);
                 updateWindowTitle(window, currentFilePath);
                 return loaded;
             };
@@ -4548,7 +4591,7 @@ int main(int argc, char** argv)
                         auto* pickedNode = const_cast<ux3d::gltf::Node*>(&node);
                         selection.selectNode(pickedNode);
                         ux3d::imgui::SceneHierarchyPanel::requestScrollToSelectedNode();
-                        isSceneDirty = true;
+                        sceneRevisions.mark(ux3d::imgui::SceneChange::Selection);
                         return true;
                     }
                 }
@@ -4622,6 +4665,11 @@ int main(int argc, char** argv)
                 activeViewport = newVp.get();
                 selection.selectViewport(newVp->id);
                 viewports.push_back(std::move(newVp));
+                return true;
+            };
+            uiFrame.setAnimationPlaying = [&](bool play) {
+                if (play && animationPlayer.getMaxDuration() <= 0.0f) return false;
+                animationPlayer.setPlaying(play);
                 return true;
             };
             uiFrame.focusViewport = [&](uint32_t id) {

@@ -16,7 +16,7 @@ namespace ux3d::imgui {
 void StatusBar::render(ux3d::gltf::Gltf& gltfModel,
                        ux3d::renderer::GltfRenderLayer* gltfLayer,
                        AnimationPlayer& animationPlayer,
-                       bool& isSceneDirty,
+                       SceneRevisions& revisions,
                        bool& showLogger,
                        bool& showValidation,
                        const LogSeverityCounts& logCounts,
@@ -110,7 +110,7 @@ void StatusBar::render(ux3d::gltf::Gltf& gltfModel,
             bool allSelected = animationPlayer.areAllPossibleAnimationsSelected(gltfModel);
             if (ImGui::Checkbox("Select all non-conflicting", &allSelected)) {
                 animationPlayer.selectAllPossibleAnimations(allSelected, gltfModel, gltfLayer);
-                isSceneDirty = true;
+                revisions.mark(SceneChange::AnimationSet);
             }
 
             ImGui::Separator();
@@ -127,7 +127,7 @@ void StatusBar::render(ux3d::gltf::Gltf& gltfModel,
                 if (conflict) ImGui::BeginDisabled();
                 if (ImGui::Checkbox((name + "##" + std::to_string(i)).c_str(), &isPlaying)) {
                     animationPlayer.toggleAnimation(i, isPlaying, gltfModel, gltfLayer);
-                    isSceneDirty = true;
+                    revisions.mark(SceneChange::AnimationSet);
                 }
                 if (conflict) {
                     ImGui::EndDisabled();
@@ -144,10 +144,10 @@ void StatusBar::render(ux3d::gltf::Gltf& gltfModel,
             ImGui::TextDisabled("SETTINGS");
             if (gltfLayer != nullptr) {
                 if (ImGui::Checkbox("Skinning", &gltfLayer->renderSettings.enableSkinning)) {
-                    isSceneDirty = true;
+                    revisions.mark(SceneChange::RenderSettings);
                 }
                 if (ImGui::Checkbox("Morphing", &gltfLayer->renderSettings.enableMorphing)) {
-                    isSceneDirty = true;
+                    revisions.mark(SceneChange::RenderSettings);
                 }
             }
             ImGui::EndPopup();
@@ -262,7 +262,7 @@ void StatusBar::render(ux3d::gltf::Gltf& gltfModel,
             if (ImGui::SliderFloat("##StatusBarSlider", &t, 0.0f, maxDuration, "")) {
                 animationPlayer.setCurrentTime(t, gltfLayer);
                 if (antiAliasing != nullptr) antiAliasing->resetHistory();
-                isSceneDirty = true;
+                revisions.mark(SceneChange::AnimationTime);
             }
         } else {
             float dummy = 0.0f;

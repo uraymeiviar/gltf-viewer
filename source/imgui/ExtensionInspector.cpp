@@ -257,7 +257,7 @@ void ExtensionInspector::helpMarker(const std::string& desc)
 
 bool ExtensionInspector::renderExtensions(ux3d::gltf::GltfObject* object,
                                           ux3d::gltf::Gltf& gltfModel,
-                                          bool& isSceneDirty)
+                                          SceneRevisions& revisions)
 {
     if (object == nullptr) {
         return false;
@@ -313,7 +313,7 @@ bool ExtensionInspector::renderExtensions(ux3d::gltf::GltfObject* object,
                 if (renderSingleExtension(extName, extJson, schema, gltfModel)) {
                     object->setUnknownExtension(extName, extJson.dump(4));
                     modified = true;
-                    isSceneDirty = true;
+                    revisions.mark(SceneChange::Extension);
                 }
             }
 
@@ -326,7 +326,7 @@ bool ExtensionInspector::renderExtensions(ux3d::gltf::GltfObject* object,
     if (!extToRemove.empty()) {
         object->removeUnknownExtension(extToRemove);
         modified = true;
-        isSceneDirty = true;
+        revisions.mark(SceneChange::Extension);
     }
 
     return modified;

@@ -120,6 +120,8 @@ set(GLIDER_SOURCES
 	"header/imgui/DepthTest.h"
 	"source/imgui/BlendTest.cpp"
 	"header/imgui/BlendTest.h"
+	"source/imgui/SceneRevisions.cpp"
+	"header/imgui/SceneRevisions.h"
 )
 
 find_package(Python3 COMPONENTS Interpreter QUIET)

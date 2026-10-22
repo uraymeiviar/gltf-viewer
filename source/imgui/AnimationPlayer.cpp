@@ -738,7 +738,7 @@ void AnimationPlayer::update(float deltaTime, ux3d::renderer::GltfRenderLayer* g
     }
 }
 
-void AnimationPlayer::renderToolbar(ux3d::gltf::Gltf& gltfModel, ux3d::renderer::GltfRenderLayer* gltfLayer, bool& isSceneDirty)
+void AnimationPlayer::renderToolbar(ux3d::gltf::Gltf& gltfModel, ux3d::renderer::GltfRenderLayer* gltfLayer, SceneRevisions& revisions)
 {
     auto& anims = gltfModel.getElements<ux3d::gltf::Animation>();
     if (anims.empty()) {
@@ -767,7 +767,7 @@ void AnimationPlayer::renderToolbar(ux3d::gltf::Gltf& gltfModel, ux3d::renderer:
         bool allSelected = areAllPossibleAnimationsSelected(gltfModel);
         if (ImGui::Checkbox("Select all non-conflicting", &allSelected)) {
             selectAllPossibleAnimations(allSelected, gltfModel, gltfLayer);
-            isSceneDirty = true;
+            revisions.mark(SceneChange::AnimationSet);
         }
 
         ImGui::Separator();
@@ -786,7 +786,7 @@ void AnimationPlayer::renderToolbar(ux3d::gltf::Gltf& gltfModel, ux3d::renderer:
             }
             if (ImGui::Checkbox((name + "##" + std::to_string(i)).c_str(), &isPlaying)) {
                 toggleAnimation(i, isPlaying, gltfModel, gltfLayer);
-                isSceneDirty = true;
+                revisions.mark(SceneChange::AnimationSet);
             }
             if (conflict) {
                 ImGui::EndDisabled();
@@ -803,10 +803,10 @@ void AnimationPlayer::renderToolbar(ux3d::gltf::Gltf& gltfModel, ux3d::renderer:
         ImGui::TextDisabled("SETTINGS");
         if (gltfLayer != nullptr) {
             if (ImGui::Checkbox("Skinning", &gltfLayer->renderSettings.enableSkinning)) {
-                isSceneDirty = true;
+                revisions.mark(SceneChange::RenderSettings);
             }
             if (ImGui::Checkbox("Morphing", &gltfLayer->renderSettings.enableMorphing)) {
-                isSceneDirty = true;
+                revisions.mark(SceneChange::RenderSettings);
             }
         }
 

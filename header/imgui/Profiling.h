@@ -73,6 +73,8 @@ struct FrameCounters {
     uint64_t renderbufferAllocationUnknownCalls = 0;
 
     uint64_t dirtySyncs = 0;
+    uint64_t sceneChangeMask = 0;
+    uint64_t revisionMarks = 0;
     uint64_t updateGltfCalls = 0;
     uint64_t updateSceneCalls = 0;
     uint64_t applyAnimationCalls = 0;

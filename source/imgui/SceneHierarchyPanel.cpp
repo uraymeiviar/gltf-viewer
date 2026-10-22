@@ -762,7 +762,7 @@ static void buildRowModel(const ux3d::gltf::Gltf& gltfModel,
     s_hierarchyCache.rowModelValid = true;
 }
 
-static void renderNodeVisibilityToggle(ux3d::gltf::Node* node, bool& sceneDirty)
+static void renderNodeVisibilityToggle(ux3d::gltf::Node* node, SceneRevisions& revisions)
 {
     float buttonWidth = 20.0f;
     float eyePos = ImGui::GetWindowContentRegionMax().x - buttonWidth;
@@ -784,7 +784,7 @@ static void renderNodeVisibilityToggle(ux3d::gltf::Node* node, bool& sceneDirty)
     ux3d::imgui::UiProbe::item("hier.node_eye", static_cast<long long>(node->m_ID));
     if (nodeEyeClicked) {
         node->setVisible(!isVisible);
-        sceneDirty = true;
+        revisions.mark(SceneChange::Visibility);
     }
 
     if (!isVisible) {
@@ -798,7 +798,7 @@ static void renderNodeVisibilityToggle(ux3d::gltf::Node* node, bool& sceneDirty)
     }
 }
 
-static void renderMeshVisibilityToggle(ux3d::gltf::Mesh* mesh, bool& sceneDirty)
+static void renderMeshVisibilityToggle(ux3d::gltf::Mesh* mesh, SceneRevisions& revisions)
 {
     float buttonWidth = 20.0f;
     float eyePos = ImGui::GetWindowContentRegionMax().x - buttonWidth;
@@ -820,7 +820,7 @@ static void renderMeshVisibilityToggle(ux3d::gltf::Mesh* mesh, bool& sceneDirty)
     ux3d::imgui::UiProbe::item("hier.mesh_eye", static_cast<long long>(mesh->m_ID));
     if (meshEyeClicked) {
         mesh->setVisible(!isVisible);
-        sceneDirty = true;
+        revisions.mark(SceneChange::Visibility);
     }
 
     if (!isVisible) {
@@ -876,12 +876,12 @@ static void focusCameraOnNode(ux3d::gltf::Node* node,
                               ux3d::renderer::GltfRenderLayer* gltfLayer,
                               ux3d::editor::CameraActor& cameraActor,
                               ux3d::imgui::AntiAliasing& antiAliasing,
-                              bool& sceneDirty)
+                              SceneRevisions& revisions)
 {
     if (node == nullptr) return;
     cameraActor.presentFocusNode(gltfLayer, node, &gltfModel);
     antiAliasing.resetHistory();
-    sceneDirty = true;
+    revisions.mark(SceneChange::ViewCamera);
 }
 
 static void renderRow(const HierarchyRow& row,
@@ -891,7 +891,7 @@ static void renderRow(const HierarchyRow& row,
                       ux3d::renderer::GltfRenderLayer* gltfLayer,
                       ux3d::editor::CameraActor& cameraActor,
                       AntiAliasing& antiAliasing,
-                      bool& isSceneDirty,
+                      SceneRevisions& revisions,
                       ViewportInstance** activeViewport,
                       bool isSelected)
 {
@@ -965,29 +965,31 @@ static void renderRow(const HierarchyRow& row,
             auto* node = static_cast<ux3d::gltf::Node*>(row.object);
             if (ImGui::IsItemClicked()) {
                 selection.selectNode(node);
-                focusCameraOnNode(node, gltfModel, gltfLayer, cameraActor, antiAliasing, isSceneDirty);
+                revisions.mark(SceneChange::Selection);
+                focusCameraOnNode(node, gltfModel, gltfLayer, cameraActor, antiAliasing, revisions);
             }
             if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
                 selection.selectNode(node);
-                focusCameraOnNode(node, gltfModel, gltfLayer, cameraActor, antiAliasing, isSceneDirty);
+                revisions.mark(SceneChange::Selection);
+                focusCameraOnNode(node, gltfModel, gltfLayer, cameraActor, antiAliasing, revisions);
             }
-            renderNodeVisibilityToggle(node, isSceneDirty);
+            renderNodeVisibilityToggle(node, revisions);
             break;
         }
         case HierarchyRowType::Mesh: {
             auto* mesh = static_cast<ux3d::gltf::Mesh*>(row.object);
             if (ImGui::IsItemClicked()) {
                 selection.selectMesh(mesh);
-                isSceneDirty = true;
+                revisions.mark(SceneChange::Selection);
             }
-            renderMeshVisibilityToggle(mesh, isSceneDirty);
+            renderMeshVisibilityToggle(mesh, revisions);
             break;
         }
         case HierarchyRowType::Material: {
             auto* mat = static_cast<ux3d::gltf::Material*>(row.object);
             if (ImGui::IsItemClicked()) {
                 selection.selectMaterial(mat);
-                isSceneDirty = true;
+                revisions.mark(SceneChange::Selection);
             }
             break;
         }
@@ -995,7 +997,7 @@ static void renderRow(const HierarchyRow& row,
             auto* cam = static_cast<ux3d::gltf::Camera*>(row.object);
             if (ImGui::IsItemClicked()) {
                 selection.selectCamera(cam);
-                isSceneDirty = true;
+                revisions.mark(SceneChange::Selection);
             }
             break;
         }
@@ -1003,7 +1005,7 @@ static void renderRow(const HierarchyRow& row,
             auto* light = static_cast<ux3d::gltf::Light*>(row.object);
             if (ImGui::IsItemClicked()) {
                 selection.selectLight(light);
-                isSceneDirty = true;
+                revisions.mark(SceneChange::Selection);
             }
             break;
         }
@@ -1501,7 +1503,7 @@ void SceneHierarchyPanel::render(ux3d::gltf::Gltf& gltfModel,
                                  ux3d::renderer::GltfRenderLayer* gltfLayer,
                                  ux3d::editor::CameraActor& cameraActor,
                                  AntiAliasing& antiAliasing,
-                                 bool& isSceneDirty,
+                                 SceneRevisions& revisions,
                                  bool* pOpen,
                                  std::vector<std::unique_ptr<ViewportInstance>>* viewports,
                                  ViewportInstance** activeViewport)
@@ -1650,7 +1652,7 @@ void SceneHierarchyPanel::render(ux3d::gltf::Gltf& gltfModel,
                     ImGui::Indent((row.depth - currentDepth) * indentSpacing);
                     currentDepth = row.depth;
                 }
-                renderRow(row, i, gltfModel, selection, gltfLayer, cameraActor, antiAliasing, isSceneDirty, activeViewport, isRowSelected(row));
+                renderRow(row, i, gltfModel, selection, gltfLayer, cameraActor, antiAliasing, revisions, activeViewport, isRowSelected(row));
             }
             if (currentDepth > 0) {
                 ImGui::Unindent(currentDepth * indentSpacing);
@@ -1686,7 +1688,7 @@ void SceneHierarchyPanel::render(ux3d::gltf::Gltf& gltfModel,
                         ImGui::Indent((row.depth - currentDepth) * indentSpacing);
                         currentDepth = row.depth;
                     }
-                    renderRow(row, static_cast<size_t>(i), gltfModel, selection, gltfLayer, cameraActor, antiAliasing, isSceneDirty, activeViewport, isRowSelected(row));
+                    renderRow(row, static_cast<size_t>(i), gltfModel, selection, gltfLayer, cameraActor, antiAliasing, revisions, activeViewport, isRowSelected(row));
                 }
                 if (currentDepth > 0) {
                     ImGui::Unindent(currentDepth * indentSpacing);

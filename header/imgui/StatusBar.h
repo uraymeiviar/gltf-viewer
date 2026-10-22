@@ -3,6 +3,7 @@
 #pragma once
 
 #include "gltf/Gltf.h"
+#include "imgui/SceneRevisions.h"
 #include "imgui/AnimationPlayer.h"
 #include "core/Logger.h"
 #include <imgui.h>
@@ -34,7 +35,7 @@ public:
     static void render(ux3d::gltf::Gltf& gltfModel,
                        ux3d::renderer::GltfRenderLayer* gltfLayer,
                        AnimationPlayer& animationPlayer,
-                       bool& isSceneDirty,
+                       SceneRevisions& revisions,
                        bool& showLogger,
                        bool& showValidation,
                        const LogSeverityCounts& logCounts,

@@ -456,7 +456,7 @@ SelfCheckResult ResourcesPanel::runCacheInvalidationSelfCheck(bool forceFailure)
 void ResourcesPanel::render(ux3d::gltf::Gltf& gltfModel,
                             SelectionState& selection,
                             ux3d::renderer::GltfRenderLayer* gltfLayer,
-                            bool* isSceneDirty,
+                            SceneRevisions* revisions,
                             bool* pOpen)
 {
     static const char* const WND_RESOURCES = ICON_MDI_FOLDER_MULTIPLE_OUTLINE " Resources";
@@ -610,7 +610,7 @@ void ResourcesPanel::render(ux3d::gltf::Gltf& gltfModel,
     auto& nodes = gltfModel.getElements<ux3d::gltf::Node>();
     renderCategory(ICON_MDI_SOURCE_BRANCH, "Nodes", "Node", nodes,
                    SelectionType::Node, selection.selectedNode,
-                   [&](auto& n) { selection.selectNode(&n); if (isSceneDirty) *isSceneDirty = true; },
+                   [&](auto& n) { selection.selectNode(&n); if (revisions) revisions->mark(SceneChange::Selection); },
                    [](auto& n) -> std::string { return n.hasName() ? n.getName().c_str() : ""; },
                    false, 2000000);
 
@@ -651,7 +651,7 @@ void ResourcesPanel::render(ux3d::gltf::Gltf& gltfModel,
             if (ImGui::IsItemClicked()) {
                 if (gltfLayer) {
                     gltfLayer->setMaterialVariant(std::nullopt);
-                    if (isSceneDirty) *isSceneDirty = true;
+                    if (revisions) revisions->mark(SceneChange::Material);
                 }
             }
 
@@ -671,7 +671,7 @@ void ResourcesPanel::render(ux3d::gltf::Gltf& gltfModel,
                     selection.selectVariant(&var);
                     if (gltfLayer) {
                         gltfLayer->setMaterialVariant(var.m_ID);
-                        if (isSceneDirty) *isSceneDirty = true;
+                        if (revisions) revisions->mark(SceneChange::Material);
                     }
                 }
             };

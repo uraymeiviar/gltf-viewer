@@ -3,6 +3,7 @@
 #pragma once
 
 #include "imgui/ResourcesPanel.h"
+#include "imgui/SceneRevisions.h"
 #include "imgui/SelfCheckResult.h"
 #include "imgui/AntiAliasing.h"
 #include "imgui/ViewportInstance.h"
@@ -26,7 +27,7 @@ public:
                        ux3d::renderer::GltfRenderLayer* gltfLayer,
                        ux3d::editor::CameraActor& cameraActor,
                        AntiAliasing& antiAliasing,
-                       bool& isSceneDirty,
+                       SceneRevisions& revisions,
                        bool* pOpen = nullptr,
                        std::vector<std::unique_ptr<ViewportInstance>>* viewports = nullptr,
                        ViewportInstance** activeViewport = nullptr);

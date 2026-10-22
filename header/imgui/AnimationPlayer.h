@@ -3,6 +3,7 @@
 #pragma once
 
 #include "gltf/Gltf.h"
+#include "imgui/SceneRevisions.h"
 #include "gltf/Animation.h"
 #include "gltf/animation/AnimationChannelTarget.h"
 #include "imgui/SelfCheckResult.h"
@@ -19,7 +20,7 @@ public:
     AnimationPlayer() = default;
 
     void update(float deltaTime, ux3d::renderer::GltfRenderLayer* gltfLayer);
-    void renderToolbar(ux3d::gltf::Gltf& gltfModel, ux3d::renderer::GltfRenderLayer* gltfLayer, bool& isSceneDirty);
+    void renderToolbar(ux3d::gltf::Gltf& gltfModel, ux3d::renderer::GltfRenderLayer* gltfLayer, SceneRevisions& revisions);
 
     void reset();
     void setModel(ux3d::gltf::Gltf& gltfModel, ux3d::renderer::GltfRenderLayer* gltfLayer = nullptr);

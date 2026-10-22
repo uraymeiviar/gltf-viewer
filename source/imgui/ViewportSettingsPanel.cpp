@@ -12,7 +12,7 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
                                    ux3d::renderer::CommandGenerator* commandGenerator,
                                    ux3d::renderer::GltfRenderLayer* gltfLayer,
                                    ux3d::editor::CameraActor& cameraActor,
-                                   bool& isSceneDirty,
+                                   SceneRevisions& revisions,
                                    ux3d::gltf::Gltf* gltfModel,
                                    bool isAttachedToCamera,
                                    const std::string& attachedCameraName,
@@ -40,7 +40,7 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
             if (ImGui::Checkbox("Show Background Skybox", &state.showBackground)) {
                 if (gltfLayer != nullptr) {
                     gltfLayer->enableCubeMap(state.showBackground);
-                    isSceneDirty = true;
+                    revisions.mark(SceneChange::RenderSettings);
                 }
             }
 
@@ -66,7 +66,7 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
                         if (commandGenerator != nullptr) {
                             commandGenerator->setIBLEnabled(true);
                         }
-                        isSceneDirty = true;
+                        revisions.mark(SceneChange::RenderSettings);
                     }
                 }
             }
@@ -114,7 +114,7 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
                     } else if (state.toneMappingIdx == 2) {
                         commandGenerator->setToneMapping(ux3d::renderer::ToneMappingsEnum::ACES_NARKOWICZ);
                     }
-                    isSceneDirty = true;
+                    revisions.mark(SceneChange::RenderSettings);
                 }
             }
 
@@ -132,7 +132,7 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
             if (ImGui::Checkbox("Image Based Lighting (IBL)", &state.iblEnabled)) {
                 if (commandGenerator != nullptr) {
                     commandGenerator->setIBLEnabled(state.iblEnabled);
-                    isSceneDirty = true;
+                    revisions.mark(SceneChange::RenderSettings);
                 }
             }
 
@@ -140,7 +140,7 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
             if (ImGui::Checkbox("Punctual / Analytical Lights", &state.punctualLightsEnabled)) {
                 if (commandGenerator != nullptr) {
                     commandGenerator->setPunctualLightsEnabled(state.punctualLightsEnabled);
-                    isSceneDirty = true;
+                    revisions.mark(SceneChange::RenderSettings);
                 }
             }
 
@@ -176,7 +176,7 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
             };
 
             if (ImGui::Combo("Debug Mode", &state.renderModeIdx, renderModes, 21)) {
-                isSceneDirty = true;
+                revisions.mark(SceneChange::ViewportSettings);
             }
 
             ImGui::TextDisabled("Allows inspecting individual PBR channels, geometry, or UVs.");
@@ -192,22 +192,22 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
                 "TAA (Temporal Anti-Aliasing)"
             };
             if (ImGui::Combo("Mode##AntiAliasing", &state.antiAliasingIdx, aaModes, 6)) {
-                isSceneDirty = true;
+                revisions.mark(SceneChange::ViewportSettings);
             }
             ImGui::TextDisabled("Hardware MSAA (crisp geometry) or post-processing FXAA / TAA (temporal subpixel smoothing).");
 
             ImGui::Separator();
             ImGui::Text("Face Culling & Winding:");
             if (ImGui::Checkbox("Force Double-Sided (Disable Backface Culling)", &state.forceDoubleSided)) {
-                isSceneDirty = true;
+                revisions.mark(SceneChange::ViewportSettings);
             }
             if (ImGui::Checkbox("Invert Winding Order (Flip Front / Back Faces)", &state.invertWinding)) {
-                isSceneDirty = true;
+                revisions.mark(SceneChange::ViewportSettings);
             }
             ImGui::Separator();
             ImGui::Text("Wireframe:");
             if (ImGui::Checkbox("Wireframe Overlay", &state.wireframeOverlay)) {
-                isSceneDirty = true;
+                revisions.mark(SceneChange::ViewportSettings);
             }
             ImGui::TextDisabled("Superimposes wireframe mesh edges on top of shaded materials.");
 
@@ -232,7 +232,7 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
                     if (ImGui::Selectable("Default / Original", isDef)) {
                         if (gltfLayer) {
                             gltfLayer->setMaterialVariant(std::nullopt);
-                            isSceneDirty = true;
+                            revisions.mark(SceneChange::Material);
                         }
                     }
                     for (const auto& v : variants) {
@@ -241,7 +241,7 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
                         if (ImGui::Selectable(vLabel.c_str(), isSel)) {
                             if (gltfLayer) {
                                 gltfLayer->setMaterialVariant(v.m_ID);
-                                isSceneDirty = true;
+                                revisions.mark(SceneChange::Material);
                             }
                         }
                     }
@@ -289,14 +289,14 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
                 bool isOrtho = (userCam->getType() == ux3d::renderer::Camera::Type::Orthographic);
                 if (ImGui::Checkbox("Orthographic Projection", &isOrtho)) {
                     cameraActor.changeUserCameraType(isOrtho ? ux3d::renderer::Camera::Type::Orthographic : ux3d::renderer::Camera::Type::Perspective);
-                    isSceneDirty = true;
+                    revisions.mark(SceneChange::ViewCamera);
                 }
 
                 if (!isOrtho) {
                     float fov = glm::degrees(userCam->getYFoV());
                     if (ImGui::SliderFloat("Field of View (FoV)", &fov, 15.0f, 120.0f, "%.1f deg")) {
                         userCam->setPerspective(userCam->getAspectRatio(), glm::radians(fov), userCam->getZNearPlane(), userCam->getZFarPlane());
-                        isSceneDirty = true;
+                        revisions.mark(SceneChange::ViewCamera);
                     }
                 }
 

@@ -349,7 +349,7 @@ static void renderImagePreview(const ux3d::gltf::Image* img, ux3d::renderer::Glt
 
 void ElementInspector::render(SelectionState& selection,
                               ux3d::gltf::Gltf& gltfModel,
-                              bool& isSceneDirty,
+                              SceneRevisions& revisions,
                               AnimationPlayer* animationPlayer,
                               ux3d::renderer::GltfRenderLayer* gltfLayer,
                               std::vector<std::unique_ptr<ViewportInstance>>* viewports,
@@ -374,7 +374,7 @@ void ElementInspector::render(SelectionState& selection,
         }
         if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf))) {
             node->setName(nameBuf);
-            isSceneDirty = true;
+            revisions.mark(SceneChange::Metadata);
         }
 
         ImGui::Separator();
@@ -387,7 +387,7 @@ void ElementInspector::render(SelectionState& selection,
             float trans[3] = { static_cast<float>(t.x), static_cast<float>(t.y), static_cast<float>(t.z) };
             if (ImGui::DragFloat3("Translation", trans, 0.05f)) {
                 node->setTranslation(ux3d::math::dvec3(trans[0], trans[1], trans[2]));
-                isSceneDirty = true;
+                revisions.mark(SceneChange::Transform);
             }
 
             // Rotation (Euler angles in degrees)
@@ -398,7 +398,7 @@ void ElementInspector::render(SelectionState& selection,
             if (ImGui::DragFloat3("Rotation (deg)", rot, 0.5f)) {
                 glm::quat newQ = glm::quat(glm::radians(glm::vec3(rot[0], rot[1], rot[2])));
                 node->setRotation(ux3d::math::dquat(newQ.w, newQ.x, newQ.y, newQ.z));
-                isSceneDirty = true;
+                revisions.mark(SceneChange::Transform);
             }
 
             // Scale
@@ -406,7 +406,7 @@ void ElementInspector::render(SelectionState& selection,
             float scale[3] = { static_cast<float>(s.x), static_cast<float>(s.y), static_cast<float>(s.z) };
             if (ImGui::DragFloat3("Scale", scale, 0.02f, 0.001f, 100.0f)) {
                 node->setScale(ux3d::math::dvec3(scale[0], scale[1], scale[2]));
-                isSceneDirty = true;
+                revisions.mark(SceneChange::Transform);
             }
             ImGui::PopFont();
 
@@ -414,7 +414,7 @@ void ElementInspector::render(SelectionState& selection,
                 node->setTranslation(ux3d::math::dvec3(0.0));
                 node->setRotation(ux3d::math::dquat(1.0, 0.0, 0.0, 0.0));
                 node->setScale(ux3d::math::dvec3(1.0));
-                isSceneDirty = true;
+                revisions.mark(SceneChange::Transform);
             }
         }
 
@@ -494,7 +494,7 @@ void ElementInspector::render(SelectionState& selection,
         if (!selection.selectedNode->getUnknownExtensions().empty()) {
             std::string nodeExtHeader = "Node Extensions (MSFS) (" + std::to_string(selection.selectedNode->getUnknownExtensions().size()) + ")";
             if (ImGui::CollapsingHeader(nodeExtHeader.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
-                ExtensionInspector::instance().renderExtensions(selection.selectedNode, gltfModel, isSceneDirty);
+                ExtensionInspector::instance().renderExtensions(selection.selectedNode, gltfModel, revisions);
             }
         }
     }
@@ -510,7 +510,7 @@ void ElementInspector::render(SelectionState& selection,
             ImGui::Separator();
         }
 
-        MaterialInspector::render(selection.selectedMaterial, gltfModel, isSceneDirty);
+        MaterialInspector::render(selection.selectedMaterial, gltfModel, revisions);
     }
 
     // -----------------------------------------------------------------
@@ -534,7 +534,7 @@ void ElementInspector::render(SelectionState& selection,
         if (!mesh->getUnknownExtensions().empty()) {
             std::string meshExtHeader = "Mesh Extensions (MSFS) (" + std::to_string(mesh->getUnknownExtensions().size()) + ")";
             if (ImGui::CollapsingHeader(meshExtHeader.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
-                ExtensionInspector::instance().renderExtensions(mesh, gltfModel, isSceneDirty);
+                ExtensionInspector::instance().renderExtensions(mesh, gltfModel, revisions);
             }
         }
 
@@ -616,7 +616,7 @@ void ElementInspector::render(SelectionState& selection,
                         std::string mLabel = m.hasName() ? m.getName().c_str() : ("Material " + std::to_string(m.m_ID));
                         if (ImGui::Selectable(mLabel.c_str(), isSel)) {
                             prim.setMaterial(m);
-                            isSceneDirty = true;
+                            revisions.mark(SceneChange::Material);
                         }
                     }
                     ImGui::EndCombo();
@@ -652,7 +652,7 @@ void ElementInspector::render(SelectionState& selection,
                 // Primitive Vendor Extensions (e.g. ASOBO_material_geometry_decal)
                 if (!prim.getUnknownExtensions().empty()) {
                     if (ImGui::TreeNode("Primitive Extensions (MSFS)")) {
-                        ExtensionInspector::instance().renderExtensions(&prim, gltfModel, isSceneDirty);
+                        ExtensionInspector::instance().renderExtensions(&prim, gltfModel, revisions);
                         ImGui::TreePop();
                     }
                 }
@@ -675,7 +675,7 @@ void ElementInspector::render(SelectionState& selection,
         int typeIdx = isPerspective ? 0 : 1;
         if (ImGui::Combo("Type", &typeIdx, camTypes, 2)) {
             cam->setType(typeIdx == 0 ? ux3d::gltf::Camera::ProjectionType::Perspective : ux3d::gltf::Camera::ProjectionType::Orthographic);
-            isSceneDirty = true;
+            revisions.mark(SceneChange::SceneCamera);
         }
 
         if (isPerspective && cam->getCameraPerspective().has_value()) {
@@ -684,17 +684,17 @@ void ElementInspector::render(SelectionState& selection,
             float fov = static_cast<float>(glm::degrees(p.getYFov()));
             if (ImGui::SliderFloat("Vertical FoV (deg)", &fov, 10.0f, 120.0f, "%.1f")) {
                 p.setYFov(glm::radians(fov));
-                isSceneDirty = true;
+                revisions.mark(SceneChange::SceneCamera);
             }
             float znear = static_cast<float>(p.getZNear());
             if (ImGui::DragFloat("Near Plane", &znear, 0.01f, 0.001f, 100.0f)) {
                 p.setZNear(znear);
-                isSceneDirty = true;
+                revisions.mark(SceneChange::SceneCamera);
             }
             float zfar = p.getZFar().has_value() ? static_cast<float>(p.getZFar().value()) : 1000.0f;
             if (ImGui::DragFloat("Far Plane", &zfar, 1.0f, 1.0f, 10000.0f)) {
                 p.setZFar(zfar);
-                isSceneDirty = true;
+                revisions.mark(SceneChange::SceneCamera);
             }
             ImGui::PopFont();
         }
@@ -712,7 +712,7 @@ void ElementInspector::render(SelectionState& selection,
         float color[3] = { static_cast<float>(c.r), static_cast<float>(c.g), static_cast<float>(c.b) };
         if (ImGui::ColorEdit3("Color", color)) {
             light->setColor(ux3d::math::dvec3(color[0], color[1], color[2]));
-            isSceneDirty = true;
+            revisions.mark(SceneChange::Light);
         }
 
         ImGui::PushFont(getMonoFont());
@@ -720,14 +720,14 @@ void ElementInspector::render(SelectionState& selection,
         float intensity = static_cast<float>(light->getIntensityOrDefault());
         if (ImGui::DragFloat("Intensity", &intensity, 0.5f, 0.0f, 100000.0f, "%.1f")) {
             light->setIntensity(intensity);
-            isSceneDirty = true;
+            revisions.mark(SceneChange::Light);
         }
 
         // Range
         float range = static_cast<float>(light->getRangeOrDefault());
         if (ImGui::DragFloat("Range", &range, 0.1f, 0.0f, 1000.0f, "%.1f")) {
             light->setRange(range);
-            isSceneDirty = true;
+            revisions.mark(SceneChange::Light);
         }
         ImGui::PopFont();
     }
@@ -1028,7 +1028,7 @@ void ElementInspector::render(SelectionState& selection,
                     // Channel Vendor Extensions (e.g. ASOBO_property_animation)
                     if (!ch.getUnknownExtensions().empty()) {
                         if (ImGui::TreeNode("Channel Extensions (MSFS)")) {
-                            ExtensionInspector::instance().renderExtensions(&ch, gltfModel, isSceneDirty);
+                            ExtensionInspector::instance().renderExtensions(&ch, gltfModel, revisions);
                             ImGui::TreePop();
                         }
                     }
@@ -1074,7 +1074,7 @@ void ElementInspector::render(SelectionState& selection,
         if (!anim->getUnknownExtensions().empty()) {
             std::string animExtHeader = "Animation Extensions (MSFS) (" + std::to_string(anim->getUnknownExtensions().size()) + ")";
             if (ImGui::CollapsingHeader(animExtHeader.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
-                ExtensionInspector::instance().renderExtensions(anim, gltfModel, isSceneDirty);
+                ExtensionInspector::instance().renderExtensions(anim, gltfModel, revisions);
             }
         }
     }
@@ -1178,16 +1178,16 @@ void ElementInspector::render(SelectionState& selection,
                 commandGenerator,
                 gltfLayer,
                 vp->cameraActor,
-                isSceneDirty,
+                revisions,
                 &gltfModel,
                 vp->isAttachedToCamera,
                 vp->attachedCameraNodeName,
-                [vp, &isSceneDirty]() {
+                [vp, &revisions]() {
                     vp->isAttachedToCamera = false;
                     vp->attachedCameraNode = nullptr;
                     vp->attachedCameraNodeId = 0;
                     vp->attachedCameraNodeName = "";
-                    isSceneDirty = true;
+                    revisions.mark(SceneChange::ViewCamera);
                 }
             );
         } else {

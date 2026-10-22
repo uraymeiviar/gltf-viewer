@@ -3,6 +3,7 @@
 #pragma once
 
 #include "gltf/Gltf.h"
+#include "imgui/SceneRevisions.h"
 #include "imgui/ResourcesPanel.h"
 #include "imgui/ViewportInstance.h"
 #include <vector>
@@ -21,7 +22,7 @@ class ElementInspector {
 public:
     static void render(SelectionState& selection,
                        ux3d::gltf::Gltf& gltfModel,
-                       bool& isSceneDirty,
+                       SceneRevisions& revisions,
                        AnimationPlayer* animationPlayer = nullptr,
                        ux3d::renderer::GltfRenderLayer* gltfLayer = nullptr,
                        std::vector<std::unique_ptr<ViewportInstance>>* viewports = nullptr,

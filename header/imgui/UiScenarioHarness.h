@@ -57,6 +57,9 @@ struct UiScenarioFrame {
     int logWarnings = 0;
     int logInfo = 0;
     uint64_t hierarchyBuildCount = 0;
+    // P4.1 revision contract: pre-rendered JSON object with per-kind revisions,
+    // full-sync count and the kinds consumed at the most recent sync point.
+    std::string revisionsJson = "{}";
     std::vector<ViewportInfo> viewports;
     std::function<std::string()> expectedCopyText;
     std::function<void(const std::string&, int)> appendLog;
@@ -68,6 +71,7 @@ struct UiScenarioFrame {
     std::function<bool(uint32_t)> toggleViewport;
     std::function<bool(uint32_t)> focusViewport;
     std::function<bool(uint32_t, const std::string&, bool)> setViewportSetting;
+    std::function<bool(bool)> setAnimationPlaying;
 };
 
 // Drives real ImGui frames from a text script (--ui-script) by queueing mouse,
@@ -551,6 +555,13 @@ private:
                 if (!frame.setViewportSetting || !frame.setViewportSetting(vpId, key, val)) fail("vpsetting failed: " + line);
                 m_waitFrames = 4;
             }
+        } else if (cmd == "animplay") {
+            // animplay on|off: starts or pauses playback the way the toolbar Play button does.
+            if (need(2)) {
+                const bool play = (args[1] == "on" || args[1] == "1" || args[1] == "true");
+                if (!frame.setAnimationPlaying || !frame.setAnimationPlaying(play)) fail("animplay failed: " + line);
+                m_waitFrames = 4;
+            }
         } else if (cmd == "snap") {
             if (need(2)) snap(args, window, frame);
         } else {
@@ -641,6 +652,7 @@ private:
             << ",\"selection\":\"" << escape(frame.selection) << "\""
             << ",\"camera\":\"" << escape(frame.camera) << "\""
             << ",\"hierarchyBuildCount\":" << frame.hierarchyBuildCount
+            << ",\"revisions\":" << frame.revisionsJson
             << ",\"logger\":{\"entries\":" << frame.logEntries << ",\"errors\":" << frame.logErrors
             << ",\"warnings\":" << frame.logWarnings << ",\"info\":" << frame.logInfo << "}";
 

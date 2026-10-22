@@ -3,6 +3,7 @@
 #pragma once
 
 #include "gltf/Gltf.h"
+#include "imgui/SceneRevisions.h"
 #include "gltf/Node.h"
 #include "gltf/Material.h"
 #include "gltf/Mesh.h"
@@ -169,7 +170,7 @@ public:
     static void render(ux3d::gltf::Gltf& gltfModel,
                        SelectionState& selection,
                        ux3d::renderer::GltfRenderLayer* gltfLayer = nullptr,
-                       bool* isSceneDirty = nullptr,
+                       SceneRevisions* revisions = nullptr,
                        bool* pOpen = nullptr);
     static void resetSearch();
     static void setSearchFilter(const std::string& filter);

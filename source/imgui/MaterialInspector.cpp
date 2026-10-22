@@ -119,7 +119,7 @@ bool MaterialInspector::renderTextureSlot(const char* label,
     return modified;
 }
 
-bool MaterialInspector::render(ux3d::gltf::Material* material, ux3d::gltf::Gltf& gltfModel, bool& isSceneDirty)
+bool MaterialInspector::render(ux3d::gltf::Material* material, ux3d::gltf::Gltf& gltfModel, SceneRevisions& revisions)
 {
     if (material == nullptr) {
         ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "No material selected.");
@@ -330,7 +330,7 @@ bool MaterialInspector::render(ux3d::gltf::Material* material, ux3d::gltf::Gltf&
     std::string vendorHeader = "MSFS & Vendor Extensions (" + std::to_string(material->getUnknownExtensions().size()) + ")";
     if (ImGui::CollapsingHeader(vendorHeader.c_str(), hasVendorExts ? ImGuiTreeNodeFlags_DefaultOpen : 0)) {
         if (hasVendorExts) {
-            if (ExtensionInspector::instance().renderExtensions(material, gltfModel, isSceneDirty)) {
+            if (ExtensionInspector::instance().renderExtensions(material, gltfModel, revisions)) {
                 modified = true;
             }
             ImGui::Separator();
@@ -356,7 +356,7 @@ bool MaterialInspector::render(ux3d::gltf::Material* material, ux3d::gltf::Gltf&
                     if (ImGui::MenuItem(label.c_str())) {
                         material->setUnknownExtension(name, "{}");
                         modified = true;
-                        isSceneDirty = true;
+                        revisions.mark(SceneChange::Material);
                     }
                     if (alreadyHas) {
                         ImGui::EndDisabled();
@@ -536,7 +536,7 @@ bool MaterialInspector::render(ux3d::gltf::Material* material, ux3d::gltf::Gltf&
     }
 
     if (modified) {
-        isSceneDirty = true;
+        revisions.mark(SceneChange::Material);
     }
 
     return modified;

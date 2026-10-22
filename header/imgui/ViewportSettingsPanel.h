@@ -3,6 +3,7 @@
 #pragma once
 
 #include "renderer/CommandGenerator.h"
+#include "imgui/SceneRevisions.h"
 #include "renderer/gltf/GltfRenderLayer.h"
 #include "renderer/editor/EditorRenderLayer.h"
 #include <functional>
@@ -50,7 +51,7 @@ public:
                        ux3d::renderer::CommandGenerator* commandGenerator,
                        ux3d::renderer::GltfRenderLayer* gltfLayer,
                        ux3d::editor::CameraActor& cameraActor,
-                       bool& isSceneDirty,
+                       SceneRevisions& revisions,
                        ux3d::gltf::Gltf* gltfModel = nullptr,
                        bool isAttachedToCamera = false,
                        const std::string& attachedCameraName = "",
