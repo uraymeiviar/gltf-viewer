@@ -55,6 +55,7 @@
 #include "imgui/PolygonModeTest.h"
 #include "imgui/CullWindingTest.h"
 #include "imgui/DepthTest.h"
+#include "imgui/BlendTest.h"
 #include "imgui/BoundingBoxRenderer.h"
 #include "imgui/Theme.h"
 #include "imgui/IconsMaterialDesignIcons.h"
@@ -2232,6 +2233,8 @@ int main(int argc, char** argv)
     std::string cullWindingSelfCheckCase = "all";
     std::string depthSelfCheckOutputPath;
     std::string depthSelfCheckCase = "all";
+    std::string blendSelfCheckOutputPath;
+    std::string blendSelfCheckCase = "all";
     bool selfCheckForceFailure = false;
     std::string scenarioReportPath;
     std::string scenarioName = "default";
@@ -2442,6 +2445,10 @@ int main(int argc, char** argv)
             depthSelfCheckOutputPath = argv[++i];
         } else if (arg == "--depth-selfcheck-case" && i + 1 < argc) {
             depthSelfCheckCase = argv[++i];
+        } else if (arg == "--blend-selfcheck" && i + 1 < argc) {
+            blendSelfCheckOutputPath = argv[++i];
+        } else if (arg == "--blend-selfcheck-case" && i + 1 < argc) {
+            blendSelfCheckCase = argv[++i];
         } else if (arg == "--force-double-sided") {
             activeViewport->settings.forceDoubleSided = true;
         } else if (arg == "--invert-winding") {
@@ -2661,6 +2668,21 @@ int main(int argc, char** argv)
                                            glRenderer.get(), commandGenerator.get(), reloadAndDraw),
             depthSelfCheckOutputPath,
             "depth test and depth func cache");
+    }
+
+    if (!blendSelfCheckOutputPath.empty()) {
+        auto reloadAndDraw = [&](const std::string& path) -> bool {
+            bool ok = loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, isSceneDirty);
+            if (!ok || activeScene == nullptr) return false;
+            auto [scene, reverseMapping] = gltfLayer->createScene(activeScene);
+            commandGenerator->update(scene);
+            return glRenderer->draw({ commandGenerator.get() });
+        };
+        return writeSelfCheckReport(
+            ux3d::imgui::runBlendSelfCheck(gladGL.get(), selfCheckForceFailure, blendSelfCheckCase,
+                                           glRenderer.get(), commandGenerator.get(), reloadAndDraw),
+            blendSelfCheckOutputPath,
+            "blending state cache");
     }
 
     if (!s_isolatedState) {
@@ -3798,6 +3820,8 @@ int main(int argc, char** argv)
                 const auto drawSubmissionStart = ux3d::imgui::profiling::Clock::now();
                 glRenderer->setGpuFrameContext(frameNumber, vp->id, "main");
                 glRenderer->draw({ commandGenerator.get() });
+                vp->lastExecutedPasses = glRenderer->getLastExecutedPasses();
+                ++vp->renderCount;
                 markStage("draw.submit", drawSubmissionStart);
                 glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
@@ -3821,6 +3845,8 @@ int main(int argc, char** argv)
                     commandGenerator->update(wireScene);
                     glRenderer->setGpuFrameContext(frameNumber, vp->id, "wireframe");
                     glRenderer->draw({ commandGenerator.get() });
+                vp->lastExecutedPasses = glRenderer->getLastExecutedPasses();
+                ++vp->renderCount;
                     glDisable(GL_POLYGON_OFFSET_LINE);
                     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
                     markStage("scene.wireframeOverlay", wireframeStart);
@@ -4549,6 +4575,13 @@ int main(int argc, char** argv)
                 vinfo.lastTaaHistoryValid = vp->antiAliasing.getLastTaaHistoryValid();
                 vinfo.lastTaaBlendFactor = vp->antiAliasing.getLastTaaBlendFactor();
                 vinfo.lastTaaTargetGeneration = vp->antiAliasing.getLastTaaTargetGeneration();
+                vinfo.wireframe = vp->settings.wireframeOverlay;
+                vinfo.showGrid = vp->settings.showGrid;
+                vinfo.showSceneBoundingBox = vp->settings.showSceneBoundingBox;
+                vinfo.forceDoubleSided = vp->settings.forceDoubleSided;
+                vinfo.invertWinding = vp->settings.invertWinding;
+                vinfo.activePasses = vp->lastExecutedPasses;
+                vinfo.renderCount = vp->renderCount;
                 uiFrame.viewports.push_back(vinfo);
             }
             uiFrame.setAaMode = [&](const std::string& modeStr, uint32_t vpId) {
@@ -4570,7 +4603,6 @@ int main(int argc, char** argv)
                 else if (m == "fxaa" || m == "4") targetVp->settings.antiAliasingIdx = 4;
                 else if (m == "taa" || m == "5") targetVp->settings.antiAliasingIdx = 5;
                 else return false;
-                isSceneDirty = true;
                 return true;
             };
             uiFrame.createViewport = [&]() {
@@ -4590,19 +4622,43 @@ int main(int argc, char** argv)
                 activeViewport = newVp.get();
                 selection.selectViewport(newVp->id);
                 viewports.push_back(std::move(newVp));
-                isSceneDirty = true;
                 return true;
+            };
+            uiFrame.focusViewport = [&](uint32_t id) {
+                for (const auto& vp : viewports) {
+                    if (vp && vp->id == id && vp->isOpen) { vp->requestFocus = true; return true; }
+                }
+                return false;
             };
             uiFrame.toggleViewport = [&](uint32_t vpId) {
                 for (const auto& vp : viewports) {
                     if (vp && vp->id == vpId) {
                         vp->isOpen = !vp->isOpen;
                         if (vp->isOpen) vp->requestFocus = true;
-                        isSceneDirty = true;
                         return true;
                     }
                 }
                 return false;
+            };
+            uiFrame.setViewportSetting = [&](uint32_t vpId, const std::string& key, bool val) {
+                ux3d::imgui::ViewportInstance* targetVp = activeViewport;
+                if (vpId != 0) {
+                    for (const auto& vp : viewports) {
+                        if (vp && vp->id == vpId) {
+                            targetVp = vp.get();
+                            break;
+                        }
+                    }
+                }
+                if (!targetVp) return false;
+                std::string k = toLowerAscii(key);
+                if (k == "wireframe" || k == "wireframeoverlay") targetVp->settings.wireframeOverlay = val;
+                else if (k == "grid" || k == "showgrid") targetVp->settings.showGrid = val;
+                else if (k == "bbox" || k == "boundingbox" || k == "showsceneboundingbox") targetVp->settings.showSceneBoundingBox = val;
+                else if (k == "doublesided" || k == "forcedoublesided") targetVp->settings.forceDoubleSided = val;
+                else if (k == "invertwinding") targetVp->settings.invertWinding = val;
+                else return false;
+                return true;
             };
             uiScenario.endFrame(window, uiFrame);
             if (uiScenario.failed()) {
@@ -4616,6 +4672,7 @@ int main(int argc, char** argv)
     // Cleanup
     ux3d::imgui::ElementInspector::clearPreviewCache();
     gridRenderer.cleanup();
+    bboxRenderer.cleanup();
     viewports.clear();
     if (glRenderer != nullptr) {
         glRenderer->uninit();
@@ -4624,6 +4681,9 @@ int main(int argc, char** argv)
     if (commandGenerator != nullptr) {
         commandGenerator->clearVertexLayoutCache();
         commandGenerator.reset();
+    }
+    if (gltfLayer != nullptr) {
+        gltfLayer.reset();
     }
 
     ImGui_ImplOpenGL3_Shutdown();

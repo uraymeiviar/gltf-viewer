@@ -93,14 +93,19 @@ bool ux3d::renderer::Renderer::setViewportAndClear(int width, int height)
 
 bool ux3d::renderer::Renderer::onDrawScenes(const core::Vector<CommandGenerator*>& scenes)
 {
+    m_lastExecutedPasses.clear();
     for (auto& scene : scenes) {
         uint32_t passIndex = 0;
         for (Pass& passType : scene->getPassCommands()) {
             for (auto& [pass, commands] : passType) {
+                if (!pass) continue;
                 const std::string passName = pass->getName().empty()
                     ? ("pass" + std::to_string(passIndex))
                     : pass->getName();
                 m_gpuProfiler.beginPass(passName);
+                if (!commands.empty()) {
+                    m_lastExecutedPasses.push_back(passName);
+                }
 
                 for (const auto& cmd : pass->getPreCommands()) {
                     m_commandExecutor.execute(cmd);

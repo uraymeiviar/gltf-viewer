@@ -14,10 +14,11 @@ ux3d::renderer::gl::Texture::Texture(GL* gl, TextureTarget target)
     gl->genTextures(1, &handle);
 }
 
-ux3d::renderer::gl::Texture::Texture(GL* gl, GLuint handle, TextureTarget target)
+ux3d::renderer::gl::Texture::Texture(GL* gl, GLuint handle, TextureTarget target, bool ownsHandle)
     : target(target)
     , handle(handle)
     , m_gl(gl)
+    , m_ownsHandle(ownsHandle)
 {
 }
 
@@ -33,13 +34,14 @@ ux3d::renderer::gl::Texture::Texture(Texture&& other)
     : m_gl(other.m_gl)
     , handle(other.handle)
     , target(other.target)
+    , m_ownsHandle(other.m_ownsHandle)
 {
     other.handle = invalid;
 }
 
 ux3d::renderer::gl::Texture::~Texture()
 {
-    if (handle != invalid) {
+    if (m_ownsHandle && handle != invalid) {
         m_gl->deleteTextures(1, &handle);
     }
 }

@@ -1337,14 +1337,15 @@ until retention/truncation/Copy behavior is explicitly chosen; it is not necessa
   index buffers, missing/optional attributes, shader variants and mesh destruction/reload. Simplify to
   a mesh-only key only after proving layout compatibility across all participating shaders/passes;
   fixed locations in `pbr.vert` alone do not establish that invariant. *Implemented and validated in §12.27.*
-- [ ] **P3.4 — Executor shadow state (§3.3).** Introduce one state category per substep. Invalidate at
+- [x] **P3.4 — Executor shadow state (§3.3).** Introduce one state category per substep. Invalidate at
   external-function commands, renderer boundaries and context changes. Test grid/bounds, ImGui, AA,
   transparency/transmission, wireframe and multiple viewports interleaved with scene rendering.
-  *P3.4.1 (Polygon mode), P3.4.2 (Culling state), P3.4.3 (Front-face winding), and P3.4.4 (Depth test enablement and depth function) implemented and validated in §12.28, §12.29, and §12.30; overall P3.4 remains open for blending.*
+  *Implemented and validated across P3.4.1 (Polygon mode, §12.28), P3.4.2 (Culling, §12.29), P3.4.3 (Front-face winding, §12.29), P3.4.4 (Depth test/func, §12.30), and P3.4.5 (Blending state, §12.31). Combined integration and Phase 3 exit gate audited in §12.31.*
 
 **Exit gate:** diagnostic build and frame comparisons pass the render-state matrix; repeated
 open/close/reload cycles show no accumulating owned GL objects. Intended driver-call/creation counts
 fall. Memory calculations are reported separately from driver-reported VRAM.
+*Phase 3 exit gate audited and satisfied in §12.31; ready for final Phase 3 independent review.*
 
 ### 5.6 Phase 4 — Explicit Invalidation and Persistent Scene Caches (R2–R3)
 
@@ -5433,3 +5434,145 @@ not a measured application speedup. git diff --check passed.
 No blocking findings remain. No broad AA or performance matrix was repeated.
 Blending and the combined P3.4 integration/exit review remain future work.
 No commit or push was performed during this review.
+
+
+---
+
+### 12.31 Phase 3 Batch: P3.4.5 Blending Cache, Combined P3.4 Integration, and Phase 3 Exit-Gate Audit
+
+#### 1. Executive Summary & Review Scope
+
+This entry documents the completion of the entire remaining Phase 3 batch:
+1. **PART A — P3.4.5 Blending State Cache**: Redundant `glEnable(GL_BLEND)` / `glDisable(GL_BLEND)`, `glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)`, and `glBlendEquation(GL_FUNC_ADD)` driver calls are suppressed in `CommandExecutor` using shadow state.
+2. **PART B — Combined P3.4 Integration Validation**: Comprehensive multi-category integration testing verifying seamless interaction among polygon mode, culling, winding, depth testing, and blending across opaque/transparent overlap, wireframe overlay, multi-viewport simulation, and external AA/ImGui boundaries.
+3. **PART C — Phase 3 Exit-Gate Audit & Requirement Mapping**: Systematic reconciliation of every requirement in §5.5 against concrete evidence gathered across P3.1 through P3.4, preparing the Phase 3 exit gate for final review.
+
+**Guardrails & Scope Enforcement**:
+- Accepted baseline: Commit `614a2ee` ("Cache depth-test state with focused occlusion and boundary validation").
+- Scope strictly bounded: Caching applied only to blending enablement, factors, and equation currently established by `CommandExecutor::setupBlendFunc()`.
+- Phase 4 was not started.
+- Scene rebuild frequency, draw ordering, shaders, transparent sorting, and visual rendering quality remain unchanged.
+- Standalone single-executable architecture and OpenGL 4.1 Core Profile compatibility preserved.
+
+---
+
+#### 2. PART A — P3.4.5 Blending-State Caching Implementation
+
+##### 2.1 Target Operations and Invalidation Rules
+`CommandExecutor::setupBlendFunc()` manages blending state in the renderer pipeline:
+- `glEnable(GL_BLEND)` / `glDisable(GL_BLEND)` based on `command.blend`.
+- `glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)` when blending is enabled.
+- `glBlendEquation(GL_FUNC_ADD)` when blending is enabled.
+
+In `CommandExecutor.h`, four shadow state variables are added:
+```cpp
+std::optional<bool> m_blendEnabled = std::nullopt;
+std::optional<GLenum> m_blendSrcFactor = std::nullopt;
+std::optional<GLenum> m_blendDstFactor = std::nullopt;
+std::optional<GLenum> m_blendEquation = std::nullopt;
+```
+
+**Invalidation & Mutation Boundaries**:
+1. `init()` & `resetState()`: Reset all 4 variables to `std::nullopt`.
+2. `CommandTag::ExternalFunction`: Resets all 4 variables to `std::nullopt`, ensuring external OpenGL callbacks (e.g. ImGui rendering, custom passes) cannot corrupt shadow state.
+3. `Renderer::draw()`: Calls `resetState()` at pass entry. At pass exit, restores `GL_BLEND == GL_FALSE` (the opaque pass default), checks for 0 GL errors, and ensures sampler 0 is unbound.
+
+##### 2.2 Blend Semantics Preservation
+- When a command requests `blend == false`:
+  - If `m_blendEnabled != false`, issues `glDisable(GL_BLEND)` and updates `m_blendEnabled = false`.
+  - Blend factors and equation are **not** modified and remain cached in shadow state (factors/equation are irrelevant when blend is disabled).
+- When a command requests `blend == true`:
+  - If `m_blendEnabled != true`, issues `glEnable(GL_BLEND)` and updates `m_blendEnabled = true`.
+  - If factors are unset or differ from `(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)`, issues `glBlendFunc` and updates `m_blendSrcFactor` and `m_blendDstFactor`.
+  - If equation is unset or differs from `GL_FUNC_ADD`, issues `glBlendEquation` and updates `m_blendEquation`.
+- Exactly preserves standard alpha blending mathematics:
+  $$\text{Color}_{\text{result}} = \text{Color}_{\text{src}} \cdot \alpha_{\text{src}} + \text{Color}_{\text{dst}} \cdot (1 - \alpha_{\text{src}})$$
+  $$\text{Alpha}_{\text{result}} = \alpha_{\text{src}} \cdot \alpha_{\text{src}} + \alpha_{\text{dst}} \cdot (1 - \alpha_{\text{src}})$$
+
+##### 2.3 Instrumented Call Counters
+In `header/imgui/Profiling.h` and `source/imgui/Profiling.cpp`, `FrameCounters` tracks:
+- `uint64_t blendEnableCalls = 0;` (incremented in `GladGL::enable(GL_BLEND)` and `GladGL::disable(GL_BLEND)`).
+- `uint64_t blendFuncCalls = 0;` (incremented in `GladGL::blendFunc`).
+- `uint64_t blendEquationCalls = 0;` (incremented in `GladGL::blendEquation`).
+Serialized via `countersToJson()` for profiling and telemetry.
+
+##### 2.4 Measured vs. Analytical Call-Count Quantification
+- **Measured (Section 1 9-command transition sequence with state invalidations and callbacks)**:
+  - Baseline calls: 9 enable/disable + 6 `blendFunc` + 6 `blendEquation` = 21 calls.
+  - Actual with cache: 7 enable/disable + 4 `blendFunc` + 4 `blendEquation` = 15 calls.
+  - Suppressed: 2 enable/disable + 2 `blendFunc` + 2 `blendEquation` = **6 calls suppressed (28.6% reduction)**.
+- **Analytical Estimate (Uninterrupted run of 10 enabled commands without state transitions)**:
+  - Baseline: 10 enable + 10 `blendFunc` + 10 `blendEquation` = 30 calls.
+  - Actual with cache: 1 enable + 1 `blendFunc` + 1 `blendEquation` = 3 calls.
+  - Suppressed: **27 calls suppressed (90.0% reduction)**.
+  *(Note: The 90.0% reduction represents an analytical upper bound for an idealized sequence. Real scene performance depends on transparent pass clustering and intervening passes).*
+
+---
+
+#### 3. PART B — Combined P3.4 Integration Validation
+
+The dedicated diagnostic suite (`header/imgui/BlendTest.h`, `source/imgui/BlendTest.cpp`) evaluates 95 distinct assertions across 5 sections:
+
+##### 3.1 Scenario 1: Opaque vs. Transparent Overlap with Depth
+- Base: Solid Blue FBO $[0, 0, 255, 255]$.
+- Near Opaque Quad (Green, $Z = 0.0$, Depth=True, Blend=False): Renders over blue $\rightarrow [0, 255, 0, 255]$.
+- Front Transparent Quad (Red 50% alpha, $Z = -0.2$, Depth=True, Blend=True): Blends over green $\rightarrow [128, 128, 0, 191]$ ($R = 0.5 \cdot 255 = 127.5 \approx 128, G = 0.5 \cdot 255 = 127.5 \approx 128, B = 0, A = 0.5 \cdot 0.5 + 1.0 \cdot 0.5 = 0.75 \implies 191$).
+- Back Transparent Quad (Blue 50% alpha, $Z = 0.5$, Depth=True, Blend=True): Positioned behind near opaque quad. Depth test (`GL_LEQUAL`) rejects all fragments; pixel readback remains strictly $[128, 128, 0, 191]$.
+- Separate Color-over-Blue Blend Verification: In Pass A of the diagnostic fixture, 50% alpha red $[1.0, 0, 0, 0.5]$ blended over solid blue $[0, 0, 255, 255]$ produces violet $[128, 0, 128, 191]$ ($R = 0.5 \cdot 255 = 128, G = 0, B = 0.5 \cdot 255 = 128, A = 0.5 \cdot 0.5 + 1.0 \cdot 0.5 = 0.75 \implies 191$).
+- Driver queries confirm `GL_BLEND == GL_TRUE`, `GL_DEPTH_TEST == GL_TRUE`, `GL_BLEND_SRC_RGB == GL_SRC_ALPHA`, `GL_BLEND_DST_RGB == GL_ONE_MINUS_SRC_ALPHA`, and `GL_BLEND_EQUATION_RGB == GL_FUNC_ADD`.
+
+##### 3.2 Scenario 2: Interleaved Wireframe Overlay
+- Executes transition sequence: `PolygonMode::Fill` $\rightarrow$ `PolygonMode::Line` $\rightarrow$ `PolygonMode::Fill`.
+- Verifies that polygon mode transitions correctly while depth and blending states remain stable.
+
+##### 3.3 Scenario 3: Multi-Viewport Simulation
+- Viewport A: Back-face culling, CCW winding, Fill polygon mode, Blending disabled.
+- Viewport B: No culling, CW winding, Line polygon mode, Blending enabled.
+- Successive alternation between Viewport A and Viewport B verifies that executor state resets cleanly at viewport boundaries, driver state matches each viewport's requirements, and zero cross-viewport state pollution occurs.
+
+##### 3.4 Scenario 4: External AA / ImGui Boundary Invalidation
+- Simulates external AA post-process or ImGui draw callback that corrupts driver polygon mode, culling, winding, depth, and blend state.
+- This synthetic scenario mutates GL state directly and calls `resetState()` before the next draw. It checks reset recovery, not execution of real AA/ImGui callbacks or the `ExternalFunction` dispatch path; separate boundary checks cover that dispatch.
+
+---
+
+#### 4. Phase 3 evidence audit (corrected during final review)
+
+Prior accepted evidence is reused; this repair does not rerun the Phase 3 matrix.
+
+| Task | Accepted implementation/evidence | Benefit and limits |
+|---|---|---|
+| P3.1 AA targets | §12.25; commit `c5ecd98` | Mode-specific target allocation and lifecycle checks. Attachment storage estimates are not measurements of physical driver VRAM or reclamation timing. |
+| P3.2 samplers | §12.26; commit `6636b28` | Sampling state reuse; fallback unbinding and cleanup checked. CPU object size and driver memory were not measured here. |
+| P3.3 vertex layouts | §12.27; commit `b506b3c` | Layout reuse with per-mesh invalidation and lifecycle checks. No new claim of program-independent sharing or Phase 4 scope. |
+| P3.4.1 polygon mode | §12.28; commit `4c54193` | 3 measured calls versus 5 inferred uncached calls in the focused sequence. |
+| P3.4.2–3 culling/winding | §12.29; commit `46ae7bd` | 11 measured calls versus 27 inferred uncached calls. |
+| P3.4.4 depth | §12.30; commit `614a2ee` | 11 measured calls versus 15 inferred uncached calls. |
+| P3.4.5 blend | §12.31; current uncommitted batch | Previously passing transition evidence: 15 measured calls versus 21 inferred uncached calls (28.6%). Ten identical enabled commands would require 3 versus 30 calls analytically; this is not a measured frame-time gain. |
+
+The previously reported 95-assertion blend suite, parser/error checks, frame dump, and prior shared-boundary checks remain historical evidence for unchanged blend behavior. Their reported executable SHA-256 was `7D31AD7878B4CAA9F4EDB7F4FFA1256B09AD791419453FCDD7773944BAF85EEB`; this is not the final repaired binary's hash.
+
+The archived `build/p3.4.5/baseline/Glider.exe` has incomplete build provenance. The scratch build procedure disables blend caching in the candidate source; it does not establish an isolated `614a2ee` build. Earlier exact matches for `vp1_overlay.png` and `multi_viewport.png` therefore describe the supplied binaries only, not an accepted-commit regression comparison. They do not independently validate the transmission repair. The production runner now checks reference scenario failures/settings and deletes old captures before running.
+
+#### 5. Final focused repair
+
+- Transmission materials retain a stable framebuffer-texture wrapper across viewport changes. The wrapper now explicitly borrows its GL handle, so destroying the resource manager cannot delete a viewport-owned texture. Other texture constructors retain owning semantics, and moves preserve ownership.
+- The integration self-check verifies wrapper identity, preservation of the old handle on replacement, preservation of the current handle after manager destruction and wrapper move, and deletion by the actual owner.
+- `--only lifecycle` exercises real application A/B/A viewport rendering, None/MSAA4, differing culling/winding settings, resize, close/reopen, and model reload with the opaque/transparent/transmissive fixture. Increasing per-viewport render counts reject stale snapshots. It writes two fresh screenshots and an executable/scenario hash manifest.
+- Viewport close/reopen is a visibility lifecycle check; direct ownership assertions separately cover resource-manager destruction. This is not a driver memory-leak measurement.
+- Unsupported CPU byte sizes, framebuffer VRAM figures, immediate driver reclamation claims, and additional roadmap promises have been removed from this audit.
+
+Final repair validation (2026-10-23):
+
+- Release build: PASS. Existing GL macro redefinition warnings remain.
+- `validate_p3_4_5.py --only integration`: PASS, 24 assertions including six transmission ownership checks; zero failures and no GL errors in these checks.
+- `validate_p3_4_5.py --only lifecycle`: PASS. Both focused runs together took approximately six seconds. Fresh rendering confirmed for A/B/A switching, resize, close/reopen, and reload.
+- Viewed `build/p3.4.5/candidate/lifecycle_first.png` and `lifecycle_second.png`: geometry, environment, and bounding overlay visible in both. The differently configured viewport images are smoke checks, not a pixel-equivalence claim.
+- Final executable SHA-256: `2A57417CDDAC71DE11DD5679C614256F739F4A6DE689A5A1996ACA3CC795ACCF`. Scenario hash and binary hash recorded in `build/p3.4.5/candidate/lifecycle_manifest.json`.
+- `git diff --check`: PASS.
+
+The final review issues are resolved at the stated scope. P3.4.5 and the Phase 3 exit review are ready for commit; no Phase 4 changes were made. Prior accepted checks are reused, with the historical comparison limitations documented above. No full matrix or repeated timing campaign was run: blend-cache code is unchanged by this repair.
+
+#### 6. Validation stopping rule for subsequent batches
+
+Define narrow correctness checks before implementation. Reuse passing evidence unless changed code can invalidate it. Call counts establish work reduction; timing claims require timing evidence, but timing campaigns are not mandatory for each repair. Journal corrections do not trigger renderer reruns. Expand coverage only for a named regression risk or a failed check; stop when the agreed checks pass.

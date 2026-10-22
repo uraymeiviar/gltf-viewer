@@ -19,7 +19,7 @@ except ImportError as e:
     sys.exit(1)
 
 REPO = Path(__file__).resolve().parents[1]
-PYTHON_EXE = sys.executable
+PYTHON_EXE = "python" if sys.platform == "win32" and "WindowsApps" in sys.executable else sys.executable
 EXE = REPO / "build" / "bin" / "Release" / "Glider.exe"
 P3_4_4_DIR = REPO / "build" / "p3.4.4"
 POS_DIR = P3_4_4_DIR / "selfchecks_positive"

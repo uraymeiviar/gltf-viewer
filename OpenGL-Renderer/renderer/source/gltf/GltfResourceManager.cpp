@@ -207,17 +207,9 @@ EnvironmentMap* GltfResourceManager::loadEnvironmentMap(const IBLSampler& _iblSa
 
 void GltfResourceManager::createFramebufferTexture(GLuint textureID)
 {
-    if ((m_framebufferTexture != nullptr || m_framebufferSamplerState != nullptr) && m_framebufferTexture->handle == textureID) {
-        return;
-    }
-
     if (m_framebufferTexture != nullptr) {
-        // The framebuffer texture are is by Qt, so we cannot delete it.
-        m_framebufferTexture->handle = gl::invalid;
-        destroy(m_framebufferTexture);
-    }
-    if (m_framebufferSamplerState != nullptr) {
-        destroy(m_framebufferSamplerState);
+        m_framebufferTexture->handle = textureID;
+        return;
     }
 
     renderer::gl::SamplerState samplerState;
@@ -227,7 +219,7 @@ void GltfResourceManager::createFramebufferTexture(GLuint textureID)
     samplerState.wrapT = renderer::gl::TextureWrap::ClampToEdge;
 
     m_framebufferSamplerState = create<renderer::gl::SamplerState>(std::move(samplerState));
-    m_framebufferTexture = createWithGLContext<renderer::gl::Texture>(textureID, gl::TextureTarget::Texture2d);
+    m_framebufferTexture = createWithGLContext<renderer::gl::Texture>(textureID, gl::TextureTarget::Texture2d, false);
 }
 
 void GltfResourceManager::setBlitFramebufferFunction(std::function<void()> _blitFramebuffer, math::vec4 _clearColor)

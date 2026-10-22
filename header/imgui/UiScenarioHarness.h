@@ -42,6 +42,13 @@ struct UiScenarioFrame {
         bool lastTaaHistoryValid = false;
         float lastTaaBlendFactor = 0.0f;
         uint64_t lastTaaTargetGeneration = 0;
+        std::vector<std::string> activePasses;
+        uint64_t renderCount = 0;
+        bool wireframe = false;
+        bool showGrid = false;
+        bool showSceneBoundingBox = false;
+        bool forceDoubleSided = false;
+        bool invertWinding = false;
     };
     std::string selection;
     std::string camera;
@@ -59,6 +66,8 @@ struct UiScenarioFrame {
     std::function<bool()> createViewport;
     std::function<bool(const std::string&, uint32_t)> setAaMode;
     std::function<bool(uint32_t)> toggleViewport;
+    std::function<bool(uint32_t)> focusViewport;
+    std::function<bool(uint32_t, const std::string&, bool)> setViewportSetting;
 };
 
 // Drives real ImGui frames from a text script (--ui-script) by queueing mouse,
@@ -523,10 +532,23 @@ private:
                     }
                 }
             }
+        } else if (cmd == "vpfocus") {
+            if (need(2) && (!frame.focusViewport || !frame.focusViewport(static_cast<uint32_t>(std::stoul(args[1]))))) fail("vpfocus failed: " + line);
+            m_waitFrames = 8;
         } else if (cmd == "vptoggle") {
             if (need(2)) {
                 uint32_t vpId = static_cast<uint32_t>(std::stoul(args[1]));
                 if (!frame.toggleViewport || !frame.toggleViewport(vpId)) fail("vptoggle failed: " + line);
+                m_waitFrames = 4;
+            }
+        } else if (cmd == "vpsetting") {
+            if (need(4)) {
+                const uint32_t vpId = static_cast<uint32_t>(std::stoul(args[1]));
+                const std::string key = args[2];
+                std::string valStr = args[3];
+                for (char& c : valStr) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                const bool val = (valStr == "on" || valStr == "1" || valStr == "true");
+                if (!frame.setViewportSetting || !frame.setViewportSetting(vpId, key, val)) fail("vpsetting failed: " + line);
                 m_waitFrames = 4;
             }
         } else if (cmd == "snap") {
@@ -699,7 +721,18 @@ private:
                 << ",\"lastTaaHistoryValid\":" << (v.lastTaaHistoryValid ? "true" : "false")
                 << ",\"lastTaaBlendFactor\":" << num(v.lastTaaBlendFactor)
                 << ",\"lastTaaTargetGeneration\":" << v.lastTaaTargetGeneration
-                << "}";
+                << ",\"wireframe\":" << (v.wireframe ? "true" : "false")
+                << ",\"showGrid\":" << (v.showGrid ? "true" : "false")
+                << ",\"showSceneBoundingBox\":" << (v.showSceneBoundingBox ? "true" : "false")
+                << ",\"forceDoubleSided\":" << (v.forceDoubleSided ? "true" : "false")
+                << ",\"invertWinding\":" << (v.invertWinding ? "true" : "false")
+                << ",\"renderCount\":" << v.renderCount
+                << ",\"activePasses\":[";
+            for (size_t p = 0; p < v.activePasses.size(); ++p) {
+                if (p > 0) out << ",";
+                out << "\"" << escape(v.activePasses[p]) << "\"";
+            }
+            out << "]}";
             firstVp = false;
         }
         out << "]}";

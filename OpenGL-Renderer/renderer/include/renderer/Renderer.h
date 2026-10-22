@@ -36,6 +36,7 @@ public:
 
     gl::SamplerCache& getSamplerCache() { return m_commandExecutor.getSamplerCache(); }
     const gl::SamplerCache& getSamplerCache() const { return m_commandExecutor.getSamplerCache(); }
+    const std::vector<std::string>& getLastExecutedPasses() const { return m_lastExecutedPasses; }
 
     std::vector<Command> clearCommands;
     std::vector<Command> preRenderCommands;
@@ -54,5 +55,6 @@ private:
     uint64_t m_gpuFrame = 0;
     uint32_t m_gpuViewport = 0;
     std::string m_gpuLabel = "main";
+    std::vector<std::string> m_lastExecutedPasses;
 };
 }

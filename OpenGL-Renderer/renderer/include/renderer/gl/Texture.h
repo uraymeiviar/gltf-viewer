@@ -15,7 +15,8 @@ class GL;
 class Texture {
 public:
     Texture(GL*, TextureTarget target);
-    Texture(GL*, GLuint handle, TextureTarget target);
+    // Borrowed handles remain owned by their framebuffer; moves preserve ownership.
+    Texture(GL*, GLuint handle, TextureTarget target, bool ownsHandle = true);
     Texture(GL*, const image::Image& image);
     Texture(Texture&&);
     ~Texture();
@@ -39,6 +40,7 @@ public:
 
 private:
     GL* m_gl;
+    bool m_ownsHandle = true;
 };
 
 }

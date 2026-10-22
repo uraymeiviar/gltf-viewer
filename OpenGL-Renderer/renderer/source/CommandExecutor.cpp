@@ -23,6 +23,10 @@ void ux3d::renderer::CommandExecutor::init()
     m_activeWinding.reset();
     m_depthTestEnabled.reset();
     m_depthFunc.reset();
+    m_blendEnabled.reset();
+    m_blendSrcFactor.reset();
+    m_blendDstFactor.reset();
+    m_blendEquation.reset();
 }
 
 void ux3d::renderer::CommandExecutor::resetState()
@@ -35,6 +39,10 @@ void ux3d::renderer::CommandExecutor::resetState()
     m_activeWinding.reset();
     m_depthTestEnabled.reset();
     m_depthFunc.reset();
+    m_blendEnabled.reset();
+    m_blendSrcFactor.reset();
+    m_blendDstFactor.reset();
+    m_blendEquation.reset();
 }
 
 void ux3d::renderer::CommandExecutor::unbindSamplers()
@@ -77,6 +85,10 @@ void ux3d::renderer::CommandExecutor::execute(const Command& command)
         m_activeWinding.reset();
         m_depthTestEnabled.reset();
         m_depthFunc.reset();
+        m_blendEnabled.reset();
+        m_blendSrcFactor.reset();
+        m_blendDstFactor.reset();
+        m_blendEquation.reset();
         command.externalFunction();
         break;
     default:
@@ -182,14 +194,28 @@ void ux3d::renderer::CommandExecutor::setupVertexArray(const Command& command)
     GLIDER_HOT_GL_CHECK(m_gl, "Failed to bind vertex array");
 }
 
-void ux3d::renderer::CommandExecutor::setupBlendFunc(const Command& command) const
+void ux3d::renderer::CommandExecutor::setupBlendFunc(const Command& command)
 {
     if (command.blendingEnabled) {
-        m_gl->enable(GL_BLEND);
-        m_gl->blendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        m_gl->blendEquation(GL_FUNC_ADD);
+        if (!m_blendEnabled.has_value() || !m_blendEnabled.value()) {
+            m_blendEnabled = true;
+            m_gl->enable(GL_BLEND);
+        }
+        if (!m_blendSrcFactor.has_value() || !m_blendDstFactor.has_value() ||
+            m_blendSrcFactor.value() != GL_SRC_ALPHA || m_blendDstFactor.value() != GL_ONE_MINUS_SRC_ALPHA) {
+            m_blendSrcFactor = GL_SRC_ALPHA;
+            m_blendDstFactor = GL_ONE_MINUS_SRC_ALPHA;
+            m_gl->blendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        }
+        if (!m_blendEquation.has_value() || m_blendEquation.value() != GL_FUNC_ADD) {
+            m_blendEquation = GL_FUNC_ADD;
+            m_gl->blendEquation(GL_FUNC_ADD);
+        }
     } else {
-        m_gl->disable(GL_BLEND);
+        if (!m_blendEnabled.has_value() || m_blendEnabled.value()) {
+            m_blendEnabled = false;
+            m_gl->disable(GL_BLEND);
+        }
     }
 
     GLIDER_HOT_GL_CHECK(m_gl, "Failed to set blend mode");

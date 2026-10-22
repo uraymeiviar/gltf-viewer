@@ -47,6 +47,10 @@ struct ViewportInstance {
     // Per-viewport settings
     ViewportSettingsState settings;
 
+    // Last executed pass names
+    std::vector<std::string> lastExecutedPasses;
+    uint64_t renderCount = 0;
+
     ViewportInstance(uint32_t vpId, const std::string& vpName, ux3d::renderer::gl::GL* glContext)
         : id(vpId), name(vpName), rendererCamera(glContext)
     {

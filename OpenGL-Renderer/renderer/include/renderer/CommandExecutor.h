@@ -31,6 +31,10 @@ public:
     std::optional<gl::Winding> getActiveWinding() const { return m_activeWinding; }
     std::optional<bool> getDepthTestEnabled() const { return m_depthTestEnabled; }
     std::optional<GLenum> getDepthFunc() const { return m_depthFunc; }
+    std::optional<bool> getBlendEnabled() const { return m_blendEnabled; }
+    std::optional<GLenum> getBlendSrcFactor() const { return m_blendSrcFactor; }
+    std::optional<GLenum> getBlendDstFactor() const { return m_blendDstFactor; }
+    std::optional<GLenum> getBlendEquation() const { return m_blendEquation; }
 
 private:
     void draw(const Command& command);
@@ -39,7 +43,7 @@ private:
     bool activateProgram(const Command& command);
 
     void setupVertexArray(const Command& command);
-    void setupBlendFunc(const Command& command) const;
+    void setupBlendFunc(const Command& command);
     void setupCulling(const Command& command);
     void setupPolygonMode(const Command& command);
     void setupFrontFace(const Command& command);
@@ -57,6 +61,10 @@ private:
     std::optional<gl::Winding> m_activeWinding = std::nullopt;
     std::optional<bool> m_depthTestEnabled = std::nullopt;
     std::optional<GLenum> m_depthFunc = std::nullopt;
+    std::optional<bool> m_blendEnabled = std::nullopt;
+    std::optional<GLenum> m_blendSrcFactor = std::nullopt;
+    std::optional<GLenum> m_blendDstFactor = std::nullopt;
+    std::optional<GLenum> m_blendEquation = std::nullopt;
     GLint m_maxBoundTextureUnit = -1;
     gl::SamplerCache m_samplerCache;
 };

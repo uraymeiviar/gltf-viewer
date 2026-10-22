@@ -54,6 +54,9 @@ struct FrameCounters {
     uint64_t frontFaceCalls = 0;
     uint64_t depthTestEnableCalls = 0;
     uint64_t depthFuncCalls = 0;
+    uint64_t blendEnableCalls = 0;
+    uint64_t blendFuncCalls = 0;
+    uint64_t blendEquationCalls = 0;
 
     uint64_t bufferUploads = 0;
     uint64_t bufferUploadBytes = 0;
@@ -221,6 +224,21 @@ inline void countDepthTestEnable(uint64_t count = 1)
 inline void countDepthFunc(uint64_t count = 1)
 {
     if (g_countingEnabled) frameCounters().depthFuncCalls += count;
+}
+
+inline void countBlendEnable(uint64_t count = 1)
+{
+    if (g_countingEnabled) frameCounters().blendEnableCalls += count;
+}
+
+inline void countBlendFunc(uint64_t count = 1)
+{
+    if (g_countingEnabled) frameCounters().blendFuncCalls += count;
+}
+
+inline void countBlendEquation(uint64_t count = 1)
+{
+    if (g_countingEnabled) frameCounters().blendEquationCalls += count;
 }
 
 inline void countBufferUpload(uint64_t bytes)
