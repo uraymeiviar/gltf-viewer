@@ -31,6 +31,8 @@
 #include "gltf/ImportOptions.h"
 
 #include "renderer/Renderer.h"
+#include "renderer/gl/Sampler.h"
+#include "renderer/CommandExecutor.h"
 #include "renderer/Camera.h"
 #include "renderer/gltf/GltfRenderLayer.h"
 #include "renderer/CommandGenerator.h"
@@ -48,6 +50,7 @@
 #include "imgui/ElementInspector.h"
 #include "imgui/AnimationPlayer.h"
 #include "imgui/AntiAliasing.h"
+#include "imgui/SamplerTest.h"
 #include "imgui/BoundingBoxRenderer.h"
 #include "imgui/Theme.h"
 #include "imgui/IconsMaterialDesignIcons.h"
@@ -2214,6 +2217,9 @@ int main(int argc, char** argv)
     std::string cacheInvalidationSelfCheckOutputPath;
     std::string loggerLayoutSelfCheckOutputPath;
     std::string aaTargetSelfCheckOutputPath;
+    std::string samplerSelfCheckOutputPath;
+    std::string samplerSelfCheckCase = "all";
+    std::string samplerDumpPatternPath;
     bool selfCheckForceFailure = false;
     std::string scenarioReportPath;
     std::string scenarioName = "default";
@@ -2402,6 +2408,12 @@ int main(int argc, char** argv)
             loggerLayoutSelfCheckOutputPath = argv[++i];
         } else if (arg == "--aa-target-selfcheck" && i + 1 < argc) {
             aaTargetSelfCheckOutputPath = argv[++i];
+        } else if (arg == "--sampler-selfcheck" && i + 1 < argc) {
+            samplerSelfCheckOutputPath = argv[++i];
+        } else if (arg == "--sampler-selfcheck-case" && i + 1 < argc) {
+            samplerSelfCheckCase = argv[++i];
+        } else if (arg == "--sampler-dump-pattern" && i + 1 < argc) {
+            samplerDumpPatternPath = argv[++i];
         } else if (arg == "--selfcheck-force-failure") {
             selfCheckForceFailure = true;
         } else if ((arg == "--env" || arg == "--hdr") && i + 1 < argc) {
@@ -2533,6 +2545,21 @@ int main(int argc, char** argv)
             ux3d::imgui::AntiAliasing::runTargetAllocationSelfCheck(selfCheckForceFailure),
             aaTargetSelfCheckOutputPath,
             "AA target allocation");
+    }
+
+    if (!samplerSelfCheckOutputPath.empty()) {
+        auto reloadAndDraw = [&](const std::string& path) -> bool {
+            bool ok = loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, isSceneDirty);
+            if (!ok || activeScene == nullptr) return false;
+            auto [scene, reverseMapping] = gltfLayer->createScene(activeScene);
+            commandGenerator->update(scene);
+            return glRenderer->draw({ commandGenerator.get() });
+        };
+        return writeSelfCheckReport(
+            ux3d::imgui::runSamplerSelfCheck(gladGL.get(), selfCheckForceFailure, samplerSelfCheckCase, samplerDumpPatternPath,
+                                             glRenderer.get(), reloadAndDraw),
+            samplerSelfCheckOutputPath,
+            "sampler objects and cache");
     }
 
     if (!s_isolatedState) {
@@ -4489,6 +4516,10 @@ int main(int argc, char** argv)
     ux3d::imgui::ElementInspector::clearPreviewCache();
     gridRenderer.cleanup();
     viewports.clear();
+    if (glRenderer != nullptr) {
+        glRenderer->uninit();
+        glRenderer.reset();
+    }
 
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();

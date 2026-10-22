@@ -108,6 +108,8 @@ set(GLIDER_SOURCES
 	"header/imgui/TextureUtils.h"
 	"header/imgui/IconsMaterialDesignIcons.h"
 	"header/imgui/stb_image_write.h"
+	"source/imgui/SamplerTest.cpp"
+	"header/imgui/SamplerTest.h"
 )
 
 find_package(Python3 COMPONENTS Interpreter QUIET)

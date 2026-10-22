@@ -34,6 +34,9 @@ public:
     }
     const GpuProfiler& getGpuProfiler() const { return m_gpuProfiler; }
 
+    gl::SamplerCache& getSamplerCache() { return m_commandExecutor.getSamplerCache(); }
+    const gl::SamplerCache& getSamplerCache() const { return m_commandExecutor.getSamplerCache(); }
+
     std::vector<Command> clearCommands;
     std::vector<Command> preRenderCommands;
     std::vector<Command> postRenderCommands;

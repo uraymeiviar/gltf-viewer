@@ -290,12 +290,14 @@ void GladGL::deleteTextures(GLsizei n, const GLuint* textures)
 void GladGL::texParameteri(GLuint texture, GLenum pname, GLint param)
 {
     ux3d::imgui::profiling::countGlCall();
+    ux3d::imgui::profiling::countTexParameter();
     glTexParameteri(texture, pname, param);
 }
 
 void GladGL::texParameterf(GLuint texture, GLenum pname, GLfloat param)
 {
     ux3d::imgui::profiling::countGlCall();
+    ux3d::imgui::profiling::countTexParameter();
     glTexParameterf(texture, pname, param);
 }
 
@@ -337,12 +339,14 @@ void GladGL::texImage2D(GLenum target, GLint level, GLint internalformat, GLsize
 void GladGL::texParameteriv(GLenum target, GLenum pname, const GLint* params)
 {
     ux3d::imgui::profiling::countGlCall();
+    ux3d::imgui::profiling::countTexParameter();
     glTexParameteriv(target, pname, params);
 }
 
 void GladGL::texParameterfv(GLenum target, GLenum pname, const GLfloat* params)
 {
     ux3d::imgui::profiling::countGlCall();
+    ux3d::imgui::profiling::countTexParameter();
     glTexParameterfv(target, pname, params);
 }
 
@@ -413,6 +417,61 @@ void GladGL::texSubImage3D(GLenum target, GLint level, GLint xoffset, GLint yoff
         }
     }
     glTexSubImage3D(target, level, xoffset, yoffset, zoffset, width, height, depth, format, type, pixels);
+}
+
+// Samplers:
+
+void GladGL::genSamplers(GLsizei n, GLuint* samplers)
+{
+    ux3d::imgui::profiling::countGlCall();
+    ux3d::imgui::profiling::countSamplerCreation(n > 0 ? static_cast<uint64_t>(n) : 0);
+    glGenSamplers(n, samplers);
+}
+
+void GladGL::deleteSamplers(GLsizei n, const GLuint* samplers)
+{
+    ux3d::imgui::profiling::countGlCall();
+    ux3d::imgui::profiling::countSamplerDeletion(n > 0 ? static_cast<uint64_t>(n) : 0);
+    glDeleteSamplers(n, samplers);
+}
+
+void GladGL::bindSampler(GLuint unit, GLuint sampler)
+{
+    ux3d::imgui::profiling::countGlCall();
+    ux3d::imgui::profiling::countSamplerBind();
+    glBindSampler(unit, sampler);
+}
+
+void GladGL::samplerParameteri(GLuint sampler, GLenum pname, GLint param)
+{
+    ux3d::imgui::profiling::countGlCall();
+    ux3d::imgui::profiling::countSamplerParameter();
+    glSamplerParameteri(sampler, pname, param);
+}
+
+void GladGL::samplerParameterf(GLuint sampler, GLenum pname, GLfloat param)
+{
+    ux3d::imgui::profiling::countGlCall();
+    ux3d::imgui::profiling::countSamplerParameter();
+    glSamplerParameterf(sampler, pname, param);
+}
+
+void GladGL::getSamplerParameteriv(GLuint sampler, GLenum pname, GLint* params)
+{
+    ux3d::imgui::profiling::countGlCall();
+    glGetSamplerParameteriv(sampler, pname, params);
+}
+
+void GladGL::getSamplerParameterfv(GLuint sampler, GLenum pname, GLfloat* params)
+{
+    ux3d::imgui::profiling::countGlCall();
+    glGetSamplerParameterfv(sampler, pname, params);
+}
+
+GLboolean GladGL::isSampler(GLuint sampler)
+{
+    ux3d::imgui::profiling::countGlCall();
+    return glIsSampler(sampler);
 }
 
 // Framebuffers:

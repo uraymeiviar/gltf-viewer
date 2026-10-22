@@ -8,18 +8,31 @@
 
 ux3d::renderer::CommandExecutor::CommandExecutor(gl::GL* gl)
     : m_gl(gl)
+    , m_samplerCache(gl)
 {
 }
 
 void ux3d::renderer::CommandExecutor::init()
 {
+    m_samplerCache.init(m_gl);
     m_gl->getIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS, &m_maxTextureUnits);
     m_gl->enable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
 }
 
 void ux3d::renderer::CommandExecutor::resetState()
 {
+    unbindSamplers();
     m_activeVertexArray = gl::invalid;
+}
+
+void ux3d::renderer::CommandExecutor::unbindSamplers()
+{
+    if (m_maxBoundTextureUnit >= 0) {
+        for (GLint unit = 0; unit <= m_maxBoundTextureUnit; ++unit) {
+            m_gl->bindSampler(static_cast<GLuint>(unit), 0);
+        }
+        m_maxBoundTextureUnit = -1;
+    }
 }
 
 void ux3d::renderer::CommandExecutor::execute(const Command& command)
@@ -44,6 +57,7 @@ void ux3d::renderer::CommandExecutor::execute(const Command& command)
         setupDepthTest(command);
         break;
     case CommandTag::ExternalFunction:
+        unbindSamplers();
         command.externalFunction();
         break;
     default:
@@ -81,7 +95,16 @@ void ux3d::renderer::CommandExecutor::draw(const Command& command)
             break;
         }
 
-        command.program->commitSampler(*sampler, i);
+        static const gl::SamplerState s_defaultSamplerState;
+        const gl::SamplerState& state = (sampler->samplerState != nullptr)
+            ? *sampler->samplerState
+            : s_defaultSamplerState;
+        GLuint samplerHandle = m_samplerCache.getOrCreateSampler(state);
+
+        command.program->commitSampler(*sampler, i, samplerHandle);
+        if (i > m_maxBoundTextureUnit) {
+            m_maxBoundTextureUnit = i;
+        }
     }
 
     setupVertexArray(command);

@@ -42,6 +42,11 @@ struct FrameCounters {
     uint64_t renderbufferCreations = 0;
     uint64_t shaderCompiles = 0;
     uint64_t programLinks = 0;
+    uint64_t samplerCreations = 0;
+    uint64_t samplerDeletions = 0;
+    uint64_t samplerBinds = 0;
+    uint64_t samplerParameterCalls = 0;
+    uint64_t texParameterCalls = 0;
 
     uint64_t bufferUploads = 0;
     uint64_t bufferUploadBytes = 0;
@@ -149,6 +154,31 @@ inline void countShaderCompile()
 inline void countProgramLink()
 {
     if (g_countingEnabled) ++frameCounters().programLinks;
+}
+
+inline void countSamplerCreation(uint64_t count = 1)
+{
+    if (g_countingEnabled) frameCounters().samplerCreations += count;
+}
+
+inline void countSamplerDeletion(uint64_t count = 1)
+{
+    if (g_countingEnabled) frameCounters().samplerDeletions += count;
+}
+
+inline void countSamplerBind(uint64_t count = 1)
+{
+    if (g_countingEnabled) frameCounters().samplerBinds += count;
+}
+
+inline void countSamplerParameter(uint64_t count = 1)
+{
+    if (g_countingEnabled) frameCounters().samplerParameterCalls += count;
+}
+
+inline void countTexParameter(uint64_t count = 1)
+{
+    if (g_countingEnabled) frameCounters().texParameterCalls += count;
 }
 
 inline void countBufferUpload(uint64_t bytes)

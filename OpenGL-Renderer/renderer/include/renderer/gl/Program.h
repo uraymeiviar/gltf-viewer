@@ -24,7 +24,7 @@ public:
 
     std::unique_ptr<VertexLayout> createVertexLayout(const std::vector<Attribute>& attributes) const;
 
-    void commitSampler(const Sampler& sampler, GLint textureUnit) const;
+    void commitSampler(const Sampler& sampler, GLint textureUnit, GLuint samplerHandle = 0) const;
     void commitUniform(const Uniform& uniform) const;
     void commitUniformBlock(const UniformBlock& uniformBlock) const;
 

@@ -78,13 +78,13 @@ ux3d::renderer::gl::Program::~Program()
     }
 }
 
-void ux3d::renderer::gl::Program::commitSampler(const Sampler& sampler, GLint textureUnit) const
+void ux3d::renderer::gl::Program::commitSampler(const Sampler& sampler, GLint textureUnit, GLuint samplerHandle) const
 {
     auto iter = m_uniformBindings.find(sampler.name);
     if (iter == m_uniformBindings.end()) {
         return;
     }
-    sampler.commit(m_gl, iter->second, textureUnit);
+    sampler.commit(m_gl, iter->second, textureUnit, samplerHandle);
 }
 
 void ux3d::renderer::gl::Program::commitUniform(const Uniform& uniform) const

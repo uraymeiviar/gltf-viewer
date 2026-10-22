@@ -30,31 +30,38 @@ bool ux3d::renderer::Renderer::draw(const core::Vector<CommandGenerator*>& scene
     m_commandExecutor.resetState();
 
     if (!checkGLError(m_gl, "Renderer::draw")) {
+        m_commandExecutor.resetState();
         m_gpuProfiler.endFrame();
         return false;
     }
 
     if (!preDrawScenes()) {
+        m_commandExecutor.resetState();
         m_gpuProfiler.endFrame();
         return false;
     }
 
     if (!onDrawScenes(scenes)) {
+        m_commandExecutor.resetState();
         m_gpuProfiler.endFrame();
         return false;
     }
 
     if (!postDrawScenes()) {
+        m_commandExecutor.resetState();
         m_gpuProfiler.endFrame();
         return false;
     }
 
+    m_commandExecutor.resetState();
     m_gpuProfiler.endFrame();
     return true;
 }
 
 void ux3d::renderer::Renderer::uninit()
 {
+    m_commandExecutor.resetState();
+    m_commandExecutor.getSamplerCache().clear();
     preRenderCommands.clear();
     postRenderCommands.clear();
     clearCommands.clear();

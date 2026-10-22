@@ -4,6 +4,7 @@
 
 #include "renderer/gl/Enums.h"
 #include "renderer/gl/GL.h"
+#include "renderer/gl/Sampler.h"
 
 namespace ux3d::renderer {
 class Command;
@@ -16,7 +17,11 @@ public:
 
     void init();
     void resetState();
+    void unbindSamplers();
     void execute(const Command& command);
+
+    gl::SamplerCache& getSamplerCache() { return m_samplerCache; }
+    const gl::SamplerCache& getSamplerCache() const { return m_samplerCache; }
 
 private:
     void draw(const Command& command);
@@ -35,7 +40,9 @@ private:
 
 private:
     gl::GL* m_gl;
-    GLint m_maxTextureUnits;
+    GLint m_maxTextureUnits = 0;
     GLuint m_activeVertexArray = gl::invalid;
+    GLint m_maxBoundTextureUnit = -1;
+    gl::SamplerCache m_samplerCache;
 };
 }

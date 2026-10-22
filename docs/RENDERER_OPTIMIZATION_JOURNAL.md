@@ -1331,8 +1331,8 @@ until retention/truncation/Copy behavior is explicitly chosen; it is not necessa
 - [x] **P3.1 — AA allocation by mode (§3.20).** Allocate only needed targets; validate resize, rapid
   mode switches, viewport closure and TAA history reset. Measure live bytes and creation/deletion counts.
   *Implemented and validated in §12.25.*
-- [ ] **P3.2 — Sampler objects (§3.2).** Test a single texture used with different samplers, mip filters,
-  wraps, anisotropy and multiple viewports. Preserve effective sampler behavior across every draw.
+- [x] **P3.2 — Sampler objects (§3.2).** Replace repeated per-bind texture sampler updates with cached GL sampler objects. Validate multi-unit, successive draws, wraps, filters, anisotropy, boundary unbinding, and multi-viewport isolation. *Implemented and validated in §12.26.*
+
 - [ ] **P3.3 — VAO reuse (§3.4).** Begin with a conservative mesh/program/layout-generation key. Test
   index buffers, missing/optional attributes, shader variants and mesh destruction/reload. Simplify to
   a mesh-only key only after proving layout compatibility across all participating shaders/passes;
@@ -4668,3 +4668,160 @@ with exactly two allocations and two deletions and no settled-frame churn.
 The reviewer opened the regenerated first-frame image and confirmed visible
 scene output. `git diff --check` passed. No benchmark matrix or unrelated
 suite was repeated, and no commit or push was performed during review.
+
+---
+
+### 12.26 P3.2 — Replace Per-Bind Sampler Parameter Updates with GL Sampler Objects (2026-10-22)
+
+#### 1. Context & Baseline
+
+- **Accepted Baseline**: Commit `c5ecd98` ("Allocate AA targets by active mode with lifecycle validation").
+- **Task Scope**: P3.2 only. Replace repeated per-bind texture sampler parameter updates with GL sampler objects. Do not implement P3.3 (VAO reuse), P3.4 (executor shadow state), or Phase 4. Preserve standalone single executable, OpenGL 4.1 compatibility, and P1.1 capability cache.
+- **Problem Audit (§3.2)**:
+  - In `OpenGL-Renderer/renderer/source/gl/Sampler.cpp:15-46`, every sampler commit on every draw call executed:
+    - 5 `glTexParameteri` calls (`GL_TEXTURE_MIN_FILTER`, `GL_TEXTURE_MAG_FILTER`, `GL_TEXTURE_WRAP_S`, `GL_TEXTURE_WRAP_T`, `GL_TEXTURE_WRAP_R`).
+    - 1 `glTexParameterf` call (`GL_TEXTURE_MAX_ANISOTROPY_EXT`).
+  - For complex multi-drawable scenes with multiple textures, this caused thousands of driver calls per frame mutating texture object state (e.g. ~90,000 calls per frame in an illustrative 1,000-drawable scene with ~15 samplers).
+  - Mutating the underlying texture object's internal sampler parameters caused cross-unit and cross-draw interference whenever the same texture was sampled with different sampler settings (e.g. repeat vs clamp-to-edge, or linear vs nearest).
+
+#### 2. Architectural Implementation
+
+1. **OpenGL Sampler Abstraction (`GL.h`, `GladGL.h`, `GladGL.cpp`)**:
+   - Extended `gl::GL` and `GladGL` with standard Core OpenGL 3.3 / 4.1 sampler functions:
+     `genSamplers`, `deleteSamplers`, `bindSampler`, `samplerParameteri`, `samplerParameterf`, `getSamplerParameteriv`, `getSamplerParameterfv`.
+   - Instrumented each method with dedicated profiling counters in `Profiling.h`:
+     `samplerCreations`, `samplerDeletions`, `samplerBinds`, `samplerParameterCalls`, and `texParameterCalls`.
+
+2. **Complete Sampling State Key (`SamplerState`)**:
+   - `gl::SamplerState` encapsulates the complete 5-tuple defining effective sampling parameters: `minFilter`, `magFilter`, `wrapS`, `wrapT`, and `wrapR`.
+   - Added `operator==` and `operator!=` to `SamplerState`.
+   - Implemented hashing via `ux3d::core::Hash<SamplerState>` and standard `std::hash<ux3d::renderer::gl::SamplerState>`.
+   - Default/missing glTF sampler behavior maps cleanly to default `SamplerState()` (`LinearMipmapLinear`, `Linear`, `Repeat`, `Repeat`, `Repeat`).
+
+3. **Sampler Object Cache & Ownership (`SamplerCache`)**:
+   - `gl::SamplerCache` is owned by `CommandExecutor` (which is owned by `Renderer`).
+   - Uses `std::unordered_map<SamplerState, GLuint, core::Hash<SamplerState>>`.
+   - `getOrCreateSampler(const SamplerState& state)`:
+     - On first query for a given state: generates a GL sampler object (`glGenSamplers`), sets its 5 filter/wrap parameters (`glSamplerParameteri`), configures `GL_TEXTURE_MAX_ANISOTROPY_EXT` using the cached immutable context maximum (if supported), and stores the handle in the cache.
+     - On subsequent queries: returns the cached `GLuint` handle immediately (0 GL allocations, 0 GL parameter calls).
+   - In steady-state rendering, zero GL sampler objects are created or deleted.
+
+4. **Streamlined Commit Path & Zero-Handle Fallback Fix (`Sampler::commit`, `Program::commitSampler`)**:
+   - In `Sampler::commit`: replaces all 5 `glTexParameteri` and 1 `glTexParameterf` calls with a single `gl->bindSampler(textureUnit, samplerHandle)`.
+   - **Zero-Handle Fallback Fix**: When `samplerHandle == 0` (defensive fallback or unsupported sampler creation), `Sampler::commit` explicitly calls `gl->bindSampler(static_cast<GLuint>(textureUnit), 0)` before configuring texture-owned parameters (`glTexParameteri` / `glTexParameterf`). This prevents stale bound GL sampler objects from overriding the requested fallback parameters on that unit.
+   - Handles textures used with different samplers across units in the same draw and across successive draws without mutating texture objects.
+
+5. **Strict Boundary Isolation & Automatic Cleanup**:
+   - Because GL sampler bindings persist per texture unit and override texture-owned parameters, `CommandExecutor::resetState()` and `unbindSamplers()` unbind all active sampler units (`m_gl->bindSampler(unit, 0)`).
+   - Automatic unbinding is performed at the end of `Renderer::draw()`, before any `ExternalFunction` command, and at frame boundaries.
+   - This guarantees that subsequent passes (Anti-Aliasing FXAA/TAA, ImGui font texture, grid renderer, bounding box renderer, picking reads) are never perturbed by scene sampler objects.
+
+6. **Context-Safe Object Lifetime & glIsSampler Driver Deletion**:
+   - `CommandExecutor::getSamplerCache().clear()` is explicitly called during `Renderer::uninit()`.
+   - In `main.cpp`, `glRenderer->uninit()` and `glRenderer.reset()` are called explicitly before `ImGui_ImplOpenGL3_Shutdown()` and `glfwDestroyWindow()`, ensuring all GL sampler objects are deleted while the GL context is fully valid.
+   - Driver deletion is confirmed using `glIsSampler`, verifying handles return `GL_FALSE` immediately after cache clearing.
+
+#### 3. Verification & Validation Evidence
+
+#### 3. Verification & Validation Evidence
+
+Automated validation is implemented in `scripts/validate_p3_2.py`:
+- **Tested Candidate Executable**: `build/bin/Release/Glider.exe`
+- **Candidate SHA-256**: `0B3A1EC9A627A2EAC5231F4DA7266F76D601F61F94FE7DB5550227AE263C0701`
+- **Validation Scope**: Under the narrow validation budget, the amended focused checks (`--only boundary`, `--only lifecycle`, `--only production-draw`) were newly run and verified against this binary. Baseline startup image comparison (all 6 modes 0 diffs bit-for-bit exact match), multi-viewport isolation, and steady-state profiling counters were reused from the verified baseline runs.
+
+1. **Diagnostic Self-Check (`--sampler-selfcheck`)**:
+   - **Section 1: Zero-handle fallback stale sampler regression check**:
+     - Binds a non-zero sampler with deliberately contrasting settings (`LinearMipmapLinear`, `Repeat`).
+     - Invokes production `Sampler::commit()` zero-handle fallback path on unit 0 requesting `Nearest` and `ClampToEdge`.
+     - Queries `GL_SAMPLER_BINDING` (confirms `0` - explicitly unbound) and `GL_TEXTURE_MIN_FILTER` / `GL_TEXTURE_WRAP_S` (confirms fallback parameters applied).
+     - Confirms no GL errors.
+   - **Section 2: SamplerState key comparison, hashing, and cache lookup**:
+     - Equality, inequality, hash generation, deduplication, anisotropy against cached context maximum, and container clearing.
+   - **Section 3: Production draw sampling integration (`--only production-draw`, 17 PASS assertions)**:
+     - Executes actual production draw commands through `CommandExecutor` -> `Program::commitSampler` -> `Sampler::commit` rendering a 2x2 multi-quadrant patterned texture (level 0 RGBA, level 1 Yellow) onto an offscreen FBO.
+     - Dual-unit single draw: same underlying texture sampled on Unit 0 with Nearest and Unit 1 with Linear simultaneously. Pixel readback confirms unblended Nearest R=255 alongside bilinear blended G channel.
+     - Successive draws: alternates between Nearest (Draw A: pure unblended Red quadrant at (16, 16) and unblended center pixel at (32, 32)) and Linear (Draw B: blended center pixels ~128 across all 4 quadrants).
+     - Mipmap filtering: verifies `LinearMipmapLinear` samples Level 1 (Yellow) while linear without mips samples Level 0 (Blue present).
+     - **Full Wrap Mode Coverage**: Quad UV offset shifted by $+1.0$ in $U$ ($U \in [1.0, 2.0], V \in [0.0, 1.0]$):
+       - Pixel $(16, 16)$ ($U \approx 1.258, V \approx 0.258$):
+         - `Repeat` wraps to $U = 0.258$: pure Red `[255, 0, 0]`
+         - `ClampToEdge` clamps to edge: pure Green `[0, 255, 0]`
+         - `MirroredRepeat` reflects to $U = 0.742$: pure Green `[0, 255, 0]`
+       - Pixel $(48, 16)$ ($U \approx 1.758, V \approx 0.258$):
+         - `Repeat` wraps to $U = 0.758$: pure Green `[0, 255, 0]`
+         - `ClampToEdge` clamps to edge: pure Green `[0, 255, 0]`
+         - `MirroredRepeat` reflects to $U = 0.242$: pure Red `[255, 0, 0]`
+       - All three modes yield distinct, mathematically unambiguous colors matching expectations.
+     - Pattern frame dump: restores standard UV coordinates and dumps 64x64 patterned test frame `frame_pattern_test.png`, inspected and verified with PIL.
+   - **Section 4: Independent automatic boundary cleanup verification (`--only boundary`, 7 PASS assertions)**:
+     - Independent Test 1: executes `drawCmd` followed by `extCmd` (`makeExternalFunctionCommand`). Asserts `GL_SAMPLER_BINDING == 0` inside the callback.
+     - Independent Test 2: executes `drawCmd` without any `ExternalFunction` in the command list. Asserts `Renderer::draw` succeeds and `GL_SAMPLER_BINDING == 0` on units 0 and 1 immediately after `Renderer::draw` exits.
+     - Both cleanup paths independently detect failures in their respective unbind logic.
+     - Subsequent consumer relying on texture-owned parameters (`GL_NEAREST`) and unbound samplers verified uncorrupted.
+   - **Section 5: Reload and destruction ownership verification (`--only lifecycle`, 37 PASS assertions)**:
+     - **Section 5A (Unit Check)**: 4 known sampler states allocated in unit cache, repeat queries confirm identical handles returned, cache size stabilized at 4 (zero growth), direct `SamplerCache::clear()` empties container and driver deletion confirmed via `glIsSampler == GL_FALSE`.
+     - **Section 5B (Production Reload & Teardown Integration)**:
+       - Uses a minimal self-contained glTF fixture (`build/p3.2/fixture_samplers.gltf`) with 3 known sampler states (Nearest/ClampToEdge, LinearMipmapLinear/Repeat, Linear/MirroredRepeat).
+       - Executes 3 production `loadGltfModel` + scene update + `Renderer::draw` cycles.
+       - Cache size stabilizes at 5 across all 3 cycles (zero growth, identical GL handles retained and reused).
+       - Real teardown: calls `glRenderer->uninit()`. Verifies cache size is 0 and driver handles return `glIsSampler == GL_FALSE` without directly invoking `SamplerCache::clear()`.
+   - Return codes:
+     - Exit code `0` on standard run.
+     - Exit code `1` on `--selfcheck-force-failure` (`build/p3.2/selfchecks_negative/sampler_forced_fail.txt`).
+     - Exit code `2` on unwritable/directory target.
+   - Focused execution options: supports `--only fallback`, `--only production-draw`, `--only boundary`, `--only lifecycle`, `--only steady-state`, `--only multi-viewport`, `--only image-gate`.
+
+2. **Steady-State OpenGL Driver Call Elimination**:
+   - Measured across 30 frames with `--profile --benchmark --benchmark-warmup 8 --benchmark-frames 30` in `build/p3.2/selfchecks_positive/steady_state_bench.json`:
+     - `texParameterCalls`: **0** in the tested scene (the measured steady-state scene executes zero texture sampler-parameter calls; figures of tens of thousands per frame are illustrative estimates for larger multi-drawable assets unless directly measured)
+     - `samplerCreations`: **0**
+     - `samplerDeletions`: **0**
+     - `samplerParameterCalls`: **0**
+     - `samplerBinds`: 16 per frame (active `glBindSampler` calls)
+     - `glCalls`: 143 total per frame
+
+3. **Multi-Viewport Scenario Execution**:
+   - Executed dynamic multi-viewport script with differing AA modes (`FXAA` on Viewport 1, `TAA` on Viewport 2) across 35 frames.
+   - Clean execution with 0 crashes, valid non-blank screenshot `frame_multi_viewport.png`, and report `multi_viewport.report.json`.
+
+4. **Visual Correctness & Image Acceptance Gate**:
+   - Fresh candidate startup captures generated for all 6 AA modes (None, MSAA2, MSAA4, MSAA8, FXAA, TAA).
+   - Evaluated against baseline captures:
+     - Mode `none`: total 921,600 px, diff **0 (0.0000%)**, max_diff 0 -> **EXACT EQUALITY MATCH**
+     - Mode `msaa2`: total 921,600 px, diff **0 (0.0000%)**, max_diff 0 -> **EXACT EQUALITY MATCH**
+     - Mode `msaa4`: total 921,600 px, diff **0 (0.0000%)**, max_diff 0 -> **EXACT EQUALITY MATCH**
+     - Mode `msaa8`: total 921,600 px, diff **0 (0.0000%)**, max_diff 0 -> **EXACT EQUALITY MATCH**
+     - Mode `fxaa`: total 921,600 px, diff **0 (0.0000%)**, max_diff 0 -> **EXACT EQUALITY MATCH**
+     - Mode `taa`: total 921,600 px, diff **0 (0.0000%)**, max_diff 0 -> **EXACT EQUALITY MATCH**
+   - Dumped frame `frame_p3_2.png` visually verified per AGENTS.md rule 5.
+
+5. **Regression Protection**:
+   - Full regression suite `run_selfchecks_final.py` passed with expected return codes (0, 1, 2) across all prior self-checks.
+   - Full P3.1 validation suite `scripts/validate_p3_1.py` passed 100% (target allocation, real resize with TAA history invalidation oracle, viewport lifecycle, and dynamic mode switching).
+   - `git diff --check` passed with 0 whitespace errors.
+
+#### 4. Scope & Guardrails Compliance
+
+- P3.2 only implemented.
+- P3.3 (VAO reuse), P3.4 (executor shadow state), and Phase 4 were not started.
+- Scene rebuild frequency was not altered.
+- Standalone single executable architecture and OpenGL 4.1 Core Profile compatibility preserved.
+- Status: **SUBMITTED FOR REVIEW**; no commit or push performed.
+
+#### Independent P3.2 Review Acceptance
+
+P3.2 is accepted for commit following focused review of the final test repairs.
+Reviewer rebuilt Release and matched candidate SHA-256
+`0B3A1EC9A627A2EAC5231F4DA7266F76D601F61F94FE7DB5550227AE263C0701`.
+Independently ran `scripts/validate_p3_2.py --only boundary` (7/7),
+`--only lifecycle` (37/37), and `--only production-draw` (17/17).
+External-function cleanup and renderer-exit cleanup now have independent draw
+sequences. The lifecycle callback uses production loadGltfModel, scene creation,
+command generation, and Renderer::draw; three cycles retain the same five
+sampler handles, and Renderer::uninit deletes them as confirmed by glIsSampler.
+Out-of-range UV readbacks distinguish repeat, clamp, and mirrored repeat.
+Reviewer opened the regenerated patterned frame and ran git diff --check.
+Earlier passing fallback, error-exit, driver-call, startup-image, and AA evidence
+was reused; no broad regression suite or benchmark matrix was repeated.
+No blocking findings remain. No commit or push was performed during review.

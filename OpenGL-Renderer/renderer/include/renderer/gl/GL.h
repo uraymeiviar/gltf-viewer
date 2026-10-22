@@ -78,6 +78,16 @@ public:
     virtual void texImage3D(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLsizei depth, GLint border, GLenum format, GLenum type, const void* data) = 0;
     virtual void texSubImage3D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width, GLsizei height, GLsizei depth, GLenum format, GLenum type, const void* pixels) = 0;
 
+    // Samplers:
+    virtual void genSamplers(GLsizei n, GLuint* samplers) = 0;
+    virtual void deleteSamplers(GLsizei n, const GLuint* samplers) = 0;
+    virtual void bindSampler(GLuint unit, GLuint sampler) = 0;
+    virtual void samplerParameteri(GLuint sampler, GLenum pname, GLint param) = 0;
+    virtual void samplerParameterf(GLuint sampler, GLenum pname, GLfloat param) = 0;
+    virtual void getSamplerParameteriv(GLuint sampler, GLenum pname, GLint* params) = 0;
+    virtual void getSamplerParameterfv(GLuint sampler, GLenum pname, GLfloat* params) = 0;
+    virtual GLboolean isSampler(GLuint sampler) = 0;
+
     // Framebuffers:
     virtual void genFramebuffers(GLsizei n, GLuint* framebuffers) = 0;
     virtual void deleteFramebuffers(GLsizei n, GLuint* framebuffers) = 0;
