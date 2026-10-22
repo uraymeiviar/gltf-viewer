@@ -2,7 +2,7 @@
 
 [Journal index](RENDERER_OPTIMIZATION_JOURNAL.md) · [Reference audit](RENDERER_OPTIMIZATION_REFERENCE.md) · [Validation rules](RENDERER_OPTIMIZATION_VALIDATION.md)
 
-**Status:** In progress. P4.1 PASS ([§12.32](#section-12-32)) and P4.2 PASS ([§12.33](#section-12-33)), committed as `ebd4384`; P4.3 PASS ([§12.34](#section-12-34)), uncommitted; P4.4–P4.7 not started.
+**Status:** In progress. P4.1 PASS ([§12.32](#section-12-32)) and P4.2 PASS ([§12.33](#section-12-33)), committed as `ebd4384`; P4.3 PASS ([§12.34](#section-12-34)), committed as `fab477f`; P4.4–P4.7 not started.
 
 This file contains the phase task list and its implementation/review history. Original section numbers are retained for traceability.
 
@@ -258,7 +258,7 @@ There is no timing claim.
 
 ### 12.34 P4.3 — Playback and Initial-Load Decoupling (2026-10-23)
 
-**Status:** PASS (uncommitted). R2/R3. This was done as two separate changes with separate evidence:
+**Status:** PASS; committed as `fab477f`. R2/R3. This was done as two separate changes with separate evidence:
 P4.3a (playback ticks) and P4.3b (duplicate sync after load).
 
 #### 1. Audit (before editing)

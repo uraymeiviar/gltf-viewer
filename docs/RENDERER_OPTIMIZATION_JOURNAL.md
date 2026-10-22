@@ -2,7 +2,7 @@
 
 **Application:** Glider · **Branch:** `msfs-gltf` · **Updated:** 2026-10-23
 
-Phases 0–3 are complete. Phase 3 was committed as `3c86ff7`. Phase 4 is in progress: P4.1 and P4.2 passed and were committed as `ebd4384`; P4.3 passed (uncommitted).
+Phases 0–3 are complete. Phase 3 was committed as `3c86ff7`. Phase 4 is in progress: P4.1 and P4.2 passed and were committed as `ebd4384`; P4.3 passed and was committed as `fab477f`.
 Task lists, dependencies, exit gates, and implementation evidence live in the phase files below. Update the relevant phase file when working on a task.
 
 | Phase | Tasks and implementation history | Status |
