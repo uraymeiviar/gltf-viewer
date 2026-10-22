@@ -29,6 +29,8 @@ public:
     std::optional<bool> getCullingEnabled() const { return m_cullingEnabled; }
     std::optional<gl::Culling> getCullFace() const { return m_cullFace; }
     std::optional<gl::Winding> getActiveWinding() const { return m_activeWinding; }
+    std::optional<bool> getDepthTestEnabled() const { return m_depthTestEnabled; }
+    std::optional<GLenum> getDepthFunc() const { return m_depthFunc; }
 
 private:
     void draw(const Command& command);
@@ -41,7 +43,7 @@ private:
     void setupCulling(const Command& command);
     void setupPolygonMode(const Command& command);
     void setupFrontFace(const Command& command);
-    void setupDepthTest(const Command& command) const;
+    void setupDepthTest(const Command& command);
     void setupScissorTest(const Command& command) const;
     void readPixel(const Command& command) const;
 
@@ -53,6 +55,8 @@ private:
     std::optional<bool> m_cullingEnabled = std::nullopt;
     std::optional<gl::Culling> m_cullFace = std::nullopt;
     std::optional<gl::Winding> m_activeWinding = std::nullopt;
+    std::optional<bool> m_depthTestEnabled = std::nullopt;
+    std::optional<GLenum> m_depthFunc = std::nullopt;
     GLint m_maxBoundTextureUnit = -1;
     gl::SamplerCache m_samplerCache;
 };

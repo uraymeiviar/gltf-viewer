@@ -52,6 +52,8 @@ struct FrameCounters {
     uint64_t cullFaceEnableCalls = 0;
     uint64_t cullFaceSelectionCalls = 0;
     uint64_t frontFaceCalls = 0;
+    uint64_t depthTestEnableCalls = 0;
+    uint64_t depthFuncCalls = 0;
 
     uint64_t bufferUploads = 0;
     uint64_t bufferUploadBytes = 0;
@@ -209,6 +211,16 @@ inline void countCullFaceSelection(uint64_t count = 1)
 inline void countFrontFace(uint64_t count = 1)
 {
     if (g_countingEnabled) frameCounters().frontFaceCalls += count;
+}
+
+inline void countDepthTestEnable(uint64_t count = 1)
+{
+    if (g_countingEnabled) frameCounters().depthTestEnableCalls += count;
+}
+
+inline void countDepthFunc(uint64_t count = 1)
+{
+    if (g_countingEnabled) frameCounters().depthFuncCalls += count;
 }
 
 inline void countBufferUpload(uint64_t bytes)

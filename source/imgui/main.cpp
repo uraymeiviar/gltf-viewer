@@ -54,6 +54,7 @@
 #include "imgui/VaoTest.h"
 #include "imgui/PolygonModeTest.h"
 #include "imgui/CullWindingTest.h"
+#include "imgui/DepthTest.h"
 #include "imgui/BoundingBoxRenderer.h"
 #include "imgui/Theme.h"
 #include "imgui/IconsMaterialDesignIcons.h"
@@ -2229,6 +2230,8 @@ int main(int argc, char** argv)
     std::string polygonModeSelfCheckCase = "all";
     std::string cullWindingSelfCheckOutputPath;
     std::string cullWindingSelfCheckCase = "all";
+    std::string depthSelfCheckOutputPath;
+    std::string depthSelfCheckCase = "all";
     bool selfCheckForceFailure = false;
     std::string scenarioReportPath;
     std::string scenarioName = "default";
@@ -2435,6 +2438,10 @@ int main(int argc, char** argv)
             cullWindingSelfCheckOutputPath = argv[++i];
         } else if (arg == "--cull-winding-selfcheck-case" && i + 1 < argc) {
             cullWindingSelfCheckCase = argv[++i];
+        } else if (arg == "--depth-selfcheck" && i + 1 < argc) {
+            depthSelfCheckOutputPath = argv[++i];
+        } else if (arg == "--depth-selfcheck-case" && i + 1 < argc) {
+            depthSelfCheckCase = argv[++i];
         } else if (arg == "--force-double-sided") {
             activeViewport->settings.forceDoubleSided = true;
         } else if (arg == "--invert-winding") {
@@ -2639,6 +2646,21 @@ int main(int argc, char** argv)
                                                  glRenderer.get(), commandGenerator.get(), reloadAndDraw),
             cullWindingSelfCheckOutputPath,
             "culling and winding cache");
+    }
+
+    if (!depthSelfCheckOutputPath.empty()) {
+        auto reloadAndDraw = [&](const std::string& path) -> bool {
+            bool ok = loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, isSceneDirty);
+            if (!ok || activeScene == nullptr) return false;
+            auto [scene, reverseMapping] = gltfLayer->createScene(activeScene);
+            commandGenerator->update(scene);
+            return glRenderer->draw({ commandGenerator.get() });
+        };
+        return writeSelfCheckReport(
+            ux3d::imgui::runDepthSelfCheck(gladGL.get(), selfCheckForceFailure, depthSelfCheckCase,
+                                           glRenderer.get(), commandGenerator.get(), reloadAndDraw),
+            depthSelfCheckOutputPath,
+            "depth test and depth func cache");
     }
 
     if (!s_isolatedState) {

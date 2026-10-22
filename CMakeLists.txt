@@ -116,6 +116,8 @@ set(GLIDER_SOURCES
 	"header/imgui/PolygonModeTest.h"
 	"source/imgui/CullWindingTest.cpp"
 	"header/imgui/CullWindingTest.h"
+	"source/imgui/DepthTest.cpp"
+	"header/imgui/DepthTest.h"
 )
 
 find_package(Python3 COMPONENTS Interpreter QUIET)

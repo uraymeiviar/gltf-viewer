@@ -1340,7 +1340,7 @@ until retention/truncation/Copy behavior is explicitly chosen; it is not necessa
 - [ ] **P3.4 — Executor shadow state (§3.3).** Introduce one state category per substep. Invalidate at
   external-function commands, renderer boundaries and context changes. Test grid/bounds, ImGui, AA,
   transparency/transmission, wireframe and multiple viewports interleaved with scene rendering.
-  *P3.4.1 (Polygon mode), P3.4.2 (Culling state), and P3.4.3 (Front-face winding) implemented and validated in §12.28 and §12.29; overall P3.4 remains open for depth and blending.*
+  *P3.4.1 (Polygon mode), P3.4.2 (Culling state), P3.4.3 (Front-face winding), and P3.4.4 (Depth test enablement and depth function) implemented and validated in §12.28, §12.29, and §12.30; overall P3.4 remains open for blending.*
 
 **Exit gate:** diagnostic build and frame comparisons pass the render-state matrix; repeated
 open/close/reload cycles show no accumulating owned GL objects. Intended driver-call/creation counts
@@ -5282,3 +5282,154 @@ P3.4.1 polygon, P3.3 VAO, and P3.2 sampler `--only boundary` checks passed durin
 this review; subsequent edits only adjusted this new boundary fixture, so those
 results and visual evidence were reused. No broad regression matrix was run.
 No blocking findings remain. Overall P3.4 stays open. No commit or push performed.
+
+### 12.30 P3.4.4 — CommandExecutor Depth Test Enablement and Depth Function Cache (2026-10-22)
+
+#### 1. Context & Accepted Baseline
+
+- **Accepted Baseline**: Commit `46ae7bd` ("Cache culling and winding state with focused rendering validation").
+- **Task Scope**: Complete batch implementation of P3.4.4 (depth-test enablement and depth-function caching in `CommandExecutor`). Suppress redundant `glEnable(GL_DEPTH_TEST)`, `glDisable(GL_DEPTH_TEST)`, and `glDepthFunc(GL_LEQUAL)` driver calls across consecutive commands while strictly preserving rendering semantics. Invalidate cache at `CommandExecutor::resetState()`, `Renderer::draw()` boundaries, `CommandExecutor::init()`, and `CommandTag::ExternalFunction`.
+- **Exclusions**: Do not cache blending, depth write masks, programs, textures, samplers, framebuffers, or other state categories in this batch. Do not start Phase 4. Preserve scene rebuild frequency, draw ordering, shaders, rendering quality, standalone single-executable architecture, and OpenGL 4.1 Core Profile compatibility. Preserve accepted P3.2 sampler, P3.3 VAO, P3.4.1 polygon-mode, and P3.4.2/P3.4.3 culling/winding caching behavior. Do not commit or push. Stop for review when complete.
+
+#### 2. Ownership, Mutation Boundaries & Architecture
+
+1. **State Ownership & Invalidation in CommandExecutor**:
+   - `CommandExecutor` tracks depth state via two distinct shadow variables:
+     ```cpp
+     std::optional<bool> m_depthTestEnabled = std::nullopt;
+     std::optional<GLenum> m_depthFunc = std::nullopt;
+     ```
+   - **Depth Caching Logic (`setupDepthTest`)**:
+     - When depth testing is requested (`command.depthTestEnabled == true`):
+       - If `m_depthTestEnabled` is unset or `false`, updates `m_depthTestEnabled = true` and issues `glEnable(GL_DEPTH_TEST)`.
+       - If `m_depthFunc` is unset or not `GL_LEQUAL`, updates `m_depthFunc = GL_LEQUAL` and issues `glDepthFunc(GL_LEQUAL)`.
+     - When depth testing is disabled (`command.depthTestEnabled == false`):
+       - If `m_depthTestEnabled` is unset or `true`, updates `m_depthTestEnabled = false` and issues `glDisable(GL_DEPTH_TEST)`.
+       - `m_depthFunc` is untouched. Disabling depth test in GL does not change the driver's depth function. Crucially, if `m_depthFunc` was `nullopt` after invalidation, it remains `nullopt` (an initially disabled command does not falsely mark the depth function as known). When subsequently re-enabled, `m_depthFunc` is recognized as unknown and `glDepthFunc(GL_LEQUAL)` is issued.
+   - **Boundary Invalidation Points**:
+     - `CommandExecutor::init()`: Resets `m_depthTestEnabled` and `m_depthFunc` to `std::nullopt`. Invoked during `Renderer::init()`.
+     - `CommandExecutor::resetState()`: Resets both shadow variables to `std::nullopt`. Invoked at `Renderer::draw()` entry, on all error returns, and upon draw completion.
+     - `CommandTag::ExternalFunction`: Resets both shadow variables to `std::nullopt` prior to executing callbacks.
+
+2. **External GL Mutations Isolated**:
+   - Passes in `OpenGL-Renderer/` (`OpaquePass`, `TransparentPass`, `TransmissivePass`, `OutlinePass`, etc.) emit `Command`s. No direct GL depth mutations occur inside passes.
+   - Dear ImGui, AntiAliasing (FXAA/TAA), BoundingBoxRenderer, and GridRenderer passes mutate GL depth state outside the executor.
+   - Because `CommandExecutor` invalidates shadow state at `Renderer::draw()` entry/exit and `CommandTag::ExternalFunction`, external mutations cannot corrupt executor state.
+   - Context ownership: single OpenGL context on the GLFW main thread; the application shares its `Renderer` and `CommandExecutor` across viewport rendering. Invalidation on entry/exit prevents cached assumptions from leaking between viewport draws.
+
+3. **Diagnostic Profiling Instrumentation**:
+   - Extended `FrameCounters` in `header/imgui/Profiling.h` and `source/imgui/Profiling.cpp` with:
+     - `uint64_t depthTestEnableCalls` (tracked in `GladGL::enable` and `GladGL::disable` for `GL_DEPTH_TEST`).
+     - `uint64_t depthFuncCalls` (tracked in `GladGL::depthFunc`).
+   - Exposed inspector methods on `CommandExecutor`: `getDepthTestEnabled()` and `getDepthFunc()`.
+
+#### 3. Verification & Validation Evidence
+
+1. **Diagnostic Self-Check Suite (`--depth-selfcheck`)**:
+   - 74 total assertions evaluated across 4 core sections, **74 PASS, 0 FAIL** (exit code 0):
+     - **Section 1: Call Counts and Mode Transitions (30 assertions)**:
+       - Exercised 9-command transition sequence:
+         - Cmd 1 (`Enabled`): issued `glEnable(GL_DEPTH_TEST)` and `glDepthFunc(GL_LEQUAL)` (counts 1, 1). Cached as `true` and `GL_LEQUAL`.
+         - Cmd 2 (`Enabled` -> `Enabled`): redundant draw, both calls suppressed (counts remain 1, 1).
+         - Cmd 3 (`Enabled` -> `Disabled`): issued `glDisable(GL_DEPTH_TEST)` (count 2), depthFunc untouched (remains 1).
+         - Cmd 4 (`Disabled` -> `Disabled`): redundant disable suppressed (count remains 2, depthFunc 1).
+         - Cmd 5 (`Disabled` -> `Enabled`): re-enable issued `glEnable` (count 3), depthFunc already known as `GL_LEQUAL` suppressed (remains 1).
+         - Invalidation: `resetState()` invalidated both shadow variables to `nullopt`.
+         - Cmd 6 (`Post-Reset Enabled`): first draw re-issued `glEnable` (count 4) and `glDepthFunc` (count 2).
+         - Invalidation: `resetState()` invalidated both shadow variables to `nullopt`.
+         - Cmd 7 (`Post-Reset Disabled`): issued `glDisable` (count 5), depthFunc remains `nullopt` (count 2).
+         - Cmd 8 (`Unknown DepthFunc Re-Enabled`): issued `glEnable` (count 6) and `glDepthFunc` (count 3).
+         - Callback: `ExternalFunction` callback corrupted GL state; shadow variables reset to `nullopt`.
+         - Cmd 9 (`Post-Callback Restoration`): re-established `glEnable` (count 7) and `glDepthFunc` (count 4). Driver verified via GL queries (`GL_TRUE`, `GL_LEQUAL`).
+     - **Section 2: Depth Correctness with Real FBO (5 assertions)**:
+       - Evaluated on offscreen 64x64 RGBA8 FBO with DEPTH24 renderbuffer attachment.
+       - *Pass A (Depth Enabled)*: Nearer Green ($Z=0.0$) remains visible; Far Red ($Z=0.5$) rejected. Readback center pixel is `[0, 255, 0, 255]`.
+       - *Pass B (Depth Disabled)*: Far Red overwrites Near Green. Readback center pixel is `[255, 0, 0, 255]`.
+       - *Pass C (Depth Re-Enabled)*: Occlusion restored. Readback center pixel is `[0, 255, 0, 255]`.
+       - *Pass D (Equal Depth GL_LEQUAL)*: Near Green ($Z=0.0$) followed by Equal Blue ($Z=0.0$). Under `GL_LEQUAL`, $0.0 \le 0.0$ is TRUE; Blue passes and overwrites Green (`[0, 0, 255, 255]`), distinguishing `GL_LEQUAL` from `GL_LESS`.
+       - *Pass E (Suppressed Redundant Commands)*: Output preserved identically while redundant calls suppressed.
+     - **Section 3: Boundary Isolation (9 assertions)**:
+       - `ExternalFunction`: callback corrupted driver state (`glDisable`, `glDepthFunc(GL_GREATER)`); confirmed executor shadow state invalidated; subsequent draw re-establishes driver state and pixel readback.
+       - `Renderer::draw`: inter-frame GL state corruption between renderer calls does not leak; second `Renderer::draw` succeeded with 0 GL errors, restored `GL_DEPTH_TEST` and `GL_DEPTH_FUNC`, and left sampler 0 unbound.
+     - **Section 4: Application Integration Case (5 assertions)**:
+       - Rendered `HelloCube.glb` cleanly with 0 GL errors; driver state verified post-draw (`GL_DEPTH_TEST == GL_TRUE`, `GL_DEPTH_FUNC == GL_LEQUAL`), sampler unit 0 unbound.
+   - **Negative Testing**:
+     - `--selfcheck-force-failure`: returned exit code 1 with valid `Result: FAIL` report.
+     - Unwritable report destination (`Z:/nonexistent/...`): returned exit code 2.
+
+2. **Automated Validation Runner (`scripts/validate_p3_4_4.py`)**:
+   - `python scripts/validate_p3_4_4.py`: **ALL CHECKS PASSED** (exit code 0).
+   - Focused runner cases verified individually:
+     - `--only transitions`: PASS (exit code 0)
+     - `--only correctness`: PASS (exit code 0)
+     - `--only boundary`: PASS (exit code 0)
+     - `--only integration`: PASS (exit code 0)
+     - `--only benefit`: PASS (exit code 0; unlinked pre-existing report, executed fresh binary run, strictly validated report)
+     - `--only parser`: PASS (exit code 0; 5/5 synthetic parser tests passed)
+     - `--only visual-dumps`: PASS (exit code 0; captured `depth_hellocube.jpg`, 1600x900)
+
+3. **Call-Count Reduction Quantification**:
+   - In the verified 9-command transition sequence:
+     - Enable/disable calls: 7 actual calls vs 9 baseline (2 calls suppressed).
+     - Depth function calls: 4 actual calls vs 6 baseline (2 calls suppressed).
+     - Total: 11 actual calls vs 15 baseline calls (**26.7% reduction / 4 calls suppressed**).
+   - In an uninterrupted sequence (e.g. 10 consecutive enabled commands):
+     - Enable/disable calls: 1 actual vs 10 baseline (9 calls suppressed).
+     - Depth function calls: 1 actual vs 10 baseline (9 calls suppressed).
+     - Total: 2 actual vs 20 baseline (**90.0% reduction / 18 calls suppressed**).
+   - Suppression applies strictly to uninterrupted sequences requesting matching depth state after invalidation. Intervening transitions, callbacks, or renderer boundaries re-issue driver calls as required.
+
+4. **Shared Boundary Regressions Check**:
+   - `python scripts/validate_p3_4.py --only benefit`: PASS (exit code 0).
+   - `python scripts/validate_p3_4_1.py --only benefit`: PASS (exit code 0).
+   - `python scripts/validate_p3_3.py --only boundary`: PASS (exit code 0).
+   - `python scripts/validate_p3_2.py --only boundary`: PASS (exit code 0).
+
+5. **Linter & Code Standards**:
+   - `git diff --check` passed with 0 whitespace errors.
+   - Candidate binary SHA-256: `6A3789E8D08B492620FDA5968E38DE73F30451558DFBDEA3920A41209F81D0D8`.
+
+#### 4. Newly Run Evidence vs Reused Evidence
+
+- **Newly Run Evidence for P3.4.4**:
+  - Full automated runner: `python scripts/validate_p3_4_4.py` (exit code 0).
+  - All focused cases: `transitions`, `correctness`, `boundary`, `integration`, `benefit`, `parser`, `visual-dumps`.
+  - Negative exit-code tests: exit code 1 on forced failure, exit code 2 on unwritable path.
+  - Shared boundary regression checks: P3.4 benefit, P3.4.1 benefit, P3.3 VAO boundary, P3.2 sampler boundary.
+  - Candidate binary hash `6A3789E8D08B492620FDA5968E38DE73F30451558DFBDEA3920A41209F81D0D8` and `git diff --check`.
+- **Reused Evidence**:
+  - Independent acceptance of baseline `46ae7bd` (P3.4.2 + P3.4.3).
+  - Full AA matrix captures and long steady-state benchmark runs from earlier phases.
+
+#### 5. Scope & Guardrails Compliance
+
+- Implementation strictly limited to P3.4.4 (depth-test enablement and depth function).
+- Overall P3.4 remains open; blending caching deferred.
+- Phase 4 was not started.
+- Scene rebuild frequency, draw ordering, shaders, and rendering quality remain unchanged.
+- Standalone single-executable architecture and OpenGL 4.1 Core Profile compatibility preserved.
+- Status: **SUBMITTED FOR REVIEW**; no commit or push performed.
+
+#### 6. Independent review acceptance (2026-10-22)
+
+P3.4.4 is accepted for commit. Reviewer restored the pre-existing unconditional
+checkGLError diagnostic in setupDepthTest, removed duplicate manual program
+handle deletion from the RAII-owned test fixtures, made the runner use
+sys.executable for child scripts, and corrected the journal's shared renderer
+ownership description. The depth cache algorithm itself was unchanged.
+
+Final Release executable SHA-256:
+`D08310EB4AD0E937072015D4940D8076040BB34A196F6AFDE2E193E2B775964F`.
+Reviewer ran scripts/validate_p3_4_4.py successfully: depth self-check and negative
+exit paths, parser cases, fresh benefit transitions, application frame capture,
+and the runner's narrow existing-substep checks. Opened the regenerated
+HelloCube image. The image is visual smoke evidence, not a baseline pixel
+comparison. Controlled FBO readbacks establish occlusion, disabled-depth output,
+equal-depth LEQUAL behavior, and restoration; renderer state queries verify
+inter-frame restoration. The measured sequence uses 11 calls versus 15 inferred
+baseline calls; the ten-consecutive-command example is an analytical estimate,
+not a measured application speedup. git diff --check passed.
+
+No blocking findings remain. No broad AA or performance matrix was repeated.
+Blending and the combined P3.4 integration/exit review remain future work.
+No commit or push was performed during this review.

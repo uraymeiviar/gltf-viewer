@@ -264,6 +264,8 @@ json countersToJson(const FrameCounters& counters)
         { "cullFaceEnableCalls", counters.cullFaceEnableCalls },
         { "cullFaceSelectionCalls", counters.cullFaceSelectionCalls },
         { "frontFaceCalls", counters.frontFaceCalls },
+        { "depthTestEnableCalls", counters.depthTestEnableCalls },
+        { "depthFuncCalls", counters.depthFuncCalls },
         { "bufferUploads", counters.bufferUploads },
         { "bufferUploadBytes", counters.bufferUploadBytes },
         { "bufferAllocations", counters.bufferAllocations },

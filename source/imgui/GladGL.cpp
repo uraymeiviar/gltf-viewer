@@ -83,6 +83,8 @@ void GladGL::enable(GLenum cap)
     ux3d::imgui::profiling::countGlCall();
     if (cap == GL_CULL_FACE) {
         ux3d::imgui::profiling::countCullFaceEnable();
+    } else if (cap == GL_DEPTH_TEST) {
+        ux3d::imgui::profiling::countDepthTestEnable();
     }
     glEnable(cap);
 }
@@ -92,6 +94,8 @@ void GladGL::disable(GLenum cap)
     ux3d::imgui::profiling::countGlCall();
     if (cap == GL_CULL_FACE) {
         ux3d::imgui::profiling::countCullFaceEnable();
+    } else if (cap == GL_DEPTH_TEST) {
+        ux3d::imgui::profiling::countDepthTestEnable();
     }
     glDisable(cap);
 }
@@ -260,6 +264,7 @@ void GladGL::blendEquation(GLenum mode)
 void GladGL::depthFunc(GLenum func)
 {
     ux3d::imgui::profiling::countGlCall();
+    ux3d::imgui::profiling::countDepthFunc();
     glDepthFunc(func);
 }
 

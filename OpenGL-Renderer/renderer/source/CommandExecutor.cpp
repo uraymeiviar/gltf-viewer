@@ -21,6 +21,8 @@ void ux3d::renderer::CommandExecutor::init()
     m_cullingEnabled.reset();
     m_cullFace.reset();
     m_activeWinding.reset();
+    m_depthTestEnabled.reset();
+    m_depthFunc.reset();
 }
 
 void ux3d::renderer::CommandExecutor::resetState()
@@ -31,6 +33,8 @@ void ux3d::renderer::CommandExecutor::resetState()
     m_cullingEnabled.reset();
     m_cullFace.reset();
     m_activeWinding.reset();
+    m_depthTestEnabled.reset();
+    m_depthFunc.reset();
 }
 
 void ux3d::renderer::CommandExecutor::unbindSamplers()
@@ -71,6 +75,8 @@ void ux3d::renderer::CommandExecutor::execute(const Command& command)
         m_cullingEnabled.reset();
         m_cullFace.reset();
         m_activeWinding.reset();
+        m_depthTestEnabled.reset();
+        m_depthFunc.reset();
         command.externalFunction();
         break;
     default:
@@ -228,13 +234,22 @@ void ux3d::renderer::CommandExecutor::setupFrontFace(const Command& command)
     }
 }
 
-void ux3d::renderer::CommandExecutor::setupDepthTest(const Command& command) const
+void ux3d::renderer::CommandExecutor::setupDepthTest(const Command& command)
 {
     if (command.depthTestEnabled) {
-        m_gl->enable(GL_DEPTH_TEST);
-        m_gl->depthFunc(GL_LEQUAL);
+        if (!m_depthTestEnabled.has_value() || !m_depthTestEnabled.value()) {
+            m_depthTestEnabled = true;
+            m_gl->enable(GL_DEPTH_TEST);
+        }
+        if (!m_depthFunc.has_value() || m_depthFunc.value() != GL_LEQUAL) {
+            m_depthFunc = GL_LEQUAL;
+            m_gl->depthFunc(GL_LEQUAL);
+        }
     } else {
-        m_gl->disable(GL_DEPTH_TEST);
+        if (!m_depthTestEnabled.has_value() || m_depthTestEnabled.value()) {
+            m_depthTestEnabled = false;
+            m_gl->disable(GL_DEPTH_TEST);
+        }
     }
 
     checkGLError(m_gl, "Failed to set depth test");
