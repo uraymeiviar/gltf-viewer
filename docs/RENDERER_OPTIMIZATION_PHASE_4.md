@@ -2,7 +2,7 @@
 
 [Journal index](RENDERER_OPTIMIZATION_JOURNAL.md) · [Reference audit](RENDERER_OPTIMIZATION_REFERENCE.md) · [Validation rules](RENDERER_OPTIMIZATION_VALIDATION.md)
 
-**Status:** In progress. P4.1 PASS ([§12.32](#section-12-32)) and P4.2 PASS ([§12.33](#section-12-33)), committed as `ebd4384`; P4.3 PASS ([§12.34](#section-12-34)), committed as `fab477f`; P4.4 PASS ([§12.35](#section-12-35)), P4.5 PASS ([§12.36](#section-12-36)) the wireframe-overlay fix ([§12.37](#section-12-37)) and P4.6a/b ([§12.38](#section-12-38); command-list layer deferred) and P4.7 PASS ([§12.39](#section-12-39)), uncommitted. The exit gate is not yet met: Material, Light, SceneCamera, Metadata and Extension producers lack scripted transition tests.
+**Status:** Complete (P4.4–P4.7 and the overlay fix committed in `0dd80f3`; P4.6c and the exit-gate review uncommitted). All tasks P4.1–P4.7 PASS; exit gate PASS ([§12.40](#section-12-40)). Committed: P4.1/P4.2 `ebd4384`, P4.3 `fab477f`.
 
 This file contains the phase task list and its implementation/review history. Original section numbers are retained for traceability.
 
@@ -32,12 +32,12 @@ on-demand rendering: stale caches are easier to detect while all passes still ex
   per-viewport overrides. Test two viewports with different modes, winding and culling. Keep existing
   shader variants initially; dynamic debug-mode uniforms are a separate P8.2 experiment.
   *Implemented and validated in [§12.36](#section-12-36).*
-- [ ] **P4.6 — Scene and command caches ([§3.5](RENDERER_OPTIMIZATION_REFERENCE.md#section-3-5), [§4.1](RENDERER_OPTIMIZATION_REFERENCE.md#section-4-1)).** After P4.1/P4.3/P4.5, cache one layer at a time:
+- [x] **P4.6 — Scene and command caches ([§3.5](RENDERER_OPTIMIZATION_REFERENCE.md#section-3-5), [§4.1](RENDERER_OPTIMIZATION_REFERENCE.md#section-4-1)).** After P4.1/P4.3/P4.5, cache one layer at a time:
   static descriptors, defines/program selection, then full command lists. Include ownership, pass,
   settings and layout revisions. Preserve transparent sorting and per-viewport camera data. Validate
   transmission material/pass lifetimes and wireframe overlay before reusing those command sequences.
-  *P4.6a (program selection) and P4.6b (picking descriptors) PASS; the full command-list layer is
-  DEFERRED with measurements, so the task stays open. See [§12.38](#section-12-38).*
+  *P4.6a (program selection), P4.6b (picking descriptors) and P4.6c (full command lists) PASS.
+  See [§12.38](#section-12-38).*
 - [x] **P4.7 — Dirty subtree/skin updates ([§3.25](RENDERER_OPTIMIZATION_REFERENCE.md#section-3-25)).** After P4.3, independently add subtree propagation,
   transform/normal reuse, morph dirtiness and joint upload suppression. Test animated ancestors,
   attached cameras/lights, non-uniform scales and roots shared by multiple skins.
@@ -46,6 +46,7 @@ on-demand rendering: stale caches are easier to detect while all passes still ex
 **Exit gate:** every revision producer has a targeted transition test; unchanged frames avoid intended
 rebuilds while each relevant change refreshes exactly the affected data. No stale pointers or output
 in reload/scene-switch/animation/multi-viewport sequences. Full frame comparisons remain mandatory.
+*Exit gate PASS ([§12.40](#section-12-40)), including P4.6c.*
 
 <a id="section-12-32"></a>
 
@@ -572,8 +573,8 @@ separate quality review of overlay line appearance was done.
 
 ### 12.38 P4.6 — Scene and Command Caches (2026-10-23)
 
-**Status:** PARTIAL (uncommitted). Layers P4.6a (program selection) and P4.6b (picking descriptors) PASS. The
-full command-list layer is **DEFERRED**, with the measurement in §4. The task checkbox stays open.
+**Status:** PASS. Layers P4.6a (program selection) and P4.6b (picking descriptors) were committed in `0dd80f3`.
+The full command-list layer, first deferred in §4, was implemented as P4.6c (§6).
 
 #### 1. Audit (before editing)
 
@@ -653,6 +654,47 @@ P4.6a and P4.6b PASS. The command-list layer is DEFERRED, so P4.6 stays unchecke
 - P4.6a: the `Defines` content hash and define fast path, `CommandMapping` `selectProgram`/`buildProgram`
   and its cache, the `getCommandMapping` accessor, and the flag and counters.
 - P4.6b: `Material::operator=` and the `PickingRenderLayer` pool, id vector and skip-before-copy.
+
+#### 6. P4.6c — Full command-list layer (2026-10-23, after the §4 deferral was revisited)
+
+**Status:** PASS (uncommitted). The user accepted the risk; any regression is rolled back by reverting this layer.
+
+- **Cache.** `CommandMapping` keeps one cached `CmdDesc` per (mesh, material, camera). A drawable's command is
+  reused when its `CommandSignature` and shader names match. The signature records every input
+  `makeCommand` reads:
+  - render pass, environment, light-uniform storage, and the data pointers and sizes of the mesh and
+    material uniform, block and sampler vectors;
+  - morph and joint textures, index and vertex info, and the mesh and material define content hashes;
+  - render settings, tone mapping, IBL, punctual lights and light count;
+  - culling, winding, polygon mode and topology.
+
+  Commands only hold pointers into those objects, so equal addresses and states rebuild an identical
+  command. On a hit only the camera-distance sort key and the vertex layout lookup are refreshed. Entries
+  unused for 64 updates are evicted. `CommandGenerator::m_commands` now lists pointers to cached commands,
+  and `clearVertexLayoutCache` also clears the command cache.
+- **Stable addresses.** Steady frames first still missed for picking commands and transmission duplicates,
+  because their render passes and duplicate materials were recreated on every call. Picking render-pass
+  copies (pooled per source pass) and transmission duplicate materials and passes (pooled by index) are now
+  refreshed by assignment instead. Their contents equal fresh copies (base `RenderPass` slices, as before).
+- **Signature cost.** The signature reuses the program inputs without copying the shader names.
+- **Diagnostics.** `--disable-command-caches` also disables this cache. UI snapshots gain
+  `commandCacheHits`/`commandCacheMisses`.
+
+Validation against the binary just before P4.6c (`build/p4.6c/pre`, same default environment). The final
+binary is `4E6CBF74…`.
+
+| Check | Result |
+|---|---|
+| `validate_p4_6.py` equivalence (debug modes, picking, wireframe overlay, split viewports, Fox and morph toggles, reloads) | 36/36. Screenshots byte-identical to pre and to uncached. Steady frames: 276, 552, 552 and 52 command-cache hits with **0 misses**. Uncached runs never hit. |
+| `validate_p4_6.py` picking (1,600 drawables, 36 clicks) | 39/39; 25 distinct nodes, identical to pre |
+| `validate_p4_7.py` equivalence (hierarchy, leaf/root grids, morph/skin toggles, Fox, pointer) | 61/61, identical to pre and to no-reuse |
+| `validate_p4_exit_gate.py` (all producers, all-shortcuts-off reference) | 93/93 |
+| `--revision-selfcheck` | 85/85 |
+| Timing, 1,600 drawables, 5 alternating pairs vs pre | `commands.generate` 1.67–1.77 → 1.15–1.29 ms (median −30.3%, 5/5, noise 5.7%). CPU frame 14.2–14.8 → 13.9–14.6 ms (+1.8%, within noise). |
+
+Limits: the gain is small, as predicted in §4. Most of the remaining frame is GL submission (`draw.submit`),
+outside Phase 4. The cache relies on address and state equality, so an object freed and reallocated at the
+same address with identical state reproduces an identical command; that case is correct by construction.
 
 <a id="section-12-39"></a>
 
@@ -737,4 +779,77 @@ PASS. Rollback boundaries:
 - P4.7b: the weight push gating and cleaning.
 - P4.7c: the `Skin` upload record.
 - The flag, counters, fixtures and `scripts/validate_p4_7.py`.
+
+<a id="section-12-40"></a>
+
+### 12.40 Phase 4 Exit-Gate Review (2026-10-23)
+
+**Status:** Producer and cumulative checks PASS on the current binary (`BCD9E2F2…`, after the default-environment
+switch in `ab8d174`). The only open item is the P4.6 full command-list layer ([§12.38 §4](#section-12-38)).
+
+#### 1. Every revision producer has a targeted transition test
+
+`python scripts/validate_p4_exit_gate.py` runs one real-UI step per producer on
+`resources/test_models/hierarchy_animation_fixture.gltf` at 1920×1080 (so all Viewport Settings tabs fit),
+with `--fixed-frame-time 0.05`. The fixture now also carries `KHR_materials_variants` (variant "Alt") and an
+unknown vendor extension, `EXT_glider_test`. The same script runs a second time on the **same binary** with
+every Phase 4 shortcut disabled (`--force-full-sync --disable-command-caches --disable-transform-reuse`).
+Each step must:
+- advance the expected kind's revision;
+- resynchronise the renderer for kinds that need it, and skip the rebuild for Selection, ViewCamera,
+  AnimationTime and load-synced Topology;
+- produce a screenshot byte-identical to the all-shortcuts-off reference;
+- change the screen where the change is visible.
+
+| Kind | Real producer exercised | Result |
+|---|---|---|
+| Material | Resources variant rows "Alt" and "Default"; Material Inspector base-colour red channel | PASS, visible |
+| Light | Light Inspector intensity 40 → 400 | PASS, visible |
+| SceneCamera | Camera Inspector vertical-FoV slider | PASS (not visible: the viewport isn't looking through that camera) |
+| Metadata | Node Inspector rename | PASS (the hierarchy label changes) |
+| Extension | Extension Inspector `EXT_glider_test.enabled` checkbox | PASS (no render effect) |
+| RenderSettings | Viewport Settings IBL off, punctual lights off, both back on, skybox off | PASS, visible |
+| ViewportSettings | Force double-sided, invert winding, wireframe overlay (Render Mode tab) | PASS. Overlay and winding are visible; double-sided isn't visible on closed cubes. |
+| Visibility | Hierarchy eye toggle | PASS, visible |
+| Transform | Node Inspector translation | PASS, visible |
+| AnimationTime | Playback (27 ticks) | PASS, visible, with no rebuild |
+| AnimationSet | Status-bar clip toggle off | PASS, visible |
+| Topology | Reload | PASS, visible. The load synchronises itself, with no second rebuild. |
+
+The result is 93/93 checks, run twice. Earlier suites covered the remaining kinds with real producers: Selection
+(viewport, hierarchy, Resources, Validation; §12.33), ViewCamera (focus, attach/detach, orthographic, FoV;
+§12.33 §6) and ViewportLayout (`--create-viewport-cam`; §12.34).
+
+#### 2. Unchanged frames avoid rebuilds; changes refresh exactly the affected data
+
+Counter evidence from §12.32–§12.39:
+- Idle frames run 0 syncs.
+- Selection and camera changes run 0 syncs (§12.33).
+- Playback applies the pose with 0 rebuilds (§12.34).
+- Bounds caches report 0 computations and 2 hits per idle frame (§12.35).
+- Shared overrides re-apply only on a change (§12.36).
+- Program-cache misses are 0 in steady state (§12.38).
+- The transform traversal recomputes only changed subtrees: 13 of 41,600 node visits with one animated
+  leaf (§12.39).
+
+#### 3. No stale pointers or output
+
+Reload A→B→A, reload while attached to a camera, two live side-by-side viewports with different
+culling/winding/modes, playback of skinned, morphed, pointer-animated and hierarchical fixtures, picking
+across 1,600 drawables, and transmission with the wireframe overlay were all compared byte-for-byte with
+pre-change binaries or with same-binary A/B references (§12.34–§12.39). Viewport closure is the only
+lifecycle covered by visibility toggling; runtime viewport destruction is not a viewer feature (§12.15).
+
+#### 4. Full frame comparisons and the environment switch
+
+All Phase 4 equivalence evidence up to `0dd80f3` used the old default environment (`footprint_court.hdr`).
+Commit `ab8d174` changed the default environment, so new frames are no longer comparable to the archived
+pre-change binaries. The same-binary A/B switches remain the reference from now on. The cross-binary
+scripts (`validate_p4_1`…`p4_7`) are historical evidence for `0dd80f3`. Rerunning them against older
+binaries requires both builds to load the same environment.
+
+#### 5. Remaining Phase 4 item
+
+None. P4.6's full command-list layer was implemented as P4.6c ([§12.38 §6](#section-12-38)) and passes the
+same suites and this gate (93/93 on `4E6CBF74…`). Phase 4 is complete.
 
