@@ -1,1 +1,5 @@
-IDI_ICON1               ICON    DISCARDABLE     "Glider_AppIcon_256.ico"
+// The module's only icon group, so the Windows shell uses it as the .exe icon.
+// GLFW looks this exact name up when it registers the window class (win32_window.c)
+// and uses it for the title bar, taskbar and Alt+Tab; when it is missing, GLFW falls
+// back to the generic IDI_APPLICATION icon.
+GLFW_ICON               ICON    DISCARDABLE     "Glider_AppIcon_256.ico"

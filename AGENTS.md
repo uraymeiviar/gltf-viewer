@@ -55,8 +55,9 @@ gltf-viewer/
 │   ├── sampleGltf/          # HelloCube.glb (default startup model)
 │   ├── shaders/             # All runtime GLSL shaders
 │   │   └── ibl_sampler/     # Shaders for runtime HDR cubemap filtering
-│   ├── Gestaltor_AppIcon_256.ico
-│   └── Icon_Application.rc  # Windows application icon resource
+│   ├── Glider_AppIcon_1024.png # Transparent source artwork for the app icon
+│   ├── Glider_AppIcon_256.ico  # Multi-size app icon: shell, window, taskbar
+│   └── Icon_Application.rc  # Windows icon resource: GLFW_ICON (shell + window)
 │
 ├── scripts/
 │   ├── pack_resources.py    # Packs resources/ into compressed Zstandard archive
