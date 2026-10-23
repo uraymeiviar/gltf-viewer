@@ -5,6 +5,8 @@
 #include "imgui/IconsMaterialDesignIcons.h"
 #include "imgui/SelfCheckResult.h"
 #include "imgui/UiProbe.h"
+#include "imgui/ObjectActions.h"
+#include "renderer/gltf/GltfRenderLayer.h"
 #include "gltf/Gltf.h"
 #include "gltf/Node.h"
 #include "gltf/Mesh.h"
@@ -186,6 +188,8 @@ struct HierarchyCache {
     size_t lastViewportCount = 0;
     const ViewportInstance* lastActiveViewport = nullptr;
     uint64_t lastViewportStateHash = 0;
+    const ux3d::gltf::Node* isolationRoot = nullptr;
+    bool isolationIncludeChildren = false;
 
     void clear() {
         labelsValid = false;
@@ -220,6 +224,8 @@ struct HierarchyCache {
         lastViewportCount = 0;
         lastActiveViewport = nullptr;
         lastViewportStateHash = 0;
+        isolationRoot = nullptr;
+        isolationIncludeChildren = false;
     }
 };
 
@@ -396,6 +402,8 @@ static void buildRowModel(const ux3d::gltf::Gltf& gltfModel,
                           const ViewportInstance* activeViewport,
                           ImGuiStorage& storage,
                           ImGuiID baseSeed,
+                          const ux3d::gltf::Node* isolationRoot,
+                          bool isolationIncludeChildren,
                           bool selectionChanged = true)
 {
     s_hierarchyCache.rows.clear();
@@ -482,8 +490,8 @@ static void buildRowModel(const ux3d::gltf::Gltf& gltfModel,
         }
     }
 
-    std::function<void(ux3d::gltf::Node*, int, ImGuiID)> traverseNode;
-    traverseNode = [&](ux3d::gltf::Node* node, int depth, ImGuiID parentScopeId) {
+    std::function<void(ux3d::gltf::Node*, int, ImGuiID, bool)> traverseNode;
+    traverseNode = [&](ux3d::gltf::Node* node, int depth, ImGuiID parentScopeId, bool includeChildren) {
         if (node == nullptr) return;
         const HierarchyNodeCacheEntry* cached = hierarchyEntry(node);
         if (cached == nullptr) return;
@@ -502,10 +510,10 @@ static void buildRowModel(const ux3d::gltf::Gltf& gltfModel,
         const bool hasMesh = (node->getMesh() != nullptr);
         const bool hasCamera = (node->getCamera() != nullptr);
         const bool hasLight = (node->getLight() != nullptr);
-        const bool hasChildren = !node->getChildren().empty();
-        const bool isLeaf = (!hasMesh && !hasCamera && !hasLight && !hasChildren);
+        const bool hasChildren = includeChildren && !node->getChildren().empty();
+        const bool isLeaf = !includeChildren || (!hasMesh && !hasCamera && !hasLight && !hasChildren);
 
-        const bool isAutoExpanded = (!lowerFilter.empty()) || (autoExpandAncestors.count(node) > 0);
+        const bool isAutoExpanded = includeChildren && ((!lowerFilter.empty()) || (autoExpandAncestors.count(node) > 0));
         if (isAutoExpanded && !isLeaf) {
             storage.SetInt(nodeId, 1);
         }
@@ -673,7 +681,7 @@ static void buildRowModel(const ux3d::gltf::Gltf& gltfModel,
 
             // 4. Child Nodes
             for (auto* child : node->getChildren()) {
-                traverseNode(child, depth + 1, nodeScopeId);
+                traverseNode(child, depth + 1, nodeScopeId, true);
             }
         }
     };
@@ -693,7 +701,7 @@ static void buildRowModel(const ux3d::gltf::Gltf& gltfModel,
         sceneRow.depth = 0;
         sceneRow.imguiId = sceneId;
         sceneRow.object = const_cast<ux3d::gltf::Scene*>(activeScene);
-        sceneRow.isLeaf = activeScene->getNodes().empty();
+        sceneRow.isLeaf = (isolationRoot == nullptr) && activeScene->getNodes().empty();
         sceneRow.isOpen = sceneOpen;
         sceneRow.label = &s_hierarchyCache.sceneLabel;
 
@@ -704,8 +712,14 @@ static void buildRowModel(const ux3d::gltf::Gltf& gltfModel,
         s_hierarchyCache.rows.push_back(sceneRow);
 
         if (sceneOpen) {
-            for (auto* rootNode : activeScene->getNodes()) {
-                traverseNode(rootNode, 1, sceneId);
+            if (isolationRoot != nullptr) {
+                // Isolation shows only the isolated node as the scene's root (and its
+                // descendants when isolation includes children).
+                traverseNode(const_cast<ux3d::gltf::Node*>(isolationRoot), 1, sceneId, isolationIncludeChildren);
+            } else {
+                for (auto* rootNode : activeScene->getNodes()) {
+                    traverseNode(rootNode, 1, sceneId, true);
+                }
             }
         }
     }
@@ -765,16 +779,30 @@ static void buildRowModel(const ux3d::gltf::Gltf& gltfModel,
     s_hierarchyCache.rowModelValid = true;
 }
 
+constexpr float kEyeButtonWidth = 20.0f;
+
+static void beginVisibilityToggle()
+{
+    // Reserve room at the end of the scrollable row for the pinned eye button, and give
+    // the button an opaque background so it never overlaps the label text.
+    ImGui::SameLine();
+    ImGui::Dummy(ImVec2(kEyeButtonWidth + ImGui::GetStyle().ItemSpacing.x, 0.0f));
+    ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - kEyeButtonWidth);
+    ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_FrameBg));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1.0f, 1.0f, 1.0f, 0.15f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1.0f, 1.0f, 1.0f, 0.25f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f));
+}
+
+static void endVisibilityToggle()
+{
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor(3);
+}
+
 static void renderNodeVisibilityToggle(ux3d::gltf::Node* node, SceneRevisions& revisions)
 {
-    float buttonWidth = 20.0f;
-    float eyePos = ImGui::GetWindowContentRegionMax().x - buttonWidth;
-    ImGui::SameLine(eyePos);
-
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.15f));
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.25f));
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+    beginVisibilityToggle();
 
     bool isVisible = node->getVisible();
     const char* icon = isVisible ? ICON_MDI_EYE : ICON_MDI_EYE_OFF_OUTLINE;
@@ -783,7 +811,7 @@ static void renderNodeVisibilityToggle(ux3d::gltf::Node* node, SceneRevisions& r
     }
 
     std::string btnLabel = std::string(icon) + "##eye_n_" + std::to_string(node->m_ID);
-    const bool nodeEyeClicked = ImGui::Button(btnLabel.c_str(), ImVec2(buttonWidth, ImGui::GetFrameHeight()));
+    const bool nodeEyeClicked = ImGui::Button(btnLabel.c_str(), ImVec2(kEyeButtonWidth, ImGui::GetFrameHeight()));
     ux3d::imgui::UiProbe::item("hier.node_eye", static_cast<long long>(node->m_ID));
     if (nodeEyeClicked) {
         node->setVisible(!isVisible);
@@ -793,8 +821,7 @@ static void renderNodeVisibilityToggle(ux3d::gltf::Node* node, SceneRevisions& r
     if (!isVisible) {
         ImGui::PopStyleColor();
     }
-    ImGui::PopStyleVar();
-    ImGui::PopStyleColor(3);
+    endVisibilityToggle();
 
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip(isVisible ? "Visible (click to hide)" : "Hidden (click to show)");
@@ -803,14 +830,7 @@ static void renderNodeVisibilityToggle(ux3d::gltf::Node* node, SceneRevisions& r
 
 static void renderMeshVisibilityToggle(ux3d::gltf::Mesh* mesh, SceneRevisions& revisions)
 {
-    float buttonWidth = 20.0f;
-    float eyePos = ImGui::GetWindowContentRegionMax().x - buttonWidth;
-    ImGui::SameLine(eyePos);
-
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.15f));
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.25f));
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+    beginVisibilityToggle();
 
     bool isVisible = mesh->getVisible();
     const char* icon = isVisible ? ICON_MDI_EYE : ICON_MDI_EYE_OFF_OUTLINE;
@@ -819,7 +839,7 @@ static void renderMeshVisibilityToggle(ux3d::gltf::Mesh* mesh, SceneRevisions& r
     }
 
     std::string btnLabel = std::string(icon) + "##eye_m_" + std::to_string(mesh->m_ID);
-    const bool meshEyeClicked = ImGui::Button(btnLabel.c_str(), ImVec2(buttonWidth, ImGui::GetFrameHeight()));
+    const bool meshEyeClicked = ImGui::Button(btnLabel.c_str(), ImVec2(kEyeButtonWidth, ImGui::GetFrameHeight()));
     ux3d::imgui::UiProbe::item("hier.mesh_eye", static_cast<long long>(mesh->m_ID));
     if (meshEyeClicked) {
         mesh->setVisible(!isVisible);
@@ -829,8 +849,7 @@ static void renderMeshVisibilityToggle(ux3d::gltf::Mesh* mesh, SceneRevisions& r
     if (!isVisible) {
         ImGui::PopStyleColor();
     }
-    ImGui::PopStyleVar();
-    ImGui::PopStyleColor(3);
+    endVisibilityToggle();
 
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip(isVisible ? "Visible (click to hide)" : "Hidden (click to show)");
@@ -839,14 +858,7 @@ static void renderMeshVisibilityToggle(ux3d::gltf::Mesh* mesh, SceneRevisions& r
 
 static void renderViewportVisibilityToggle(ViewportInstance* vp)
 {
-    float buttonWidth = 20.0f;
-    float eyePos = ImGui::GetWindowContentRegionMax().x - buttonWidth;
-    ImGui::SameLine(eyePos);
-
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.15f));
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.25f));
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+    beginVisibilityToggle();
 
     const char* eyeIcon = vp->isOpen ? ICON_MDI_EYE : ICON_MDI_EYE_OFF_OUTLINE;
     if (!vp->isOpen) {
@@ -854,7 +866,7 @@ static void renderViewportVisibilityToggle(ViewportInstance* vp)
     }
 
     std::string eyeBtnId = std::string(eyeIcon) + "##vp_eye_" + std::to_string(vp->id);
-    const bool vpEyeClicked = ImGui::Button(eyeBtnId.c_str(), ImVec2(buttonWidth, ImGui::GetFrameHeight()));
+    const bool vpEyeClicked = ImGui::Button(eyeBtnId.c_str(), ImVec2(kEyeButtonWidth, ImGui::GetFrameHeight()));
     ux3d::imgui::UiProbe::item("hier.vp_eye", static_cast<long long>(vp->id));
     if (vpEyeClicked) {
         vp->isOpen = !vp->isOpen;
@@ -866,8 +878,7 @@ static void renderViewportVisibilityToggle(ViewportInstance* vp)
     if (!vp->isOpen) {
         ImGui::PopStyleColor();
     }
-    ImGui::PopStyleVar();
-    ImGui::PopStyleColor(3);
+    endVisibilityToggle();
 
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip(vp->isOpen ? "Visible (click to hide)" : "Hidden (click to show)");
@@ -887,15 +898,49 @@ static void focusCameraOnNode(ux3d::gltf::Node* node,
     revisions.mark(SceneChange::ViewCamera);
 }
 
+// A node is effectively hidden when its own flag or any ancestor's flag is false: the
+// renderer applies the same inherited rule, so the hierarchy can grey the whole subtree.
+static bool hierarchyNodeHidden(const ux3d::gltf::Node* node)
+{
+    while (node != nullptr) {
+        if (!node->getVisible()) {
+            return true;
+        }
+        const auto it = s_hierarchyCache.parentOfNode.find(node);
+        node = (it != s_hierarchyCache.parentOfNode.end()) ? it->second : nullptr;
+    }
+    return false;
+}
+
+static bool hierarchyRowHidden(const HierarchyRow& row)
+{
+    switch (row.type) {
+        case HierarchyRowType::Node:
+            return hierarchyNodeHidden(static_cast<const ux3d::gltf::Node*>(row.object));
+        case HierarchyRowType::Mesh: {
+            const auto* mesh = static_cast<const ux3d::gltf::Mesh*>(row.object);
+            return (mesh != nullptr && !mesh->getVisible())
+                || hierarchyNodeHidden(static_cast<const ux3d::gltf::Node*>(row.parentObject));
+        }
+        case HierarchyRowType::Camera:
+        case HierarchyRowType::Light:
+            return hierarchyNodeHidden(static_cast<const ux3d::gltf::Node*>(row.parentObject));
+        default:
+            return false;
+    }
+}
+
 static void renderRow(const HierarchyRow& row,
                       size_t rowIndex,
                       ux3d::gltf::Gltf& gltfModel,
+                      ux3d::gltf::Scene* activeScene,
                       SelectionState& selection,
                       ux3d::renderer::GltfRenderLayer* gltfLayer,
                       ux3d::editor::CameraActor& cameraActor,
                       AntiAliasing& antiAliasing,
                       SceneRevisions& revisions,
                       ViewportInstance** activeViewport,
+                      const std::function<void(ViewportInstance*)>& viewportMenu,
                       bool isSelected)
 {
     if (row.type == HierarchyRowType::ViewportsHeader) {
@@ -904,14 +949,13 @@ static void renderRow(const HierarchyRow& row,
 
     ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_NoTreePushOnOpen;
     if (row.type == HierarchyRowType::Scene) {
-        flags |= ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth;
+        flags |= ImGuiTreeNodeFlags_DefaultOpen;
         if (!row.isLeaf) {
             flags |= ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick;
         }
     } else if (row.type == HierarchyRowType::ViewportsHeader) {
         flags |= ImGuiTreeNodeFlags_DefaultOpen;
     } else {
-        flags |= ImGuiTreeNodeFlags_SpanAvailWidth;
         if (!row.isLeaf) {
             flags |= ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick | ImGuiTreeNodeFlags_AllowOverlap;
         }
@@ -930,8 +974,22 @@ static void renderRow(const HierarchyRow& row,
         }
     }
 
+    // Selected rows are highlighted light green; hidden rows (own flag or hidden parent)
+    // are grey, matching what the renderer actually draws.
+    const bool rowHidden = hierarchyRowHidden(row);
+    const bool pushRowColor = isSelected || rowHidden;
+    if (pushRowColor) {
+        const ImVec4 color = isSelected
+            ? ImVec4(0.62f, 0.95f, 0.55f, 1.0f)
+            : ImVec4(0.52f, 0.55f, 0.60f, 0.8f);
+        ImGui::PushStyleColor(ImGuiCol_Text, color);
+    }
+
     const std::string& labelStr = row.label ? *row.label : row.dynamicLabel;
     const bool open = ImGui::TreeNodeBehavior(row.imguiId, flags, labelStr.c_str());
+    if (pushRowColor) {
+        ImGui::PopStyleColor();
+    }
 
     // Record probe with open/disclosure state and selection highlighting state
     switch (row.type) {
@@ -988,6 +1046,16 @@ static void renderRow(const HierarchyRow& row,
                 revisions.mark(SceneChange::Selection);
                 focusCameraOnNode(node, gltfModel, gltfLayer, cameraActor, antiAliasing, revisions);
             }
+            if (ImGui::BeginPopupContextItem(nullptr)) {
+                // Right-click does not move the selection; the menu targets this row and
+                // offers Select first when the row was not selected.
+                const bool wasSelected = (selection.type == SelectionType::Node && selection.selectedNode == node);
+                ObjectActionContext context{
+                    gltfModel, activeScene, selection, gltfLayer, &cameraActor, &antiAliasing, revisions
+                };
+                drawObjectMenuItems(context, node, !wasSelected, true);
+                ImGui::EndPopup();
+            }
             renderNodeVisibilityToggle(node, revisions);
             break;
         }
@@ -1032,6 +1100,12 @@ static void renderRow(const HierarchyRow& row,
                     *activeViewport = vp;
                 }
                 vp->requestFocus = true;
+            }
+            if (ImGui::BeginPopupContextItem(nullptr)) {
+                if (viewportMenu) {
+                    viewportMenu(vp);
+                }
+                ImGui::EndPopup();
             }
             renderViewportVisibilityToggle(vp);
             break;
@@ -1272,7 +1346,7 @@ SelfCheckResult SceneHierarchyPanel::runCacheInvalidationSelfCheck(bool forceFai
 
     // Default state: scene open, node collapsed
     SelectionState selNone;
-    buildRowModel(*p24Model.model, p24Model.scene, selNone, "", nullptr, nullptr, s_hierarchyCache.standaloneStorage, 0x12345678);
+    buildRowModel(*p24Model.model, p24Model.scene, selNone, "", nullptr, nullptr, s_hierarchyCache.standaloneStorage, 0x12345678, nullptr, false);
     check(s_hierarchyCache.rowModelValid, "row model not marked valid after build");
     check(s_hierarchyCache.rows.size() == 2, "collapsed node should yield exactly 2 rows (Scene, RootNode)");
     check(s_hierarchyCache.rows[0].type == HierarchyRowType::Scene && s_hierarchyCache.rows[0].depth == 0,
@@ -1285,7 +1359,7 @@ SelfCheckResult SceneHierarchyPanel::runCacheInvalidationSelfCheck(bool forceFai
 
     // Expand root node: rows must include Mesh, Camera, Light, ChildNode
     s_hierarchyCache.standaloneStorage.SetInt(rootNodeId, 1);
-    buildRowModel(*p24Model.model, p24Model.scene, selNone, "", nullptr, nullptr, s_hierarchyCache.standaloneStorage, 0x12345678);
+    buildRowModel(*p24Model.model, p24Model.scene, selNone, "", nullptr, nullptr, s_hierarchyCache.standaloneStorage, 0x12345678, nullptr, false);
     // Scene (0), Node (1), Mesh (2), Camera (2), Light (2), ChildNode (2) = 6 rows
     check(s_hierarchyCache.rows.size() == 6, "expanded node should yield 6 rows when children are collapsed");
     check(s_hierarchyCache.rows[1].isOpen, "root node should now be recorded as open");
@@ -1297,28 +1371,28 @@ SelfCheckResult SceneHierarchyPanel::runCacheInvalidationSelfCheck(bool forceFai
     // Expand Mesh: must reveal Primitive
     const ImGuiID meshId = s_hierarchyCache.rows[2].imguiId;
     s_hierarchyCache.standaloneStorage.SetInt(meshId, 1);
-    buildRowModel(*p24Model.model, p24Model.scene, selNone, "", nullptr, nullptr, s_hierarchyCache.standaloneStorage, 0x12345678);
+    buildRowModel(*p24Model.model, p24Model.scene, selNone, "", nullptr, nullptr, s_hierarchyCache.standaloneStorage, 0x12345678, nullptr, false);
     check(s_hierarchyCache.rows.size() == 7, "expanded mesh should reveal primitive row");
     check(s_hierarchyCache.rows[3].type == HierarchyRowType::Primitive && s_hierarchyCache.rows[3].depth == 3, "primitive row at depth 3");
 
     // Expand Primitive: must reveal Material
     const ImGuiID primId = s_hierarchyCache.rows[3].imguiId;
     s_hierarchyCache.standaloneStorage.SetInt(primId, 1);
-    buildRowModel(*p24Model.model, p24Model.scene, selNone, "", nullptr, nullptr, s_hierarchyCache.standaloneStorage, 0x12345678);
+    buildRowModel(*p24Model.model, p24Model.scene, selNone, "", nullptr, nullptr, s_hierarchyCache.standaloneStorage, 0x12345678, nullptr, false);
     check(s_hierarchyCache.rows.size() == 8, "expanded primitive should reveal material row");
     check(s_hierarchyCache.rows[4].type == HierarchyRowType::Material && s_hierarchyCache.rows[4].depth == 4, "material row at depth 4");
 
     // Verify stable ID invariance under search filter
     const ImGuiID childNodeId = s_hierarchyCache.rows.back().imguiId;
     ensureHierarchyCache(*p24Model.model, p24Model.scene, options, "child");
-    buildRowModel(*p24Model.model, p24Model.scene, selNone, "child", nullptr, nullptr, s_hierarchyCache.standaloneStorage, 0x12345678);
+    buildRowModel(*p24Model.model, p24Model.scene, selNone, "child", nullptr, nullptr, s_hierarchyCache.standaloneStorage, 0x12345678, nullptr, false);
     check(!s_hierarchyCache.rows.empty(), "filter matching child should keep rows");
     auto itChild = s_hierarchyCache.rowIdToIndex.find(childNodeId);
     check(itChild != s_hierarchyCache.rowIdToIndex.end(), "child node ID changed during search filter");
 
     // No-match search produces 0 node rows
     ensureHierarchyCache(*p24Model.model, p24Model.scene, options, "zzznonexistent");
-    buildRowModel(*p24Model.model, p24Model.scene, selNone, "zzznonexistent", nullptr, nullptr, s_hierarchyCache.standaloneStorage, 0x12345678);
+    buildRowModel(*p24Model.model, p24Model.scene, selNone, "zzznonexistent", nullptr, nullptr, s_hierarchyCache.standaloneStorage, 0x12345678, nullptr, false);
     size_t nodeRowCount = 0;
     for (const auto& r : s_hierarchyCache.rows) {
         if (r.type == HierarchyRowType::Node) nodeRowCount++;
@@ -1327,7 +1401,7 @@ SelfCheckResult SceneHierarchyPanel::runCacheInvalidationSelfCheck(bool forceFai
 
     // Clearing search restores nodes
     ensureHierarchyCache(*p24Model.model, p24Model.scene, options, "");
-    buildRowModel(*p24Model.model, p24Model.scene, selNone, "", nullptr, nullptr, s_hierarchyCache.standaloneStorage, 0x12345678);
+    buildRowModel(*p24Model.model, p24Model.scene, selNone, "", nullptr, nullptr, s_hierarchyCache.standaloneStorage, 0x12345678, nullptr, false);
     check(s_hierarchyCache.rows.size() >= 2, "clearing search should restore rows");
 
     // Multiline label classification check
@@ -1351,7 +1425,7 @@ SelfCheckResult SceneHierarchyPanel::runCacheInvalidationSelfCheck(bool forceFai
     // 1. Select Camera 0
     SelectionState selCam;
     selCam.selectCamera(cam);
-    buildRowModel(*p24Model.model, p24Model.scene, selCam, "", nullptr, nullptr, s_hierarchyCache.standaloneStorage, 0x12345678, true);
+    buildRowModel(*p24Model.model, p24Model.scene, selCam, "", nullptr, nullptr, s_hierarchyCache.standaloneStorage, 0x12345678, nullptr, false, true);
     check(s_hierarchyCache.selectedRowIndex >= 0 && s_hierarchyCache.rows[s_hierarchyCache.selectedRowIndex].type == HierarchyRowType::Camera,
           "selecting camera sets selectedRowIndex to camera row");
     check(s_hierarchyCache.selectedRowIndex >= 0 && s_hierarchyCache.rows[s_hierarchyCache.selectedRowIndex].object == cam,
@@ -1360,7 +1434,7 @@ SelfCheckResult SceneHierarchyPanel::runCacheInvalidationSelfCheck(bool forceFai
     // 2. Switch to Camera 1 (must update selection and clear previous cam)
     SelectionState selCam2;
     selCam2.selectCamera(cam2);
-    buildRowModel(*p24Model.model, p24Model.scene, selCam2, "", nullptr, nullptr, s_hierarchyCache.standaloneStorage, 0x12345678, true);
+    buildRowModel(*p24Model.model, p24Model.scene, selCam2, "", nullptr, nullptr, s_hierarchyCache.standaloneStorage, 0x12345678, nullptr, false, true);
     check(s_hierarchyCache.selectedRowIndex >= 0 && s_hierarchyCache.rows[s_hierarchyCache.selectedRowIndex].object == cam2,
           "switching to cam2 updates selectedRowIndex to cam2");
     check(s_hierarchyCache.selectedRowIndex >= 0 && s_hierarchyCache.rows[s_hierarchyCache.selectedRowIndex].object != cam,
@@ -1369,7 +1443,7 @@ SelfCheckResult SceneHierarchyPanel::runCacheInvalidationSelfCheck(bool forceFai
     // 3. Switch to Light 0 (clears camera, selects light)
     SelectionState selLight;
     selLight.selectLight(light);
-    buildRowModel(*p24Model.model, p24Model.scene, selLight, "", nullptr, nullptr, s_hierarchyCache.standaloneStorage, 0x12345678, true);
+    buildRowModel(*p24Model.model, p24Model.scene, selLight, "", nullptr, nullptr, s_hierarchyCache.standaloneStorage, 0x12345678, nullptr, false, true);
     check(s_hierarchyCache.selectedRowIndex >= 0 && s_hierarchyCache.rows[s_hierarchyCache.selectedRowIndex].type == HierarchyRowType::Light,
           "selecting light sets selectedRowIndex to light row");
     check(s_hierarchyCache.selectedRowIndex >= 0 && s_hierarchyCache.rows[s_hierarchyCache.selectedRowIndex].object == light,
@@ -1378,7 +1452,7 @@ SelfCheckResult SceneHierarchyPanel::runCacheInvalidationSelfCheck(bool forceFai
     // 4. Switch to Light 1 (must update selection and clear previous light)
     SelectionState selLight2;
     selLight2.selectLight(light2);
-    buildRowModel(*p24Model.model, p24Model.scene, selLight2, "", nullptr, nullptr, s_hierarchyCache.standaloneStorage, 0x12345678, true);
+    buildRowModel(*p24Model.model, p24Model.scene, selLight2, "", nullptr, nullptr, s_hierarchyCache.standaloneStorage, 0x12345678, nullptr, false, true);
     check(s_hierarchyCache.selectedRowIndex >= 0 && s_hierarchyCache.rows[s_hierarchyCache.selectedRowIndex].object == light2,
           "switching to light2 updates selectedRowIndex to light2");
     check(s_hierarchyCache.selectedRowIndex >= 0 && s_hierarchyCache.rows[s_hierarchyCache.selectedRowIndex].object != light,
@@ -1386,12 +1460,12 @@ SelfCheckResult SceneHierarchyPanel::runCacheInvalidationSelfCheck(bool forceFai
 
     // 5. Camera & Light selection-driven auto-expansion when owning node is collapsed
     s_hierarchyCache.standaloneStorage.Clear(); // Collapse all nodes
-    buildRowModel(*p24Model.model, p24Model.scene, selCam2, "", nullptr, nullptr, s_hierarchyCache.standaloneStorage, 0x12345678, true);
+    buildRowModel(*p24Model.model, p24Model.scene, selCam2, "", nullptr, nullptr, s_hierarchyCache.standaloneStorage, 0x12345678, nullptr, false, true);
     check(s_hierarchyCache.selectedRowIndex >= 0 && s_hierarchyCache.rows[s_hierarchyCache.selectedRowIndex].object == cam2,
           "selecting cam2 with collapsed owners auto-expands ancestors down to cam2 row");
 
     s_hierarchyCache.standaloneStorage.Clear();
-    buildRowModel(*p24Model.model, p24Model.scene, selLight2, "", nullptr, nullptr, s_hierarchyCache.standaloneStorage, 0x12345678, true);
+    buildRowModel(*p24Model.model, p24Model.scene, selLight2, "", nullptr, nullptr, s_hierarchyCache.standaloneStorage, 0x12345678, nullptr, false, true);
     check(s_hierarchyCache.selectedRowIndex >= 0 && s_hierarchyCache.rows[s_hierarchyCache.selectedRowIndex].object == light2,
           "selecting light2 with collapsed owners auto-expands ancestors down to light2 row");
 
@@ -1421,7 +1495,7 @@ SelfCheckResult SceneHierarchyPanel::runCacheInvalidationSelfCheck(bool forceFai
     s_hierarchyCache.standaloneStorage.Clear();
     SelectionState selMesh;
     selMesh.selectMesh(sharedModel.mesh);
-    buildRowModel(*sharedModel.model, sharedModel.scene, selMesh, "", nullptr, nullptr, s_hierarchyCache.standaloneStorage, 0x12345678, true);
+    buildRowModel(*sharedModel.model, sharedModel.scene, selMesh, "", nullptr, nullptr, s_hierarchyCache.standaloneStorage, 0x12345678, nullptr, false, true);
 
     const auto* entryRoot0 = hierarchyEntry(sharedModel.node);
     const auto* entryRoot1 = hierarchyEntry(sharedRoot1);
@@ -1442,7 +1516,7 @@ SelfCheckResult SceneHierarchyPanel::runCacheInvalidationSelfCheck(bool forceFai
     s_hierarchyCache.standaloneStorage.Clear();
     SelectionState selMat;
     selMat.selectMaterial(sharedModel.material);
-    buildRowModel(*sharedModel.model, sharedModel.scene, selMat, "", nullptr, nullptr, s_hierarchyCache.standaloneStorage, 0x12345678, true);
+    buildRowModel(*sharedModel.model, sharedModel.scene, selMat, "", nullptr, nullptr, s_hierarchyCache.standaloneStorage, 0x12345678, nullptr, false, true);
     int matRowCount = 0;
     for (const auto& r : s_hierarchyCache.rows) {
         if (r.type == HierarchyRowType::Material && r.object == sharedModel.material) {
@@ -1455,13 +1529,13 @@ SelfCheckResult SceneHierarchyPanel::runCacheInvalidationSelfCheck(bool forceFai
     const uint64_t initialBuildCount = rowModelBuildCount();
     check(initialBuildCount > 0, "row model build count must track actual rebuilds");
 
-    buildRowModel(*sharedModel.model, sharedModel.scene, selMat, "", nullptr, nullptr, s_hierarchyCache.standaloneStorage, 0x12345678, true);
+    buildRowModel(*sharedModel.model, sharedModel.scene, selMat, "", nullptr, nullptr, s_hierarchyCache.standaloneStorage, 0x12345678, nullptr, false, true);
     check(rowModelBuildCount() == initialBuildCount + 1, "invalidation must increment row-model build count by exactly 1");
 
     const uint64_t settledBuildCount = rowModelBuildCount();
     const bool simulatedSelectionStale = false;
     if (!s_hierarchyCache.rowModelValid || simulatedSelectionStale) {
-        buildRowModel(*sharedModel.model, sharedModel.scene, selMat, "", nullptr, nullptr, s_hierarchyCache.standaloneStorage, 0x12345678, false);
+        buildRowModel(*sharedModel.model, sharedModel.scene, selMat, "", nullptr, nullptr, s_hierarchyCache.standaloneStorage, 0x12345678, nullptr, false, false);
     }
     check(rowModelBuildCount() == settledBuildCount, "settled frames must reuse row model without rebuilds (build count delta 0)");
 
@@ -1470,7 +1544,7 @@ SelfCheckResult SceneHierarchyPanel::runCacheInvalidationSelfCheck(bool forceFai
     s_pendingScroll.object = nullptr; // unavailable target
     const bool pendingSelectionStale = false; // s_pendingScroll is separated from selectionStale
     if (!s_hierarchyCache.rowModelValid || pendingSelectionStale) {
-        buildRowModel(*sharedModel.model, sharedModel.scene, selMat, "", nullptr, nullptr, s_hierarchyCache.standaloneStorage, 0x12345678, false);
+        buildRowModel(*sharedModel.model, sharedModel.scene, selMat, "", nullptr, nullptr, s_hierarchyCache.standaloneStorage, 0x12345678, nullptr, false, false);
     }
     check(rowModelBuildCount() == settledBuildCount, "pending scroll with unavailable target must not trigger row-model rebuilds");
     s_pendingScroll = PendingScroll{};
@@ -1478,7 +1552,7 @@ SelfCheckResult SceneHierarchyPanel::runCacheInvalidationSelfCheck(bool forceFai
     // Subsequent collapse: collapsing root 0 must persist without being re-forced open
     ImGuiID root0Id = s_hierarchyCache.rows[1].imguiId;
     s_hierarchyCache.standaloneStorage.SetInt(root0Id, 0); // User collapses root 0
-    buildRowModel(*sharedModel.model, sharedModel.scene, selMat, "", nullptr, nullptr, s_hierarchyCache.standaloneStorage, 0x12345678, false);
+    buildRowModel(*sharedModel.model, sharedModel.scene, selMat, "", nullptr, nullptr, s_hierarchyCache.standaloneStorage, 0x12345678, nullptr, false, false);
     check(!s_hierarchyCache.rows[1].isOpen, "root 0 must remain collapsed when user collapsed it");
 
     // Stale pointers cleared after reload
@@ -1521,7 +1595,8 @@ void SceneHierarchyPanel::render(ux3d::gltf::Gltf& gltfModel,
                                  SceneRevisions& revisions,
                                  bool* pOpen,
                                  std::vector<std::unique_ptr<ViewportInstance>>* viewports,
-                                 ViewportInstance** activeViewport)
+                                 ViewportInstance** activeViewport,
+                                 std::function<void(ViewportInstance*)> viewportMenu)
 {
     static const char* const WND_HIERARCHY = ICON_MDI_FILE_TREE " Scene Hierarchy";
 
@@ -1579,6 +1654,25 @@ void SceneHierarchyPanel::render(ux3d::gltf::Gltf& gltfModel,
 
     ImGui::Separator();
 
+    // Isolation indicator and exit action, above the list (always visible while active).
+    if (gltfLayer != nullptr && gltfLayer->getIsolationRoot() != nullptr) {
+        const auto* isolatedRoot = gltfLayer->getIsolationRoot();
+        const std::string isolatedName = isolatedRoot->hasName()
+            ? isolatedRoot->getName()
+            : ("Node " + std::to_string(isolatedRoot->m_ID));
+        if (ImGui::Button(ICON_MDI_CLOSE " Exit Isolate")) {
+            ObjectActionContext context{
+                gltfModel, activeScene, selection, gltfLayer, &cameraActor, &antiAliasing, revisions
+            };
+            exitIsolation(context);
+        }
+        ux3d::imgui::UiProbe::item("hier.exit_isolate", 0);
+        ImGui::SameLine();
+        ImGui::TextDisabled("Isolated: %s%s", isolatedName.c_str(),
+                            gltfLayer->getIsolationIncludeChildren() ? " (with children)" : "");
+        ImGui::Separator();
+    }
+
     const std::string lowerFilter = toLowerString(s_searchBuffer);
     if (activeScene != nullptr) {
         ensureHierarchyCache(gltfModel, activeScene, opts, lowerFilter);
@@ -1587,7 +1681,7 @@ void SceneHierarchyPanel::render(ux3d::gltf::Gltf& gltfModel,
     // -----------------------------------------------------------------
     // Hierarchy Tree View (Child window so top search bar never scrolls)
     // -----------------------------------------------------------------
-    ImGui::BeginChild("##HierarchyTreeScrollRegion", ImVec2(0, 0), false);
+    ImGui::BeginChild("##HierarchyTreeScrollRegion", ImVec2(0, 0), false, ImGuiWindowFlags_HorizontalScrollbar);
 
     ImGuiWindow* childWindow = ImGui::GetCurrentWindow();
     ImGuiStorage* storage = (childWindow && childWindow->DC.StateStorage) ? childWindow->DC.StateStorage : &s_hierarchyCache.standaloneStorage;
@@ -1606,6 +1700,11 @@ void SceneHierarchyPanel::render(ux3d::gltf::Gltf& gltfModel,
     const bool viewportsStale = (vpCount != s_hierarchyCache.lastViewportCount)
                              || (curActiveVp != s_hierarchyCache.lastActiveViewport)
                              || (vpHash != s_hierarchyCache.lastViewportStateHash);
+
+    const auto* isolationRoot = gltfLayer != nullptr ? gltfLayer->getIsolationRoot() : nullptr;
+    const bool isolationIncludeChildren = gltfLayer != nullptr && gltfLayer->getIsolationIncludeChildren();
+    const bool isolationStale = (isolationRoot != s_hierarchyCache.isolationRoot)
+                             || (isolationIncludeChildren != s_hierarchyCache.isolationIncludeChildren);
 
     const void* curSelectedObj = nullptr;
     if (selection.type == SelectionType::Node) curSelectedObj = selection.selectedNode;
@@ -1630,15 +1729,17 @@ void SceneHierarchyPanel::render(ux3d::gltf::Gltf& gltfModel,
         }
     }
 
-    if (!s_hierarchyCache.rowModelValid || viewportsStale || selectionStale) {
+    if (!s_hierarchyCache.rowModelValid || viewportsStale || selectionStale || isolationStale) {
         s_hierarchyCache.lastViewportCount = vpCount;
         s_hierarchyCache.lastActiveViewport = curActiveVp;
         s_hierarchyCache.lastViewportStateHash = vpHash;
         s_hierarchyCache.lastSelectionType = selection.type;
         s_hierarchyCache.lastSelectedObject = curSelectedObj;
         s_hierarchyCache.lastSelectionRevision = selection.revision;
+        s_hierarchyCache.isolationRoot = isolationRoot;
+        s_hierarchyCache.isolationIncludeChildren = isolationIncludeChildren;
 
-        buildRowModel(gltfModel, activeScene, selection, lowerFilter, viewports, curActiveVp, *storage, baseSeed, selectionStale);
+        buildRowModel(gltfModel, activeScene, selection, lowerFilter, viewports, curActiveVp, *storage, baseSeed, isolationRoot, isolationIncludeChildren, selectionStale);
     }
 
     if (activeScene == nullptr) {
@@ -1668,7 +1769,7 @@ void SceneHierarchyPanel::render(ux3d::gltf::Gltf& gltfModel,
                     ImGui::Indent((row.depth - currentDepth) * indentSpacing);
                     currentDepth = row.depth;
                 }
-                renderRow(row, i, gltfModel, selection, gltfLayer, cameraActor, antiAliasing, revisions, activeViewport, isRowSelected(row));
+                renderRow(row, i, gltfModel, activeScene, selection, gltfLayer, cameraActor, antiAliasing, revisions, activeViewport, viewportMenu, isRowSelected(row));
             }
             if (currentDepth > 0) {
                 ImGui::Unindent(currentDepth * indentSpacing);
@@ -1704,7 +1805,7 @@ void SceneHierarchyPanel::render(ux3d::gltf::Gltf& gltfModel,
                         ImGui::Indent((row.depth - currentDepth) * indentSpacing);
                         currentDepth = row.depth;
                     }
-                    renderRow(row, static_cast<size_t>(i), gltfModel, selection, gltfLayer, cameraActor, antiAliasing, revisions, activeViewport, isRowSelected(row));
+                    renderRow(row, static_cast<size_t>(i), gltfModel, activeScene, selection, gltfLayer, cameraActor, antiAliasing, revisions, activeViewport, viewportMenu, isRowSelected(row));
                 }
                 if (currentDepth > 0) {
                     ImGui::Unindent(currentDepth * indentSpacing);

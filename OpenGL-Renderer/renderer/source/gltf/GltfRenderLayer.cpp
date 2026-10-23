@@ -1758,7 +1758,8 @@ const GltfRenderLayer::SceneTraversal& GltfRenderLayer::traverseScene(const gltf
 {
     SceneTraversal& t = m_traversal;
     if (m_sceneFrameToken != 0 && t.frameToken == m_sceneFrameToken && t.scene == gltfScene
-        && t.showInvisibleMaterials == showInvisibleMaterials && t.materialVariantID == m_materialVariantID) {
+        && t.showInvisibleMaterials == showInvisibleMaterials && t.materialVariantID == m_materialVariantID
+        && t.isolationRoot == m_isolationRoot && t.isolationIncludeChildren == m_isolationIncludeChildren) {
         ++m_traversalReuses;
         return t;
     }
@@ -1770,13 +1771,31 @@ const GltfRenderLayer::SceneTraversal& GltfRenderLayer::traverseScene(const gltf
     t.scene = gltfScene;
     t.showInvisibleMaterials = showInvisibleMaterials;
     t.materialVariantID = m_materialVariantID;
+    t.isolationRoot = m_isolationRoot;
+    t.isolationIncludeChildren = m_isolationIncludeChildren;
     t.frameToken = m_sceneFrameToken;
 
-    std::function<void(const gltf::Node*)> addMeshMaterialRecursive;
-    addMeshMaterialRecursive = [&](const gltf::Node* gltfNode) {
+    std::function<void(const gltf::Node*, bool, bool)> addMeshMaterialRecursive;
+    addMeshMaterialRecursive = [&](const gltf::Node* gltfNode, bool insideIsolation, bool parentHidden) {
         ++t.nodesVisited;
+        const bool isIsolationRoot = (gltfNode == m_isolationRoot);
+        const bool insideIsolatedSubtree = (m_isolationRoot == nullptr) || insideIsolation || isIsolationRoot;
+        // Visibility is inherited: hiding a node hides every descendant. Isolation is
+        // explicit, so the isolated root ignores hidden ancestors but still respects its
+        // own visible flag.
+        const bool hidden = (isIsolationRoot ? false : parentHidden) || !gltfNode->getVisible();
+
+        // Keep walking children of nodes outside the isolated subtree: the isolated node
+        // can be nested at any depth below a scene root. Collection is gated below.
+        const bool childInsideIsolation = (m_isolationRoot == nullptr)
+            ? false
+            : (isIsolationRoot ? m_isolationIncludeChildren : insideIsolation);
         for (const auto* child : gltfNode->getChildren()) {
-            addMeshMaterialRecursive(child);
+            addMeshMaterialRecursive(child, childInsideIsolation, hidden);
+        }
+
+        if (!insideIsolatedSubtree || hidden) {
+            return;
         }
 
         const gltf::Light* gltfLight = gltfNode->getLight();
@@ -1791,7 +1810,7 @@ const GltfRenderLayer::SceneTraversal& GltfRenderLayer::traverseScene(const gltf
         if (gltfMesh == nullptr)
             return;
 
-        if (!gltfNode->getVisible() || !gltfMesh->getVisible())
+        if (!gltfMesh->getVisible())
             return;
 
         for (auto& gltfPrimitive : gltfMesh->getPrimitives()) {
@@ -1841,7 +1860,7 @@ const GltfRenderLayer::SceneTraversal& GltfRenderLayer::traverseScene(const gltf
 
     if (gltfScene != nullptr) {
         for (const gltf::Node* gltfNode : gltfScene->getNodes()) {
-            addMeshMaterialRecursive(gltfNode);
+            addMeshMaterialRecursive(gltfNode, false, false);
         }
     }
     return t;

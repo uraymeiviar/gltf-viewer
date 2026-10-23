@@ -2,9 +2,11 @@
 #include "imgui/RenderQuality.h"
 #include "imgui/StdFileSystem.h"
 #include "imgui/IconsMaterialDesignIcons.h"
+#include "imgui/AntiAliasing.h"
 #include "renderViewInput/CameraActor.h"
 #include <imgui.h>
 #include <portable-file-dialogs.h>
+#include <algorithm>
 #include <cmath>
 
 namespace ux3d::imgui {
@@ -17,7 +19,8 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
                                    ux3d::gltf::Gltf* gltfModel,
                                    bool isAttachedToCamera,
                                    const std::string& attachedCameraName,
-                                   std::function<void()> onDetachCamera)
+                                   std::function<void()> onDetachCamera,
+                                   AntiAliasing* antiAliasing)
 {
     (void)commandGenerator;
 
@@ -179,6 +182,7 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
             ImGui::Text("Camera Settings:");
 
             auto* userCam = cameraActor.getUserCamera();
+            ImGui::BeginDisabled(isAttachedToCamera);
             if (userCam != nullptr) {
                 bool isOrtho = (userCam->getType() == ux3d::renderer::Camera::Type::Orthographic);
                 if (ImGui::Checkbox("Orthographic Projection", &isOrtho)) {
@@ -196,28 +200,78 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
 
                 ImGui::Separator();
                 ImGui::Text("Frustum Clipping Planes:");
-                ImGui::Text("Near Plane: %.4f m", userCam->getZNearPlane());
-                ImGui::Text("Far Plane: %.1f m", userCam->getZFarPlane());
+                float planes[2] = { userCam->getZNearPlane(), userCam->getZFarPlane() };
+                if (ImGui::DragFloat2("Near / Far", planes, 0.01f, 0.0001f, 1000000.0f, "%.4f")) {
+                    const float nearPlane = (std::max)(0.0001f, planes[0]);
+                    const float farPlane = (std::max)(nearPlane + 0.0001f, planes[1]);
+                    if (isOrtho) {
+                        userCam->setOrthographic(userCam->getXMag(), userCam->getYMag(), nearPlane, farPlane);
+                    } else {
+                        userCam->setPerspective(userCam->getAspectRatio(), userCam->getYFoV(), nearPlane, farPlane);
+                    }
+                    if (antiAliasing != nullptr) antiAliasing->resetHistory();
+                    revisions.mark(SceneChange::ViewCamera);
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Drag to edit the near and far clipping planes");
+                }
             }
-
-            ImGui::Text("Camera Presets:");
-            if (ImGui::Button("Front (Num 1)")) cameraActor.orientUserCamera(ux3d::editor::CameraOrientation::Front);
-            ImGui::SameLine();
-            if (ImGui::Button("Back (Ctrl+1)")) cameraActor.orientUserCamera(ux3d::editor::CameraOrientation::Back);
-            ImGui::SameLine();
-            if (ImGui::Button("Right (Num 3)")) cameraActor.orientUserCamera(ux3d::editor::CameraOrientation::Right);
-            ImGui::SameLine();
-            if (ImGui::Button("Left (Ctrl+3)")) cameraActor.orientUserCamera(ux3d::editor::CameraOrientation::Left);
-            ImGui::SameLine();
-            if (ImGui::Button("Top (Num 7)")) cameraActor.orientUserCamera(ux3d::editor::CameraOrientation::Top);
-            ImGui::SameLine();
-            if (ImGui::Button("Iso")) cameraActor.orientUserCamera(ux3d::editor::CameraOrientation::Isometric);
+            ImGui::EndDisabled();
 
             ImGui::Separator();
-            ImGui::Text("Camera Zoom: %.2f", cameraActor.getZoom());
-            ImGui::Text("RotX: %.1f deg, RotY: %.1f deg", glm::degrees(cameraActor.getRotationX()), glm::degrees(cameraActor.getRotationY()));
-            auto target = cameraActor.getLookTarget();
-            ImGui::Text("Look Target: [%.2f, %.2f, %.2f]", target.x, target.y, target.z);
+            ImGui::Text("Camera Presets:");
+            ImGui::BeginDisabled(isAttachedToCamera);
+            {
+                const float presetWidth = (std::max)(60.0f, (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f);
+                auto presetButton = [&](const char* label, ux3d::editor::CameraOrientation orientation) {
+                    if (ImGui::Button(label, ImVec2(presetWidth, 0.0f))) {
+                        cameraActor.orientUserCamera(orientation);
+                        if (antiAliasing != nullptr) antiAliasing->resetHistory();
+                        revisions.mark(SceneChange::ViewCamera);
+                    }
+                };
+                presetButton("Front (Num 1)", ux3d::editor::CameraOrientation::Front);
+                ImGui::SameLine();
+                presetButton("Back (Ctrl+1)", ux3d::editor::CameraOrientation::Back);
+                presetButton("Right (Num 3)", ux3d::editor::CameraOrientation::Right);
+                ImGui::SameLine();
+                presetButton("Left (Ctrl+3)", ux3d::editor::CameraOrientation::Left);
+                presetButton("Top (Num 7)", ux3d::editor::CameraOrientation::Top);
+                ImGui::SameLine();
+                presetButton("Iso", ux3d::editor::CameraOrientation::Isometric);
+            }
+            ImGui::EndDisabled();
+
+            ImGui::Separator();
+            ImGui::Text("Camera Navigation:");
+            ImGui::BeginDisabled(isAttachedToCamera);
+            {
+                float zoom = cameraActor.getZoom();
+                if (ImGui::DragFloat("Zoom", &zoom, 0.01f, 0.0000001f, 100000.0f, "%.2f", ImGuiSliderFlags_Logarithmic)) {
+                    cameraActor.setZoom(zoom);
+                    cameraActor.updateUserCameraTransform();
+                    if (antiAliasing != nullptr) antiAliasing->resetHistory();
+                    revisions.mark(SceneChange::ViewCamera);
+                }
+
+                float rotation[2] = { glm::degrees(cameraActor.getRotationX()), glm::degrees(cameraActor.getRotationY()) };
+                if (ImGui::DragFloat2("Rotation (deg)", rotation, 0.5f)) {
+                    cameraActor.setCameraRotation(glm::radians(rotation[0]), glm::radians(rotation[1]));
+                    cameraActor.updateUserCameraTransform();
+                    if (antiAliasing != nullptr) antiAliasing->resetHistory();
+                    revisions.mark(SceneChange::ViewCamera);
+                }
+
+                auto target = cameraActor.getLookTarget();
+                float targetValues[3] = { target.x, target.y, target.z };
+                if (ImGui::DragFloat3("Look Target", targetValues, 0.01f)) {
+                    cameraActor.setTarget(ux3d::math::vec3(targetValues[0], targetValues[1], targetValues[2]));
+                    cameraActor.updateUserCameraTransform();
+                    if (antiAliasing != nullptr) antiAliasing->resetHistory();
+                    revisions.mark(SceneChange::ViewCamera);
+                }
+            }
+            ImGui::EndDisabled();
 
             if (ImGui::Button("Reset Camera (Home)")) {
                 if (gltfModel != nullptr && gltfLayer != nullptr) {

@@ -29,6 +29,7 @@ gltf-viewer/
 │   │   ├── GridRenderer.h        # Infinite fading ground grid
 │   │   ├── IconsMaterialDesignIcons.h  # MDI icon glyph macros
 │   │   ├── MaterialInspector.h
+│   │   ├── ObjectActions.h        # Object menu actions and isolation helpers
 │   │   ├── ResourcesPanel.h
 │   │   ├── StatisticsPanel.h
 │   │   ├── StdFileSystem.h       # IFileSystem hook for EmbeddedVFS + disk
@@ -109,7 +110,7 @@ flowchart TD
 
 - **Profile**: OpenGL 4.1 Core Profile (via GLAD and GLFW).
 - **Core Pipeline**:
-  - `ux3d::renderer::GltfRenderLayer`: Manages the active scene, geometry buffers, skins, and reverse mapping from drawables to glTF nodes.
+  - `ux3d::renderer::GltfRenderLayer`: Manages the active scene, geometry buffers, skins, and reverse mapping from drawables to glTF nodes. Its traversal applies local-view isolation (one node plus optional descendants) and inherited visibility (hiding a node hides its whole subtree) without changing the glTF visibility flags.
   - `ux3d::renderer::CommandGenerator`: Manages PBR material uniforms, punctual lights, tone mapping (ACES Hill), exposure EV, and IBL parameters.
   - `ux3d::renderer::IBLSampler`: Loads the default environment `resources/environments/default_hdr_env4k.hdr` (`kDefaultEnvironmentFile` in `SceneEnvironment.h`) from memory, converts equirectangular panorama to cubemap, and computes diffuse Lambertian irradiance, specular GGX reflection cubemap mips, and Charlie sheen LUT.
   - `ux3d::imgui::GridRenderer`: Infinite fading ground plane grid with adaptive grid subdivisions based on camera altitude and zoom.
@@ -128,7 +129,7 @@ Implemented in [`CameraActor.cpp`](file:///H:/git-repos/gltf-viewer/source/rende
 - **Rotate / Orbit**: Middle Mouse Drag.
 - **Pan**: Shift + Middle Mouse Drag.
 - **Smooth Zoom**: Ctrl + Middle Mouse Drag or Mouse Wheel.
-- **Focus Framing (`F`)**: Pressing `F` or clicking "Focus (F)" calls `cameraActor.presentFocusNode()` or `cameraActor.fitCameraToScene()`, centering the view and setting an optimal camera distance derived from geometry bounding sphere radius.
+- **Focus Framing (`F`)**: Pressing `F` (Object → Focus, a context menu, or focusing a node in the hierarchy) calls `cameraActor.presentFocusNode()`, centering the view and setting an optimal camera distance derived from geometry bounding sphere radius.
 - **Orthographic & Isometric Shortcuts**: Toolbar buttons for Front, Back, Right, Left, Top, and Iso views.
 
 ### 3.5 FSS Aviation Theme & Typography
@@ -171,6 +172,26 @@ Replaces the legacy external `gltf_validator.exe` subprocess with a native, 100%
   - "Copy Report" exports a complete GitHub-flavored Markdown diagnostic report to clipboard.
   - Status bar pill badge in the Viewport Toolbar indicates asset compliance at a glance (`[ ✓ glTF Valid ]` or `[ 🔴 N Errors ]`).
   - Global shortcut: `Ctrl + 8` or **View -> Validation**.
+
+### 3.8 Object Actions, Isolation & Context Menus
+
+`ux3d::imgui::ObjectActions` implements the Object menu and the two object context menus:
+- **Object menu items:** Focus (`F`), Hide/Unhide (`H`), Isolate (`/`), Isolate with Childs (`Shift+/`), Select Parent (`[`) and Select First Child (`]`). Items are disabled without a node selection; the last two are disabled when the node has no parent/first child. While isolated, Isolate becomes **Exit Isolate** and Isolate with Childs is hidden.
+- **Context menus:** right-clicking a node row in the Scene Hierarchy shows the same items, preceded by **Select** when the row was not selected; both object context menus start with the node's name in the accent color. Right-clicking a viewport row in the hierarchy shows the Viewport menu. Right-clicking the 3D viewport with a node selected shows the six object items; with no node selected it shows the Viewport menu (the same body as the top-level Viewport menu, including New Viewport, Orientation and Shading).
+- **Isolation** is a render filter in `GltfRenderLayer::traverseScene`: only the root node and, optionally, its descendants are collected (lights included), and the hierarchy list is filtered to that isolated node (+ descendants when isolating with children). It never writes node visibility flags, so Exit Isolate restores the scene exactly; loading a model clears it. The Scene Hierarchy shows an **Exit Isolate** button above the list while isolation is active.
+- **Hierarchy rows:** hiding a node greys its whole subtree (the renderer inherits visibility the same way); the selected row is light green. Long labels scroll horizontally (the list has a horizontal scrollbar), and the pinned eye buttons have an opaque background and reserved space so they never overlap the label.
+- The **Camera & Helpers** tab keeps two camera-preset buttons per row and edits Zoom, Rotation, Look Target, FoV and the Near/Far clipping planes with drag fields; the camera actions are disabled while attached to a glTF camera.
+- **Node inspector:** the object name is read-only (renaming is disabled in the viewer). The Transform header has **Local** and **Global** tabs; Global shows world-space translation/rotation/scale and converts edits back into local TRS through the parent's inverse world transform.
+- **File → Close** reloads the embedded default sample model, resetting the application to its initial scene.
+
+### 3.9 Animation Menu
+
+`Animation` (right of Object) exposes the playback controls that the status bar also offers:
+- **Play / Stop** (`Alt+A`) toggles playback; the label follows the player state.
+- **Rewind** (`Shift+Left`) seeks to 0 and **FForward** (`Shift+Right`) seeks to the clip end; both reset TAA history.
+- **Active** opens a submenu with the same checklist as the status-bar animation popup — `AnimationPlayer::renderActiveAnimationsContent` is shared by both, including Select all non-conflicting and the Skinning/Morphing settings.
+- All items are disabled when the model has no animations; the shortcuts are ignored while typing or while a menu/popup is open.
+
 
 ---
 

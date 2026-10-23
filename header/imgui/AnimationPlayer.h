@@ -22,6 +22,12 @@ public:
     void update(float deltaTime, ux3d::renderer::GltfRenderLayer* gltfLayer);
     void renderToolbar(ux3d::gltf::Gltf& gltfModel, ux3d::renderer::GltfRenderLayer* gltfLayer, SceneRevisions& revisions);
 
+    // Animation checklist used by the status-bar "active animations" popup and the
+    // Animation > Active submenu. Includes the skinning/morphing settings.
+    void renderActiveAnimationsContent(ux3d::gltf::Gltf& gltfModel,
+                                       ux3d::renderer::GltfRenderLayer* gltfLayer,
+                                       SceneRevisions& revisions);
+
     void reset();
     void setModel(ux3d::gltf::Gltf& gltfModel, ux3d::renderer::GltfRenderLayer* gltfLayer = nullptr);
 

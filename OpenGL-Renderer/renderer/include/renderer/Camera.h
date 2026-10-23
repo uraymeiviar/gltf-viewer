@@ -80,6 +80,10 @@ namespace renderer {
         float getZNearPlane() const { return m_zNear; }
         float getZFarPlane() const { return m_zFar; }
 
+        // Orthographic half-extents, kept so the clipping planes can be edited in place.
+        float getXMag() const { return m_xMag; }
+        float getYMag() const { return m_yMag; }
+
         float getZoom() const { return m_zoom; }
         void setZoom(float _zoom) { m_zoom = _zoom; }
 

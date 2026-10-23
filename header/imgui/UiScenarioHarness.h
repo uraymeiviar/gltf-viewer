@@ -290,11 +290,11 @@ private:
         });
     }
 
-    void queueClicks(int count)
+    void queueClicks(int count, int button = 0)
     {
         for (int i = 0; i < count; ++i) {
-            queueFrame([](ImGuiIO& io) { io.AddMouseButtonEvent(0, true); });
-            queueFrame([](ImGuiIO& io) { io.AddMouseButtonEvent(0, false); });
+            queueFrame([button](ImGuiIO& io) { io.AddMouseButtonEvent(button, true); });
+            queueFrame([button](ImGuiIO& io) { io.AddMouseButtonEvent(button, false); });
         }
     }
 
@@ -367,6 +367,11 @@ private:
         if (name == "tab") return ImGuiKey_Tab;
         if (name == "space") return ImGuiKey_Space;
         if (name == "a") return ImGuiKey_A;
+        if (name == "f") return ImGuiKey_F;
+        if (name == "h") return ImGuiKey_H;
+        if (name == "slash") return ImGuiKey_Slash;
+        if (name == "lbracket") return ImGuiKey_LeftBracket;
+        if (name == "rbracket") return ImGuiKey_RightBracket;
         return ImGuiKey_None;
     }
 
@@ -396,7 +401,7 @@ private:
             return;
         }
         const std::string& cmd = args[0];
-        if (args.size() > 1 && (cmd == "hoverp" || cmd == "clickp" || cmd == "dclickp" || cmd == "clickarrowp" || cmd == "clickrow" || cmd == "dclickrow" || cmd == "hoverrow" || cmd == "clickarrowrow")) {
+        if (args.size() > 1 && (cmd == "hoverp" || cmd == "clickp" || cmd == "dclickp" || cmd == "rclickp" || cmd == "clickarrowp" || cmd == "clickrow" || cmd == "dclickrow" || cmd == "hoverrow" || cmd == "clickarrowrow")) {
             std::replace(args[1].begin(), args[1].end(), '_', ' '); // tags such as "Material Variants" are written with underscores
         }
         try {
@@ -427,12 +432,13 @@ private:
             ImGuiWindow* target = findWindow(args[1]);
             if (target == nullptr) { fail("window not found: " + args[1]); return; }
             queueMove(target->InnerRect.GetCenter());
-        } else if (cmd == "hoverp" || cmd == "clickp" || cmd == "dclickp") {
+        } else if (cmd == "hoverp" || cmd == "clickp" || cmd == "dclickp" || cmd == "rclickp") {
             if (!need(3)) return;
             const UiProbeEntry* entry = findProbe(args[1], std::stoll(args[2]));
             if (entry == nullptr) { fail("probe not visible: " + line); return; }
             queueMove(center(*entry));
             if (cmd == "clickp") queueClicks(1);
+            if (cmd == "rclickp") queueClicks(1, ImGuiMouseButton_Right);
             if (cmd == "dclickp") queueClicks(2);
         } else if (cmd == "clickarrowp") {
             if (!need(3)) return;
@@ -459,10 +465,23 @@ private:
                 queueMove(clickPoint(*rows[static_cast<size_t>(k)], findWindow(args[3])));
                 if (cmd != "hoverrow") queueClicks(cmd == "dclickrow" ? 2 : 1);
             }
-        } else if (cmd == "click" || cmd == "dclick") {
+        } else if (cmd == "click" || cmd == "dclick" || cmd == "rclick") {
             if (!need(3)) return;
             queueMove(ImVec2(std::stof(args[1]), std::stof(args[2])));
-            queueClicks(cmd == "dclick" ? 2 : 1);
+            queueClicks(cmd == "dclick" ? 2 : 1, cmd == "rclick" ? ImGuiMouseButton_Right : 0);
+        } else if (cmd == "drag") {
+            // drag <x0> <y0> <x1> <y1>: left-button drag, one interpolated move per frame.
+            if (!need(5)) return;
+            const ImVec2 from(std::stof(args[1]), std::stof(args[2]));
+            const ImVec2 to(std::stof(args[3]), std::stof(args[4]));
+            constexpr int steps = 8;
+            queueMove(from);
+            queueFrame([](ImGuiIO& io) { io.AddMouseButtonEvent(0, true); });
+            for (int s = 1; s <= steps; ++s) {
+                const float t = static_cast<float>(s) / static_cast<float>(steps);
+                queueMove(ImVec2(from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t));
+            }
+            queueFrame([](ImGuiIO& io) { io.AddMouseButtonEvent(0, false); });
         } else if (cmd == "wheel") {
             if (need(2)) { const float dy = std::stof(args[1]); queueFrame([dy](ImGuiIO& io) { io.AddMouseWheelEvent(0.0f, dy); }); }
         } else if (cmd == "scroll") {
@@ -476,10 +495,16 @@ private:
             const ImGuiKey key = keyFromName(args[1]);
             if (key == ImGuiKey_None) { fail("unknown key: " + line); return; }
             const bool ctrl = args.size() > 2 && args[2] == "ctrl";
+            const bool shift = args.size() > 2 && args[2] == "shift";
+            const bool alt = args.size() > 2 && args[2] == "alt";
             if (ctrl) queueFrame([](ImGuiIO& io) { io.AddKeyEvent(ImGuiMod_Ctrl, true); });
+            if (shift) queueFrame([](ImGuiIO& io) { io.AddKeyEvent(ImGuiMod_Shift, true); });
+            if (alt) queueFrame([](ImGuiIO& io) { io.AddKeyEvent(ImGuiMod_Alt, true); });
             queueFrame([key](ImGuiIO& io) { io.AddKeyEvent(key, true); });
             queueFrame([key](ImGuiIO& io) { io.AddKeyEvent(key, false); });
             if (ctrl) queueFrame([](ImGuiIO& io) { io.AddKeyEvent(ImGuiMod_Ctrl, false); });
+            if (shift) queueFrame([](ImGuiIO& io) { io.AddKeyEvent(ImGuiMod_Shift, false); });
+            if (alt) queueFrame([](ImGuiIO& io) { io.AddKeyEvent(ImGuiMod_Alt, false); });
         } else if (cmd == "type") {
             const size_t at = line.find(' ');
             const std::string text = at == std::string::npos ? "" : line.substr(at + 1);

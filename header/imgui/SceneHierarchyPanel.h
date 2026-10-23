@@ -12,6 +12,7 @@
 #include <vector>
 #include <memory>
 #include <cstdint>
+#include <functional>
 
 namespace ux3d::renderer {
 class GltfRenderLayer;
@@ -30,7 +31,8 @@ public:
                        SceneRevisions& revisions,
                        bool* pOpen = nullptr,
                        std::vector<std::unique_ptr<ViewportInstance>>* viewports = nullptr,
-                       ViewportInstance** activeViewport = nullptr);
+                       ViewportInstance** activeViewport = nullptr,
+                       std::function<void(ViewportInstance*)> viewportMenu = nullptr);
 
     static void requestScrollToSelectedNode();
     static void resetSearch();

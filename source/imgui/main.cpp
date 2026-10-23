@@ -67,6 +67,7 @@
 #include "imgui/AppSettings.h"
 #include "imgui/SearchPathsPanel.h"
 #include "imgui/SceneHierarchyPanel.h"
+#include "imgui/ObjectActions.h"
 #include "imgui/SelfCheckResult.h"
 #include "imgui/StatusBar.h"
 #include "imgui/ViewportInstance.h"
@@ -1143,6 +1144,9 @@ static bool loadGltfModel(const std::string& filePath,
     ux3d::filesystem::File file = ux3d::imgui::StdFileSystem::instance().toFile(filePath.c_str());
 
     ux3d::imgui::ElementInspector::clearPreviewCache();
+    if (gltfLayer != nullptr) {
+        gltfLayer->setIsolation(nullptr, false); // the isolated node pointer is about to dangle
+    }
     gltfModel.reset();
     ux3d::imageformats::resetDecodeBudgetStats();
     auto result = ux3d::gltf::GltfParsing::fromFile(gltfModel, file, importOptions);
@@ -1282,6 +1286,9 @@ static bool loadGltfModel(const std::string& filePath,
                          ux3d::imgui::AnimationPlayer& animPlayer,
                          ux3d::imgui::SceneRevisions& revisions)
 {
+    if (gltfLayer != nullptr) {
+        gltfLayer->setIsolation(nullptr, false);
+    }
     gltfModel.reset();
     ux3d::imgui::StatisticsPanel::invalidate();
     auto* scene = gltfModel.create<ux3d::gltf::Scene>();
@@ -3412,13 +3419,36 @@ int main(int argc, char** argv)
                 }
             }
 
-            if (ImGui::IsKeyPressed(ImGuiKey_F) || ImGui::IsKeyPressed(ImGuiKey_KeypadDecimal)) {
-                if (selection.type == ux3d::imgui::SelectionType::Node && selection.selectedNode != nullptr) {
-                    activeViewport->cameraActor.presentFocusNode(gltfLayer.get(), selection.selectedNode, &gltfModel);
-                } else if (activeScene != nullptr && !activeScene->getNodes().empty()) {
-                    activeViewport->cameraActor.fitCameraToScene(*activeScene, &gltfModel);
+            // Object shortcuts, matching the Object menu items. Skipped while a menu or
+            // popup is open, so menu navigation does not trigger scene actions.
+            if (GImGui->OpenPopupStack.Size == 0) {
+                ux3d::imgui::ObjectActionContext objectShortcutContext{
+                    gltfModel, activeScene, selection, gltfLayer.get(),
+                    &activeViewport->cameraActor, &activeViewport->antiAliasing, sceneRevisions
+                };
+                if (ImGui::IsKeyPressed(ImGuiKey_F) || ImGui::IsKeyPressed(ImGuiKey_KeypadDecimal)) {
+                    ux3d::imgui::focusNode(objectShortcutContext, ux3d::imgui::selectedNode(objectShortcutContext));
                 }
-                activeViewport->antiAliasing.resetHistory();
+                if (ImGui::IsKeyPressed(ImGuiKey_H)) {
+                    ux3d::imgui::toggleNodeVisibility(objectShortcutContext, ux3d::imgui::selectedNode(objectShortcutContext));
+                }
+                if (ImGui::IsKeyPressed(ImGuiKey_Slash)) {
+                    if (io.KeyShift) {
+                        if (!ux3d::imgui::isolationActive(objectShortcutContext)) {
+                            ux3d::imgui::setIsolation(objectShortcutContext, ux3d::imgui::selectedNode(objectShortcutContext), true);
+                        }
+                    } else if (ux3d::imgui::isolationActive(objectShortcutContext)) {
+                        ux3d::imgui::exitIsolation(objectShortcutContext);
+                    } else {
+                        ux3d::imgui::setIsolation(objectShortcutContext, ux3d::imgui::selectedNode(objectShortcutContext), false);
+                    }
+                }
+                if (ImGui::IsKeyPressed(ImGuiKey_LeftBracket)) {
+                    ux3d::imgui::selectParent(objectShortcutContext, ux3d::imgui::selectedNode(objectShortcutContext));
+                }
+                if (ImGui::IsKeyPressed(ImGuiKey_RightBracket)) {
+                    ux3d::imgui::selectFirstChild(objectShortcutContext, ux3d::imgui::selectedNode(objectShortcutContext));
+                }
             }
 
             // Ctrl+Alt+1: Default Shaded, Ctrl+Alt+2: Wireframe
@@ -3431,6 +3461,25 @@ int main(int argc, char** argv)
                     activeViewport->settings.renderMode = ux3d::renderer::RenderMode::Wireframe;
                     activeViewport->settings.renderModeIdx = 1;
                     sceneRevisions.mark(ux3d::imgui::SceneChange::ViewportSettings);
+                }
+            }
+        }
+
+        // Animation shortcuts: Alt+A toggles play/stop; Shift+Left/Right rewinds and
+        // fast-forwards. Skipped while typing or while a menu/popup is open.
+        if (!io.WantTextInput && GImGui->OpenPopupStack.Size == 0) {
+            if (io.KeyAlt && !io.KeyCtrl && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_A)) {
+                if (animationPlayer.getMaxDuration() > 0.0f) {
+                    animationPlayer.setPlaying(!animationPlayer.isPlaying());
+                }
+            }
+            if (io.KeyShift && !io.KeyAlt && !io.KeyCtrl) {
+                if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow)) {
+                    animationPlayer.setCurrentTime(0.0f, gltfLayer.get());
+                    if (activeViewport != nullptr) activeViewport->antiAliasing.resetHistory();
+                } else if (ImGui::IsKeyPressed(ImGuiKey_RightArrow)) {
+                    animationPlayer.setCurrentTime(animationPlayer.getMaxDuration(), gltfLayer.get());
+                    if (activeViewport != nullptr) activeViewport->antiAliasing.resetHistory();
                 }
             }
         }
@@ -3512,6 +3561,143 @@ int main(int argc, char** argv)
             }
         }
 
+        // Viewport menu body, shared by the Viewport top-level menu and the viewport's
+        // right-click context menu (shown when no node is selected). New viewports are
+        // requested and created after the viewport loop, because the context menu is drawn
+        // while that loop iterates the viewports vector.
+        bool pendingNewViewport = false;
+        const ux3d::gltf::Node* pendingNewViewportCamera = nullptr;
+
+        auto createViewport = [&](const ux3d::gltf::Node* cameraNode) {
+            uint32_t nextId = 1;
+            for (const auto& v : viewports) {
+                if (v->id >= nextId) nextId = v->id + 1;
+            }
+            const std::string camName = cameraNode != nullptr
+                ? (cameraNode->hasName() ? cameraNode->getName() : ("Camera Node " + std::to_string(cameraNode->m_ID)))
+                : std::string();
+            std::string vpName = cameraNode != nullptr ? ("Camera: " + camName) : ("Viewport " + std::to_string(nextId));
+            auto newVp = std::make_unique<ux3d::imgui::ViewportInstance>(nextId, vpName, gladGL.get());
+            newVp->isAttachedToCamera = cameraNode != nullptr;
+            newVp->attachedCameraNode = cameraNode;
+            newVp->attachedCameraNodeId = cameraNode != nullptr ? cameraNode->m_ID : 0;
+            newVp->attachedCameraNodeName = camName;
+            if (activeViewport != nullptr) {
+                newVp->settings = activeViewport->settings;
+                if (cameraNode == nullptr && activeScene != nullptr) {
+                    newVp->cameraActor.fitCameraToScene(*activeScene, &gltfModel);
+                }
+            }
+            newVp->requestFocus = true;
+            activeViewport = newVp.get();
+            selection.selectViewport(newVp->id);
+            viewports.push_back(std::move(newVp));
+        };
+
+        auto drawViewportMenuBody = [&]() {
+            if (ImGui::MenuItem(ICON_MDI_PLUS " New Viewport")) {
+                pendingNewViewport = true;
+            }
+
+            if (ImGui::BeginMenu(ICON_MDI_CAMERA_PLUS_OUTLINE " New Viewport From")) {
+                auto cameraNodes = collectSceneCameraNodes(activeScene);
+                if (cameraNodes.empty()) {
+                    ImGui::MenuItem("(No Cameras in Scene)", nullptr, false, false);
+                } else {
+                    for (const auto* camNode : cameraNodes) {
+                        std::string camName = camNode->hasName() ? camNode->getName() : ("Camera Node " + std::to_string(camNode->m_ID));
+                        std::string itemTitle = ICON_MDI_CAMERA " " + camName;
+                        if (ImGui::MenuItem(itemTitle.c_str())) {
+                            pendingNewViewportCamera = camNode;
+                        }
+                    }
+                }
+                ImGui::EndMenu();
+            }
+
+            ImGui::Separator();
+
+            bool hasActiveVp = (activeViewport != nullptr);
+
+            bool showGrid = hasActiveVp && activeViewport->settings.showGrid;
+            if (ImGui::MenuItem(ICON_MDI_GRID " Toggle Show Grid", nullptr, showGrid, hasActiveVp)) {
+                activeViewport->settings.showGrid = !activeViewport->settings.showGrid;
+            }
+
+            bool showBBox = hasActiveVp && (activeViewport->settings.showSceneBoundingBox || activeViewport->settings.showSelectedBoundingBox);
+            if (ImGui::MenuItem(ICON_MDI_CUBE_OUTLINE " Toggle Show Bounding Box", nullptr, showBBox, hasActiveVp)) {
+                bool next = !showBBox;
+                activeViewport->settings.showSceneBoundingBox = next;
+                activeViewport->settings.showSelectedBoundingBox = next;
+            }
+
+            bool isPersp = hasActiveVp && (activeViewport->rendererCamera.getType() == ux3d::renderer::Camera::Type::Perspective);
+            if (ImGui::MenuItem(ICON_MDI_CAMERA " Toggle Persp / Orthographic", "Num 5", isPersp, hasActiveVp && !activeViewport->isAttachedToCamera)) {
+                activeViewport->cameraActor.changeUserCameraType(isPersp ? ux3d::renderer::Camera::Type::Orthographic : ux3d::renderer::Camera::Type::Perspective);
+                activeViewport->antiAliasing.resetHistory();
+            }
+
+            bool isTurntable = hasActiveVp && activeViewport->settings.turntable;
+            if (ImGui::MenuItem(ICON_MDI_ROTATE_ORBIT " Toggle Orbit (Turntable)", nullptr, isTurntable, hasActiveVp)) {
+                activeViewport->settings.turntable = !activeViewport->settings.turntable;
+            }
+
+            ImGui::Separator();
+
+            bool isAttached = hasActiveVp && activeViewport->isAttachedToCamera;
+            if (ImGui::MenuItem(ICON_MDI_CAMERA_OFF " Detach from Camera", nullptr, false, isAttached)) {
+                activeViewport->isAttachedToCamera = false;
+                activeViewport->attachedCameraNode = nullptr;
+                activeViewport->attachedCameraNodeId = 0;
+                activeViewport->attachedCameraNodeName = "";
+                sceneRevisions.mark(ux3d::imgui::SceneChange::ViewCamera);
+            }
+
+            if (ImGui::BeginMenu(ICON_MDI_COMPASS_OUTLINE " Orientation", hasActiveVp && !isAttached)) {
+                if (ImGui::MenuItem("Front", "Num 1")) { activeViewport->cameraActor.orientUserCamera(ux3d::editor::CameraOrientation::Front); activeViewport->antiAliasing.resetHistory(); }
+                if (ImGui::MenuItem("Back", "Ctrl+Num 1")) { activeViewport->cameraActor.orientUserCamera(ux3d::editor::CameraOrientation::Back); activeViewport->antiAliasing.resetHistory(); }
+                if (ImGui::MenuItem("Right", "Num 3")) { activeViewport->cameraActor.orientUserCamera(ux3d::editor::CameraOrientation::Right); activeViewport->antiAliasing.resetHistory(); }
+                if (ImGui::MenuItem("Left", "Ctrl+Num 3")) { activeViewport->cameraActor.orientUserCamera(ux3d::editor::CameraOrientation::Left); activeViewport->antiAliasing.resetHistory(); }
+                if (ImGui::MenuItem("Top", "Num 7")) { activeViewport->cameraActor.orientUserCamera(ux3d::editor::CameraOrientation::Top); activeViewport->antiAliasing.resetHistory(); }
+                if (ImGui::MenuItem("Bottom", "Ctrl+Num 7")) { activeViewport->cameraActor.orientUserCamera(ux3d::editor::CameraOrientation::Bottom); activeViewport->antiAliasing.resetHistory(); }
+                if (ImGui::MenuItem("Isometric")) { activeViewport->cameraActor.orientUserCamera(ux3d::editor::CameraOrientation::Isometric); activeViewport->antiAliasing.resetHistory(); }
+                ImGui::EndMenu();
+            }
+
+            if (ImGui::MenuItem(ICON_MDI_HOME_OUTLINE " Reset Camera", "Home", false, hasActiveVp)) {
+                if (activeScene != nullptr) activeViewport->cameraActor.fitCameraToScene(*activeScene, &gltfModel);
+                activeViewport->antiAliasing.resetHistory();
+            }
+
+            if (ImGui::BeginMenu(ICON_MDI_SHIELD_OUTLINE " Shading", hasActiveVp)) {
+                for (const auto& item : s_shadingModes) {
+                    if (item.isSeparator) {
+                        ImGui::Separator();
+                    } else {
+                        bool isSelected = (activeViewport->settings.renderMode == item.mode);
+                        if (ImGui::MenuItem(item.label, item.shortcut, isSelected)) {
+                            activeViewport->settings.renderMode = item.mode;
+                            activeViewport->settings.renderModeIdx = getIndexFromRenderMode(item.mode);
+                            sceneRevisions.mark(ux3d::imgui::SceneChange::ViewportSettings);
+                        }
+                    }
+                }
+                ImGui::EndMenu();
+            }
+        };
+
+        // Viewport menu for the hierarchy's viewport rows. Runs after the viewport loop,
+        // so a viewport requested from this menu can be created immediately.
+        auto showViewportMenuFor = [&](ux3d::imgui::ViewportInstance* vp) {
+            activeViewport = vp;
+            drawViewportMenuBody();
+            if (pendingNewViewport || pendingNewViewportCamera != nullptr) {
+                createViewport(pendingNewViewportCamera);
+                pendingNewViewport = false;
+                pendingNewViewportCamera = nullptr;
+            }
+        };
+
         // Menu Bar
         if (ImGui::BeginMenuBar()) {
             if (ImGui::BeginMenu("File")) {
@@ -3544,6 +3730,13 @@ int main(int argc, char** argv)
                     }
                     ImGui::EndMenu();
                 }
+                if (ImGui::MenuItem(ICON_MDI_CLOSE " Close", nullptr, false, modelLoaded)) {
+                    // Reset to the initial default scene (the embedded sample model).
+                    const std::string defaultModelPath = resolveSampleModelPath();
+                    loadGltfModel(defaultModelPath, gltfModel, activeScene, selection, currentFilePath,
+                                  viewports, gltfLayer.get(), animationPlayer, sceneRevisions, sceneEnvironments);
+                    updateWindowTitle(window, currentFilePath);
+                }
                 ImGui::Separator();
                 if (ImGui::MenuItem(ICON_MDI_FOLDER_SEARCH_OUTLINE " Search Paths...", nullptr, &showSearchPaths)) {
                 }
@@ -3556,136 +3749,40 @@ int main(int argc, char** argv)
 
             // Viewport Menu (Replaces previous View menu)
             if (ImGui::BeginMenu("Viewport")) {
-                if (ImGui::MenuItem(ICON_MDI_PLUS " New Viewport")) {
-                    uint32_t nextId = 1;
-                    for (const auto& v : viewports) {
-                        if (v->id >= nextId) nextId = v->id + 1;
-                    }
-                    std::string vpName = "Viewport " + std::to_string(nextId);
-                    auto newVp = std::make_unique<ux3d::imgui::ViewportInstance>(nextId, vpName, gladGL.get());
-                    if (activeViewport != nullptr) {
-                        newVp->settings = activeViewport->settings;
-                        if (activeScene != nullptr) {
-                            newVp->cameraActor.fitCameraToScene(*activeScene, &gltfModel);
-                        }
-                    }
-                    newVp->requestFocus = true;
-                    activeViewport = newVp.get();
-                    selection.selectViewport(newVp->id);
-                    viewports.push_back(std::move(newVp));
-                }
+                drawViewportMenuBody();
+                ImGui::EndMenu();
+            }
 
-                if (ImGui::BeginMenu(ICON_MDI_CAMERA_PLUS_OUTLINE " New Viewport From")) {
-                    auto cameraNodes = collectSceneCameraNodes(activeScene);
-                    if (cameraNodes.empty()) {
-                        ImGui::MenuItem("(No Cameras in Scene)", nullptr, false, false);
-                    } else {
-                        for (const auto* camNode : cameraNodes) {
-                            std::string camName = camNode->hasName() ? camNode->getName() : ("Camera Node " + std::to_string(camNode->m_ID));
-                            std::string itemTitle = ICON_MDI_CAMERA " " + camName;
-                            if (ImGui::MenuItem(itemTitle.c_str())) {
-                                uint32_t nextId = 1;
-                                for (const auto& v : viewports) {
-                                    if (v->id >= nextId) nextId = v->id + 1;
-                                }
-                                std::string vpName = "Camera: " + camName;
-                                auto newVp = std::make_unique<ux3d::imgui::ViewportInstance>(nextId, vpName, gladGL.get());
-                                newVp->isAttachedToCamera = true;
-                                newVp->attachedCameraNode = camNode;
-                                newVp->attachedCameraNodeId = camNode->m_ID;
-                                newVp->attachedCameraNodeName = camName;
-                                if (activeViewport != nullptr) {
-                                    newVp->settings = activeViewport->settings;
-                                }
-                                newVp->requestFocus = true;
-                                activeViewport = newVp.get();
-                                selection.selectViewport(newVp->id);
-                                viewports.push_back(std::move(newVp));
-                            }
-                        }
-                    }
+            if (ImGui::BeginMenu("Object")) {
+                ux3d::imgui::ObjectActionContext objectContext{
+                    gltfModel, activeScene, selection, gltfLayer.get(),
+                    activeViewport ? &activeViewport->cameraActor : nullptr,
+                    activeViewport ? &activeViewport->antiAliasing : nullptr,
+                    sceneRevisions
+                };
+                ux3d::imgui::drawObjectMenuItems(objectContext, ux3d::imgui::selectedNode(objectContext), false);
+                ImGui::EndMenu();
+            }
+
+            if (ImGui::BeginMenu("Animation")) {
+                const auto& animationElements = gltfModel.getElements<ux3d::gltf::Animation>();
+                const bool hasAnimations = !animationElements.empty() && animationPlayer.getMaxDuration() > 0.0f;
+                const bool playing = animationPlayer.isPlaying();
+                if (ImGui::MenuItem(playing ? ICON_MDI_STOP " Stop" : ICON_MDI_PLAY " Play", "Alt+A", false, hasAnimations)) {
+                    animationPlayer.setPlaying(!playing);
+                }
+                if (ImGui::MenuItem(ICON_MDI_SKIP_BACKWARD " Rewind", "Shift+Left", false, hasAnimations)) {
+                    animationPlayer.setCurrentTime(0.0f, gltfLayer.get());
+                    if (activeViewport != nullptr) activeViewport->antiAliasing.resetHistory();
+                }
+                if (ImGui::MenuItem(ICON_MDI_SKIP_FORWARD " FForward", "Shift+Right", false, hasAnimations)) {
+                    animationPlayer.setCurrentTime(animationPlayer.getMaxDuration(), gltfLayer.get());
+                    if (activeViewport != nullptr) activeViewport->antiAliasing.resetHistory();
+                }
+                if (ImGui::BeginMenu(ICON_MDI_PLAY_BOX_OUTLINE " Active", hasAnimations)) {
+                    animationPlayer.renderActiveAnimationsContent(gltfModel, gltfLayer.get(), sceneRevisions);
                     ImGui::EndMenu();
                 }
-
-                ImGui::Separator();
-
-                bool hasActiveVp = (activeViewport != nullptr);
-
-                bool showGrid = hasActiveVp && activeViewport->settings.showGrid;
-                if (ImGui::MenuItem(ICON_MDI_GRID " Toggle Show Grid", nullptr, showGrid, hasActiveVp)) {
-                    activeViewport->settings.showGrid = !activeViewport->settings.showGrid;
-                }
-
-                bool showBBox = hasActiveVp && (activeViewport->settings.showSceneBoundingBox || activeViewport->settings.showSelectedBoundingBox);
-                if (ImGui::MenuItem(ICON_MDI_CUBE_OUTLINE " Toggle Show Bounding Box", nullptr, showBBox, hasActiveVp)) {
-                    bool next = !showBBox;
-                    activeViewport->settings.showSceneBoundingBox = next;
-                    activeViewport->settings.showSelectedBoundingBox = next;
-                }
-
-                bool isPersp = hasActiveVp && (activeViewport->rendererCamera.getType() == ux3d::renderer::Camera::Type::Perspective);
-                if (ImGui::MenuItem(ICON_MDI_CAMERA " Toggle Persp / Orthographic", "Num 5", isPersp, hasActiveVp && !activeViewport->isAttachedToCamera)) {
-                    activeViewport->cameraActor.changeUserCameraType(isPersp ? ux3d::renderer::Camera::Type::Orthographic : ux3d::renderer::Camera::Type::Perspective);
-                    activeViewport->antiAliasing.resetHistory();
-                }
-
-                bool isTurntable = hasActiveVp && activeViewport->settings.turntable;
-                if (ImGui::MenuItem(ICON_MDI_ROTATE_ORBIT " Toggle Orbit (Turntable)", nullptr, isTurntable, hasActiveVp)) {
-                    activeViewport->settings.turntable = !activeViewport->settings.turntable;
-                }
-
-                ImGui::Separator();
-
-                bool isAttached = hasActiveVp && activeViewport->isAttachedToCamera;
-                if (ImGui::MenuItem(ICON_MDI_CAMERA_OFF " Detach from Camera", nullptr, false, isAttached)) {
-                    activeViewport->isAttachedToCamera = false;
-                    activeViewport->attachedCameraNode = nullptr;
-                    activeViewport->attachedCameraNodeId = 0;
-                    activeViewport->attachedCameraNodeName = "";
-                    sceneRevisions.mark(ux3d::imgui::SceneChange::ViewCamera);
-                }
-
-                if (ImGui::BeginMenu(ICON_MDI_COMPASS_OUTLINE " Orientation", hasActiveVp && !isAttached)) {
-                    if (ImGui::MenuItem("Front", "Num 1")) { activeViewport->cameraActor.orientUserCamera(ux3d::editor::CameraOrientation::Front); activeViewport->antiAliasing.resetHistory(); }
-                    if (ImGui::MenuItem("Back", "Ctrl+Num 1")) { activeViewport->cameraActor.orientUserCamera(ux3d::editor::CameraOrientation::Back); activeViewport->antiAliasing.resetHistory(); }
-                    if (ImGui::MenuItem("Right", "Num 3")) { activeViewport->cameraActor.orientUserCamera(ux3d::editor::CameraOrientation::Right); activeViewport->antiAliasing.resetHistory(); }
-                    if (ImGui::MenuItem("Left", "Ctrl+Num 3")) { activeViewport->cameraActor.orientUserCamera(ux3d::editor::CameraOrientation::Left); activeViewport->antiAliasing.resetHistory(); }
-                    if (ImGui::MenuItem("Top", "Num 7")) { activeViewport->cameraActor.orientUserCamera(ux3d::editor::CameraOrientation::Top); activeViewport->antiAliasing.resetHistory(); }
-                    if (ImGui::MenuItem("Bottom", "Ctrl+Num 7")) { activeViewport->cameraActor.orientUserCamera(ux3d::editor::CameraOrientation::Bottom); activeViewport->antiAliasing.resetHistory(); }
-                    if (ImGui::MenuItem("Isometric")) { activeViewport->cameraActor.orientUserCamera(ux3d::editor::CameraOrientation::Isometric); activeViewport->antiAliasing.resetHistory(); }
-                    ImGui::EndMenu();
-                }
-
-                if (ImGui::MenuItem(ICON_MDI_HOME_OUTLINE " Reset Camera", "Home", false, hasActiveVp)) {
-                    if (activeScene != nullptr) activeViewport->cameraActor.fitCameraToScene(*activeScene, &gltfModel);
-                    activeViewport->antiAliasing.resetHistory();
-                }
-
-                if (ImGui::MenuItem(ICON_MDI_CROSSHAIRS_GPS " Fit to Scene", "F", false, hasActiveVp && activeScene != nullptr)) {
-                    if (selection.type == ux3d::imgui::SelectionType::Node && selection.selectedNode != nullptr) {
-                        activeViewport->cameraActor.presentFocusNode(gltfLayer.get(), selection.selectedNode, &gltfModel);
-                    } else if (activeScene != nullptr && !activeScene->getNodes().empty()) {
-                        activeViewport->cameraActor.fitCameraToScene(*activeScene, &gltfModel);
-                    }
-                    activeViewport->antiAliasing.resetHistory();
-                }
-
-                if (ImGui::BeginMenu(ICON_MDI_SHIELD_OUTLINE " Shading", hasActiveVp)) {
-                    for (const auto& item : s_shadingModes) {
-                        if (item.isSeparator) {
-                            ImGui::Separator();
-                        } else {
-                            bool isSelected = (activeViewport->settings.renderMode == item.mode);
-                            if (ImGui::MenuItem(item.label, item.shortcut, isSelected)) {
-                                activeViewport->settings.renderMode = item.mode;
-                                activeViewport->settings.renderModeIdx = getIndexFromRenderMode(item.mode);
-                                sceneRevisions.mark(ux3d::imgui::SceneChange::ViewportSettings);
-                            }
-                        }
-                    }
-                    ImGui::EndMenu();
-                }
-
                 ImGui::EndMenu();
             }
 
@@ -3867,8 +3964,8 @@ int main(int argc, char** argv)
                 continue;
             }
 
-            // Quick Navigation & Inspection Toolbar Strip
-            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(5.0f, 2.0f));
+            // Quick Navigation & Inspection Toolbar Strip. It keeps the default frame
+            // padding, so it is exactly as tall as a collapsing header.
             ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4.0f, 2.0f));
             ImGui::BeginGroup();
 
@@ -3974,17 +4071,6 @@ int main(int argc, char** argv)
                 }
             }
 
-            // Focus (F) button
-            ImGui::SameLine();
-            if (ImGui::SmallButton(ICON_MDI_CROSSHAIRS_GPS " Focus (F)")) {
-                if (selection.type == ux3d::imgui::SelectionType::Node && selection.selectedNode != nullptr) {
-                    vp->cameraActor.presentFocusNode(gltfLayer.get(), selection.selectedNode, &gltfModel);
-                } else if (activeScene != nullptr && !activeScene->getNodes().empty()) {
-                    vp->cameraActor.fitCameraToScene(*activeScene, &gltfModel);
-                }
-                vp->antiAliasing.resetHistory();
-            }
-
             // Right-corner pulldowns: [ Free Look | <camera-list> ] and [ Shading Mode ]
             std::string camPulldownLabel;
             if (vp->isAttachedToCamera) {
@@ -4081,7 +4167,7 @@ int main(int argc, char** argv)
             }
 
             ImGui::EndGroup();
-            ImGui::PopStyleVar(2);
+            ImGui::PopStyleVar();
 
             ImVec2 viewportPos = ImGui::GetCursorScreenPos();
             ImVec2 viewportSize = ImGui::GetContentRegionAvail();
@@ -4530,6 +4616,23 @@ int main(int argc, char** argv)
                              viewportSize,
                              ImVec2(0.0f, 1.0f),
                              ImVec2(1.0f, 0.0f));
+
+                // Right-click: Object actions while a single node is selected, otherwise
+                // the same items as the Viewport menu. Drawn inside the loop, so viewport
+                // creation is deferred until after it (see pendingNewViewport).
+                if (ImGui::BeginPopupContextItem("##ViewportContextMenu")) {
+                    activeViewport = vp.get();
+                    if (selection.type == ux3d::imgui::SelectionType::Node && selection.selectedNode != nullptr) {
+                        ux3d::imgui::ObjectActionContext objectContext{
+                            gltfModel, activeScene, selection, gltfLayer.get(),
+                            &vp->cameraActor, &vp->antiAliasing, sceneRevisions
+                        };
+                        ux3d::imgui::drawObjectMenuItems(objectContext, selection.selectedNode, false, true);
+                    } else {
+                        drawViewportMenuBody();
+                    }
+                    ImGui::EndPopup();
+                }
             }
 
             ImVec2 imagePos = ImGui::GetItemRectMin();
@@ -4726,6 +4829,15 @@ int main(int argc, char** argv)
         }
         gltfLayer->endSceneFrame();
 
+        // Deferred viewport creation: the Viewport menu body can run inside the viewport
+        // loop (right-click context menu), where changing the viewports vector would
+        // invalidate the iteration.
+        if (pendingNewViewport || pendingNewViewportCamera != nullptr) {
+            createViewport(pendingNewViewportCamera);
+            pendingNewViewport = false;
+            pendingNewViewportCamera = nullptr;
+        }
+
         // -------------------------------------------------------------
         // Hierarchy Panel
         // -------------------------------------------------------------
@@ -4737,7 +4849,8 @@ int main(int argc, char** argv)
                 gltfModel, activeScene, selection, gltfLayer.get(),
                 activeViewport ? activeViewport->cameraActor : dummyActor,
                 activeViewport ? activeViewport->antiAliasing : dummyAA,
-                sceneRevisions, &showHierarchy, &viewports, &activeViewport
+                sceneRevisions, &showHierarchy, &viewports, &activeViewport,
+                showViewportMenuFor
             );
         }
 

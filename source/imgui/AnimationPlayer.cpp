@@ -738,6 +738,60 @@ void AnimationPlayer::update(float deltaTime, ux3d::renderer::GltfRenderLayer* g
     }
 }
 
+void AnimationPlayer::renderActiveAnimationsContent(ux3d::gltf::Gltf& gltfModel,
+                                                    ux3d::renderer::GltfRenderLayer* gltfLayer,
+                                                    SceneRevisions& revisions)
+{
+    auto& anims = gltfModel.getElements<ux3d::gltf::Animation>();
+
+    ImGui::TextDisabled("ANIMATIONS");
+    ImGui::Separator();
+
+    bool allSelected = areAllPossibleAnimationsSelected(gltfModel);
+    if (ImGui::Checkbox("Select all non-conflicting", &allSelected)) {
+        selectAllPossibleAnimations(allSelected, gltfModel, gltfLayer);
+        revisions.mark(SceneChange::AnimationSet);
+    }
+
+    ImGui::Separator();
+
+    float listHeight = std::min(260.0f, static_cast<float>(anims.size() * 26.0f));
+    ImGui::BeginChild("StatusBarAnimScrollList", ImVec2(300, listHeight), true);
+    for (size_t i = 0; i < anims.size(); ++i) {
+        auto& a = anims.at(i);
+        bool isPlaying = a.isPlaying();
+        bool conflict = !isPlaying && isAnimationConflictingWithActive(i, gltfModel);
+
+        std::string name = a.hasName() ? a.getName().c_str() : ("Animation " + std::to_string(i));
+
+        if (conflict) ImGui::BeginDisabled();
+        if (ImGui::Checkbox((name + "##" + std::to_string(i)).c_str(), &isPlaying)) {
+            toggleAnimation(i, isPlaying, gltfModel, gltfLayer);
+            revisions.mark(SceneChange::AnimationSet);
+        }
+        if (conflict) {
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                ImGui::SetTooltip("Conflicts with an already active animation");
+            }
+        }
+    }
+    ImGui::EndChild();
+
+    ImGui::TextDisabled("Only non-conflicting animations can play together.");
+    ImGui::Separator();
+
+    ImGui::TextDisabled("SETTINGS");
+    if (gltfLayer != nullptr) {
+        if (ImGui::Checkbox("Skinning", &gltfLayer->renderSettings.enableSkinning)) {
+            revisions.mark(SceneChange::RenderSettings);
+        }
+        if (ImGui::Checkbox("Morphing", &gltfLayer->renderSettings.enableMorphing)) {
+            revisions.mark(SceneChange::RenderSettings);
+        }
+    }
+}
+
 void AnimationPlayer::renderToolbar(ux3d::gltf::Gltf& gltfModel, ux3d::renderer::GltfRenderLayer* gltfLayer, SceneRevisions& revisions)
 {
     auto& anims = gltfModel.getElements<ux3d::gltf::Animation>();

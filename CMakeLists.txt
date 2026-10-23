@@ -80,6 +80,8 @@ set(GLIDER_SOURCES
 	"header/imgui/StatisticsPanel.h"
 	"source/imgui/SceneHierarchyPanel.cpp"
 	"header/imgui/SceneHierarchyPanel.h"
+	"source/imgui/ObjectActions.cpp"
+	"header/imgui/ObjectActions.h"
 	"source/imgui/ResourcesPanel.cpp"
 	"header/imgui/ResourcesPanel.h"
 	"source/imgui/ElementInspector.cpp"

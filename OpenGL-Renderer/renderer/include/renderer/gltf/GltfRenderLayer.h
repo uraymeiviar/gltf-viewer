@@ -174,6 +174,19 @@ public:
     // ASOBO_material_invisible (Material::invisible).
     bool showInvisibleMaterials = false;
 
+    // Isolation (local view): when root is not null, only that node is drawn, plus its
+    // descendants when includeChildren is set. Nodes already hidden by their own visible
+    // flag stay hidden. This is a view filter: it does not touch the glTF visibility flags,
+    // so exiting isolation restores the scene without side effects. Materials, lights and
+    // picking follow the same filter.
+    void setIsolation(const gltf::Node* root, bool includeChildren)
+    {
+        m_isolationRoot = root;
+        m_isolationIncludeChildren = includeChildren;
+    }
+    const gltf::Node* getIsolationRoot() const { return m_isolationRoot; }
+    bool getIsolationIncludeChildren() const { return m_isolationIncludeChildren; }
+
     // P8.5: removes from drawables the static primitives (found through reverseMapping)
     // whose POSITION bounds lie entirely outside clipFromWorld's view volume, with the
     // test frustumCulling uses. Primitives it cannot bound and drawables the mapping does
@@ -199,6 +212,8 @@ private:
         const gltf::Scene* scene = nullptr;
         bool showInvisibleMaterials = false;
         std::optional<uint32_t> materialVariantID;
+        const gltf::Node* isolationRoot = nullptr;
+        bool isolationIncludeChildren = false;
         uint64_t frameToken = 0;
     };
     const SceneTraversal& traverseScene(const gltf::Scene* gltfScene);
@@ -206,6 +221,8 @@ private:
     uint64_t m_sceneFrameToken = 0;
     uint64_t m_nextSceneFrameToken = 0;
     uint64_t m_traversalReuses = 0;
+    const gltf::Node* m_isolationRoot = nullptr;
+    bool m_isolationIncludeChildren = false;
 
     IBLSampler m_iblSampler;
 

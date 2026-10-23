@@ -39,6 +39,8 @@ struct ViewportSettingsState {
     bool operator==(const ViewportSettingsState&) const = default;
 };
 
+class AntiAliasing;
+
 class ViewportSettingsPanel {
 public:
     static void render(ViewportSettingsState& state,
@@ -49,7 +51,8 @@ public:
                        ux3d::gltf::Gltf* gltfModel = nullptr,
                        bool isAttachedToCamera = false,
                        const std::string& attachedCameraName = "",
-                       std::function<void()> onDetachCamera = nullptr);
+                       std::function<void()> onDetachCamera = nullptr,
+                       AntiAliasing* antiAliasing = nullptr);
 };
 
 } // namespace ux3d::imgui

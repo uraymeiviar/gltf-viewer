@@ -9,6 +9,7 @@
 #include "imgui/Theme.h"
 #include "imgui/AppSettings.h"
 #include "imgui/StdFileSystem.h"
+#include "imgui/UiProbe.h"
 #include "imageformats/imageformats.h"
 #include "renderer/gltf/GltfRenderLayer.h"
 #include "renderer/gl/Texture.h"
@@ -16,7 +17,9 @@
 #include "gltf/AttributeType.h"
 #include <imgui.h>
 #include <glm/gtc/type_ptr.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/quaternion.hpp>
+#include <glm/gtx/matrix_decompose.hpp>
 #include <cstring>
 #include <cmath>
 #include <string>
@@ -372,49 +375,139 @@ void ElementInspector::render(SelectionState& selection,
         if (node->hasName()) {
             std::strncpy(nameBuf, node->getName().c_str(), sizeof(nameBuf) - 1);
         }
-        if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf))) {
-            node->setName(nameBuf);
-            revisions.mark(SceneChange::Metadata);
+        ImGui::InputText("Name", nameBuf, sizeof(nameBuf), ImGuiInputTextFlags_ReadOnly);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Renaming is disabled in the viewer");
         }
 
         ImGui::Separator();
 
-        // Transform (TRS)
+        // Transform (TRS). Local shows the node's own TRS; Global shows and edits the
+        // world-space transform, converting the result back through the parent transform.
         if (ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_DefaultOpen)) {
-            ImGui::PushFont(getMonoFont());
-            // Translation
-            auto t = node->getTranslationOrDefault();
-            float trans[3] = { static_cast<float>(t.x), static_cast<float>(t.y), static_cast<float>(t.z) };
-            if (ImGui::DragFloat3("Translation", trans, 0.05f)) {
-                node->setTranslation(ux3d::math::dvec3(trans[0], trans[1], trans[2]));
-                revisions.mark(SceneChange::Transform);
-            }
+            if (ImGui::BeginTabBar("##TransformSpaceTabs")) {
+                if (ImGui::BeginTabItem("Local")) {
+                    ux3d::imgui::UiProbe::item("insp.transform.local", 0);
+                    ImGui::PushFont(getMonoFont());
+                    // Translation
+                    auto t = node->getTranslationOrDefault();
+                    float trans[3] = { static_cast<float>(t.x), static_cast<float>(t.y), static_cast<float>(t.z) };
+                    if (ImGui::DragFloat3(ICON_MDI_AXIS_ARROW "##Translation", trans, 0.05f)) {
+                        node->setTranslation(ux3d::math::dvec3(trans[0], trans[1], trans[2]));
+                        revisions.mark(SceneChange::Transform);
+                    }
+                    ux3d::imgui::UiProbe::item("insp.transform.translation", 0);
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Local Translation");
 
-            // Rotation (Euler angles in degrees)
-            auto r = node->getRotationOrDefault();
-            glm::quat q(static_cast<float>(r.w), static_cast<float>(r.x), static_cast<float>(r.y), static_cast<float>(r.z));
-            glm::vec3 euler = glm::degrees(glm::eulerAngles(q));
-            float rot[3] = { euler.x, euler.y, euler.z };
-            if (ImGui::DragFloat3("Rotation (deg)", rot, 0.5f)) {
-                glm::quat newQ = glm::quat(glm::radians(glm::vec3(rot[0], rot[1], rot[2])));
-                node->setRotation(ux3d::math::dquat(newQ.w, newQ.x, newQ.y, newQ.z));
-                revisions.mark(SceneChange::Transform);
-            }
+                    // Rotation (Euler angles in degrees)
+                    auto r = node->getRotationOrDefault();
+                    glm::quat q(static_cast<float>(r.w), static_cast<float>(r.x), static_cast<float>(r.y), static_cast<float>(r.z));
+                    glm::vec3 euler = glm::degrees(glm::eulerAngles(q));
+                    float rot[3] = { euler.x, euler.y, euler.z };
+                    if (ImGui::DragFloat3(ICON_MDI_ROTATE_3D_VARIANT "##Rotation", rot, 0.5f)) {
+                        glm::quat newQ = glm::quat(glm::radians(glm::vec3(rot[0], rot[1], rot[2])));
+                        node->setRotation(ux3d::math::dquat(newQ.w, newQ.x, newQ.y, newQ.z));
+                        revisions.mark(SceneChange::Transform);
+                    }
+                    ux3d::imgui::UiProbe::item("insp.transform.rotation", 0);
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Local Rotation (deg)");
 
-            // Scale
-            auto s = node->getScaleOrDefault();
-            float scale[3] = { static_cast<float>(s.x), static_cast<float>(s.y), static_cast<float>(s.z) };
-            if (ImGui::DragFloat3("Scale", scale, 0.02f, 0.001f, 100.0f)) {
-                node->setScale(ux3d::math::dvec3(scale[0], scale[1], scale[2]));
-                revisions.mark(SceneChange::Transform);
-            }
-            ImGui::PopFont();
+                    // Scale
+                    auto s = node->getScaleOrDefault();
+                    float scale[3] = { static_cast<float>(s.x), static_cast<float>(s.y), static_cast<float>(s.z) };
+                    if (ImGui::DragFloat3(ICON_MDI_ARROW_EXPAND_ALL "##Scale", scale, 0.02f, 0.001f, 100.0f)) {
+                        node->setScale(ux3d::math::dvec3(scale[0], scale[1], scale[2]));
+                        revisions.mark(SceneChange::Transform);
+                    }
+                    ux3d::imgui::UiProbe::item("insp.transform.scale", 0);
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Local Scale");
+                    ImGui::PopFont();
 
-            if (ImGui::Button("Reset Transform")) {
-                node->setTranslation(ux3d::math::dvec3(0.0));
-                node->setRotation(ux3d::math::dquat(1.0, 0.0, 0.0, 0.0));
-                node->setScale(ux3d::math::dvec3(1.0));
-                revisions.mark(SceneChange::Transform);
+                    if (ImGui::Button("Reset Transform")) {
+                        node->setTranslation(ux3d::math::dvec3(0.0));
+                        node->setRotation(ux3d::math::dquat(1.0, 0.0, 0.0, 0.0));
+                        node->setScale(ux3d::math::dvec3(1.0));
+                        revisions.mark(SceneChange::Transform);
+                    }
+                    ImGui::EndTabItem();
+                }
+
+                if (ImGui::BeginTabItem("Global")) {
+                    ux3d::imgui::UiProbe::item("insp.transform.global", 0);
+                    if (gltfLayer == nullptr) {
+                        ImGui::TextDisabled("No renderer scene loaded.");
+                    } else {
+                        const glm::mat4 world = gltfLayer->getWorldTransform(node);
+                        const glm::mat4 parentWorld = gltfLayer->getParentWorldTransform(node);
+                        glm::vec3 worldTranslation = glm::vec3(world[3]);
+                        glm::quat worldRotation = gltfLayer->getWorldRotationQuat(node);
+                        glm::vec3 worldEuler = glm::degrees(glm::eulerAngles(worldRotation));
+                        glm::vec3 worldScale(
+                            glm::length(glm::vec3(world[0])),
+                            glm::length(glm::vec3(world[1])),
+                            glm::length(glm::vec3(world[2])));
+
+                        bool changed = false;
+                        ImGui::PushFont(getMonoFont());
+                        float globalTranslation[3] = { worldTranslation.x, worldTranslation.y, worldTranslation.z };
+                        if (ImGui::DragFloat3(ICON_MDI_AXIS_ARROW "##GlobalTranslation", globalTranslation, 0.05f)) {
+                            worldTranslation = glm::vec3(globalTranslation[0], globalTranslation[1], globalTranslation[2]);
+                            changed = true;
+                        }
+                        ux3d::imgui::UiProbe::item("insp.global.translation", 0);
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Global Translation");
+
+                        float globalRotation[3] = { worldEuler.x, worldEuler.y, worldEuler.z };
+                        if (ImGui::DragFloat3(ICON_MDI_ROTATE_3D_VARIANT "##GlobalRotation", globalRotation, 0.5f)) {
+                            worldRotation = glm::quat(glm::radians(glm::vec3(globalRotation[0], globalRotation[1], globalRotation[2])));
+                            changed = true;
+                        }
+                        ux3d::imgui::UiProbe::item("insp.global.rotation", 0);
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Global Rotation (deg)");
+
+                        float globalScale[3] = { worldScale.x, worldScale.y, worldScale.z };
+                        if (ImGui::DragFloat3(ICON_MDI_ARROW_EXPAND_ALL "##GlobalScale", globalScale, 0.02f, 0.001f, 100.0f)) {
+                            worldScale = glm::vec3(globalScale[0], globalScale[1], globalScale[2]);
+                            changed = true;
+                        }
+                        ux3d::imgui::UiProbe::item("insp.global.scale", 0);
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Global Scale");
+                        ImGui::PopFont();
+
+                        if (changed) {
+                            const glm::mat4 newWorld =
+                                glm::translate(glm::mat4(1.0f), worldTranslation) *
+                                glm::mat4_cast(worldRotation) *
+                                glm::scale(glm::mat4(1.0f), worldScale);
+                            glm::vec3 localScale, localTranslation, skew;
+                            glm::quat localRotation;
+                            glm::vec4 perspective;
+                            if (glm::decompose(glm::inverse(parentWorld) * newWorld, localScale, localRotation, localTranslation, skew, perspective)) {
+                                node->setTranslation(ux3d::math::dvec3(localTranslation.x, localTranslation.y, localTranslation.z));
+                                node->setRotation(ux3d::math::dquat(localRotation.w, localRotation.x, localRotation.y, localRotation.z));
+                                node->setScale(ux3d::math::dvec3(localScale.x, localScale.y, localScale.z));
+                                revisions.mark(SceneChange::Transform);
+                            }
+                        }
+
+                        if (ImGui::Button("Reset Transform")) {
+                            glm::vec3 localScale, localTranslation, skew;
+                            glm::quat localRotation;
+                            glm::vec4 perspective;
+                            if (glm::decompose(glm::inverse(parentWorld), localScale, localRotation, localTranslation, skew, perspective)) {
+                                node->setTranslation(ux3d::math::dvec3(localTranslation.x, localTranslation.y, localTranslation.z));
+                                node->setRotation(ux3d::math::dquat(localRotation.w, localRotation.x, localRotation.y, localRotation.z));
+                                node->setScale(ux3d::math::dvec3(localScale.x, localScale.y, localScale.z));
+                                revisions.mark(SceneChange::Transform);
+                            }
+                        }
+                        if (ImGui::IsItemHovered()) {
+                            ImGui::SetTooltip("Reset to the identity world transform");
+                        }
+                    }
+                    ImGui::EndTabItem();
+                }
+                ImGui::EndTabBar();
             }
         }
 
@@ -1188,7 +1281,8 @@ void ElementInspector::render(SelectionState& selection,
                     vp->attachedCameraNodeId = 0;
                     vp->attachedCameraNodeName = "";
                     revisions.mark(SceneChange::ViewCamera);
-                }
+                },
+                &vp->antiAliasing
             );
         } else {
             ImGui::TextDisabled("Viewport (ID %u) not found.", selection.selectedViewportId);

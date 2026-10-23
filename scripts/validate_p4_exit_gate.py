@@ -37,6 +37,7 @@ NO_SYNC = {"Selection", "ViewCamera", "AnimationTime"}
 # Environment controls (IBL, lights, skybox) are in the Scene Inspector (hier.scene); viewport
 # settings open on their first tab, Render Modes. The IBL filter settings live in the Scene
 # Inspector too and must follow the IBL toggle (checked after the transition loop).
+# Node names are read-only now, so Metadata has no producer step here.
 STEPS = [
     ("variant_alt", "Material", True, ["click 110 800"]),
     ("variant_default", "Material", True, ["click 110 778"]),
@@ -44,8 +45,7 @@ STEPS = [
     ("light_intensity", "Light", True, ["click 20 734", "wait 4", "click 140 756", "wait 6", "dclick 1620 124", "wait 4",
                                         "key a ctrl", "type 400", "key enter"]),
     ("camera_fov", "SceneCamera", False, ["click 20 712", "wait 4", "click 120 734", "wait 6", "click 1700 124"]),
-    ("rename", "Metadata", True, ["picknode 5", "wait 6", "dclick 1660 93", "wait 4", "key a ctrl", "type Renamed", "key enter"]),
-    ("extension", "Extension", False, ["click 1571 475"]),
+    ("extension", "Extension", False, ["picknode 5", "wait 6", "click 1571 507"]),
     ("ibl_off", "RenderSettings", True, ["clickp hier.scene 0", "wait 6", "clickp scene.ibl.on 0"]),
     ("punctual_off", "RenderSettings", True, ["clickp scene.punctual.on 0"]),
     ("lights_on", "RenderSettings", True, ["clickp scene.ibl.on 0", "wait 4", "clickp scene.punctual.on 0"]),
@@ -54,7 +54,8 @@ STEPS = [
     ("overlay", "ViewportSettings", True, ["click 1551 362", "wait 4", "click 1551 423"]),
     ("skybox_off", "RenderSettings", True, ["click 1551 423", "wait 4", "clickp hier.scene 0", "wait 6", "click 1551 164"]),
     ("eye_hide", "Visibility", True, ["click 1551 164", "wait 4", "click 405 149"]),
-    ("transform", "Transform", True, ["click 405 149", "wait 4", "picknode 0", "wait 6", "dclick 1577 163", "wait 4",
+    ("transform", "Transform", True, ["click 405 149", "wait 4", "picknode 0", "wait 6", "clickp insp.transform.local 0", "wait 4",
+                                      "dclickp insp.transform.translation 0", "wait 4",
                                       "key a ctrl", "type 1.5", "key enter"]),
     ("play", "AnimationTime", True, ["animplay on", "wait 10"]),
     ("clip_off", "AnimationSet", True, ["animplay off", "wait 4", "click 36 1063", "wait 6", "click 58 965", "wait 6",
