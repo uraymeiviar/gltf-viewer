@@ -102,10 +102,15 @@ def equivalence(name, script, extra, steady=()):
     for before, after in steady:
         hits = rev[after]["programCacheHits"] - rev[before]["programCacheHits"]
         misses = rev[after]["programCacheMisses"] - rev[before]["programCacheMisses"]
-        check(misses == 0 and hits > 0, f"{name} {before}->{after}: steady frames all cache hits ({hits} hits, {misses} misses)")
+        # Since P4.6c a command-cache hit skips program selection entirely.
+        chits = rev[after].get("commandCacheHits", 0) - rev[before].get("commandCacheHits", 0)
+        cmisses = rev[after].get("commandCacheMisses", 0) - rev[before].get("commandCacheMisses", 0)
+        check(misses == 0 and cmisses == 0 and hits + chits > 0,
+              f"{name} {before}->{after}: steady frames all cache hits (command {chits}/{cmisses}, program {hits}/{misses} hits/misses)")
     urev = {k: v["revisions"] for k, v in unc["snaps"].items()}
     last = list(urev)[-1]
-    check(urev[last]["programCacheHits"] == 0, f"{name}: --disable-command-caches never hits ({urev[last]['programCacheHits']})")
+    check(urev[last]["programCacheHits"] == 0 and urev[last].get("commandCacheHits", 0) == 0,
+          f"{name}: --disable-command-caches never hits ({urev[last]['programCacheHits']}, {urev[last].get('commandCacheHits', 0)})")
     return rev
 
 

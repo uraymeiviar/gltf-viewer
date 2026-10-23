@@ -9,6 +9,7 @@
 
 #include <map>
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 namespace ux3d::renderer::gl {
@@ -40,6 +41,8 @@ protected:
     // Index = picking id; ids are assigned consecutively from 1 per applyLayer call.
     std::vector<Mesh*> m_inverseMapping;
     std::vector<std::unique_ptr<Material>> m_materialPool;
+    // Picking copy of each source render pass, refreshed by assignment every call (P4.6c).
+    std::unordered_map<RenderPass*, std::unique_ptr<RenderPass>> m_passPool;
     uint64_t m_materialsCreated = 0;
     uint64_t m_materialsReused = 0;
 };

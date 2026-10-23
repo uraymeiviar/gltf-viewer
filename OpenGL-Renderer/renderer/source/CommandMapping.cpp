@@ -2,6 +2,9 @@
 // Authors: Willy Becher 🏝, David Labode
 
 #include "renderer/CommandMapping.h"
+#include "renderer/Camera.h"
+#include "renderer/Material.h"
+#include "renderer/Mesh.h"
 #include "renderer/Command.h"
 #include "renderer/CommandGenerator.h"
 #include "renderer/editor/EditorRenderLayer.h"
@@ -13,6 +16,10 @@
 using namespace ux3d;
 using namespace ux3d::renderer;
 
+namespace {
+uint32_t renderSettingsBits(const RenderSettings& rs);
+}
+
 CommandMapping::CommandMapping(gl::GL* gl, CommandGenerator& scene, gl::ShaderCache& _shaderCache)
     : m_gl(gl)
     , m_shaderCache(_shaderCache)
@@ -20,36 +27,130 @@ CommandMapping::CommandMapping(gl::GL* gl, CommandGenerator& scene, gl::ShaderCa
 {
 }
 
-void CommandMapping::update(const core::LinkedList<MeshMaterialTuple>& drawables, std::vector<CmdDesc>& commands)
+size_t CommandMapping::CommandKeyHash::operator()(const CommandKey& key) const
 {
+    uint64_t h = reinterpret_cast<uintptr_t>(key.mesh) * 0x9E3779B97F4A7C15ULL;
+    h ^= reinterpret_cast<uintptr_t>(key.material) + 0x9E3779B97F4A7C15ULL + (h << 6) + (h >> 2);
+    h ^= reinterpret_cast<uintptr_t>(key.camera) + 0x9E3779B97F4A7C15ULL + (h << 6) + (h >> 2);
+    return static_cast<size_t>(h);
+}
+
+CommandMapping::CommandSignature CommandMapping::makeSignature(const Mesh& mesh, const Material& material) const
+{
+    CommandSignature sig;
+    sig.renderPass = material.renderPass;
+    sig.environment = m_scene.m_activeEnvironmentMap;
+    const auto& lightUniforms = m_scene.m_lights.getUniforms();
+    sig.lightUniforms = lightUniforms.data();
+    sig.lightUniformCount = lightUniforms.size();
+    sig.meshUniforms = mesh.uniforms.data();
+    sig.meshUniformCount = mesh.uniforms.size();
+    sig.meshBlocks = mesh.uniformBlocks.data();
+    sig.meshBlockCount = mesh.uniformBlocks.size();
+    sig.materialUniforms = material.uniforms.data();
+    sig.materialUniformCount = material.uniforms.size();
+    sig.materialSamplers = material.samplers.data();
+    sig.materialSamplerCount = material.samplers.size();
+    sig.morphTexture = mesh.getMorphTargetSampler().texture;
+    sig.jointsSampler = mesh.jointsSampler;
+    sig.jointsTexture = mesh.jointsSampler != nullptr ? mesh.jointsSampler->texture : nullptr;
+    sig.indexBuffer = mesh.indexBuffer;
+    sig.indexCount = mesh.indexCount;
+    sig.indexByteOffset = mesh.indexByteOffset;
+    sig.vertexCount = mesh.vertexCount;
+    sig.meshDefines = mesh.defines.contentHash();
+    sig.materialDefines = material.defines.contentHash();
+    sig.indexFormat = static_cast<uint32_t>(mesh.indexFormat);
+    // Same non-string program inputs as makeProgramKey; the shader names are
+    // compared separately without copying.
+    sig.renderSettings = renderSettingsBits(material.renderSettings);
+    sig.toneMapping = static_cast<uint32_t>(m_scene.m_toneMapping);
+    sig.lightCount = static_cast<uint32_t>(m_scene.m_lights.getLightCount());
+    sig.useIBL = m_scene.m_useIBL;
+    sig.usePunctualLights = m_scene.m_usePunctualLights;
+    sig.culling = material.isDoubleSided ? 1u : 0u;
+    sig.winding = static_cast<uint32_t>(mesh.frontFace);
+    sig.polygonMode = static_cast<uint32_t>(mesh.polygonMode);
+    sig.topology = static_cast<uint32_t>(mesh.primitiveTopology);
+    return sig;
+}
+
+void CommandMapping::update(const core::LinkedList<MeshMaterialTuple>& drawables, std::vector<CmdDesc*>& commands)
+{
+    ++m_updateSerial;
     commands.clear();
     if (commands.capacity() < drawables.size()) {
         commands.reserve(drawables.size());
     }
+    const Camera* camera = m_scene.m_activeCamera;
     for (const auto& meshMat : drawables) {
+        const auto [mesh, material] = meshMat;
+        if (mesh == nullptr || material == nullptr) {
+            continue;
+        }
+        const CommandKey key { mesh, material, camera };
+        CommandSignature signature = makeSignature(*mesh, *material);
+        auto it = m_commandCache.find(key);
+        if (m_commandCacheEnabled && it != m_commandCache.end() && it->second.signature == signature
+            && it->second.vertexShader == mesh->vertexShader && it->second.fragmentShader == material->fragmentShader) {
+            ++m_commandCacheHits;
+            CmdDesc& desc = *it->second.desc;
+            desc.distanceSortKey = camera != nullptr ? camera->getDistance(mesh->getPosition()) : 0.0f;
+            desc.command.vertexLayout = m_scene.getVertexLayoutCache().getOrCreate(mesh, desc.command.program);
+            it->second.lastUse = m_updateSerial;
+            commands.push_back(&desc);
+            continue;
+        }
+        ++m_commandCacheMisses;
         auto command = makeCommand(meshMat);
-        if (command) {
-            commands.push_back(std::move(*command));
+        if (!command) {
+            continue;
+        }
+        CommandEntry& entry = m_commandCache[key];
+        entry.signature = signature;
+        entry.vertexShader = mesh->vertexShader;
+        entry.fragmentShader = material->fragmentShader;
+        entry.desc = std::make_unique<CmdDesc>(std::move(*command));
+        entry.lastUse = m_updateSerial;
+        commands.push_back(entry.desc.get());
+    }
+
+    // Drop entries whose drawables have not appeared for a while (transmission
+    // duplicates are recreated every createScene, so their keys do not repeat).
+    constexpr uint64_t kEvictAfterUpdates = 64;
+    if (m_updateSerial % kEvictAfterUpdates == 0) {
+        for (auto entry = m_commandCache.begin(); entry != m_commandCache.end();) {
+            if (m_updateSerial - entry->second.lastUse > kEvictAfterUpdates) {
+                entry = m_commandCache.erase(entry);
+            } else {
+                ++entry;
+            }
         }
     }
 }
 
-CommandMapping::ProgramKey CommandMapping::makeProgramKey(const Mesh& mesh, const Material& material) const
+namespace {
+uint32_t renderSettingsBits(const RenderSettings& rs)
 {
-    const RenderSettings& rs = material.renderSettings;
     const bool flags[] = { rs.enableSkinning, rs.enableMorphing, rs.enableSpecularGlossiness, rs.enableUnlit,
                            rs.enableClearCoat, rs.enableSheen, rs.enableTransmission, rs.enableVolume,
                            rs.enableIridescence, rs.enableIOR, rs.enableSpecular, rs.enableEmissiveStrength };
-    uint32_t renderSettingsBits = 0;
+    uint32_t bits = 0;
     for (size_t i = 0; i < std::size(flags); ++i) {
-        renderSettingsBits |= (flags[i] ? 1u : 0u) << i;
+        bits |= (flags[i] ? 1u : 0u) << i;
     }
+    return bits;
+}
+}
+
+CommandMapping::ProgramKey CommandMapping::makeProgramKey(const Mesh& mesh, const Material& material) const
+{
     ProgramKey key;
     key.meshDefines = mesh.defines.contentHash();
     key.materialDefines = material.defines.contentHash();
     key.vertexShader = mesh.vertexShader;
     key.fragmentShader = material.fragmentShader;
-    key.renderSettings = renderSettingsBits;
+    key.renderSettings = renderSettingsBits(material.renderSettings);
     key.toneMapping = static_cast<uint32_t>(m_scene.m_toneMapping);
     key.lightCount = static_cast<uint32_t>(m_scene.m_lights.getLightCount());
     key.useIBL = m_scene.m_useIBL;

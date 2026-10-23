@@ -80,11 +80,12 @@ public:
         for (auto& pass : m_passCommands) {
             pass.clear();
         }
+        m_commandMapping.clearCommandCache(); // cached commands hold vertex layouts
         m_vertexLayoutCache.clear();
     }
 
 protected:
-    std::vector<CmdDesc> m_commands;
+    std::vector<CmdDesc*> m_commands; // owned by m_commandMapping's command cache
     std::array<Pass, RenderPassType::MaxRenderPasses> m_passCommands;
     gl::VertexLayoutCache m_vertexLayoutCache;
     CommandMapping m_commandMapping;

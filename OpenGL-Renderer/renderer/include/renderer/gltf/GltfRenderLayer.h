@@ -171,7 +171,12 @@ private:
     uint64_t m_poseGeneration = 0;
 
     // list for all materials needed for transmission draw call.
-    core::LinkedList<std::tuple<Mesh*, Material*>> m_postTransmissionDrawables; // this list has to persist between frames so that the old elements can be cleared each frame.
+    core::LinkedList<std::tuple<Mesh*, Material*>> m_postTransmissionDrawables; // rebuilt by every createScene
+    // Transmission duplicates are pooled and refreshed by assignment instead of
+    // destroyed and recreated per createScene, so their addresses stay stable
+    // for the command cache (P4.6c).
+    std::vector<std::unique_ptr<Material>> m_transmissionMaterialPool;
+    std::vector<std::unique_ptr<RenderPass>> m_transmissionPassPool;
 
     std::unordered_map<std::tuple<const gltf::ChildOfRoot*, std::string>, KHRAnimationPointerTarget> m_animationPointerTargets;
 

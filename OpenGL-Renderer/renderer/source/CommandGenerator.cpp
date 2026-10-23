@@ -38,11 +38,11 @@ void ux3d::renderer::CommandGenerator::emitCommands()
         pass.clear();
     }
 
-    for (CmdDesc& desc : m_commands) {
+    for (CmdDesc* desc : m_commands) {
 
         // sort into passes
-        auto& pass = m_passCommands[desc.pass->getId()];
-        pass[desc.pass].emplace_back(&desc.command, desc.distanceSortKey);
+        auto& pass = m_passCommands[desc->pass->getId()];
+        pass[desc->pass].emplace_back(&desc->command, desc->distanceSortKey);
     }
 }
 

@@ -2428,6 +2428,7 @@ int main(int argc, char** argv)
         } else if (arg == "--disable-command-caches") {
             s_disableCommandCaches = true;
             commandGenerator->getCommandMapping().setProgramCacheEnabled(false);
+            commandGenerator->getCommandMapping().setCommandCacheEnabled(false);
         } else if (arg == "--anim-time" && i + 1 < argc) {
             animTimeArg = std::stof(argv[++i]);
         } else if (arg == "--scenario-report" && i + 1 < argc) {
@@ -4695,6 +4696,8 @@ int main(int argc, char** argv)
                     + ",\"overrideSkips\":" + std::to_string(s_overrideSkipTotal)
                     + ",\"programCacheHits\":" + std::to_string(commandGenerator->getCommandMapping().getProgramCacheHits())
                     + ",\"programCacheMisses\":" + std::to_string(commandGenerator->getCommandMapping().getProgramCacheMisses())
+                    + ",\"commandCacheHits\":" + std::to_string(commandGenerator->getCommandMapping().getCommandCacheHits())
+                    + ",\"commandCacheMisses\":" + std::to_string(commandGenerator->getCommandMapping().getCommandCacheMisses())
                     + ",\"transformVisited\":" + std::to_string(ux3d::renderer::TransformHierarchyNode::stats().visited)
                     + ",\"transformRecomputed\":" + std::to_string(ux3d::renderer::TransformHierarchyNode::stats().recomputed)
                     + ",\"weightPushes\":" + std::to_string(ux3d::renderer::TransformHierarchyNode::stats().weightPushes)

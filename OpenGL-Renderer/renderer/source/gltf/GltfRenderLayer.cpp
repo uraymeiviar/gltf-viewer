@@ -1744,12 +1744,9 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
         scene.drawables.emplace_back(m_resourceManager.getCubeMapTuple());
     }
 
-    // delete all old elements from previous transmission pass
-    for (auto [mesh, material] : m_postTransmissionDrawables) {
-        m_resourceManager.destroy(material->renderPass);
-        m_resourceManager.destroy(material);
-    }
+    // Previous transmission duplicates are reused from the pools below.
     m_postTransmissionDrawables.clear();
+    size_t transmissionPoolUsed = 0;
 
     // Duplicate drawables for transmission path
     if (containsTransmissiveMaterial) {
@@ -1760,10 +1757,21 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
                 continue;
             }
 
-            auto materialDuplicate = m_resourceManager.create<Material>(*material);
+            Material* materialDuplicate = nullptr;
+            RenderPass* renderPassDuplicate = nullptr;
+            if (transmissionPoolUsed < m_transmissionMaterialPool.size()) {
+                materialDuplicate = m_transmissionMaterialPool[transmissionPoolUsed].get();
+                *materialDuplicate = *material;
+                renderPassDuplicate = m_transmissionPassPool[transmissionPoolUsed].get();
+                *renderPassDuplicate = *material->renderPass;
+            } else {
+                m_transmissionMaterialPool.push_back(std::make_unique<Material>(*material));
+                m_transmissionPassPool.push_back(std::make_unique<RenderPass>(*material->renderPass));
+                materialDuplicate = m_transmissionMaterialPool.back().get();
+                renderPassDuplicate = m_transmissionPassPool.back().get();
+            }
+            ++transmissionPoolUsed;
             materialDuplicate->defines.define("LINEAR_OUTPUT", 1);
-
-            auto renderPassDuplicate = m_resourceManager.create<RenderPass>(*material->renderPass);
             materialDuplicate->renderPass = renderPassDuplicate;
 
             if (material->renderPass->getId() == Opaque) {

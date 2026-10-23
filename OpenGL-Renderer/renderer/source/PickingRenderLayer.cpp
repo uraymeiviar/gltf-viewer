@@ -32,8 +32,6 @@ RendererScene PickingRenderLayer::applyLayer(RendererScene&& scene)
     uint32_t id = 1u;
     size_t poolUsed = 0;
 
-    m_pickingResourceManager.destroyAllOf<RenderPass>();
-
     ux3d::math::vec3 pickingColor;
 
     std::map<RenderPass*, RenderPass*> renderPassCopies;
@@ -61,7 +59,15 @@ RendererScene PickingRenderLayer::applyLayer(RendererScene&& scene)
                 || renderPassId == RenderPassType::Gizmos
                 || renderPassId == RenderPassType::PostGizmos
                 || renderPassId == RenderPassType::Transmissive) {
-                renderPassCopy = m_pickingResourceManager.create<RenderPass>(*mat->renderPass);
+                // Pooled per source pass and refreshed by assignment, so the copy keeps
+                // its address across calls; contents match a fresh copy (P4.6c).
+                auto& pooled = m_passPool[mat->renderPass];
+                if (pooled) {
+                    *pooled = *mat->renderPass;
+                } else {
+                    pooled = std::make_unique<RenderPass>(*mat->renderPass);
+                }
+                renderPassCopy = pooled.get();
                 renderPassCopy->setName("Picking/" + mat->renderPass->getName());
                 // attach framebuffer bind pre and post commands
 
