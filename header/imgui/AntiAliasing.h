@@ -64,6 +64,9 @@ public:
     GLuint getTaaTexture(int index) const { return (index >= 0 && index < 2) ? m_taaTexture[index] : 0; }
     GLuint getTaaFbo(int index) const { return (index >= 0 && index < 2) ? m_taaFbo[index] : 0; }
     bool isHistoryValid() const { return m_historyValid; }
+    // A held TAA frame that was not rendered (P5.3) still advances the jitter phase, so
+    // the next render (and its picking pass) uses the jitter of an every-frame schedule.
+    void skipFrame() { ++m_frameIndex; }
     int getWidth() const { return m_width; }
     int getHeight() const { return m_height; }
 

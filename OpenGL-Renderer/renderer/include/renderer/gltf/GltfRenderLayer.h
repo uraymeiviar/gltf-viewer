@@ -56,6 +56,8 @@ struct SceneProfileStats {
     uint64_t nodesVisited = 0;
     uint64_t primitivesVisited = 0;
     uint64_t drawables = 0;
+    uint64_t culled = 0;      // primitives outside the active camera's frustum (P5.5)
+    uint64_t uncullable = 0;  // primitives kept because their bounds are not conservative
 };
 
 class GltfRenderLayer : public renderer::IRenderLayer {
@@ -149,6 +151,11 @@ public:
     bool recalculateBones = true;
 
     RenderSettings renderSettings;
+
+    // P5.5: when set, createScene leaves out static primitives whose POSITION bounds lie
+    // entirely outside the active camera's frustum. Skinned, morphed, non-float and
+    // bound-less primitives are always kept.
+    bool frustumCulling = false;
 
 private:
     IBLSampler m_iblSampler;

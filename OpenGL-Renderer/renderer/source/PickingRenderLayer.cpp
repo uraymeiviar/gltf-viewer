@@ -110,6 +110,9 @@ RendererScene PickingRenderLayer::applyLayer(RendererScene&& scene)
         pickingMeshMats.emplace_back(mesh, material);
     }
 
+    if (pickingOnly) {
+        scene.drawables.clear();
+    }
     for (auto& meshMat : pickingMeshMats) {
         scene.drawables.emplace_back(meshMat);
     }

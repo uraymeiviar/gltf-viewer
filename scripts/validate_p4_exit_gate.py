@@ -8,7 +8,8 @@ Every step drives a real UI control on resources/test_models/hierarchy_animation
     no-rebuild kinds (Selection, ViewCamera; AnimationTime applies the pose),
   * the screenshot is byte-identical to the conservative reference: the same
     binary run with --force-full-sync --disable-command-caches
-    --disable-transform-reuse (every Phase 4 shortcut off),
+    --disable-transform-reuse (every Phase 4 shortcut off) and, since Phase 5,
+    --always-pick --disable-redraw-skip (every-frame picking and scene redraw),
   * the screenshot differs from the previous state where the change is visible.
 
 Producers covered earlier by other suites (Topology, Visibility, Transform,
@@ -27,7 +28,8 @@ EXE = REPO / "build" / "bin" / "Release" / "Glider.exe"
 OUT = REPO / "build" / "exitgate"
 HIER = "resources/test_models/hierarchy_animation_fixture.gltf"
 COMMON = ["--isolated", "--window-size", "1920x1080", "--fixed-frame-time", "0.05", "--aa", "none"]
-REFERENCE = ["--force-full-sync", "--disable-command-caches", "--disable-transform-reuse"]
+REFERENCE = ["--force-full-sync", "--disable-command-caches", "--disable-transform-reuse",
+             "--always-pick", "--disable-redraw-skip"]
 NO_SYNC = {"Selection", "ViewCamera", "AnimationTime"}
 
 # (label, kind expected to advance, visible change expected, script lines)

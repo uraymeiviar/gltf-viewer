@@ -225,6 +225,9 @@ void GridRenderer::draw(const glm::mat4& view, const glm::mat4& proj, const glm:
     glUniform4f(m_axisColorZLoc, 0.25f, 0.45f, 0.85f, 0.95f); // Blue Z Axis
 
     glEnable(GL_DEPTH_TEST);
+    // The plane is two-sided. Face culling and winding were otherwise inherited from the last
+    // scene command, so a mirrored (negatively scaled) last drawable hid the grid (P5.5).
+    glDisable(GL_CULL_FACE);
     glDepthMask(GL_FALSE); // Test against depth buffer, but blend smoothly without occluding subsequent transparent passes
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);

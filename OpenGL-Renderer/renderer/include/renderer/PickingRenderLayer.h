@@ -27,6 +27,9 @@ public:
 
     std::function<void()> prePass;
     std::function<void()> postPass;
+    // When set, applyLayer returns only the picking drawables (ids are still assigned
+    // over the whole input scene), for a picking draw separate from the scene (P5.2).
+    bool pickingOnly = false;
 
     // Picking materials are kept in a pool and refreshed by copy-assignment each
     // call instead of being created and destroyed per drawable per frame (P4.6).

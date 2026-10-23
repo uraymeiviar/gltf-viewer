@@ -46,6 +46,10 @@ struct ViewportSettingsState {
     bool turntable = false;                // Auto-rotate turntable
     float turntableSpeed = 30.0f;          // deg/sec
     bool showOrientationGizmo = true;      // 3D navigation axes compass in viewport corner
+
+    // Compared whole by the cached scene redraw (P5.3): some controls change these
+    // fields without marking a revision.
+    bool operator==(const ViewportSettingsState&) const = default;
 };
 
 class ViewportSettingsPanel {

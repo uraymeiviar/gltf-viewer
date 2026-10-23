@@ -38,6 +38,7 @@
 #include "renderer/CommandGenerator.h"
 #include "renderer/editor/EditorRenderLayer.h"
 #include "renderer/PickingRenderLayer.h"
+#include "imgui/IdleWait.h"
 
 #include "core/Logger.h"
 
@@ -590,6 +591,37 @@ static bool s_forceFullSync = false;
 // P4.6: --disable-command-caches turns off the command-generation caches so the
 // same binary can serve as its own uncached A/B reference.
 static bool s_disableCommandCaches = false;
+// P5.1: --always-pick renders the picking pass every frame (the pre-P5.1 schedule)
+// as a same-binary A/B reference. Totals feed the UI snapshot's revisions object.
+static bool s_alwaysPick = false;
+// P5.2: --full-size-picking restores the per-viewport full-size picking buffer drawn
+// with the scene (the P5.1 path); --always-pick implies it.
+static bool s_fullSizePicking = false;
+static uint64_t s_pickingRenderTotal = 0;
+static uint64_t s_pickingSkipTotal = 0;
+static uint64_t s_pickReadTotal = 0;
+static uint64_t s_pickUnservedTotal = 0;
+// P5.3: a viewport whose render key is unchanged shows its last image again.
+// --disable-redraw-skip redraws every frame (the pre-P5.3 schedule). TAA keeps
+// accumulating until this many consecutive renders with an unchanged key (8 full
+// cycles of its 8-phase jitter), then holds its image.
+static bool s_disableRedrawSkip = false;
+static constexpr uint32_t kTaaSettleRenders = 64;
+static uint64_t s_sceneRenderTotal = 0;
+static uint64_t s_sceneSkipTotal = 0;
+// P5.4: when nothing needs a new frame, the loop blocks in waitForEvents (IdleWait.h)
+// instead of polling. Input and window events wake it at once; the timeout is a
+// catch-all. --disable-idle-wait polls every frame (the pre-P5.4 loop).
+// --idle-stats writes frame start times and wait counts at exit for idle tests.
+static bool s_disableIdleWait = false;
+static constexpr double kIdleWaitTimeoutSeconds = 0.25;
+static constexpr uint32_t kIdleQuietFrames = 3;
+static std::string s_idleStatsPath;
+// P5.5: viewport scene builds leave out static primitives outside the camera frustum.
+// --disable-culling draws every primitive (the pre-P5.5 scene).
+static bool s_disableCulling = false;
+static uint64_t s_culledTotal = 0;
+static uint64_t s_uncullableTotal = 0;
 static std::deque<ux3d::imgui::profiling::FrameSample> s_frameSamples;
 static uint64_t s_frameSamplesDropped = 0;
 static ux3d::imgui::profiling::FrameSample s_firstFrameSample;
@@ -2245,6 +2277,9 @@ int main(int argc, char** argv)
     glRenderer->setGpuProfilingEnabled(s_profilingEnabled);
 
     ux3d::renderer::PickingRenderLayer pickingLayer(gladGL.get());
+    // P5.2: the one picking target shared by all viewports, a single pixel.
+    ux3d::imgui::Framebuffer pickingTarget;
+    pickingTarget.resize(1, 1, 1);
     ux3d::renderer::ReverseMapping currentReverseMapping;
 
     std::vector<std::unique_ptr<ux3d::imgui::ViewportInstance>> viewports;
@@ -2425,6 +2460,19 @@ int main(int argc, char** argv)
             // P4.7 A/B reference: every traversal recomputes and pushes every node.
             ux3d::renderer::TransformHierarchyNode::setReuseEnabled(false);
             ux3d::renderer::Skin::s_jointUploadReuse = false;
+        } else if (arg == "--always-pick") {
+            s_alwaysPick = true;
+            s_fullSizePicking = true;
+        } else if (arg == "--full-size-picking") {
+            s_fullSizePicking = true;
+        } else if (arg == "--disable-redraw-skip") {
+            s_disableRedrawSkip = true;
+        } else if (arg == "--disable-culling") {
+            s_disableCulling = true;
+        } else if (arg == "--disable-idle-wait") {
+            s_disableIdleWait = true;
+        } else if (arg == "--idle-stats" && i + 1 < argc) {
+            s_idleStatsPath = argv[++i];
         } else if (arg == "--disable-command-caches") {
             s_disableCommandCaches = true;
             commandGenerator->getCommandMapping().setProgramCacheEnabled(false);
@@ -3077,9 +3125,43 @@ int main(int argc, char** argv)
     uint64_t frameCount = 0;
     ux3d::imgui::profiling::Clock::time_point previousFrameStart = ux3d::imgui::profiling::Clock::now();
 
+    // P5.4 idle wait state: consecutive frames in which nothing happened.
+    uint32_t idleQuietFrames = 0;
+    double idleWaitSeconds = 0.0;
+    std::vector<double> idleFrameStartsMs;
+    std::vector<double> idleWakesMs;
+    ux3d::imgui::IdleWaitStats idleWaitStats;
+    // Wall-clock milliseconds with microsecond resolution, comparable with the test
+    // driver's clock (whole milliseconds would truncate up to 1 ms early).
+    const auto wallClockMs = []() {
+        return static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count()) / 1000.0;
+    };
+
     // Main Loop
     while (!glfwWindowShouldClose(window)) {
-        glfwPollEvents();
+        // Automation (UI scripts, benchmarks, captures, dumps, reports) runs on frame
+        // counts, so it always polls.
+        const bool automationPending = uiScenario.active() || s_benchmarkEnabled
+            || !dumpFramePath.empty() || (!s_captureViewportPath.empty() && !s_captureAttempted)
+            || (!s_profileReportPath.empty() && !s_profileReportAttempted)
+            || (!scenarioReportPath.empty() && frameCount <= SCENARIO_REPORT_FRAME);
+        if (!s_disableIdleWait && !automationPending && idleQuietFrames >= kIdleQuietFrames) {
+            const double waitStart = glfwGetTime();
+            ux3d::imgui::waitForEvents(window, kIdleWaitTimeoutSeconds, [] {
+                return ImGui::GetCurrentContext()->InputEventsQueue.Size > 0;
+            }, idleWaitStats);
+            idleWaitSeconds += glfwGetTime() - waitStart;
+            if (!s_idleStatsPath.empty() && idleWakesMs.size() < 200000) {
+                idleWakesMs.push_back(wallClockMs());
+            }
+        } else {
+            glfwPollEvents();
+        }
+        if (!s_idleStatsPath.empty() && idleFrameStartsMs.size() < 200000) {
+            idleFrameStartsMs.push_back(wallClockMs());
+        }
+        const uint64_t sceneRendersAtFrameStart = s_sceneRenderTotal;
 
         const auto frameStart = ux3d::imgui::profiling::Clock::now();
         const uint64_t frameNumber = frameCount + 1;
@@ -3176,6 +3258,8 @@ int main(int argc, char** argv)
         }
         ImGui::NewFrame();
         ImGuizmo::BeginFrame();
+        // Input or window events processed this frame (mouse, keys, text, focus).
+        const bool inputThisFrame = ImGui::GetCurrentContext()->InputEventsTrail.Size > 0;
         markStage("ui.newFrame", uiNewFrameStart);
         const auto uiChromeStart = ux3d::imgui::profiling::Clock::now();
 
@@ -3535,6 +3619,7 @@ int main(int argc, char** argv)
         for (auto& vp : viewports) {
             if (!vp->isOpen) {
                 vp->antiAliasing.releaseTargets();
+                vp->hasCachedImage = false;
                 continue;
             }
 
@@ -3548,6 +3633,7 @@ int main(int argc, char** argv)
 
             if (!vp->isOpen) {
                 vp->antiAliasing.releaseTargets();
+                vp->hasCachedImage = false;
                 ImGui::End();
                 continue;
             }
@@ -3812,35 +3898,49 @@ int main(int argc, char** argv)
                 vp->antiAliasing.resetHistory();
             }
 
-            if (vp->pickingFbo.getWidth() != vpW || vp->pickingFbo.getHeight() != vpH) {
+            // P5.2: picking renders the clicked pixel into one shared 1x1 target. The
+            // per-viewport full-size buffer is allocated only for --full-size-picking.
+            if (s_fullSizePicking && (vp->pickingFbo.getWidth() != vpW || vp->pickingFbo.getHeight() != vpH)) {
                 vp->pickingFbo.resize(vpW, vpH, 1);
             }
+            ux3d::imgui::Framebuffer& pickTarget = s_fullSizePicking ? vp->pickingFbo : pickingTarget;
 
             pickingLayer.prePass = [&]() {
-                vp->pickingFbo.bind();
-                glViewport(0, 0, vpW, vpH);
+                pickTarget.bind();
+                glViewport(0, 0, pickTarget.getWidth(), pickTarget.getHeight());
             };
             pickingLayer.postPass = [&]() {
                 vp->sceneFbo.bind();
                 glViewport(0, 0, vpW, vpH);
             };
 
+            // P5.1: the picking buffer is read only by a left click handled later in this
+            // viewport's frame, so it is rendered only when such a click is possible. The
+            // test is a superset of the click handler's: same click, same image rectangle
+            // (the image is drawn at viewportPos with viewportSize), and a hover test that
+            // ignores active items and popups. --always-pick restores every-frame picking.
+            const bool pickingRendered = s_alwaysPick
+                || (ImGui::IsMouseClicked(ImGuiMouseButton_Left)
+                    && ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem | ImGuiHoveredFlags_AllowWhenBlockedByPopup)
+                    && io.MousePos.x >= viewportPos.x && io.MousePos.x < viewportPos.x + viewportSize.x
+                    && io.MousePos.y >= viewportPos.y && io.MousePos.y < viewportPos.y + viewportSize.y);
+            if (pickingRendered) {
+                ++s_pickingRenderTotal;
+            } else {
+                ++s_pickingSkipTotal;
+            }
+            // The clicked pixel, computed exactly as the click handler computes it.
+            int pickPx = static_cast<int>(io.MousePos.x - viewportPos.x);
+            int pickPy = vpH - static_cast<int>(io.MousePos.y - viewportPos.y) - 1;
+            pickPx = std::clamp(pickPx, 0, vpW - 1);
+            pickPy = std::clamp(pickPy, 0, vpH - 1);
+
             // Clear picking buffer
-            if (vp->pickingFbo.isValid()) {
-                vp->pickingFbo.bind();
+            if (pickingRendered && pickTarget.isValid()) {
+                pickTarget.bind();
                 glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
                 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
             }
-
-            // Render to offscreen Framebuffer
-            vp->sceneFbo.bind();
-            glViewport(0, 0, vpW, vpH);
-            if (vp->settings.showBackground) {
-                glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-            } else {
-                glClearColor(vp->settings.clearColor.r, vp->settings.clearColor.g, vp->settings.clearColor.b, vp->settings.clearColor.a);
-            }
-            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
             float aspect = (vpH > 0) ? (static_cast<float>(vpW) / static_cast<float>(vpH)) : 1.0f;
             if (gltfLayer != nullptr) {
@@ -3891,14 +3991,69 @@ int main(int argc, char** argv)
             glm::mat4 jitteredProj = jitterMat * proj;
             glm::mat4 viewProj = jitteredProj * view;
 
-            if (aaMode == ux3d::imgui::AntiAliasingMode::TAA) {
+            // P5.3: redraw only when the render key changed, a click needs the picking
+            // pass, the cached image is gone, or TAA is still accumulating. The key holds
+            // the unjittered projection; TAA history resets force a render.
+            ux3d::imgui::ViewportRenderKey renderKey;
+            renderKey.layer = gltfLayer.get();
+            renderKey.scene = activeScene;
+            for (size_t k = 0; k < ux3d::imgui::kSceneChangeCount; ++k) {
+                renderKey.revisions[k] = sceneRevisions.revision(static_cast<ux3d::imgui::SceneChange>(k));
+            }
+            if (gltfLayer != nullptr) {
+                renderKey.layerSceneGeneration = gltfLayer->getSceneGeneration();
+                renderKey.layerPoseGeneration = gltfLayer->getPoseGeneration();
+            }
+            renderKey.view = view;
+            renderKey.projection = proj;
+            renderKey.eye = cameraEye;
+            renderKey.zoom = cameraZoom;
+            renderKey.width = vpW;
+            renderKey.height = vpH;
+            renderKey.samples = vp->sceneFbo.getSamples();
+            renderKey.aaMode = static_cast<int>(aaMode);
+            renderKey.aaTargetGeneration = vp->antiAliasing.getTargetGeneration();
+            renderKey.attached = vp->isAttachedToCamera;
+            renderKey.attachedCameraNode = vp->attachedCameraNode;
+            renderKey.settings = vp->settings;
+            const bool keyUnchanged = vp->hasCachedImage && renderKey == vp->lastRenderKey;
+            const bool isTaa = aaMode == ux3d::imgui::AntiAliasingMode::TAA;
+            const bool taaAccumulating = isTaa
+                && (!vp->antiAliasing.isHistoryValid() || vp->taaStableRenders < kTaaSettleRenders);
+            const bool redrawScene = s_disableRedrawSkip || !keyUnchanged || pickingRendered || taaAccumulating;
+            if (redrawScene) {
+                vp->taaStableRenders = (keyUnchanged && isTaa && vp->antiAliasing.isHistoryValid())
+                    ? vp->taaStableRenders + 1 : 0;
+                ++vp->sceneRenders;
+                ++s_sceneRenderTotal;
+            } else {
+                ++vp->sceneSkips;
+                ++s_sceneSkipTotal;
+                if (isTaa) {
+                    vp->antiAliasing.skipFrame();
+                }
+            }
+
+            // Render to offscreen Framebuffer
+            if (redrawScene) {
+                vp->sceneFbo.bind();
+                glViewport(0, 0, vpW, vpH);
+                if (vp->settings.showBackground) {
+                    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+                } else {
+                    glClearColor(vp->settings.clearColor.r, vp->settings.clearColor.g, vp->settings.clearColor.b, vp->settings.clearColor.a);
+                }
+                glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            }
+
+            if (redrawScene && aaMode == ux3d::imgui::AntiAliasingMode::TAA) {
                 if (gltfLayer->getActiveCamera()) {
                     gltfLayer->getActiveCamera()->setProjection(ux3d::math::mat4x4(jitteredProj));
                 }
             }
 
             // 1. Render glTF scene & background skybox
-            if (gltfLayer != nullptr && glRenderer != nullptr && commandGenerator != nullptr) {
+            if (redrawScene && gltfLayer != nullptr && glRenderer != nullptr && commandGenerator != nullptr) {
                 const auto sceneBuildStart = ux3d::imgui::profiling::Clock::now();
                 gltfLayer->enableCubeMap(vp->settings.showBackground);
 
@@ -3919,7 +4074,11 @@ int main(int argc, char** argv)
                 }
 
                 const auto createSceneStart = ux3d::imgui::profiling::Clock::now();
+                gltfLayer->frustumCulling = !s_disableCulling;
                 auto [scene, reverseMapping] = gltfLayer->createScene(activeScene);
+                gltfLayer->frustumCulling = false;
+                s_culledTotal += gltfLayer->getLastSceneStats().culled;
+                s_uncullableTotal += gltfLayer->getLastSceneStats().uncullable;
                 markStage("scene.create", createSceneStart);
                 if (s_profilingEnabled) {
                     const auto& sceneStats = gltfLayer->getLastSceneStats();
@@ -3947,11 +4106,13 @@ int main(int argc, char** argv)
                     }
                 }
 
-                // Apply GPU picking layer
-                const auto pickingBuildStart = ux3d::imgui::profiling::Clock::now();
-                scene = pickingLayer.applyLayer(std::move(scene));
-                markStage("picking.build", pickingBuildStart);
-                ux3d::imgui::profiling::countPickingBuild();
+                // Apply GPU picking layer (full-size reference path only; see P5.2 below)
+                if (pickingRendered && s_fullSizePicking) {
+                    const auto pickingBuildStart = ux3d::imgui::profiling::Clock::now();
+                    scene = pickingLayer.applyLayer(std::move(scene));
+                    markStage("picking.build", pickingBuildStart);
+                    ux3d::imgui::profiling::countPickingBuild();
+                }
                 markStage("scene.build", sceneBuildStart);
 
                 // Continuously synchronize viewport lighting, exposure, and environment parameters
@@ -3981,6 +4142,34 @@ int main(int argc, char** argv)
                 markStage("draw.submit", drawSubmissionStart);
                 glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
+                // P5.2: picking draws only the clicked pixel, into the shared 1x1 target,
+                // through a pixel-window projection W * P. W scales clip x/y by the viewport
+                // size and translates by an exact integer, so the clicked pixel's centre maps
+                // to the target's only sample and screen-space derivatives are unchanged. P is
+                // the projection the scene was just drawn with (jittered under TAA).
+                if (pickingRendered && !s_fullSizePicking && gltfLayer->getActiveCamera() != nullptr) {
+                    const auto pickingStart = ux3d::imgui::profiling::Clock::now();
+                    auto* pickCamera = gltfLayer->getActiveCamera();
+                    const auto sceneProjection = pickCamera->getProjectionMatrix();
+                    glm::mat4 pixelWindow(1.0f);
+                    pixelWindow[0][0] = static_cast<float>(vpW);
+                    pixelWindow[1][1] = static_cast<float>(vpH);
+                    pixelWindow[3][0] = static_cast<float>(vpW - 2 * pickPx - 1);
+                    pixelWindow[3][1] = static_cast<float>(vpH - 2 * pickPy - 1);
+                    pickCamera->setProjection(ux3d::math::mat4x4(pixelWindow * glm::mat4(sceneProjection)));
+
+                    pickingLayer.pickingOnly = true;
+                    auto pickingScene = pickingLayer.applyLayer(std::move(scene));
+                    pickingLayer.pickingOnly = false;
+                    ux3d::imgui::profiling::countPickingBuild();
+                    commandGenerator->update(pickingScene);
+                    glRenderer->setGpuFrameContext(frameNumber, vp->id, "picking");
+                    glRenderer->draw({ commandGenerator.get() });
+                    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                    pickCamera->setProjection(sceneProjection);
+                    markStage("picking.draw", pickingStart);
+                }
+
                 // Restore unjittered camera projection so subsequent passes and next frame are clean
                 if (aaMode == ux3d::imgui::AntiAliasingMode::TAA && gltfLayer->getActiveCamera()) {
                     gltfLayer->getActiveCamera()->setProjection(ux3d::math::mat4x4(proj));
@@ -3992,7 +4181,9 @@ int main(int argc, char** argv)
                     glEnable(GL_POLYGON_OFFSET_LINE);
                     glPolygonOffset(-1.0f, -1.0f);
                     glLineWidth(1.0f);
+                    gltfLayer->frustumCulling = !s_disableCulling;
                     auto [wireScene, _] = gltfLayer->createScene(activeScene);
+                    gltfLayer->frustumCulling = false;
                     // The overlay draws lines over the finished shaded image. With
                     // transmissive materials, createScene adds the transmission set-up:
                     // duplicate Opaque2/Grid2/Transparent2 drawables and a TransmissiveBlit
@@ -4024,19 +4215,19 @@ int main(int argc, char** argv)
                     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
                     markStage("scene.wireframeOverlay", wireframeStart);
                 }
-            } else {
+            } else if (redrawScene) {
                 currentReverseMapping.clear();
             }
 
             // 2. Render ground grid
             const auto overlayStart = ux3d::imgui::profiling::Clock::now();
-            if (vp->settings.showGrid) {
+            if (redrawScene && vp->settings.showGrid) {
                 gridRenderer.draw(view, (aaMode == ux3d::imgui::AntiAliasingMode::TAA ? jitteredProj : proj), ux3d::math::vec3(cameraEye.x, cameraEye.y, cameraEye.z), cameraZoom);
                 ux3d::imgui::profiling::countOverlayDraw();
             }
 
             // 3. Render bounding boxes
-            if (vp->settings.showSceneBoundingBox && activeScene != nullptr && !activeScene->getNodes().empty()) {
+            if (redrawScene && vp->settings.showSceneBoundingBox && activeScene != nullptr && !activeScene->getNodes().empty()) {
                 const ux3d::gltf::Extends& ext = getCachedSceneExtents(activeScene, gltfModel, gltfLayer.get());
                 bboxRenderer.draw(glm::vec3(ext.min.x, ext.min.y, ext.min.z),
                                   glm::vec3(ext.max.x, ext.max.y, ext.max.z),
@@ -4044,7 +4235,7 @@ int main(int argc, char** argv)
                                   viewProj);
                 ux3d::imgui::profiling::countOverlayDraw();
             }
-            if (vp->settings.showSelectedBoundingBox && selection.type == ux3d::imgui::SelectionType::Node && selection.selectedNode != nullptr) {
+            if (redrawScene && vp->settings.showSelectedBoundingBox && selection.type == ux3d::imgui::SelectionType::Node && selection.selectedNode != nullptr) {
                 const NodeOBB& obb = getCachedNodeOBB(selection.selectedNode, gltfLayer.get());
                 if (obb.valid) {
                     bboxRenderer.drawOBB(obb.localMin,
@@ -4057,16 +4248,23 @@ int main(int argc, char** argv)
             }
             markStage("overlays.gridBbox", overlayStart);
 
-            vp->sceneFbo.unbind();
-
             // 4. Post-processing Anti-Aliasing pass
-            const auto antiAliasingStart = ux3d::imgui::profiling::Clock::now();
-            GLuint displayTexture = vp->antiAliasing.render(aaMode,
-                                                            vp->sceneFbo.getColorTexture(),
-                                                            vpW, vpH,
-                                                            proj * view,
-                                                            frameSceneDirty);
-            markStage("aa.render", antiAliasingStart);
+            GLuint displayTexture = vp->cachedDisplayTexture;
+            if (redrawScene) {
+                vp->sceneFbo.unbind();
+                const auto antiAliasingStart = ux3d::imgui::profiling::Clock::now();
+                displayTexture = vp->antiAliasing.render(aaMode,
+                                                         vp->sceneFbo.getColorTexture(),
+                                                         vpW, vpH,
+                                                         proj * view,
+                                                         frameSceneDirty);
+                markStage("aa.render", antiAliasingStart);
+                // The AA call can reallocate its targets; key on the generation after it.
+                renderKey.aaTargetGeneration = vp->antiAliasing.getTargetGeneration();
+                vp->lastRenderKey = renderKey;
+                vp->cachedDisplayTexture = displayTexture;
+                vp->hasCachedImage = displayTexture != 0;
+            }
 
             if (vp.get() == activeViewport && displayTexture != 0) {
                 const double captureElapsed = glfwGetTime() - s_captureEpochSeconds;
@@ -4244,12 +4442,22 @@ int main(int argc, char** argv)
                     if (py < 0) py = 0;
                     if (py >= vpH) py = vpH - 1;
 
-                    if (vp->pickingFbo.isValid()) {
+                    if (!pickingRendered || (!s_fullSizePicking && (px != pickPx || py != pickPy))) {
+                        // Unreachable while the scheduling test above is a superset of this
+                        // handler's; counted so tests can prove it never happens.
+                        ++s_pickUnservedTotal;
+                        logMessage("Picking skipped: no picking pass was rendered this frame");
+                    } else if (pickTarget.isValid()) {
+                        ++s_pickReadTotal;
                         uint8_t pixel[4] = { 0, 0, 0, 0 };
                         glPixelStorei(GL_PACK_ALIGNMENT, 1);
-                        glBindFramebuffer(GL_READ_FRAMEBUFFER, vp->pickingFbo.getFbo());
+                        glBindFramebuffer(GL_READ_FRAMEBUFFER, pickTarget.getFbo());
                         glReadBuffer(GL_COLOR_ATTACHMENT0);
-                        glReadPixels(px, py, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+                        if (s_fullSizePicking) {
+                            glReadPixels(px, py, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+                        } else {
+                            glReadPixels(0, 0, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+                        }
                         glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
 
                         uint32_t pickingId = (static_cast<uint32_t>(pixel[0]) << 16) |
@@ -4703,6 +4911,14 @@ int main(int argc, char** argv)
                     + ",\"weightPushes\":" + std::to_string(ux3d::renderer::TransformHierarchyNode::stats().weightPushes)
                     + ",\"jointUploads\":" + std::to_string(ux3d::renderer::Skin::s_jointUploadStats.uploads)
                     + ",\"jointUploadsSuppressed\":" + std::to_string(ux3d::renderer::Skin::s_jointUploadStats.suppressed)
+                    + ",\"pickingRenders\":" + std::to_string(s_pickingRenderTotal)
+                    + ",\"pickingSkips\":" + std::to_string(s_pickingSkipTotal)
+                    + ",\"pickReads\":" + std::to_string(s_pickReadTotal)
+                    + ",\"pickUnserved\":" + std::to_string(s_pickUnservedTotal)
+                    + ",\"sceneRenders\":" + std::to_string(s_sceneRenderTotal)
+                    + ",\"sceneSkips\":" + std::to_string(s_sceneSkipTotal)
+                    + ",\"culled\":" + std::to_string(s_culledTotal)
+                    + ",\"uncullable\":" + std::to_string(s_uncullableTotal)
                     + ",\"marks\":" + std::to_string(sceneRevisions.markCount())
                     + ",\"lastConsumed\":\"" + ux3d::imgui::SceneRevisions::maskToString(lastFrameSceneChanges) + "\""
                     + ",\"pending\":\"" + ux3d::imgui::SceneRevisions::maskToString(sceneRevisions.pendingMask()) + "\"";
@@ -4888,6 +5104,43 @@ int main(int argc, char** argv)
         }
 
         glfwSwapBuffers(window);
+
+        // P5.4: a frame is quiet when no input arrived, no viewport redrew, nothing is
+        // pending for the next frame, and nothing animates. ImGui gets a few quiet
+        // frames to settle hover and layout before the loop starts waiting.
+        bool turntableActive = false;
+        for (const auto& vp : viewports) {
+            turntableActive = turntableActive || (vp->isOpen && vp->settings.turntable);
+        }
+        const bool frameActive = inputThisFrame
+            || s_sceneRenderTotal != sceneRendersAtFrameStart
+            || sceneRevisions.hasPending()
+            || animationPlayer.isPlaying()
+            || turntableActive
+            || io.WantTextInput
+            || ImGui::IsAnyMouseDown();
+        idleQuietFrames = frameActive ? 0 : idleQuietFrames + 1;
+    }
+
+    if (!s_idleStatsPath.empty()) {
+        std::ofstream idleOut(s_idleStatsPath, std::ios::binary | std::ios::trunc);
+        idleOut << std::fixed << std::setprecision(3);
+        idleOut << "{\"schema\":\"glider.idle.v1\",\"frames\":" << frameCount
+                << ",\"waits\":" << idleWaitStats.waits
+                << ",\"timeouts\":" << idleWaitStats.timeouts
+                << ",\"inputWakes\":" << idleWaitStats.inputWakes
+                << ",\"sentOnlyWakes\":" << idleWaitStats.sentOnlyWakes
+                << ",\"waitSeconds\":" << idleWaitSeconds
+                << ",\"idleWaitEnabled\":" << (s_disableIdleWait ? "false" : "true")
+                << ",\"frameStartsMs\":[";
+        for (size_t f = 0; f < idleFrameStartsMs.size(); ++f) {
+            idleOut << (f ? "," : "") << idleFrameStartsMs[f];
+        }
+        idleOut << "],\"wakesMs\":[";
+        for (size_t f = 0; f < idleWakesMs.size(); ++f) {
+            idleOut << (f ? "," : "") << idleWakesMs[f];
+        }
+        idleOut << "]}\n";
     }
 
     // Cleanup
@@ -4895,6 +5148,7 @@ int main(int argc, char** argv)
     gridRenderer.cleanup();
     bboxRenderer.cleanup();
     viewports.clear();
+    pickingTarget = ux3d::imgui::Framebuffer();
     if (glRenderer != nullptr) {
         glRenderer->uninit();
         glRenderer.reset();

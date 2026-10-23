@@ -1644,6 +1644,63 @@ void GltfRenderLayer::updateSkins(const core::Vector<gltf::Node*>& rootNodes)
     m_skinMapping.update(gltfTuples);
 }
 
+namespace {
+
+// The primitive's local POSITION box, or false when it cannot bound what the vertex
+// shader draws: skinning and morphing move vertices, and min/max of a non-float
+// (quantized) accessor are not in model units.
+bool getStaticPositionBounds(const gltf::Primitive& primitive, const Mesh& mesh, math::vec3& lo, math::vec3& hi)
+{
+    if (!primitive.getTargets().empty() || mesh.defines.isDefined("USE_SKINNING") || mesh.defines.isDefined("USE_MORPHING")
+        || mesh.vertexShader != "primitive.vert") {
+        return false;
+    }
+    for (const gltf::Attribute& attribute : primitive.getAttributes()) {
+        if (attribute.getName() != "POSITION") {
+            continue;
+        }
+        const gltf::Accessor* accessor = attribute.getAccessor();
+        if (accessor == nullptr || accessor->getComponentType() != gltf::ComponentType::Float
+            || accessor->getMin().size() != 3 || accessor->getMax().size() != 3) {
+            return false;
+        }
+        lo = math::vec3(static_cast<float>(accessor->getMin()[0]), static_cast<float>(accessor->getMin()[1]), static_cast<float>(accessor->getMin()[2]));
+        hi = math::vec3(static_cast<float>(accessor->getMax()[0]), static_cast<float>(accessor->getMax()[1]), static_cast<float>(accessor->getMax()[2]));
+        return true;
+    }
+    return false;
+}
+
+// True when all eight corners of the box, in clip space, lie strictly outside one of
+// the six clip half-spaces (-w <= x, y, z <= w). Each half-space is linear in
+// homogeneous coordinates, so this holds for the whole box, including corners behind
+// the camera, under perspective, orthographic and infinite projections and any model
+// matrix (negative or non-uniform scale). A small relative margin keeps boxes that
+// touch a plane.
+bool boxOutsideClip(const math::mat4x4& clipFromModel, const math::vec3& lo, const math::vec3& hi)
+{
+    constexpr float kMargin = 1e-4f;
+    uint32_t outside[6] = { 0, 0, 0, 0, 0, 0 };
+    for (int corner = 0; corner < 8; ++corner) {
+        const math::vec4 p = clipFromModel * math::vec4((corner & 1) ? hi.x : lo.x, (corner & 2) ? hi.y : lo.y, (corner & 4) ? hi.z : lo.z, 1.0f);
+        const float w = p.w + kMargin * std::abs(p.w);
+        outside[0] += p.x < -w;
+        outside[1] += p.x > w;
+        outside[2] += p.y < -w;
+        outside[3] += p.y > w;
+        outside[4] += p.z < -w;
+        outside[5] += p.z > w;
+    }
+    for (uint32_t count : outside) {
+        if (count == 8) {
+            return true;
+        }
+    }
+    return false;
+}
+
+} // namespace
+
 std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const gltf::Scene* gltfScene)
 {
     RendererScene scene;
@@ -1651,6 +1708,8 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
     bool containsTransmissiveMaterial = false;
     m_gltfScene = gltfScene;
     m_lastSceneStats = SceneProfileStats();
+    const bool cull = frustumCulling && m_activeCamera != nullptr;
+    const math::mat4x4 clipFromWorld = cull ? m_activeCamera->getProjectionMatrix() * m_activeCamera->getViewMatrix() : math::mat4x4(1.0f);
 
     std::function<void(const gltf::Node*)> addMeshMaterialRecursive;
     addMeshMaterialRecursive = [&](const gltf::Node* gltfNode) {
@@ -1706,6 +1765,17 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
 
             auto* mesh = meshIt->second;
             auto* material = matIt->second;
+
+            if (cull) {
+                math::vec3 lo;
+                math::vec3 hi;
+                if (!getStaticPositionBounds(gltfPrimitive, *mesh, lo, hi)) {
+                    ++m_lastSceneStats.uncullable;
+                } else if (boxOutsideClip(clipFromWorld * mesh->getTransform(), lo, hi)) {
+                    ++m_lastSceneStats.culled;
+                    continue;
+                }
+            }
 
             mesh->defines.define("DEBUG", static_cast<int>(RenderMode::None));
             mesh->polygonMode = gl::PolygonMode::Fill;

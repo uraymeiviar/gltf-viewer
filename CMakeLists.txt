@@ -105,6 +105,8 @@ set(GLIDER_SOURCES
 	"header/imgui/SearchPathsPanel.h"
 	"source/imgui/StatusBar.cpp"
 	"header/imgui/StatusBar.h"
+	"source/imgui/IdleWait.cpp"
+	"header/imgui/IdleWait.h"
 	"header/imgui/TextureUtils.h"
 	"header/imgui/IconsMaterialDesignIcons.h"
 	"header/imgui/stb_image_write.h"
