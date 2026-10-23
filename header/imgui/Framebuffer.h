@@ -20,9 +20,13 @@ public:
     void resize(int width, int height, int samples = 1);
     void bind();
     void unbind();
+    // Resolves the multisampled image into the color texture; no-op when single-sampled.
+    // Leaves the read/draw framebuffer bindings changed.
+    void resolve();
 
     GLuint getColorTexture() const { return m_colorTexture; }
     GLuint getFbo() const { return m_samples > 1 ? m_msaaFbo : m_fbo; }
+    GLuint getResolveFbo() const { return m_fbo; }
     int getWidth() const { return m_width; }
     int getHeight() const { return m_height; }
     int getSamples() const { return m_samples; }
@@ -42,6 +46,32 @@ private:
     int m_width = 0;
     int m_height = 0;
     int m_samples = 1;
+};
+
+// Mipmapped copy of the opaque scene that KHR_materials_transmission samples. It has a
+// fixed size (the shader samples it in normalized screen coordinates) and exists before
+// any material is built, so transmissive materials always reference a valid texture.
+class TransmissionTarget {
+public:
+    static constexpr int kSize = 1024;
+
+    TransmissionTarget() = default;
+    ~TransmissionTarget();
+
+    TransmissionTarget(const TransmissionTarget&) = delete;
+    TransmissionTarget& operator=(const TransmissionTarget&) = delete;
+
+    void create();
+    void destroy();
+    // Copies source's current image into the texture and rebuilds its mipmaps, then
+    // binds source again for drawing.
+    void capture(Framebuffer& source);
+
+    GLuint getTexture() const { return m_texture; }
+
+private:
+    GLuint m_texture = 0;
+    GLuint m_fbo = 0;
 };
 
 } // namespace ux3d::imgui

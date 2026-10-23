@@ -2311,6 +2311,20 @@ int main(int argc, char** argv)
 
     auto gltfLayer = std::make_unique<ux3d::renderer::GltfRenderLayer>(gladGL.get(), shaderSource / "ibl_sampler");
     ux3d::imgui::RenderQuality::applyIblParameters(*gltfLayer);
+
+    // Transmissive materials sample a mipmapped copy of the opaque scene. The texture
+    // must exist before any model loads: materials attach it only when they are built.
+    // The TransmissiveBlit pass copies the viewport being drawn (transmissionSource).
+    ux3d::imgui::TransmissionTarget transmissionTarget;
+    transmissionTarget.create();
+    ux3d::imgui::Framebuffer* transmissionSource = nullptr;
+    gltfLayer->getResourceManager().createFramebufferTexture(transmissionTarget.getTexture());
+    gltfLayer->getResourceManager().setBlitFramebufferFunction([&transmissionTarget, &transmissionSource] {
+        if (transmissionSource != nullptr) {
+            transmissionTarget.capture(*transmissionSource);
+        }
+    }, ux3d::math::vec4(0.12f, 0.12f, 0.14f, 1.0f));
+    gltfLayer->getResourceManager().setTransmissiveTextureFunction([] {});
     auto commandGenerator = std::make_unique<ux3d::renderer::CommandGenerator>(gladGL.get(), shaderSource);
     auto glRenderer = std::make_unique<ux3d::renderer::Renderer>(gladGL.get());
     glRenderer->init(ux3d::math::vec4(0.12f, 0.12f, 0.14f, 1.0f));
@@ -3953,11 +3967,6 @@ int main(int argc, char** argv)
 
             if (vp->sceneFbo.getWidth() != vpW || vp->sceneFbo.getHeight() != vpH || vp->sceneFbo.getSamples() != desiredSamples) {
                 vp->sceneFbo.resize(vpW, vpH, desiredSamples);
-                if (gltfLayer != nullptr) {
-                    gltfLayer->getResourceManager().createFramebufferTexture(vp->sceneFbo.getColorTexture());
-                    gltfLayer->getResourceManager().setBlitFramebufferFunction([] {}, ux3d::math::vec4(0.12f, 0.12f, 0.14f, 1.0f));
-                    gltfLayer->getResourceManager().setTransmissiveTextureFunction([] {});
-                }
                 vp->antiAliasing.resetHistory();
             }
 
@@ -4199,7 +4208,9 @@ int main(int argc, char** argv)
                 }
                 const auto drawSubmissionStart = ux3d::imgui::profiling::Clock::now();
                 glRenderer->setGpuFrameContext(frameNumber, vp->id, "main");
+                transmissionSource = &vp->sceneFbo;
                 glRenderer->draw({ commandGenerator.get() });
+                transmissionSource = nullptr;
                 vp->lastExecutedPasses = glRenderer->getLastExecutedPasses();
                 ++vp->renderCount;
                 markStage("draw.submit", drawSubmissionStart);
@@ -5263,6 +5274,7 @@ int main(int argc, char** argv)
     if (gltfLayer != nullptr) {
         gltfLayer.reset();
     }
+    transmissionTarget.destroy();
 
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();

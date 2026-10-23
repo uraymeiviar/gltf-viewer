@@ -716,7 +716,7 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
             math::ivec2 framebufferSize;
             gl->bindTexture(GL_TEXTURE_2D, m_resourceManager.getFramebufferTexture()->handle);
             gl->getTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &framebufferSize.x);
-            gl->getTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &framebufferSize.y);
+            gl->getTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &framebufferSize.y);
 
             material->setUniform<math::ivec2>("u_TransmissionFramebufferSize", framebufferSize);
 
