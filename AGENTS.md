@@ -41,7 +41,19 @@ gltf-viewer/
 │
 ├── source/
 │   ├── imgui/               # Dear ImGui panel and runtime implementations
-│   │   ├── main.cpp              # Application entry point, render loop & docking setup
+│   │   ├── main.cpp              # Thin main/WinMain entry points
+│   │   ├── application/          # Application orchestration, split by responsibility
+│   │   │   ├── Application.h/.cpp # Private application state, startup, loop & shutdown
+│   │   │   ├── CommandLine.cpp   # CLI parsing, self-check dispatch & startup overrides
+│   │   │   ├── Frame.cpp         # Frame orchestration, keyboard input & idle tracking
+│   │   │   ├── Scene.cpp         # Model loading, resource resolution & scene synchronization
+│   │   │   ├── Settings.cpp      # Window state, recent files & settings paths
+│   │   │   ├── Bounds.cpp        # Bounds caching, focus helpers & coordinate gizmo
+│   │   │   ├── Menus.cpp         # Dock layout, menus & viewport creation
+│   │   │   ├── Panels.cpp        # Hierarchy, resources, inspector & auxiliary panels
+│   │   │   ├── Console.cpp       # Log storage/layout, logger UI & logger self-check
+│   │   │   ├── Viewports.cpp     # Viewport rendering, overlays & mouse picking
+│   │   │   └── Diagnostics.cpp   # Captures, profiling/scenario reports & UI test hooks
 │   │   ├── EmbeddedResources.cpp # Generated at build time (not committed): C++ byte array of the compressed VFS
 │   │   ├── EmbeddedVFS.cpp       # VFS decompression & path indexing
 │   │   ├── StdFileSystem.cpp     # Hooks file queries to EmbeddedVFS with disk fallback
@@ -120,7 +132,7 @@ flowchart TD
 
 - **Picking FBO**: An offscreen `GL_RGBA8` framebuffer rendered by `ux3d::renderer::PickingRenderLayer`. Each drawable mesh receives a unique 24-bit integer ID encoded as `(R << 16) | (G << 8) | B`.
 - **Click Handling**: On mouse click inside the viewport, `glReadPixels(1x1)` queries the mesh ID under the cursor. `currentReverseMapping` resolves the mesh to the corresponding `ux3d::gltf::Node*`.
-- **Oriented Bounding Box (OBB)**: Unlike standard AABBs which expand when an object rotates, `getNodeOBB()` in `main.cpp` calculates the bounding box in the node's local coordinate space and multiplies it by the node's world transform matrix. This produces a tight, oriented orange bounding box matching Blender's selection behavior.
+- **Oriented Bounding Box (OBB)**: Unlike standard AABBs which expand when an object rotates, `getNodeOBB()` in `source/imgui/application/Bounds.cpp` calculates the bounding box in the node's local coordinate space and multiplies it by the node's world transform matrix. This produces a tight, oriented orange bounding box matching Blender's selection behavior.
 - **Local Coordinate Gizmo**: `drawNodeCoordinateGizmo()` renders RGB axis indicators ($X$=Red, $Y$=Green, $Z$=Blue) at the selected node's pivot position, respecting Blender coordinate convention ($Z$-up) or glTF ($Y$-up).
 
 ### 3.4 Camera Navigation (`CameraActor`)
