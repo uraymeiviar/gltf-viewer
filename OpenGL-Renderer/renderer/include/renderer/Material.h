@@ -33,6 +33,7 @@ public:
     Material(gl::GL* gl);
     Material(const Material&) = default;
     Material(Material&&) = default;
+    Material& operator=(const Material&) = default; // picking-material reuse (P4.6)
 
     /// Creates a new uniform or overwrites an old uniform with the same name.
     template <class... Ts>

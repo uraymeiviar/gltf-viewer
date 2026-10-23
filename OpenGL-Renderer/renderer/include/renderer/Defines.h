@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -37,7 +38,15 @@ public:
     /// Returns true if the name defined
     bool isDefined(std::string_view name) const;
 
+    /// Order-independent hash of the current definitions, kept up to date by
+    /// every change (P4.6). Equal definition sets have equal content hashes
+    /// regardless of insertion order; copies keep the hash.
+    uint64_t contentHash() const { return m_contentHash; }
+
 private:
+    static uint64_t entryHash(std::string_view name, int value);
+
     std::unordered_map<std::string, int> m_defines;
+    uint64_t m_contentHash = 0;
 };
 }

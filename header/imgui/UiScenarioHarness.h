@@ -72,6 +72,7 @@ struct UiScenarioFrame {
     std::function<bool(uint32_t)> focusViewport;
     std::function<bool(uint32_t, const std::string&, bool)> setViewportSetting;
     std::function<bool(bool)> setAnimationPlaying;
+    std::function<bool(uint32_t)> splitViewport;
 };
 
 // Drives real ImGui frames from a text script (--ui-script) by queueing mouse,
@@ -561,6 +562,13 @@ private:
                 const bool play = (args[1] == "on" || args[1] == "1" || args[1] == "true");
                 if (!frame.setAnimationPlaying || !frame.setAnimationPlaying(play)) fail("animplay failed: " + line);
                 m_waitFrames = 4;
+            }
+        } else if (cmd == "vpsplit") {
+            // vpsplit <id>: docks viewport <id> to the right of viewport 1 so both render every frame.
+            if (need(2)) {
+                const uint32_t vpId = static_cast<uint32_t>(std::stoul(args[1]));
+                if (!frame.splitViewport || !frame.splitViewport(vpId)) fail("vpsplit failed: " + line);
+                m_waitFrames = 8;
             }
         } else if (cmd == "snap") {
             if (need(2)) snap(args, window, frame);

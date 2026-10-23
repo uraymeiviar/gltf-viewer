@@ -17,20 +17,21 @@ PickingRenderLayer::PickingRenderLayer(gl::GL* gl)
 
 Mesh* PickingRenderLayer::getMesh(uint32_t pickingId) const
 {
-    auto it = m_inverseMapping.find(pickingId);
-    if (it == m_inverseMapping.end()) {
+    if (pickingId == 0 || pickingId >= m_inverseMapping.size()) {
         return nullptr;
     }
 
-    return it->second;
+    return m_inverseMapping[pickingId];
 }
 
 RendererScene PickingRenderLayer::applyLayer(RendererScene&& scene)
 {
     m_inverseMapping.clear();
+    m_inverseMapping.reserve(scene.drawables.size() + 1);
+    m_inverseMapping.push_back(nullptr); // id 0 is "nothing picked"
     uint32_t id = 1u;
+    size_t poolUsed = 0;
 
-    m_pickingResourceManager.destroyAllOf<Material>();
     m_pickingResourceManager.destroyAllOf<RenderPass>();
 
     ux3d::math::vec3 pickingColor;
@@ -39,42 +40,54 @@ RendererScene PickingRenderLayer::applyLayer(RendererScene&& scene)
 
     std::vector<std::pair<Mesh*, Material*>> pickingMeshMats;
     for (auto& [mesh, mat] : scene.drawables) {
-        // yes this is as evil as it looks. We recreate one material per mesh each frame.
-        //  The alternative would be to use a "Mapping" from  renderer::Mesh* to renderer::Material*
-        // for picking which would involve a huge linked list and much more code
-        Material* material = m_pickingResourceManager.create<Material>(*mat);
+        // Every drawable consumes a picking id, pickable or not, so ids and
+        // picking colours stay exactly as before.
         pickingColor.r = static_cast<float>((id >> 16u) & 0xFFu) / 255.0f;
         pickingColor.g = static_cast<float>((id >> 8u) & 0xFFu) / 255.0f;
         pickingColor.b = static_cast<float>((id >> 0u) & 0xFFu) / 255.0f;
-        m_inverseMapping[id] = mesh;
+        m_inverseMapping.push_back(mesh);
         ++id;
 
         // copy the renderpasses to be able to inject the pickinig framebuffer
         RenderPass* renderPassCopy = nullptr;
-        auto renderPassIt = renderPassCopies.find(material->renderPass);
+        auto renderPassIt = renderPassCopies.find(mat->renderPass);
         if (renderPassIt != renderPassCopies.end()) {
             renderPassCopy = renderPassIt->second;
         }
         if (renderPassIt == renderPassCopies.end()) {
-            uint32_t renderPassId = material->renderPass->getId();
+            uint32_t renderPassId = mat->renderPass->getId();
             if (renderPassId == RenderPassType::Opaque
                 || renderPassId == RenderPassType::Transparent
                 || renderPassId == RenderPassType::Gizmos
                 || renderPassId == RenderPassType::PostGizmos
                 || renderPassId == RenderPassType::Transmissive) {
-                renderPassCopy = m_pickingResourceManager.create<RenderPass>(*material->renderPass);
-                renderPassCopy->setName("Picking/" + material->renderPass->getName());
+                renderPassCopy = m_pickingResourceManager.create<RenderPass>(*mat->renderPass);
+                renderPassCopy->setName("Picking/" + mat->renderPass->getName());
                 // attach framebuffer bind pre and post commands
 
                 renderPassCopy->getPreCommands().emplace(renderPassCopy->getPreCommands().begin(), renderer::Command::makeExternalFunctionCommand(m_gl, prePass));
 
                 renderPassCopy->getPostCommands().emplace_back(renderer::Command::makeExternalFunctionCommand(m_gl, postPass));
-                renderPassCopies[material->renderPass] = renderPassCopy;
+                renderPassCopies[mat->renderPass] = renderPassCopy;
             } else {
                 // this material doesn't belong to any of the "pickable" render passes
                 continue;
             }
         }
+
+        // One picking material per pickable drawable: a fresh copy of the source
+        // material, made by copy-assignment into a pooled object.
+        Material* material = nullptr;
+        if (poolUsed < m_materialPool.size()) {
+            material = m_materialPool[poolUsed].get();
+            *material = *mat;
+            ++m_materialsReused;
+        } else {
+            m_materialPool.push_back(std::make_unique<Material>(*mat));
+            material = m_materialPool.back().get();
+            ++m_materialsCreated;
+        }
+        ++poolUsed;
 
         material->fragmentShader = "picking.frag";
         material->uniforms.emplace_back("u_PickingColor", pickingColor);

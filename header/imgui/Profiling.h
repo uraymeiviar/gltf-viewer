@@ -85,6 +85,14 @@ struct FrameCounters {
     uint64_t pickingBuilds = 0;
     uint64_t commandGenerations = 0;
     uint64_t overlayDraws = 0;
+    uint64_t boundsComputations = 0;
+    uint64_t boundsCacheHits = 0;
+    uint64_t overrideApplies = 0;
+    uint64_t overrideSkips = 0;
+    uint64_t programCacheHits = 0;
+    uint64_t programCacheMisses = 0;
+    uint64_t transformNodesVisited = 0;
+    uint64_t transformNodesRecomputed = 0;
     uint64_t aaPasses = 0;
 
     uint64_t uiDrawLists = 0;
@@ -352,6 +360,16 @@ inline void countCommandGeneration()
 inline void countOverlayDraw()
 {
     if (g_countingEnabled) ++frameCounters().overlayDraws;
+}
+
+inline void countBoundsComputation()
+{
+    if (g_countingEnabled) ++frameCounters().boundsComputations;
+}
+
+inline void countBoundsCacheHit()
+{
+    if (g_countingEnabled) ++frameCounters().boundsCacheHits;
 }
 
 inline void countAntiAliasingPass()

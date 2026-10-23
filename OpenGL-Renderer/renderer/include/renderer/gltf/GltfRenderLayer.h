@@ -81,6 +81,15 @@ public:
     const AnimationProfileTimes& getLastAnimationProfile() const { return m_lastAnimationProfile; }
     const SceneProfileStats& getLastSceneStats() const { return m_lastSceneStats; }
 
+    // Change generations for caches derived from layer state (P4.4). The scene
+    // generation advances on every updateScene (model resynchronised); the pose
+    // generation also advances on every applyAnimationTime, i.e. whenever node
+    // world transforms may have changed.
+    uint64_t getSceneGeneration() const { return m_sceneGeneration; }
+    // Advances on every updateGltf (materials, textures, samplers resynchronised; P4.5).
+    uint64_t getGltfGeneration() const { return m_gltfGeneration; }
+    uint64_t getPoseGeneration() const { return m_poseGeneration; }
+
     void setEnvironmentMap(const filesystem::Path& panoramaIrradiancePath);
     bool filterEnvironmentMap();
     EnvironmentMap* getActiveEnvironmentMap() { return m_activeEnvironmentMap; }
@@ -157,6 +166,9 @@ private:
     bool m_cpuProfilingEnabled = false;
     AnimationProfileTimes m_lastAnimationProfile;
     SceneProfileStats m_lastSceneStats;
+    uint64_t m_sceneGeneration = 0;
+    uint64_t m_gltfGeneration = 0;
+    uint64_t m_poseGeneration = 0;
 
     // list for all materials needed for transmission draw call.
     core::LinkedList<std::tuple<Mesh*, Material*>> m_postTransmissionDrawables; // this list has to persist between frames so that the old elements can be cleared each frame.

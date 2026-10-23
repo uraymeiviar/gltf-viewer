@@ -66,6 +66,9 @@
 #include "imgui/StatusBar.h"
 #include "imgui/ViewportInstance.h"
 #include "imgui/SceneRevisions.h"
+#include "imgui/ViewportOverrides.h"
+#include "renderer/TransformHierarchyNode.h"
+#include "renderer/Skin.h"
 #include "imgui/UiScenarioHarness.h"
 
 #include <glm/glm.hpp>
@@ -584,6 +587,9 @@ static bool s_profileReportDeferredLogged = false;
 // (any pending change runs the full renderer sync) as an A/B reference.
 static float s_fixedFrameTime = -1.0f;
 static bool s_forceFullSync = false;
+// P4.6: --disable-command-caches turns off the command-generation caches so the
+// same binary can serve as its own uncached A/B reference.
+static bool s_disableCommandCaches = false;
 static std::deque<ux3d::imgui::profiling::FrameSample> s_frameSamples;
 static uint64_t s_frameSamplesDropped = 0;
 static ux3d::imgui::profiling::FrameSample s_firstFrameSample;
@@ -746,6 +752,78 @@ static NodeOBB getNodeOBB(const ux3d::gltf::Node* selectedNode,
     }
 
     return obb;
+}
+
+// P4.4: the selected-node OBB and the scene extents are recomputed only when
+// their inputs change; all viewports in a frame share one result. The OBB reads
+// layer world transforms, so it is keyed on the layer's pose generation, which
+// also advances on direct applyAnimationTime calls (Stop/Rewind/End buttons)
+// that mark no revision. The extents read glTF node transforms, which reach the
+// layer only through updateScene, so they are keyed on the scene generation.
+struct BoundsCache {
+    const ux3d::renderer::GltfRenderLayer* obbLayer = nullptr;
+    const ux3d::gltf::Node* obbNode = nullptr;
+    uint64_t obbPoseGeneration = 0;
+    bool obbValid = false;
+    NodeOBB obb;
+
+    const ux3d::renderer::GltfRenderLayer* extentsLayer = nullptr;
+    const ux3d::gltf::Scene* extentsScene = nullptr;
+    uint64_t extentsSceneGeneration = 0;
+    bool extentsValid = false;
+    ux3d::gltf::Extends extents;
+};
+static BoundsCache s_boundsCache;
+static uint64_t s_boundsComputedTotal = 0; // cumulative, for UI-script snapshots
+static uint64_t s_boundsHitTotal = 0;
+
+// P4.5: which per-viewport overrides are currently written into the layer's
+// shared materials and meshes (see ViewportOverrides.h).
+static ux3d::imgui::SharedOverrideState s_sharedOverrides;
+static uint64_t s_overrideApplyTotal = 0; // cumulative, for UI-script snapshots
+static uint64_t s_overrideSkipTotal = 0;
+
+static const NodeOBB& getCachedNodeOBB(const ux3d::gltf::Node* node,
+                                       const ux3d::renderer::GltfRenderLayer* gltfLayer)
+{
+    auto& cache = s_boundsCache;
+    const bool hit = gltfLayer != nullptr && cache.obbValid && cache.obbNode == node
+        && cache.obbLayer == gltfLayer && cache.obbPoseGeneration == gltfLayer->getPoseGeneration();
+    if (hit) {
+        ux3d::imgui::profiling::countBoundsCacheHit();
+        ++s_boundsHitTotal;
+        return cache.obb;
+    }
+    ux3d::imgui::profiling::countBoundsComputation();
+    ++s_boundsComputedTotal;
+    cache.obb = getNodeOBB(node, gltfLayer);
+    cache.obbNode = node;
+    cache.obbLayer = gltfLayer;
+    cache.obbPoseGeneration = gltfLayer != nullptr ? gltfLayer->getPoseGeneration() : 0;
+    cache.obbValid = gltfLayer != nullptr; // without a layer the inputs have no generation; never reuse
+    return cache.obb;
+}
+
+static const ux3d::gltf::Extends& getCachedSceneExtents(const ux3d::gltf::Scene* scene,
+                                                        const ux3d::gltf::Gltf& gltfModel,
+                                                        const ux3d::renderer::GltfRenderLayer* gltfLayer)
+{
+    auto& cache = s_boundsCache;
+    const bool hit = gltfLayer != nullptr && cache.extentsValid && cache.extentsScene == scene
+        && cache.extentsLayer == gltfLayer && cache.extentsSceneGeneration == gltfLayer->getSceneGeneration();
+    if (hit) {
+        ux3d::imgui::profiling::countBoundsCacheHit();
+        ++s_boundsHitTotal;
+        return cache.extents;
+    }
+    ux3d::imgui::profiling::countBoundsComputation();
+    ++s_boundsComputedTotal;
+    cache.extents = ux3d::gltf::utils::getExtends(scene->getNodes(), &gltfModel);
+    cache.extentsScene = scene;
+    cache.extentsLayer = gltfLayer;
+    cache.extentsSceneGeneration = gltfLayer != nullptr ? gltfLayer->getSceneGeneration() : 0;
+    cache.extentsValid = gltfLayer != nullptr;
+    return cache.extents;
 }
 
 // Focus and look at node using Gestaltor's native CameraActor
@@ -2342,6 +2420,13 @@ int main(int argc, char** argv)
             s_fixedFrameTime = std::stof(argv[++i]);
         } else if (arg == "--force-full-sync") {
             s_forceFullSync = true;
+        } else if (arg == "--disable-transform-reuse") {
+            // P4.7 A/B reference: every traversal recomputes and pushes every node.
+            ux3d::renderer::TransformHierarchyNode::setReuseEnabled(false);
+            ux3d::renderer::Skin::s_jointUploadReuse = false;
+        } else if (arg == "--disable-command-caches") {
+            s_disableCommandCaches = true;
+            commandGenerator->getCommandMapping().setProgramCacheEnabled(false);
         } else if (arg == "--anim-time" && i + 1 < argc) {
             animTimeArg = std::stof(argv[++i]);
         } else if (arg == "--scenario-report" && i + 1 < argc) {
@@ -3424,6 +3509,14 @@ int main(int argc, char** argv)
             markStage("scene.applyAnimation", stageStart);
         }
         markStage("scene.dirtySync", dirtySyncStart);
+        if (s_profilingEnabled) {
+            // Traversals happen in the sync point and in the player's own applies.
+            static ux3d::renderer::TransformHierarchyNode::TraverseStats s_lastTraverse;
+            const auto& traverse = ux3d::renderer::TransformHierarchyNode::stats();
+            ux3d::imgui::profiling::frameCounters().transformNodesVisited = traverse.visited - s_lastTraverse.visited;
+            ux3d::imgui::profiling::frameCounters().transformNodesRecomputed = traverse.recomputed - s_lastTraverse.recomputed;
+            s_lastTraverse = traverse;
+        }
 
         const uint32_t frameSceneChanges = sceneRevisions.consumePending();
         const bool frameSceneDirty = frameSceneChanges != 0;
@@ -3809,35 +3902,18 @@ int main(int argc, char** argv)
 
                 auto mode = vp->settings.renderMode;
 
-                // Apply Face Culling override and Debug Mode cleanly via materialMapping
-                for (auto& [gltfMat, renMat] : gltfLayer->m_materialMapping.map) {
-                    if (renMat != nullptr) {
-                        if (vp->settings.forceDoubleSided) {
-                            renMat->isDoubleSided = true;
-                        } else {
-                            renMat->isDoubleSided = gltfMat ? gltfMat->isDoubleSidedOrDefault() : false;
-                        }
-                        renMat->defines.define("DEBUG", static_cast<int>(mode));
-                    }
-                }
-
-                for (auto& [gltfTuple, renMesh] : gltfLayer->m_meshMapping.map) {
-                    if (renMesh != nullptr) {
-                        auto [gltfNode, gltfMesh, gltfPrimitive] = gltfTuple;
-                        auto nodeIt = gltfLayer->m_transformHierarchyMapping.map.find(gltfNode);
-                        float det = 1.0f;
-                        if (nodeIt != gltfLayer->m_transformHierarchyMapping.map.end() && nodeIt->second != nullptr) {
-                            det = ux3d::math::determinant(nodeIt->second->getWorldTransform());
-                        }
-                        bool baseClockwise = (det < 0.0f);
-                        bool isClockwise = baseClockwise ^ vp->settings.invertWinding;
-                        renMesh->frontFace = isClockwise ? ux3d::renderer::gl::Winding::Clockwise : ux3d::renderer::gl::Winding::CounterClockwise;
-
-                        renMesh->polygonMode = (mode == ux3d::renderer::RenderMode::Wireframe)
-                            ? ux3d::renderer::gl::PolygonMode::Line
-                            : ux3d::renderer::gl::PolygonMode::Fill;
-                        renMesh->defines.define("DEBUG", static_cast<int>(mode));
-                    }
+                // Persistent overrides (double-sidedness, winding) are rewritten only when
+                // this viewport's overrides or the layer changed (P4.5). The DEBUG define
+                // and polygon mode are reset by createScene and applied per drawable below.
+                ux3d::imgui::ViewportDrawOverrides drawOverrides;
+                drawOverrides.forceDoubleSided = vp->settings.forceDoubleSided;
+                drawOverrides.invertWinding = vp->settings.invertWinding;
+                if (s_sharedOverrides.apply(*gltfLayer, drawOverrides)) {
+                    ++s_overrideApplyTotal;
+                    if (s_profilingEnabled) ++ux3d::imgui::profiling::frameCounters().overrideApplies;
+                } else {
+                    ++s_overrideSkipTotal;
+                    if (s_profilingEnabled) ++ux3d::imgui::profiling::frameCounters().overrideSkips;
                 }
 
                 const auto createSceneStart = ux3d::imgui::profiling::Clock::now();
@@ -3848,7 +3924,8 @@ int main(int argc, char** argv)
                     ux3d::imgui::profiling::countSceneBuild(sceneStats.drawables);
                     ux3d::imgui::profiling::countSceneNodesVisited(sceneStats.nodesVisited);
                 }
-                currentReverseMapping = reverseMapping;
+                // Moved, not copied: reverseMapping is not used after this point (P4.4).
+                currentReverseMapping = std::move(reverseMapping);
 
                 auto cubeTuple = gltfLayer->getResourceManager().getCubeMapTuple();
                 auto* cubeMesh = std::get<0>(cubeTuple);
@@ -3884,9 +3961,16 @@ int main(int argc, char** argv)
                 commandGenerator->setPunctualLightsEnabled(vp->settings.punctualLightsEnabled);
 
                 const auto commandGenerationStart = ux3d::imgui::profiling::Clock::now();
+                const uint64_t programHitsBefore = commandGenerator->getCommandMapping().getProgramCacheHits();
+                const uint64_t programMissesBefore = commandGenerator->getCommandMapping().getProgramCacheMisses();
                 commandGenerator->update(scene);
                 markStage("commands.generate", commandGenerationStart);
                 ux3d::imgui::profiling::countCommandGeneration();
+                if (s_profilingEnabled) {
+                    auto& counters = ux3d::imgui::profiling::frameCounters();
+                    counters.programCacheHits += commandGenerator->getCommandMapping().getProgramCacheHits() - programHitsBefore;
+                    counters.programCacheMisses += commandGenerator->getCommandMapping().getProgramCacheMisses() - programMissesBefore;
+                }
                 const auto drawSubmissionStart = ux3d::imgui::profiling::Clock::now();
                 glRenderer->setGpuFrameContext(frameNumber, vp->id, "main");
                 glRenderer->draw({ commandGenerator.get() });
@@ -3907,10 +3991,27 @@ int main(int argc, char** argv)
                     glPolygonOffset(-1.0f, -1.0f);
                     glLineWidth(1.0f);
                     auto [wireScene, _] = gltfLayer->createScene(activeScene);
-                    for (auto& [mesh, material] : wireScene.drawables) {
+                    // The overlay draws lines over the finished shaded image. With
+                    // transmissive materials, createScene adds the transmission set-up:
+                    // duplicate Opaque2/Grid2/Transparent2 drawables and a TransmissiveBlit
+                    // pass whose post-command clears the whole framebuffer. Redrawing that
+                    // here wiped the shaded image, leaving only lines, so it is left out.
+                    for (auto it = wireScene.drawables.begin(); it != wireScene.drawables.end();) {
+                        auto& [mesh, material] = *it;
+                        const auto passId = (material != nullptr && material->renderPass != nullptr)
+                            ? material->renderPass->getId()
+                            : ux3d::renderer::RenderPassType::MaxRenderPasses;
+                        if (passId == ux3d::renderer::RenderPassType::TransmissiveBlit
+                            || passId == ux3d::renderer::RenderPassType::Opaque2
+                            || passId == ux3d::renderer::RenderPassType::Grid2
+                            || passId == ux3d::renderer::RenderPassType::Transparent2) {
+                            it = wireScene.drawables.erase(it);
+                            continue;
+                        }
                         if (mesh != nullptr && mesh != cubeMesh) {
                             mesh->polygonMode = ux3d::renderer::gl::PolygonMode::Line;
                         }
+                        ++it;
                     }
                     commandGenerator->update(wireScene);
                     glRenderer->setGpuFrameContext(frameNumber, vp->id, "wireframe");
@@ -3934,7 +4035,7 @@ int main(int argc, char** argv)
 
             // 3. Render bounding boxes
             if (vp->settings.showSceneBoundingBox && activeScene != nullptr && !activeScene->getNodes().empty()) {
-                ux3d::gltf::Extends ext = ux3d::gltf::utils::getExtends(activeScene->getNodes(), &gltfModel);
+                const ux3d::gltf::Extends& ext = getCachedSceneExtents(activeScene, gltfModel, gltfLayer.get());
                 bboxRenderer.draw(glm::vec3(ext.min.x, ext.min.y, ext.min.z),
                                   glm::vec3(ext.max.x, ext.max.y, ext.max.z),
                                   glm::vec4(1.0f, 0.85f, 0.2f, 0.85f),
@@ -3942,7 +4043,7 @@ int main(int argc, char** argv)
                 ux3d::imgui::profiling::countOverlayDraw();
             }
             if (vp->settings.showSelectedBoundingBox && selection.type == ux3d::imgui::SelectionType::Node && selection.selectedNode != nullptr) {
-                NodeOBB obb = getNodeOBB(selection.selectedNode, gltfLayer.get());
+                const NodeOBB& obb = getCachedNodeOBB(selection.selectedNode, gltfLayer.get());
                 if (obb.valid) {
                     bboxRenderer.drawOBB(obb.localMin,
                                          obb.localMax,
@@ -4587,6 +4688,17 @@ int main(int argc, char** argv)
                 std::string revisionsJson = "{\"syncs\":" + std::to_string(sceneSyncCount)
                     + ",\"skippedSyncs\":" + std::to_string(skippedSceneSyncCount)
                     + ",\"animationApplies\":" + std::to_string(animationOnlySyncCount)
+                    + ",\"boundsComputed\":" + std::to_string(s_boundsComputedTotal)
+                    + ",\"boundsHits\":" + std::to_string(s_boundsHitTotal)
+                    + ",\"overrideApplies\":" + std::to_string(s_overrideApplyTotal)
+                    + ",\"overrideSkips\":" + std::to_string(s_overrideSkipTotal)
+                    + ",\"programCacheHits\":" + std::to_string(commandGenerator->getCommandMapping().getProgramCacheHits())
+                    + ",\"programCacheMisses\":" + std::to_string(commandGenerator->getCommandMapping().getProgramCacheMisses())
+                    + ",\"transformVisited\":" + std::to_string(ux3d::renderer::TransformHierarchyNode::stats().visited)
+                    + ",\"transformRecomputed\":" + std::to_string(ux3d::renderer::TransformHierarchyNode::stats().recomputed)
+                    + ",\"weightPushes\":" + std::to_string(ux3d::renderer::TransformHierarchyNode::stats().weightPushes)
+                    + ",\"jointUploads\":" + std::to_string(ux3d::renderer::Skin::s_jointUploadStats.uploads)
+                    + ",\"jointUploadsSuppressed\":" + std::to_string(ux3d::renderer::Skin::s_jointUploadStats.suppressed)
                     + ",\"marks\":" + std::to_string(sceneRevisions.markCount())
                     + ",\"lastConsumed\":\"" + ux3d::imgui::SceneRevisions::maskToString(lastFrameSceneChanges) + "\""
                     + ",\"pending\":\"" + ux3d::imgui::SceneRevisions::maskToString(sceneRevisions.pendingMask()) + "\"";
@@ -4720,6 +4832,20 @@ int main(int argc, char** argv)
                     if (vp && vp->id == id && vp->isOpen) { vp->requestFocus = true; return true; }
                 }
                 return false;
+            };
+            uiFrame.splitViewport = [&](uint32_t vpId) {
+                ImGuiWindow* first = ImGui::FindWindowByName("###Viewport_1");
+                if (vpId <= 1 || first == nullptr || first->DockId == 0) return false;
+                bool exists = false;
+                for (const auto& vp : viewports) exists = exists || (vp && vp->id == vpId && vp->isOpen);
+                if (!exists) return false;
+                ImGuiID left = 0;
+                ImGuiID right = 0;
+                ImGui::DockBuilderSplitNode(first->DockId, ImGuiDir_Right, 0.5f, &right, &left);
+                ImGui::DockBuilderDockWindow("###Viewport_1", left);
+                ImGui::DockBuilderDockWindow(("###Viewport_" + std::to_string(vpId)).c_str(), right);
+                ImGui::DockBuilderFinish(first->DockId);
+                return true;
             };
             uiFrame.toggleViewport = [&](uint32_t vpId) {
                 for (const auto& vp : viewports) {

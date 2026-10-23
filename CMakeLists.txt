@@ -122,6 +122,8 @@ set(GLIDER_SOURCES
 	"header/imgui/BlendTest.h"
 	"source/imgui/SceneRevisions.cpp"
 	"header/imgui/SceneRevisions.h"
+	"source/imgui/ViewportOverrides.cpp"
+	"header/imgui/ViewportOverrides.h"
 )
 
 find_package(Python3 COMPONENTS Interpreter QUIET)

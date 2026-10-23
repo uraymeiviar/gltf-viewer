@@ -3,6 +3,28 @@
 #include "renderer/TransformHierarchy.h"
 #include "renderer/gl/Texture.h"
 
+#include <algorithm>
+#include <unordered_map>
+#include <vector>
+
+namespace {
+// Last data written to each joints texture by computeJoints (P4.7). Keyed by
+// texture, not by skin: copied skins share one texture, so a per-skin record
+// could miss another skin's write.
+struct UploadedJoints {
+    float width = 0.0f;
+    std::vector<float> data;
+};
+std::unordered_map<const ux3d::renderer::gl::Texture*, UploadedJoints>& uploadedJoints()
+{
+    static std::unordered_map<const ux3d::renderer::gl::Texture*, UploadedJoints> s_uploaded;
+    return s_uploaded;
+}
+}
+
+ux3d::renderer::Skin::JointUploadStats ux3d::renderer::Skin::s_jointUploadStats;
+bool ux3d::renderer::Skin::s_jointUploadReuse = true;
+
 ux3d::renderer::Skin::Skin(gl::GL* gl)
     : m_root(nullptr)
     , m_jointsSampler("u_jointsSampler")
@@ -46,6 +68,9 @@ ux3d::renderer::Skin::Skin(Skin&& _Other) noexcept
 
 ux3d::renderer::Skin::~Skin()
 {
+    if (m_jointsTexture != nullptr && m_jointsTexture.use_count() == 1) {
+        uploadedJoints().erase(m_jointsTexture.get());
+    }
     //Remove the skin from all meshes before deletion
     for (Mesh* mesh : m_meshes) {
         removeMesh(mesh);
@@ -113,5 +138,15 @@ void ux3d::renderer::Skin::computeJoints()
         std::copy(math::value_ptr(jointMatrix), math::value_ptr(jointMatrix) + 16, textureData.begin() + i * 32);
         std::copy(math::value_ptr(jointNormalMatrix), math::value_ptr(jointNormalMatrix) + 16, textureData.begin() + i * 32 + 16);
     }
+    // Skip the GL upload when this texture already holds exactly this data (P4.7).
+    auto& uploaded = uploadedJoints()[m_jointsTexture.get()];
+    if (s_jointUploadReuse && uploaded.width == width && uploaded.data.size() == textureData.size()
+        && std::equal(textureData.begin(), textureData.end(), uploaded.data.begin())) {
+        ++s_jointUploadStats.suppressed;
+        return;
+    }
     m_jointsTexture->write(width, width, gl::Format::RGBA, gl::ComponentType::Float, textureData.data(), gl::InternalFormat::RGBA32F);
+    ++s_jointUploadStats.uploads;
+    uploaded.width = width;
+    uploaded.data.assign(textureData.begin(), textureData.end());
 }

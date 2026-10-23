@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <set>
 #include <vector>
 
@@ -34,8 +35,22 @@ public:
     void removeAudioEmitter(AudioEmitter* audioEmitter);
 
     void addChild(TransformHierarchyNode* child);
-    math::mat4 traverse(const math::mat4x4& transformMatrix, const math::mat3x3& rotationMatrix);
+    // parentChanged: the parent's world transform differs from the one this
+    // node's cached world transform was computed from (P4.7). A node recomputes
+    // and pushes its world transform only when the parent changed, its own TRS
+    // targets are dirty, or it was invalidated.
+    math::mat4 traverse(const math::mat4x4& transformMatrix, const math::mat3x3& rotationMatrix, bool parentChanged = true);
     void clearChildrenRecursive();
+    void invalidate() { m_worldValid = false; }
+
+    // Cumulative traversal statistics (P4.7 measurements).
+    struct TraverseStats {
+        uint64_t visited = 0;
+        uint64_t recomputed = 0;
+        uint64_t weightPushes = 0;
+    };
+    static TraverseStats& stats();
+    static void setReuseEnabled(bool enabled);
 
     const math::vec3& getTranslation();
     const math::mat4x4& getRotation();
@@ -65,6 +80,7 @@ private:
 
     math::mat4 m_worldTransformCache = math::mat4x4(1);
     math::mat3 m_worldRotateCache = math::mat4x4(1);
+    bool m_worldValid = false;
 };
 
 }

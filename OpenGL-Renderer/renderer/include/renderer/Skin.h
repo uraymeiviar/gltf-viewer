@@ -6,6 +6,7 @@
 #include "gl/Sampler.h"
 #include "math/MatrixTypes.h"
 
+#include <cstdint>
 #include <memory>
 
 namespace ux3d {
@@ -27,6 +28,14 @@ namespace renderer {
         void removeMesh(const Mesh* _pMesh);
         const core::Vector<Mesh*>& getMeshes() const;
         void computeJoints();
+
+        // Joint texture uploads issued and suppressed as unchanged (P4.7).
+        struct JointUploadStats {
+            uint64_t uploads = 0;
+            uint64_t suppressed = 0;
+        };
+        static JointUploadStats s_jointUploadStats;
+        static bool s_jointUploadReuse;
 
     private:
         core::Vector<math::mat4x4> m_inverseBindMatrices;

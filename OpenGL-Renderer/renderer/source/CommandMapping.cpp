@@ -7,6 +7,7 @@
 #include "renderer/editor/EditorRenderLayer.h"
 #include "renderer/gl/ShaderCache.h"
 
+#include <iterator>
 #include <utility>
 
 using namespace ux3d;
@@ -33,33 +34,64 @@ void CommandMapping::update(const core::LinkedList<MeshMaterialTuple>& drawables
     }
 }
 
-std::optional<CmdDesc> CommandMapping::makeCommand(MeshMaterialTuple meshMat)
+CommandMapping::ProgramKey CommandMapping::makeProgramKey(const Mesh& mesh, const Material& material) const
 {
-    const auto [mesh, material] = meshMat;
-    auto desc = CmdDesc(m_gl, renderer::CommandTag::Draw, material->renderPass);
-    renderer::Command* command = &desc.command;
-    desc.pass = material->renderPass;
-
-    if (core::assertion(material->renderPass != nullptr, "Material has not valid RenderPass assigned") == false) {
-        return std::nullopt;
+    const RenderSettings& rs = material.renderSettings;
+    const bool flags[] = { rs.enableSkinning, rs.enableMorphing, rs.enableSpecularGlossiness, rs.enableUnlit,
+                           rs.enableClearCoat, rs.enableSheen, rs.enableTransmission, rs.enableVolume,
+                           rs.enableIridescence, rs.enableIOR, rs.enableSpecular, rs.enableEmissiveStrength };
+    uint32_t renderSettingsBits = 0;
+    for (size_t i = 0; i < std::size(flags); ++i) {
+        renderSettingsBits |= (flags[i] ? 1u : 0u) << i;
     }
+    ProgramKey key;
+    key.meshDefines = mesh.defines.contentHash();
+    key.materialDefines = material.defines.contentHash();
+    key.vertexShader = mesh.vertexShader;
+    key.fragmentShader = material.fragmentShader;
+    key.renderSettings = renderSettingsBits;
+    key.toneMapping = static_cast<uint32_t>(m_scene.m_toneMapping);
+    key.lightCount = static_cast<uint32_t>(m_scene.m_lights.getLightCount());
+    key.useIBL = m_scene.m_useIBL;
+    key.usePunctualLights = m_scene.m_usePunctualLights;
+    return key;
+}
 
-    command->uniformBlocks.clear();
-    command->uniforms.clear();
-    command->samplers.clear();
+size_t CommandMapping::ProgramKeyHash::operator()(const ProgramKey& key) const
+{
+    uint64_t h = key.meshDefines * 0x9E3779B97F4A7C15ULL;
+    h ^= key.materialDefines + 0x9E3779B97F4A7C15ULL + (h << 6) + (h >> 2);
+    h ^= std::hash<std::string>()(key.vertexShader) + (h << 6) + (h >> 2);
+    h ^= std::hash<std::string>()(key.fragmentShader) + (h << 6) + (h >> 2);
+    h ^= (static_cast<uint64_t>(key.renderSettings) << 32 | key.toneMapping << 16 | key.lightCount << 2
+          | (key.useIBL ? 2u : 0u) | (key.usePunctualLights ? 1u : 0u)) + (h << 6) + (h >> 2);
+    return static_cast<size_t>(h);
+}
 
-    // These lists have knowable upper bounds from the mesh, material, camera,
-    // environment and light set. Reserving once avoids repeated reallocation
-    // while the per-drawable command is assembled.
-    command->uniformBlocks.reserve(mesh->uniformBlocks.size());
-    command->uniforms.reserve(
-        mesh->uniforms.size() + material->uniforms.size() +
-        (m_scene.m_activeCamera != nullptr ? 6u : 0u) + 5u +
-        (m_scene.m_useIBL ? 1u : 0u) +
-        m_scene.m_lights.getUniforms().size() + 1u);
-    command->samplers.reserve(material->samplers.size() + 2u + 6u);
+gl::Program* CommandMapping::selectProgram(const Mesh& mesh, const Material& material)
+{
+    if (!m_programCacheEnabled) {
+        ++m_programCacheMisses;
+        return buildProgram(mesh, material);
+    }
+    ProgramKey key = makeProgramKey(mesh, material);
+    auto it = m_programCache.find(key);
+    if (it != m_programCache.end()) {
+        ++m_programCacheHits;
+        return it->second;
+    }
+    ++m_programCacheMisses;
+    gl::Program* program = buildProgram(mesh, material);
+    if (program != nullptr) {
+        m_programCache.emplace(std::move(key), program); // programs live as long as the shader cache
+    }
+    return program;
+}
 
-    // Compile vertex and fragment shaders, and pass proper defines to both.
+gl::Program* CommandMapping::buildProgram(const Mesh& meshRef, const Material& materialRef)
+{
+    const Mesh* mesh = &meshRef;
+    const Material* material = &materialRef;
 
     Defines fragmentDefines;
     fragmentDefines.reserve(64);
@@ -173,10 +205,41 @@ std::optional<CmdDesc> CommandMapping::makeCommand(MeshMaterialTuple meshMat)
     GLuint fragmentShaderID = m_shaderCache.selectShader(material->fragmentShader, fragmentDefines);
     GLuint vertexShaderID = m_shaderCache.selectShader(mesh->vertexShader, mesh->defines);
     if (vertexShaderID == gl::invalid || fragmentShaderID == gl::invalid) {
+        return nullptr;
+    }
+
+    return m_shaderCache.getProgram(vertexShaderID, fragmentShaderID);
+}
+
+std::optional<CmdDesc> CommandMapping::makeCommand(MeshMaterialTuple meshMat)
+{
+    const auto [mesh, material] = meshMat;
+    auto desc = CmdDesc(m_gl, renderer::CommandTag::Draw, material->renderPass);
+    renderer::Command* command = &desc.command;
+    desc.pass = material->renderPass;
+
+    if (core::assertion(material->renderPass != nullptr, "Material has not valid RenderPass assigned") == false) {
         return std::nullopt;
     }
 
-    gl::Program* program = m_shaderCache.getProgram(vertexShaderID, fragmentShaderID);
+    command->uniformBlocks.clear();
+    command->uniforms.clear();
+    command->samplers.clear();
+
+    // These lists have knowable upper bounds from the mesh, material, camera,
+    // environment and light set. Reserving once avoids repeated reallocation
+    // while the per-drawable command is assembled.
+    command->uniformBlocks.reserve(mesh->uniformBlocks.size());
+    command->uniforms.reserve(
+        mesh->uniforms.size() + material->uniforms.size() +
+        (m_scene.m_activeCamera != nullptr ? 6u : 0u) + 5u +
+        (m_scene.m_useIBL ? 1u : 0u) +
+        m_scene.m_lights.getUniforms().size() + 1u);
+    command->samplers.reserve(material->samplers.size() + 2u + 6u);
+
+    // Compile vertex and fragment shaders, and pass proper defines to both.
+    // Program selection is cached on its exact inputs (P4.6).
+    gl::Program* program = selectProgram(*mesh, *material);
     if (program == nullptr) {
         return std::nullopt;
     }

@@ -1397,6 +1397,8 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
 void GltfRenderLayer::updateScene(const gltf::Gltf& gltf, const gltf::Scene& scene)
 {
     m_gltfScene = &scene;
+    ++m_sceneGeneration;
+    ++m_poseGeneration;
     updateTransformHierarchy(gltf.getNodes(), scene.getNodes());
 
     // ensure transforms from parent nodes are resolved into local transforms (relevant for triangle winding direction)
@@ -1416,6 +1418,7 @@ void GltfRenderLayer::updateScene(const gltf::Gltf& gltf, const gltf::Scene& sce
 
 void GltfRenderLayer::updateGltf(const gltf::Gltf& gltf)
 {
+    ++m_gltfGeneration;
     // Textures: first create glTextures for all textures present in the gltf
     // We have to scan the material for used textures, as whether the texture is in
     // Linear or sRGB format is only determined by the textures usage in the material.
@@ -1533,6 +1536,7 @@ void GltfRenderLayer::updateGltf(const gltf::Gltf& gltf)
 void GltfRenderLayer::applyAnimationTime(const std::optional<float>& animationTime)
 {
     const auto profileStart = std::chrono::steady_clock::now();
+    ++m_poseGeneration;
     if (animationTime.has_value()) {
         for (animation::Animation& anim : m_animations) {
             anim.updateChannels(*animationTime);

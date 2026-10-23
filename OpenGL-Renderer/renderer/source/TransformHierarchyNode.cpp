@@ -10,6 +10,21 @@
 using namespace ux3d;
 using namespace ux3d::renderer;
 
+namespace {
+bool g_transformReuseEnabled = true;
+}
+
+TransformHierarchyNode::TraverseStats& TransformHierarchyNode::stats()
+{
+    static TraverseStats s_stats;
+    return s_stats;
+}
+
+void TransformHierarchyNode::setReuseEnabled(bool enabled)
+{
+    g_transformReuseEnabled = enabled;
+}
+
 TransformHierarchyNode::TransformHierarchyNode(const math::vec3& translation, const math::quat& rotation, const math::vec3& scale, const std::vector<float>& weights)
 {
     translationTarget.update(translation);
@@ -24,11 +39,15 @@ TransformHierarchyNode::TransformHierarchyNode(const math::vec3& translation, co
 void TransformHierarchyNode::addChild(TransformHierarchyNode* child)
 {
     m_children.insert(child);
+    child->invalidate();
 }
 
+// Attaching an object invalidates the node so the next traversal pushes the
+// world transform to it (mapping updates re-attach their objects).
 void TransformHierarchyNode::addMesh(Mesh* mesh)
 {
     m_meshes.insert(mesh);
+    invalidate();
 }
 
 void TransformHierarchyNode::removeMesh(Mesh* mesh)
@@ -42,6 +61,7 @@ void TransformHierarchyNode::removeMesh(Mesh* mesh)
 void TransformHierarchyNode::addCamera(Camera* camera)
 {
     m_cameras.insert(camera);
+    invalidate();
 }
 
 void TransformHierarchyNode::removeCamera(Camera* camera)
@@ -55,6 +75,7 @@ void TransformHierarchyNode::removeCamera(Camera* camera)
 void TransformHierarchyNode::addLight(Light* light)
 {
     m_lights.insert(light);
+    invalidate();
 }
 
 void TransformHierarchyNode::removeLight(Light* light)
@@ -123,15 +144,28 @@ void TransformHierarchyNode::clearChildrenRecursive()
     m_children.clear();
 }
 
-math::mat4 TransformHierarchyNode::traverse(const math::mat4x4& transformMatrix, const math::mat3x3& rotationMatrix)
+math::mat4 TransformHierarchyNode::traverse(const math::mat4x4& transformMatrix, const math::mat3x3& rotationMatrix, bool parentChanged)
 {
-    math::mat4x4 translateMatrix = math::translate(transformMatrix, getTranslation());
-    math::mat4x4 rotateMatrix = translateMatrix * getRotation();
-    m_worldTransformCache = math::scale(rotateMatrix, getScale());
-    m_worldRotateCache = rotationMatrix * math::mat3(getRotation());
+    ++stats().visited;
+    const bool changed = !g_transformReuseEnabled || parentChanged || !m_worldValid || isDirty();
+    // Weight targets hold vectors and are marked dirty on every update; they
+    // are cleaned below once pushed, so a clean target means unchanged weights.
+    const bool pushWeights = changed || weightTarget.isDirty();
+    math::mat4x4 translateMatrix(1.0f);
+    if (changed) {
+        ++stats().recomputed;
+        translateMatrix = math::translate(transformMatrix, getTranslation());
+        math::mat4x4 rotateMatrix = translateMatrix * getRotation();
+        m_worldTransformCache = math::scale(rotateMatrix, getScale());
+        m_worldRotateCache = rotationMatrix * math::mat3(getRotation());
+        m_worldValid = true;
+    }
 
     for (auto mesh : m_meshes) {
-        if (mesh->nukeScale && mesh->nukeRotation) {
+        if (!changed) {
+            // World transform unchanged: the mesh already holds it. Weights are
+            // still pushed every traversal, exactly as before.
+        } else if (mesh->nukeScale && mesh->nukeRotation) {
             math::mat4x4 onlyPosition(1.0f);
             onlyPosition[3] = translateMatrix[3];
             mesh->updateTransform(onlyPosition);
@@ -148,20 +182,30 @@ math::mat4 TransformHierarchyNode::traverse(const math::mat4x4& transformMatrix,
             mesh->updateTransform(m_worldTransformCache);
         }
 
-        mesh->updateWeights(weightTarget.getValue());
+        if (pushWeights) {
+            mesh->updateWeights(weightTarget.getValue());
+            ++stats().weightPushes;
+        }
         mesh->resetWeightsUpdated(); // this is called after the last potential update of mesh weights for this frame to enable weight updates in the next frame
     }
+    if (pushWeights && g_transformReuseEnabled) {
+        weightTarget.clean();
+    }
 
-    for (auto camera : m_cameras) {
-        camera->updateTransform(m_worldTransformCache);
+    if (changed) {
+        for (auto camera : m_cameras) {
+            camera->updateTransform(m_worldTransformCache);
+        }
     }
 
     for (auto child : m_children) {
-        child->traverse(m_worldTransformCache, m_worldRotateCache);
+        child->traverse(m_worldTransformCache, m_worldRotateCache, changed);
     }
 
-    for (Light* light : m_lights) {
-        light->updateTransform(m_worldTransformCache);
+    if (changed) {
+        for (Light* light : m_lights) {
+            light->updateTransform(m_worldTransformCache);
+        }
     }
 
     return m_worldTransformCache;

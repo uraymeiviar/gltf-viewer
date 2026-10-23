@@ -27,12 +27,18 @@ void TransformHierarchy::apply()
 {
     math::mat4x4 transform(1.0f);
     for (auto rootNode : m_rootNodes) {
-        rootNode->traverse(transform, math::mat3(1.0f));
+        // Roots have a fixed identity parent, so only their own state can change them.
+        rootNode->traverse(transform, math::mat3(1.0f), false);
     }
 }
 
 void TransformHierarchy::clear()
 {
+    // The hierarchy is about to be rebuilt; cached world transforms may refer
+    // to old parents.
+    for (auto& node : m_nodes) {
+        node.invalidate();
+    }
     for (auto rootNode : m_rootNodes) {
         rootNode->clearChildrenRecursive();
     }

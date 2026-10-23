@@ -70,6 +70,9 @@ public:
     const std::array<Pass, RenderPassType::MaxRenderPasses>& getPassCommands() const { return m_passCommands; }
     std::array<Pass, RenderPassType::MaxRenderPasses>& getPassCommands() { return m_passCommands; }
 
+    CommandMapping& getCommandMapping() { return m_commandMapping; }
+    const CommandMapping& getCommandMapping() const { return m_commandMapping; }
+
     gl::VertexLayoutCache& getVertexLayoutCache() { return m_vertexLayoutCache; }
     const gl::VertexLayoutCache& getVertexLayoutCache() const { return m_vertexLayoutCache; }
     void clearVertexLayoutCache() {
