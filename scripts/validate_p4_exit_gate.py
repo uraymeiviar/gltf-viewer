@@ -35,7 +35,8 @@ NO_SYNC = {"Selection", "ViewCamera", "AnimationTime"}
 
 # (label, kind expected to advance, visible change expected, script lines)
 # Environment controls (IBL, lights, skybox) are in the Scene Inspector (hier.scene); viewport
-# settings open on their first tab, Render Modes.
+# settings open on their first tab, Render Modes. The IBL filter settings live in the Scene
+# Inspector too and must follow the IBL toggle (checked after the transition loop).
 STEPS = [
     ("variant_alt", "Material", True, ["click 110 800"]),
     ("variant_default", "Material", True, ["click 110 778"]),
@@ -45,9 +46,9 @@ STEPS = [
     ("camera_fov", "SceneCamera", False, ["click 20 712", "wait 4", "click 120 734", "wait 6", "click 1700 124"]),
     ("rename", "Metadata", True, ["picknode 5", "wait 6", "dclick 1660 93", "wait 4", "key a ctrl", "type Renamed", "key enter"]),
     ("extension", "Extension", False, ["click 1571 475"]),
-    ("ibl_off", "RenderSettings", True, ["clickp hier.scene 0", "wait 6", "click 1551 431"]),
-    ("punctual_off", "RenderSettings", True, ["click 1551 463"]),
-    ("lights_on", "RenderSettings", True, ["click 1551 431", "wait 4", "click 1551 463"]),
+    ("ibl_off", "RenderSettings", True, ["clickp hier.scene 0", "wait 6", "clickp scene.ibl.on 0"]),
+    ("punctual_off", "RenderSettings", True, ["clickp scene.punctual.on 0"]),
+    ("lights_on", "RenderSettings", True, ["clickp scene.ibl.on 0", "wait 4", "clickp scene.punctual.on 0"]),
     ("double_sided", "ViewportSettings", False, ["clickp hier.viewport 1", "wait 6", "click 1551 330"]),
     ("invert_winding", "ViewportSettings", True, ["click 1551 362"]),
     ("overlay", "ViewportSettings", True, ["click 1551 362", "wait 4", "click 1551 423"]),
@@ -128,6 +129,15 @@ if cand.get("snaps") and ref.get("snaps"):
     kinds = ["Topology", "Visibility", "Transform", "Material", "Light", "SceneCamera", "Extension", "Metadata",
              "AnimationSet", "AnimationTime", "RenderSettings", "ViewportSettings", "Selection"]
     print("    final revisions:", {k: marks[k] for k in kinds})
+
+    # The IBL filter settings moved into the Scene Inspector and are shown only while IBL
+    # is on; the panel is probed at its heading, so its absence proves it was not drawn.
+    def has_ibl_filter(snapshot):
+        return any(probe["tag"] == "scene.ibl.filter" for probe in snapshot["probes"])
+
+    check(not has_ibl_filter(snaps["ibl_off"]), "ibl_off: IBL filter settings hidden")
+    check(not has_ibl_filter(snaps["punctual_off"]), "punctual_off: IBL filter settings still hidden")
+    check(has_ibl_filter(snaps["lights_on"]), "lights_on: IBL filter settings shown")
 
 print("=" * 60)
 print("RESULT: " + ("PASS" if not failures else f"FAIL ({len(failures)})"))

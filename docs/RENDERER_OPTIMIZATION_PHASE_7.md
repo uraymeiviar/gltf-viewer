@@ -4,7 +4,7 @@
 
 **Status:** Complete, uncommitted ([§12.56](#section-12-56)). P7.1 PASS with a limited claim ([§12.51](#section-12-51)). P7.2 DEFERRED ([§12.52](#section-12-52)). P7.3 PASS as user options ([§12.53](#section-12-53)). P7.4 PASS as a user option ([§12.54](#section-12-54)). P7.5 render scale PASS as a user option; the depth-format change was DEFERRED ([§12.55](#section-12-55)).
 
-Every change that alters the image is a setting under **Viewport Settings → Quality**. The defaults are unchanged: the **High (original)** preset is byte-identical to the pre-Phase-7 binary. The setting applies to every viewport and is saved in `%APPDATA%/Glider/render_quality.txt`, but not in `--isolated` runs.
+Every change that alters the image is a setting under **Viewport Settings → Quality**, except the IBL filter settings (cube sizes, LUT, samples, precision), which moved to the **Scene Inspector** and show only while IBL is enabled. The defaults are unchanged: the **High (original)** preset is byte-identical to the pre-Phase-7 binary. The setting applies to every viewport and is saved in `%APPDATA%/Glider/render_quality.txt`, but not in `--isolated` runs.
 
 This file contains the phase task list and its implementation/review history. Original section numbers are retained for traceability.
 
@@ -140,7 +140,7 @@ The first Balanced draft used 512 samples and a 256 LUT. The bright-sun case sho
 | Balanced | 1024 | 64 | 512 | 16-bit | 1024 | plane mesh | 100% |
 | Performance | 512 | 32 | 256 | 16-bit | 256 | plane mesh | 75% |
 
-Changing an IBL setting re-filters the current environment at once; the live UI switch was checked. Any individual change makes the preset Custom.
+Changing an IBL setting re-filters the current environment at once; the live UI switch was checked. Any individual change makes the preset Custom. The IBL controls now live in the Scene Inspector under **IBL Filter Settings** (visible only while IBL is on) so that they sit with the environment they filter; the preset, ground grid and render scale stay under Viewport Settings → Quality.
 
 **Command-line flags:** `--quality high|balanced|performance`, `--ibl-size`, `--ibl-irradiance-size`, `--ibl-lut-size`, `--ibl-precision 32|16`, `--ibl-samples`, `--grid-mode ray|plane`, `--render-scale`. Flags override the saved choice for that run and are never saved.
 

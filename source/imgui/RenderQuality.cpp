@@ -1,6 +1,7 @@
 // Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
 
 #include "imgui/RenderQuality.h"
+#include "imgui/UiProbe.h"
 #include "renderer/gltf/GltfRenderLayer.h"
 
 #include <imgui.h>
@@ -63,6 +64,25 @@ bool setChecked(T& field, T value, const T (&allowed)[N])
     }
     field = value;
     return true;
+}
+
+// Cube face / LUT / sample count combo. Returns true when the value changed.
+template <size_t N>
+bool sizeCombo(const char* label, uint32_t& field, const uint32_t (&values)[N], const char* zeroLabel)
+{
+    const std::string current = field == 0 ? std::string(zeroLabel) : std::to_string(field);
+    bool changed = false;
+    if (ImGui::BeginCombo(label, current.c_str())) {
+        for (uint32_t v : values) {
+            const std::string name = v == 0 ? std::string(zeroLabel) : std::to_string(v);
+            if (ImGui::Selectable(name.c_str(), field == v) && field != v) {
+                field = v;
+                changed = true;
+            }
+        }
+        ImGui::EndCombo();
+    }
+    return changed;
 }
 
 } // namespace
@@ -242,6 +262,7 @@ void RenderQuality::drawSettings(ux3d::renderer::GltfRenderLayer* layer, SceneRe
     const RenderQualitySettings before = s;
 
     ImGui::TextDisabled("Applies to all viewports. High keeps the original quality.");
+    ImGui::TextDisabled("IBL filter sizes are in the Scene Inspector (select the scene).");
     if (ImGui::BeginCombo("Preset", presetName(s.preset))) {
         for (int p = 0; p <= static_cast<int>(QualityPreset::Performance); ++p) {
             const auto preset = static_cast<QualityPreset>(p);
@@ -254,38 +275,6 @@ void RenderQuality::drawSettings(ux3d::renderer::GltfRenderLayer* layer, SceneRe
 
     // Each control switches the preset to Custom when it changes a value.
     bool custom = false;
-    const auto sizeCombo = [&](const char* label, uint32_t& field, const auto& values, const char* zeroLabel) {
-        const std::string current = field == 0 ? std::string(zeroLabel) : std::to_string(field);
-        if (ImGui::BeginCombo(label, current.c_str())) {
-            for (uint32_t v : values) {
-                const std::string name = v == 0 ? std::string(zeroLabel) : std::to_string(v);
-                if (ImGui::Selectable(name.c_str(), field == v) && field != v) {
-                    field = v;
-                    custom = true;
-                }
-            }
-            ImGui::EndCombo();
-        }
-    };
-
-    ImGui::SeparatorText("Environment Lighting (IBL)");
-    sizeCombo("Specular / Skybox Cube", s.iblCubeSize, kCubeSizes, "");
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Face size of the reflection cube. The skybox shows its sharpest level,\nso smaller sizes blur the background.");
-    }
-    sizeCombo("Irradiance Cube", s.iblIrradianceSize, kIrradianceSizes, "Same as specular");
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Diffuse lighting is very smooth; 32-64 is usually indistinguishable\nand filters much faster.");
-    }
-    sizeCombo("BRDF LUT", s.iblLutSize, kLutSizes, "");
-    sizeCombo("Specular Samples", s.iblSpecularSamples, kSampleCounts, "");
-    int precision = s.iblHalfFloat ? 1 : 0;
-    const char* precisions[] = { "32-bit float", "16-bit half float" };
-    if (ImGui::Combo("Precision", &precision, precisions, 2)) {
-        s.iblHalfFloat = precision == 1;
-        custom = true;
-    }
-    ImGui::TextDisabled("Estimated IBL memory: %.1f MB", static_cast<double>(s.estimatedIblBytes()) / (1024.0 * 1024.0));
 
     ImGui::SeparatorText("Viewport");
     int gridMode = static_cast<int>(s.gridMode);
@@ -310,6 +299,7 @@ void RenderQuality::drawSettings(ux3d::renderer::GltfRenderLayer* layer, SceneRe
     if (s == before) {
         return;
     }
+    // The preset also sets the IBL fields, which are edited in the Scene Inspector.
     if (!s.sameIbl(before) && layer != nullptr) {
         applyIblParameters(*layer);
         if (!layer->getEnvironmentMapPath().toString().empty()) {
@@ -322,6 +312,57 @@ void RenderQuality::drawSettings(ux3d::renderer::GltfRenderLayer* layer, SceneRe
     if (s.gridMode != before.gridMode || s.renderScale != before.renderScale) {
         revisions.mark(SceneChange::ViewportSettings);
     }
+    save();
+}
+
+void RenderQuality::drawIblSettings(ux3d::renderer::GltfRenderLayer* layer, SceneRevisions& revisions)
+{
+    RenderQualitySettings& s = settings();
+    const RenderQualitySettings before = s;
+
+    // The Inspector dock is often narrow; size the combos so the right-hand labels are not
+    // clipped by the panel edge.
+    const float labelWidth = ImGui::CalcTextSize("Specular / Skybox Cube").x;
+    const float itemWidth = std::max(80.0f, ImGui::GetContentRegionAvail().x - labelWidth - ImGui::GetStyle().ItemInnerSpacing.x);
+    ImGui::PushItemWidth(itemWidth);
+
+    bool changed = false;
+    changed |= sizeCombo("Specular / Skybox Cube", s.iblCubeSize, kCubeSizes, "");
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Face size of the reflection cube. The skybox shows its sharpest level,\nso smaller sizes blur the background.");
+    }
+    // The id carries the live value so a scenario can assert both visibility and content.
+    UiProbe::item("scene.ibl.cube", static_cast<long long>(s.iblCubeSize));
+    changed |= sizeCombo("Irradiance Cube", s.iblIrradianceSize, kIrradianceSizes, "Same as specular");
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Diffuse lighting is very smooth; 32-64 is usually indistinguishable\nand filters much faster.");
+    }
+    changed |= sizeCombo("BRDF LUT", s.iblLutSize, kLutSizes, "");
+    changed |= sizeCombo("Specular Samples", s.iblSpecularSamples, kSampleCounts, "");
+    int precision = s.iblHalfFloat ? 1 : 0;
+    const char* precisions[] = { "32-bit float", "16-bit half float" };
+    if (ImGui::Combo("Precision", &precision, precisions, 2)) {
+        s.iblHalfFloat = precision == 1;
+        changed = true;
+    }
+    ImGui::TextDisabled("Estimated IBL memory: %.1f MB", static_cast<double>(s.estimatedIblBytes()) / (1024.0 * 1024.0));
+    ImGui::PopItemWidth();
+
+    if (changed) {
+        s.preset = QualityPreset::Custom;
+    }
+    if (s == before) {
+        return;
+    }
+    if (layer != nullptr) {
+        applyIblParameters(*layer);
+        if (!layer->getEnvironmentMapPath().toString().empty()) {
+            const auto path = layer->getEnvironmentMapPath();
+            layer->setEnvironmentMap(path);
+            layer->filterEnvironmentMap();
+        }
+    }
+    revisions.mark(SceneChange::RenderSettings);
     save();
 }
 

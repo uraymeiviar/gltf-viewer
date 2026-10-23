@@ -204,7 +204,7 @@ build/bin/Release/Glider.exe
 - `--select-viewport <id>`: Selects a viewport to inspect its settings.
 - `--dump-frame <output.jpg>`: Renders 8 warm-up frames and dumps the window framebuffer to disk as `.jpg` or `.png`.
 - `--exit-after-dump`: Exits the application immediately after dumping the frame.
-- `--quality <high|balanced|performance>`: Render-quality preset for this run (default High, the original quality). Finer overrides: `--ibl-size`, `--ibl-irradiance-size`, `--ibl-lut-size`, `--ibl-precision <32|16>`, `--ibl-samples`, `--grid-mode <ray|plane>`, `--render-scale`. The UI equivalent is **Viewport Settings → Quality**, saved in `%APPDATA%/Glider/render_quality.txt`.
+- `--quality <high|balanced|performance>`: Render-quality preset for this run (default High, the original quality). Finer overrides: `--ibl-size`, `--ibl-irradiance-size`, `--ibl-lut-size`, `--ibl-precision <32|16>`, `--ibl-samples`, `--grid-mode <ray|plane>`, `--render-scale`. The UI equivalents are **Viewport Settings → Quality** (preset, ground grid, render scale) and **Scene Inspector → IBL Filter Settings** (the IBL filter sizes and samples, shown while IBL is enabled); both are renderer-wide and saved in `%APPDATA%/Glider/render_quality.txt`.
 - `--hdr-rotation <deg>`, `--exposure <ev>`, `--tone-mapping <neutral|hill|narkowicz>`: Environment rotation,
   exposure and tone mapping for this run. Environment settings belong to the glTF scene (one set per scene, shared
   by every viewport) and are edited in the Inspector when the scene row is selected (`SceneInspector`).

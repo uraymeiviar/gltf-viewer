@@ -66,8 +66,15 @@ public:
     // Returns false when argv[i] is not a quality flag. Sets error on a bad value.
     static bool parseArgument(int argc, char** argv, int& i, std::string& error);
 
-    // Draws the Quality tab body. Re-filters the environment when IBL settings change.
+    // Draws the Quality tab body of the Viewport Settings panel: preset, ground grid and
+    // render scale. Re-filters the environment when the preset changes the IBL fields.
     static void drawSettings(ux3d::renderer::GltfRenderLayer* layer, SceneRevisions& revisions);
+
+    // Draws the IBL filter size, sample count and precision controls. The Scene Inspector
+    // shows them for the selected scene while IBL is enabled; like the rest of the
+    // settings they are renderer-wide, so they apply to every viewport. Re-filters the
+    // environment when a value changes.
+    static void drawIblSettings(ux3d::renderer::GltfRenderLayer* layer, SceneRevisions& revisions);
 
     static const char* presetName(QualityPreset preset);
 };

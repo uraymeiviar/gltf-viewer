@@ -1,8 +1,10 @@
 // Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
 
 #include "imgui/SceneInspector.h"
+#include "imgui/RenderQuality.h"
 #include "imgui/StdFileSystem.h"
 #include "imgui/IconsMaterialDesignIcons.h"
+#include "imgui/UiProbe.h"
 #include "renderer/CommandGenerator.h"
 #include "renderer/gltf/GltfRenderLayer.h"
 #include "gltf/Scene.h"
@@ -135,6 +137,7 @@ void SceneInspector::render(SceneEnvironmentState& env,
             }
             revisions.mark(SceneChange::RenderSettings);
         }
+        UiProbe::item("scene.ibl.on", 0);
 
         // Punctual lights toggle
         if (ImGui::Checkbox("Punctual / Analytical Lights", &env.punctualLightsEnabled)) {
@@ -142,6 +145,17 @@ void SceneInspector::render(SceneEnvironmentState& env,
                 commandGenerator->setPunctualLightsEnabled(env.punctualLightsEnabled);
             }
             revisions.mark(SceneChange::RenderSettings);
+        }
+        UiProbe::item("scene.punctual.on", 0);
+
+        // IBL filter settings live with the scene environment now, but they configure the
+        // one filtered environment every viewport draws, so they apply globally. They only
+        // matter while IBL is on, so the panel is hidden when it is off.
+        if (env.iblEnabled) {
+            ImGui::SeparatorText("IBL Filter Settings");
+            UiProbe::item("scene.ibl.filter", 0);
+            ImGui::TextDisabled("Applies to every viewport.");
+            RenderQuality::drawIblSettings(gltfLayer, revisions);
         }
     }
 }
