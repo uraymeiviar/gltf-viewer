@@ -126,17 +126,24 @@ set(GLIDER_SOURCES
 	"header/imgui/ViewportOverrides.h"
 )
 
-find_package(Python3 COMPONENTS Interpreter QUIET)
-if (Python3_Interpreter_FOUND)
-	add_custom_command(
-		OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/source/imgui/EmbeddedResources.cpp"
-		       "${CMAKE_CURRENT_SOURCE_DIR}/resources/resources.vfs.zst"
-		COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/scripts/pack_resources.py"
-		DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/scripts/pack_resources.py"
-		WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-		COMMENT "Packing runtime resources into embedded compressed archive"
-	)
-endif()
+# EmbeddedResources.cpp is generated at build time from resources/ and is not
+# committed. It is repacked whenever a packed resource or the packer changes.
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+file(GLOB_RECURSE GLIDER_PACKED_RESOURCES CONFIGURE_DEPENDS
+	"${CMAKE_CURRENT_SOURCE_DIR}/resources/shaders/*"
+	"${CMAKE_CURRENT_SOURCE_DIR}/resources/fonts/*"
+	"${CMAKE_CURRENT_SOURCE_DIR}/resources/environments/*"
+	"${CMAKE_CURRENT_SOURCE_DIR}/resources/sampleGltf/*"
+	"${CMAKE_CURRENT_SOURCE_DIR}/resources/schemas/*"
+	"${CMAKE_CURRENT_SOURCE_DIR}/resources/icons/*")
+add_custom_command(
+	OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/source/imgui/EmbeddedResources.cpp"
+	       "${CMAKE_CURRENT_SOURCE_DIR}/resources/resources.vfs.zst"
+	COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/scripts/pack_resources.py"
+	DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/scripts/pack_resources.py" ${GLIDER_PACKED_RESOURCES}
+	WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+	COMMENT "Packing runtime resources into embedded compressed archive (requires: pip install zstandard)"
+)
 
 if (WIN32)
 	list(APPEND GLIDER_SOURCES "resources/Icon_Application.rc")

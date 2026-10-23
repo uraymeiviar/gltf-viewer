@@ -1349,17 +1349,18 @@ static ux3d::filesystem::Path resolveRendererResourcesDir()
 static ux3d::filesystem::Path resolveEnvironmentPath(const ux3d::filesystem::Path& rendererRes)
 {
     auto& fs = ux3d::imgui::StdFileSystem::instance();
-    auto env1 = rendererRes / "environments" / "footprint_court.hdr";
+    const std::string fileName = ux3d::imgui::kDefaultEnvironmentFile;
+    auto env1 = rendererRes / "environments" / fileName.c_str();
     if (fs.isFile(env1)) return env1;
 
-    auto env2 = fs.toPath("resources/environments/footprint_court.hdr");
+    auto env2 = fs.toPath(("resources/environments/" + fileName).c_str());
     if (fs.isFile(env2)) return env2;
 
-    auto env3 = fs.toPath("environments/footprint_court.hdr");
+    auto env3 = fs.toPath(("environments/" + fileName).c_str());
     if (fs.isFile(env3)) return env3;
 
     auto exeDir = fs.getExecutableDirPath();
-    auto env4 = exeDir / "resources" / "environments" / "footprint_court.hdr";
+    auto env4 = exeDir / "resources" / "environments" / fileName.c_str();
     if (fs.isFile(env4)) return env4;
 
     return env1;
@@ -2264,7 +2265,7 @@ int main(int argc, char** argv)
             startupProfile.environmentLoads++;
             scenarioEnvironmentLoaded = true;
             commandGenerator->setIBLEnabled(true);
-            logMessage("Loaded default environment map: footprint_court.hdr");
+            logMessage(std::string("Loaded default environment map: ") + ux3d::imgui::kDefaultEnvironmentFile);
         }
     }
 

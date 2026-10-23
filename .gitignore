@@ -102,6 +102,7 @@ settings.ini
 window_state.txt
 recent_files.txt
 
-# Generated VFS zstd binary archives
+# Generated VFS zstd binary archives and their embedded C++ form (built by scripts/pack_resources.py)
 *.zst
+source/imgui/EmbeddedResources.cpp
 

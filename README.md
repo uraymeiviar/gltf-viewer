@@ -25,7 +25,7 @@
 
 ### Key Highlights & Features
 
-- **100% Standalone Single Executable**: All runtime resources—including GLSL shaders, IBL HDR environment maps (`footprint_court.hdr`), validation schemas, UI fonts (`fss-ui.ttf` and `fss-ui-mono.ttf`), application icons, and default models—are compressed with **Zstandard (`zstd`)** level 19 and embedded directly inside `Glider.exe`. No external `resources` folder, assets directory, or external DLLs are required to run.
+- **100% Standalone Single Executable**: All runtime resources—including GLSL shaders, the default IBL HDR environment map (`default_hdr_env4k.hdr`), validation schemas, UI fonts (`fss-ui.ttf` and `fss-ui-mono.ttf`), application icons, and default models—are compressed with **Zstandard (`zstd`)** level 19 and embedded directly inside `Glider.exe`. No external `resources` folder, assets directory, or external DLLs are required to run.
 - **Multi-Viewport Architecture**:
   - Open multiple concurrent 3D viewports docked as tabbed views or side-by-side splits.
   - Viewports are first-class items listed in the **Scene Hierarchy** tree; clicking a viewport opens its individual settings directly in the **Inspector**.

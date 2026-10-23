@@ -14,13 +14,16 @@ class CameraActor;
 
 namespace ux3d::imgui {
 
+// Default IBL/skybox environment, embedded under resources/environments/.
+inline constexpr const char* kDefaultEnvironmentFile = "default_hdr_env4k.hdr";
+
 struct ViewportSettingsState {
     bool showBackground = true;
     glm::vec4 clearColor = glm::vec4(0.12f, 0.12f, 0.14f, 1.0f);
     float hdrBlur = 0.0f;
     float hdrIntensity = 1.0f;
     float hdrRotation = 0.0f;
-    std::string currentHdrPath = "footprint_court.hdr";
+    std::string currentHdrPath = kDefaultEnvironmentFile;
 
     int toneMappingIdx = 1; // 0 = PBR Neutral, 1 = ACES Hill, 2 = ACES Narkowicz
     float exposureEV = 0.0f; // EV value, exposure = 2^EV
