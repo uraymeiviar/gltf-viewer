@@ -18,6 +18,7 @@
 namespace ux3d::renderer::gl {
 class ShaderCache;
 class Program;
+class VertexLayout;
 }
 
 namespace ux3d::renderer {
@@ -29,7 +30,31 @@ class Camera;
 using MeshMaterialTuple = std::tuple<Mesh*, Material*>;
 class CommandMapping {
 public:
+    // P8.3: what an instanced draw's members must share. Computed when a command is
+    // built (camera excluded) and stored in its CmdDesc.
+    struct InstanceKey {
+        const void* material = nullptr;
+        const void* program = nullptr;
+        const void* camera = nullptr;
+        const void* indexBuffer = nullptr;
+        uint64_t attributes = 0;
+        uint64_t meshDefines = 0;
+        int64_t indexByteOffset = 0;
+        int64_t primitiveCount = 0;
+        int64_t primitiveOffset = 0;
+        uint32_t topology = 0;
+        uint32_t indexFormat = 0;
+        uint32_t culling = 0;
+        uint32_t winding = 0;
+        uint32_t polygonMode = 0;
+        bool operator==(const InstanceKey&) const = default;
+    };
+    struct InstanceKeyHash {
+        size_t operator()(const InstanceKey& key) const;
+    };
+
     CommandMapping(gl::GL* gl, CommandGenerator& scene, gl::ShaderCache& shaderCache);
+    ~CommandMapping();
     // Fills commands with one command per drawable. Commands are owned by the
     // command cache and stay valid until the next update.
     void update(const core::LinkedList<MeshMaterialTuple>& drawables, std::vector<CmdDesc*>& commands);
@@ -49,7 +74,19 @@ public:
     void setCommandCacheEnabled(bool enabled) { m_commandCacheEnabled = enabled; }
     uint64_t getCommandCacheHits() const { return m_commandCacheHits; }
     uint64_t getCommandCacheMisses() const { return m_commandCacheMisses; }
-    void clearCommandCache() { m_commandCache.clear(); }
+    void clearCommandCache()
+    {
+        m_commandCache.clear();
+        clearInstanceGroups();
+    }
+
+    // Instancing (P8.3). After update, opaque-pass draws of the same geometry, material,
+    // program and state are merged into one instanced draw whose per-instance node
+    // transforms (the meshes' own u_ModelMatrix and u_NormalMatrix values) come from a
+    // vertex buffer. Skinned, morphed and transmissive drawables are never merged.
+    void setInstancingEnabled(bool enabled) { m_instancingEnabled = enabled; }
+    uint64_t getInstancedDraws() const { return m_instancedDraws; }
+    uint64_t getInstancedMembers() const { return m_instancedMembers; }
 
 protected:
     struct ProgramKey {
@@ -62,6 +99,7 @@ protected:
         uint32_t lightCount = 0;
         bool useIBL = false;
         bool usePunctualLights = false;
+        bool instanced = false;
         bool operator==(const ProgramKey&) const = default;
     };
     struct ProgramKeyHash {
@@ -119,6 +157,20 @@ protected:
         uint64_t lastUse = 0;
     };
 
+    struct InstanceGroup {
+        std::unique_ptr<CmdDesc> desc;
+        std::shared_ptr<gl::VertexLayout> layout;
+        GLuint buffer = 0;
+        std::vector<uint8_t> data;
+        uint64_t sourceRevision = 0;
+        uint64_t lastUse = 0;
+    };
+    void prepareInstancing(CmdDesc& desc) const;
+    bool buildInstanceGroup(InstanceGroup& group, const CmdDesc& source);
+    void mergeInstances(std::vector<CmdDesc*>& commands);
+    void releaseInstanceGroup(InstanceGroup& group);
+    void clearInstanceGroups();
+
     std::optional<CmdDesc> makeCommand(MeshMaterialTuple meshMat);
     CommandSignature makeSignature(const Mesh& mesh, const Material& material) const;
     ProgramKey makeProgramKey(const Mesh& mesh, const Material& material) const;
@@ -139,5 +191,12 @@ protected:
     bool m_programCacheEnabled = true;
     uint64_t m_programCacheHits = 0;
     uint64_t m_programCacheMisses = 0;
+
+    std::unordered_map<InstanceKey, InstanceGroup, InstanceKeyHash> m_instanceGroups;
+    bool m_instancingEnabled = true;
+    bool m_selectInstanced = false; // program selection adds USE_INSTANCING
+    uint64_t m_nextRevision = 0;
+    uint64_t m_instancedDraws = 0;
+    uint64_t m_instancedMembers = 0;
 };
 }

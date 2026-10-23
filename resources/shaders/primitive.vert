@@ -1,9 +1,17 @@
+#include <camera_block.glsl>
 #include <animation.glsl>
 
 
-uniform mat4 u_ViewProjectionMatrix;
+#ifdef USE_INSTANCING
+// P8.3: instanced draws take each node's transforms from a per-instance vertex stream.
+in mat4 a_instanceModelMatrix;
+in mat4 a_instanceNormalMatrix;
+#define u_ModelMatrix a_instanceModelMatrix
+#define u_NormalMatrix a_instanceNormalMatrix
+#else
 uniform mat4 u_ModelMatrix;
 uniform mat4 u_NormalMatrix;
+#endif
 
 
 in vec3 a_position;

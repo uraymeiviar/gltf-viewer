@@ -43,15 +43,12 @@ uniform float u_Ior;
 // Alpha mode
 uniform float u_AlphaCutoff;
 
-uniform vec3 u_Camera;
 
 #ifdef MATERIAL_TRANSMISSION
 uniform ivec2 u_ScreenSize;
 #endif
 
 uniform mat4 u_ModelMatrix;
-uniform mat4 u_ViewMatrix;
-uniform mat4 u_ProjectionMatrix;
 
 
 struct MaterialInfo

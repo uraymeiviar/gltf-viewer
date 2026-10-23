@@ -1,5 +1,5 @@
-uniform mat4 u_ViewProjectionMatrix;
-uniform mat3 u_EnvRotation;
+#include <camera_block.glsl>
+#include <environment_block.glsl>
 
 
 in vec3 a_position;

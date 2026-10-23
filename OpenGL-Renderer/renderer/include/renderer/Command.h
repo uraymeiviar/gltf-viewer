@@ -63,11 +63,18 @@ public:
 
     gl::PrimitiveType indexFormat = gl::PrimitiveType::UnsignedShort;
     GLint indexByteOffset = 0u;
+    // P8.3: > 0 draws this many instances (glDraw*Instanced); 0 is an ordinary draw.
+    GLsizei instanceCount = 0;
     const gl::Buffer* indexBuffer = nullptr;
 
     std::vector<const gl::Uniform*> uniforms;
     std::vector<const gl::UniformBlock*> uniformBlocks;
     std::vector<const gl::Sampler*> samplers;
+    // P8.1a: program bindings resolved when the command is built, parallel to uniforms
+    // and samplers (nullptr: not active in the program). Commands built elsewhere leave
+    // them empty and the executor looks the names up per draw.
+    std::vector<const gl::UniformBinding*> uniformBindings;
+    std::vector<const gl::UniformBinding*> samplerBindings;
 
     const gl::Program* program = nullptr;
     const gl::FrameBuffer* framebuffer = nullptr;

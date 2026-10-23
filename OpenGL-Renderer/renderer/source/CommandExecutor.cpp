@@ -104,8 +104,17 @@ void ux3d::renderer::CommandExecutor::draw(const Command& command)
         return;
     }
 
-    for (const auto& uniform : command.uniforms) {
-        if (uniform != nullptr) {
+    const bool uniformsResolved = command.uniformBindings.size() == command.uniforms.size();
+    for (size_t i = 0; i < command.uniforms.size(); ++i) {
+        const gl::Uniform* uniform = command.uniforms[i];
+        if (uniform == nullptr) {
+            continue;
+        }
+        if (uniformsResolved) {
+            if (command.uniformBindings[i] != nullptr) {
+                uniform->commit(m_gl, *command.uniformBindings[i]);
+            }
+        } else {
             command.program->commitUniform(*uniform);
         }
     }
@@ -132,7 +141,13 @@ void ux3d::renderer::CommandExecutor::draw(const Command& command)
             : s_defaultSamplerState;
         GLuint samplerHandle = m_samplerCache.getOrCreateSampler(state);
 
-        command.program->commitSampler(*sampler, i, samplerHandle);
+        if (command.samplerBindings.size() == command.samplers.size()) {
+            if (command.samplerBindings[i] != nullptr) {
+                sampler->commit(m_gl, *command.samplerBindings[i], i, samplerHandle);
+            }
+        } else {
+            command.program->commitSampler(*sampler, i, samplerHandle);
+        }
         if (i > m_maxBoundTextureUnit) {
             m_maxBoundTextureUnit = i;
         }
@@ -147,11 +162,17 @@ void ux3d::renderer::CommandExecutor::draw(const Command& command)
 
     if (command.indexBuffer != nullptr) {
         m_gl->bindBuffer(GL_ELEMENT_ARRAY_BUFFER, command.indexBuffer->handle);
-        m_gl->drawElements(
-            static_cast<GLenum>(command.primitiveTopology),
-            command.primitiveCount,
-            static_cast<GLenum>(command.indexFormat),
-            reinterpret_cast<const void*>(static_cast<size_t>(command.indexByteOffset)));
+        const auto* offset = reinterpret_cast<const void*>(static_cast<size_t>(command.indexByteOffset));
+        if (command.instanceCount > 0) {
+            m_gl->drawElementsInstanced(static_cast<GLenum>(command.primitiveTopology), command.primitiveCount,
+                                        static_cast<GLenum>(command.indexFormat), offset, command.instanceCount);
+        } else {
+            m_gl->drawElements(static_cast<GLenum>(command.primitiveTopology), command.primitiveCount,
+                               static_cast<GLenum>(command.indexFormat), offset);
+        }
+    } else if (command.instanceCount > 0) {
+        m_gl->drawArraysInstanced(static_cast<GLenum>(command.primitiveTopology), command.primitiveOffset,
+                                  command.primitiveCount, command.instanceCount);
     } else {
         m_gl->drawArrays(
             static_cast<GLenum>(command.primitiveTopology),

@@ -604,6 +604,12 @@ static uint64_t s_pickingRenderTotal = 0;
 static uint64_t s_pickingSkipTotal = 0;
 static uint64_t s_pickReadTotal = 0;
 static uint64_t s_pickUnservedTotal = 0;
+// P8.5: a click draws only the drawables whose bounds can reach the clicked pixel's
+// frustum. --disable-pick-culling draws all of them (the P5.2 path) as an A/B reference.
+static bool s_disablePickCulling = false;
+// P8.3: --disable-instancing draws every drawable separately (the P8.1 path) as an A/B reference.
+static bool s_disableInstancing = false;
+static uint64_t s_pickCulledTotal = 0;
 // P5.3: a viewport whose render key is unchanged shows its last image again.
 // --disable-redraw-skip redraws every frame (the pre-P5.3 schedule). TAA keeps
 // accumulating until this many consecutive renders with an unchanged key (8 full
@@ -2520,6 +2526,11 @@ int main(int argc, char** argv)
             s_fullSizePicking = true;
         } else if (arg == "--full-size-picking") {
             s_fullSizePicking = true;
+        } else if (arg == "--disable-pick-culling") {
+            s_disablePickCulling = true;
+        } else if (arg == "--disable-instancing") {
+            s_disableInstancing = true;
+            commandGenerator->getCommandMapping().setInstancingEnabled(false);
         } else if (arg == "--disable-redraw-skip") {
             s_disableRedrawSkip = true;
         } else if (arg == "--decode-budget-mib" && i + 1 < argc) {
@@ -2705,6 +2716,10 @@ int main(int argc, char** argv)
             else if (aaVal == "msaa8" || aaVal == "3") activeViewport->settings.antiAliasingIdx = 3;
             else if (aaVal == "fxaa" || aaVal == "4") activeViewport->settings.antiAliasingIdx = 4;
             else if (aaVal == "taa" || aaVal == "5") activeViewport->settings.antiAliasingIdx = 5;
+        } else if (arg == "--hdr-rotation" && i + 1 < argc) {
+            activeViewport->settings.hdrRotation = std::stof(argv[++i]);
+        } else if (arg == "--exposure" && i + 1 < argc) {
+            activeViewport->settings.exposureEV = std::stof(argv[++i]);
         } else if (arg == "--render-mode" && i + 1 < argc) {
             std::string rmVal = toLowerAscii(argv[++i]);
             if (rmVal == "wireframe" || rmVal == "1") {
@@ -4231,6 +4246,10 @@ int main(int argc, char** argv)
                     pixelWindow[3][0] = static_cast<float>(vpW - 2 * pickPx - 1);
                     pixelWindow[3][1] = static_cast<float>(vpH - 2 * pickPy - 1);
                     pickCamera->setProjection(ux3d::math::mat4x4(pixelWindow * glm::mat4(sceneProjection)));
+                    if (!s_disablePickCulling) {
+                        s_pickCulledTotal += gltfLayer->cullToClip(scene.drawables, currentReverseMapping,
+                                                                   pickCamera->getProjectionMatrix() * pickCamera->getViewMatrix());
+                    }
 
                     pickingLayer.pickingOnly = true;
                     auto pickingScene = pickingLayer.applyLayer(std::move(scene));
@@ -4990,6 +5009,9 @@ int main(int argc, char** argv)
                     + ",\"pickingSkips\":" + std::to_string(s_pickingSkipTotal)
                     + ",\"pickReads\":" + std::to_string(s_pickReadTotal)
                     + ",\"pickUnserved\":" + std::to_string(s_pickUnservedTotal)
+                    + ",\"pickCulled\":" + std::to_string(s_pickCulledTotal)
+                    + ",\"instancedDraws\":" + std::to_string(commandGenerator->getCommandMapping().getInstancedDraws())
+                    + ",\"instancedMembers\":" + std::to_string(commandGenerator->getCommandMapping().getInstancedMembers())
                     + ",\"sceneRenders\":" + std::to_string(s_sceneRenderTotal)
                     + ",\"sceneSkips\":" + std::to_string(s_sceneSkipTotal)
                     + ",\"culled\":" + std::to_string(s_culledTotal)

@@ -37,6 +37,16 @@ struct CmdDesc {
     Command command;
     RenderPass* pass;
     float distanceSortKey = 0;
+    // The drawable this command was built for and a number that changes whenever the
+    // command is rebuilt (P8.3 groups and refreshes instanced draws by them).
+    Mesh* mesh = nullptr;
+    Material* material = nullptr;
+    uint64_t revision = 0;
+    // P8.3: set when the command is built. instanceKey.camera is filled per update.
+    bool instanceable = false;
+    CommandMapping::InstanceKey instanceKey;
+    const gl::Uniform* modelUniform = nullptr;
+    const gl::Uniform* normalUniform = nullptr;
 };
 
 using Pass = std::unordered_map<RenderPass*, SortedCommands>;
@@ -50,8 +60,16 @@ class CommandGenerator {
 public:
     CommandGenerator(gl::GL*, const filesystem::Path& _shaderPath);
     CommandGenerator(CommandGenerator&& _other) = delete;
+    ~CommandGenerator();
 
     void update(const RendererScene& scene);
+
+    // P8.1b/c: uploads the active camera's values for the shaders' CameraBlock and the
+    // environment and exposure values for EnvironmentBlock (each when it changed) and
+    // binds them at gl::kCameraBlockBinding and gl::kEnvironmentBlockBinding. The renderer
+    // calls it right before executing this generator's commands, so draws see the values
+    // as they are then, as they did when these were individual uniforms.
+    void bindFrameBlocks();
 
     // TODO: this should be handled per renderpass / per render layer
     void setIBLEnabled(bool _enabled);
@@ -103,5 +121,14 @@ protected:
     EnvironmentMap* m_activeEnvironmentMap = nullptr;
     const renderer::Camera* m_activeCamera = nullptr;
     LightData m_lights;
+
+    gl::GL* m_gl = nullptr;
+    struct FrameBlock {
+        GLuint buffer = 0;
+        std::vector<uint8_t> data;
+    };
+    void uploadFrameBlock(FrameBlock& block, GLuint binding, const uint8_t* data, size_t size);
+    FrameBlock m_cameraBlock;
+    FrameBlock m_environmentBlock;
 };
 }

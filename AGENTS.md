@@ -204,6 +204,8 @@ build/bin/Release/Glider.exe
 - `--dump-frame <output.jpg>`: Renders 8 warm-up frames and dumps the window framebuffer to disk as `.jpg` or `.png`.
 - `--exit-after-dump`: Exits the application immediately after dumping the frame.
 - `--quality <high|balanced|performance>`: Render-quality preset for this run (default High, the original quality). Finer overrides: `--ibl-size`, `--ibl-irradiance-size`, `--ibl-lut-size`, `--ibl-precision <32|16>`, `--ibl-samples`, `--grid-mode <ray|plane>`, `--render-scale`. The UI equivalent is **Viewport Settings → Quality**, saved in `%APPDATA%/Glider/render_quality.txt`.
+- `--hdr-rotation <deg>`, `--exposure <ev>`: Environment rotation and exposure for this run.
+- `--disable-pick-culling`, `--disable-instancing`: Same-binary A/B references for the Phase 8 hybrid picking and instancing (see `docs/RENDERER_OPTIMIZATION_PHASE_8.md`).
 
 Example test command:
 ```cmd

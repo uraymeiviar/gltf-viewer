@@ -16,6 +16,7 @@
 
 layout(location = 0) out vec4 g_pickingColor;
 
+#include <environment_block.glsl>
 #include <tonemapping.glsl>
 #include <textures.glsl>
 #include <functions.glsl>

@@ -30,6 +30,12 @@ public:
     void commitUniform(const Uniform& uniform) const;
     void commitUniformBlock(const UniformBlock& uniformBlock) const;
 
+    // The binding of an active uniform or sampler, or nullptr. The pointer stays valid
+    // for the program's lifetime, so commands resolve their bindings once (P8.1a).
+    const UniformBinding* findUniformBinding(const std::string& name) const;
+    // The location of an active vertex attribute, or -1 (P8.3).
+    GLint findAttributeLocation(const std::string& name) const;
+
     void use() const;
 
     GLuint getHandle() const { return m_handle; }

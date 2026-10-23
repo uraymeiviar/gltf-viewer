@@ -1,12 +1,10 @@
 precision highp float;
 
 
+#include <environment_block.glsl>
 #include <tonemapping.glsl>
 
 
-uniform float u_EnvIntensity;
-uniform float u_EnvBlurNormalized;
-uniform int u_MipCount;
 uniform samplerCube u_GGXEnvSampler;
 
 out vec4 FragColor;

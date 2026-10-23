@@ -165,6 +165,9 @@ public:
     // Enqueuing work:
     virtual void drawArrays(GLenum mode, GLint first, GLsizei count) override;
     virtual void drawElements(GLenum mode, GLsizei count, GLenum type, const void* indices) override;
+    virtual void drawArraysInstanced(GLenum mode, GLint first, GLsizei count, GLsizei instanceCount) override;
+    virtual void drawElementsInstanced(GLenum mode, GLsizei count, GLenum type, const void* indices, GLsizei instanceCount) override;
+    virtual void vertexAttribDivisor(GLuint index, GLuint divisor) override;
 
 private:
     std::optional<std::unordered_set<std::string>> extensionsCache;

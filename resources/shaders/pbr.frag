@@ -17,6 +17,8 @@
 precision highp float;
 
 
+#include <camera_block.glsl>
+#include <environment_block.glsl>
 #include <tonemapping.glsl>
 #include <textures.glsl>
 #include <functions.glsl>

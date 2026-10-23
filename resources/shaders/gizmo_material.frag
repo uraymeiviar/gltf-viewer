@@ -1,6 +1,7 @@
 layout(location = 0) out vec4 g_finalColor;
 layout(location = 1) out vec3 g_pickingColor;
 
+#include <environment_block.glsl>
 #include <functions.glsl>
 #include <textures.glsl>
 

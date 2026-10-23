@@ -8,8 +8,12 @@
 #include "renderer/Command.h"
 #include "renderer/CommandGenerator.h"
 #include "renderer/editor/EditorRenderLayer.h"
+#include "renderer/gl/Program.h"
 #include "renderer/gl/ShaderCache.h"
+#include "renderer/gl/VertexLayout.h"
 
+#include <algorithm>
+#include <cstring>
 #include <iterator>
 #include <utility>
 
@@ -25,6 +29,11 @@ CommandMapping::CommandMapping(gl::GL* gl, CommandGenerator& scene, gl::ShaderCa
     , m_shaderCache(_shaderCache)
     , m_scene(scene)
 {
+}
+
+CommandMapping::~CommandMapping()
+{
+    clearInstanceGroups();
 }
 
 size_t CommandMapping::CommandKeyHash::operator()(const CommandKey& key) const
@@ -95,6 +104,8 @@ void CommandMapping::update(const core::LinkedList<MeshMaterialTuple>& drawables
             && it->second.vertexShader == mesh->vertexShader && it->second.fragmentShader == material->fragmentShader) {
             ++m_commandCacheHits;
             CmdDesc& desc = *it->second.desc;
+            desc.mesh = mesh;
+            desc.material = material;
             desc.distanceSortKey = camera != nullptr ? camera->getDistance(mesh->getPosition()) : 0.0f;
             desc.command.vertexLayout = m_scene.getVertexLayoutCache().getOrCreate(mesh, desc.command.program);
             it->second.lastUse = m_updateSerial;
@@ -111,6 +122,10 @@ void CommandMapping::update(const core::LinkedList<MeshMaterialTuple>& drawables
         entry.vertexShader = mesh->vertexShader;
         entry.fragmentShader = material->fragmentShader;
         entry.desc = std::make_unique<CmdDesc>(std::move(*command));
+        entry.desc->mesh = mesh;
+        entry.desc->material = material;
+        entry.desc->revision = ++m_nextRevision;
+        prepareInstancing(*entry.desc);
         entry.lastUse = m_updateSerial;
         commands.push_back(entry.desc.get());
     }
@@ -126,8 +141,229 @@ void CommandMapping::update(const core::LinkedList<MeshMaterialTuple>& drawables
                 ++entry;
             }
         }
+        for (auto group = m_instanceGroups.begin(); group != m_instanceGroups.end();) {
+            if (m_updateSerial - group->second.lastUse > kEvictAfterUpdates) {
+                releaseInstanceGroup(group->second);
+                group = m_instanceGroups.erase(group);
+            } else {
+                ++group;
+            }
+        }
     }
+
+    mergeInstances(commands);
 }
+
+namespace {
+uint64_t mix(uint64_t h, uint64_t value)
+{
+    return h ^ (value + 0x9E3779B97F4A7C15ULL + (h << 6) + (h >> 2));
+}
+
+const gl::Uniform* findUniform(const Mesh& mesh, const char* name)
+{
+    for (const gl::Uniform& uniform : mesh.uniforms) {
+        if (uniform.name == name) {
+            return &uniform;
+        }
+    }
+    return nullptr;
+}
+
+// Per-instance stream: u_ModelMatrix then u_NormalMatrix, 64 bytes each.
+constexpr size_t kInstanceStride = 128;
+}
+
+size_t CommandMapping::InstanceKeyHash::operator()(const InstanceKey& key) const
+{
+    uint64_t h = reinterpret_cast<uintptr_t>(key.material) * 0x9E3779B97F4A7C15ULL;
+    h = mix(h, reinterpret_cast<uintptr_t>(key.program));
+    h = mix(h, reinterpret_cast<uintptr_t>(key.camera));
+    h = mix(h, reinterpret_cast<uintptr_t>(key.indexBuffer));
+    h = mix(h, key.attributes);
+    h = mix(h, key.meshDefines);
+    h = mix(h, static_cast<uint64_t>(key.indexByteOffset) ^ (static_cast<uint64_t>(key.primitiveCount) << 32));
+    h = mix(h, static_cast<uint64_t>(key.primitiveOffset));
+    h = mix(h, key.topology | key.indexFormat << 8 | key.culling << 16 | key.winding << 20 | static_cast<uint64_t>(key.polygonMode) << 32);
+    return static_cast<size_t>(h);
+}
+
+// Everything checked here is part of the command-cache signature, so it holds until the
+// command is rebuilt: the uniform pointers stay valid (the signature includes the mesh's
+// uniform storage) and only the transforms they point at change.
+void CommandMapping::prepareInstancing(CmdDesc& desc) const
+{
+    desc.instanceable = false;
+    const Mesh* mesh = desc.mesh;
+    const Material* material = desc.material;
+    if (mesh == nullptr || material == nullptr || desc.pass == nullptr || desc.pass->getId() != RenderPassType::Opaque
+        || desc.command.tag != CommandTag::Draw || desc.command.program == nullptr || desc.command.instanceCount != 0
+        || mesh->vertexShader != "primitive.vert" || !mesh->uniformBlocks.empty() || mesh->jointsSampler != nullptr
+        || mesh->getMorphTargetSampler().texture != nullptr || mesh->defines.isDefined("USE_SKINNING")
+        || mesh->defines.isDefined("USE_MORPHING") || material->defines.isDefined("MATERIAL_TRANSMISSION")) {
+        return;
+    }
+    desc.modelUniform = findUniform(*mesh, "u_ModelMatrix");
+    desc.normalUniform = findUniform(*mesh, "u_NormalMatrix");
+    if (desc.modelUniform == nullptr || desc.normalUniform == nullptr) {
+        return;
+    }
+    const Command& command = desc.command;
+    InstanceKey& key = desc.instanceKey;
+    key = InstanceKey();
+    key.material = desc.material;
+    key.program = command.program;
+    key.indexBuffer = command.indexBuffer;
+    uint64_t attributes = 0;
+    for (const gl::Attribute& attribute : desc.mesh->attributes) {
+        attributes = mix(attributes, std::hash<std::string>()(attribute.name));
+        attributes = mix(attributes, reinterpret_cast<uintptr_t>(attribute.buffer));
+        attributes = mix(attributes, static_cast<uint64_t>(attribute.offset) | static_cast<uint64_t>(attribute.stride) << 32);
+        attributes = mix(attributes, static_cast<uint64_t>(attribute.dimension) | static_cast<uint64_t>(attribute.type) << 8
+                                         | static_cast<uint64_t>(attribute.normalized) << 40);
+    }
+    key.attributes = attributes;
+    key.meshDefines = desc.mesh->defines.contentHash();
+    key.indexByteOffset = command.indexByteOffset;
+    key.primitiveCount = command.primitiveCount;
+    key.primitiveOffset = command.primitiveOffset;
+    key.topology = static_cast<uint32_t>(command.primitiveTopology);
+    key.indexFormat = static_cast<uint32_t>(command.indexFormat);
+    key.culling = static_cast<uint32_t>(command.culling);
+    key.winding = static_cast<uint32_t>(command.winding);
+    key.polygonMode = static_cast<uint32_t>(command.polygonMode);
+    desc.instanceable = true;
+}
+
+bool CommandMapping::buildInstanceGroup(InstanceGroup& group, const CmdDesc& source)
+{
+    releaseInstanceGroup(group);
+    m_selectInstanced = true;
+    auto command = makeCommand({ source.mesh, source.material });
+    m_selectInstanced = false;
+    if (!command) {
+        return false;
+    }
+    const gl::Program* program = command->command.program;
+    const GLint modelLocation = program->findAttributeLocation("a_instanceModelMatrix");
+    const GLint normalLocation = program->findAttributeLocation("a_instanceNormalMatrix");
+    if (modelLocation < 0) {
+        return false;
+    }
+    group.layout = std::shared_ptr<gl::VertexLayout>(program->createVertexLayout(source.mesh->attributes, source.mesh->indexBuffer));
+    m_gl->genBuffers(1, &group.buffer);
+    m_gl->bindVertexArray(group.layout->handle);
+    m_gl->bindBuffer(GL_ARRAY_BUFFER, group.buffer);
+    const std::pair<GLint, size_t> streams[] = { { modelLocation, 0 }, { normalLocation, 64 } };
+    for (const auto& [location, offset] : streams) {
+        if (location < 0) {
+            continue; // e.g. no normals: the normal matrix is unused
+        }
+        for (GLuint column = 0; column < 4; ++column) {
+            const GLuint index = static_cast<GLuint>(location) + column;
+            m_gl->enableVertexAttribArray(index);
+            m_gl->vertexAttribPointer(index, 4, GL_FLOAT, GL_FALSE, kInstanceStride,
+                                      reinterpret_cast<const void*>(offset + column * 16));
+            m_gl->vertexAttribDivisor(index, 1);
+        }
+    }
+    m_gl->bindVertexArray(0);
+    group.desc = std::make_unique<CmdDesc>(std::move(*command));
+    group.desc->command.vertexLayout = group.layout;
+    group.desc->mesh = source.mesh;
+    group.desc->material = source.material;
+    group.sourceRevision = source.revision;
+    group.data.clear();
+    return true;
+}
+
+void CommandMapping::mergeInstances(std::vector<CmdDesc*>& commands)
+{
+    m_instancedDraws = 0;
+    m_instancedMembers = 0;
+    if (!m_instancingEnabled || commands.size() < 2) {
+        return;
+    }
+    std::unordered_map<InstanceKey, std::vector<size_t>, InstanceKeyHash> buckets;
+    for (size_t i = 0; i < commands.size(); ++i) {
+        if (commands[i]->instanceable) {
+            InstanceKey key = commands[i]->instanceKey;
+            key.camera = m_scene.m_activeCamera;
+            buckets[key].push_back(i);
+        }
+    }
+    std::vector<CmdDesc*> replacement(commands.size(), nullptr); // instanced draw at its first member's slot
+    std::vector<bool> merged(commands.size(), false);
+    bool any = false;
+    std::vector<uint8_t> data;
+    for (const auto& [key, members] : buckets) {
+        if (members.size() < 2) {
+            continue;
+        }
+        InstanceGroup& group = m_instanceGroups[key];
+        const CmdDesc& first = *commands[members.front()];
+        if (!group.desc || group.sourceRevision != first.revision) {
+            if (!buildInstanceGroup(group, first)) {
+                releaseInstanceGroup(group);
+                m_instanceGroups.erase(key);
+                continue;
+            }
+        }
+        group.lastUse = m_updateSerial;
+        data.resize(members.size() * kInstanceStride);
+        float sortKey = first.distanceSortKey;
+        for (size_t m = 0; m < members.size(); ++m) {
+            const CmdDesc& member = *commands[members[m]];
+            std::memcpy(data.data() + m * kInstanceStride, member.modelUniform->bytes(), 64);
+            std::memcpy(data.data() + m * kInstanceStride + 64, member.normalUniform->bytes(), 64);
+            sortKey = std::min(sortKey, member.distanceSortKey);
+            merged[members[m]] = true;
+        }
+        if (group.data != data) {
+            group.data = data;
+            m_gl->bindBuffer(GL_ARRAY_BUFFER, group.buffer);
+            m_gl->bufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(data.size()), data.data(), GL_DYNAMIC_DRAW);
+        }
+        group.desc->command.instanceCount = static_cast<GLsizei>(members.size());
+        group.desc->distanceSortKey = sortKey;
+        replacement[members.front()] = group.desc.get();
+        ++m_instancedDraws;
+        m_instancedMembers += members.size();
+        any = true;
+    }
+    if (!any) {
+        return;
+    }
+    size_t out = 0;
+    for (size_t i = 0; i < commands.size(); ++i) {
+        if (replacement[i] != nullptr) {
+            commands[out++] = replacement[i];
+        } else if (!merged[i]) {
+            commands[out++] = commands[i];
+        }
+    }
+    commands.resize(out);
+}
+
+void CommandMapping::releaseInstanceGroup(InstanceGroup& group)
+{
+    if (group.buffer != 0) {
+        m_gl->deleteBuffers(1, &group.buffer);
+        group.buffer = 0;
+    }
+    group.layout.reset();
+    group.desc.reset();
+    group.data.clear();
+}
+
+void CommandMapping::clearInstanceGroups()
+{
+    for (auto& [key, group] : m_instanceGroups) {
+        releaseInstanceGroup(group);
+    }
+    m_instanceGroups.clear();
+}
+
 
 namespace {
 uint32_t renderSettingsBits(const RenderSettings& rs)
@@ -155,6 +391,7 @@ CommandMapping::ProgramKey CommandMapping::makeProgramKey(const Mesh& mesh, cons
     key.lightCount = static_cast<uint32_t>(m_scene.m_lights.getLightCount());
     key.useIBL = m_scene.m_useIBL;
     key.usePunctualLights = m_scene.m_usePunctualLights;
+    key.instanced = m_selectInstanced;
     return key;
 }
 
@@ -165,7 +402,7 @@ size_t CommandMapping::ProgramKeyHash::operator()(const ProgramKey& key) const
     h ^= std::hash<std::string>()(key.vertexShader) + (h << 6) + (h >> 2);
     h ^= std::hash<std::string>()(key.fragmentShader) + (h << 6) + (h >> 2);
     h ^= (static_cast<uint64_t>(key.renderSettings) << 32 | key.toneMapping << 16 | key.lightCount << 2
-          | (key.useIBL ? 2u : 0u) | (key.usePunctualLights ? 1u : 0u)) + (h << 6) + (h >> 2);
+          | (key.instanced ? 4u : 0u) | (key.useIBL ? 2u : 0u) | (key.usePunctualLights ? 1u : 0u)) + (h << 6) + (h >> 2);
     return static_cast<size_t>(h);
 }
 
@@ -304,7 +541,14 @@ gl::Program* CommandMapping::buildProgram(const Mesh& meshRef, const Material& m
     fragmentDefines.defineIf(uploadPunctualLights, "USE_PUNCTUAL");
     fragmentDefines.defineIf(uploadPunctualLights, "LIGHT_COUNT", m_scene.m_lights.getLightCount());
     GLuint fragmentShaderID = m_shaderCache.selectShader(material->fragmentShader, fragmentDefines);
-    GLuint vertexShaderID = m_shaderCache.selectShader(mesh->vertexShader, mesh->defines);
+    GLuint vertexShaderID = gl::invalid;
+    if (m_selectInstanced) {
+        Defines vertexDefines = mesh->defines;
+        vertexDefines.define("USE_INSTANCING");
+        vertexShaderID = m_shaderCache.selectShader(mesh->vertexShader, vertexDefines);
+    } else {
+        vertexShaderID = m_shaderCache.selectShader(mesh->vertexShader, mesh->defines);
+    }
     if (vertexShaderID == gl::invalid || fragmentShaderID == gl::invalid) {
         return nullptr;
     }
@@ -423,6 +667,24 @@ std::optional<CmdDesc> CommandMapping::makeCommand(MeshMaterialTuple meshMat)
     }
 
     command->uniforms.push_back(&m_scene.m_exposureUniform);
+
+    // P8.1a: resolve the program's bindings once instead of by name on every draw, and
+    // keep only the uniforms the program uses (the others were never committed). Sampler
+    // positions are texture units, so samplers keep theirs.
+    command->uniformBindings.reserve(command->uniforms.size());
+    size_t activeUniforms = 0;
+    for (const gl::Uniform* uniform : command->uniforms) {
+        const gl::UniformBinding* binding = uniform != nullptr ? program->findUniformBinding(uniform->name) : nullptr;
+        if (binding != nullptr) {
+            command->uniforms[activeUniforms++] = uniform;
+            command->uniformBindings.push_back(binding);
+        }
+    }
+    command->uniforms.resize(activeUniforms);
+    command->samplerBindings.reserve(command->samplers.size());
+    for (const gl::Sampler* sampler : command->samplers) {
+        command->samplerBindings.push_back(sampler != nullptr ? program->findUniformBinding(sampler->name) : nullptr);
+    }
 
     return desc;
 }

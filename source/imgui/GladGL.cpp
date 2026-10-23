@@ -882,4 +882,24 @@ void GladGL::drawElements(GLenum mode, GLsizei count, GLenum type, const void* i
     glDrawElements(mode, count, type, indices);
 }
 
+void GladGL::drawArraysInstanced(GLenum mode, GLint first, GLsizei count, GLsizei instanceCount)
+{
+    ux3d::imgui::profiling::countGlCall();
+    ux3d::imgui::profiling::countRendererDrawCall();
+    glDrawArraysInstanced(mode, first, count, instanceCount);
+}
+
+void GladGL::drawElementsInstanced(GLenum mode, GLsizei count, GLenum type, const void* indices, GLsizei instanceCount)
+{
+    ux3d::imgui::profiling::countGlCall();
+    ux3d::imgui::profiling::countRendererDrawCall();
+    glDrawElementsInstanced(mode, count, type, indices, instanceCount);
+}
+
+void GladGL::vertexAttribDivisor(GLuint index, GLuint divisor)
+{
+    ux3d::imgui::profiling::countGlCall();
+    glVertexAttribDivisor(index, divisor);
+}
+
 } // namespace ux3d::renderer

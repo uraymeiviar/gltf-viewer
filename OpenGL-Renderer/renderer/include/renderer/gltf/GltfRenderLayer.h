@@ -161,6 +161,13 @@ public:
     // bound-less primitives are always kept.
     bool frustumCulling = false;
 
+    // P8.5: removes from drawables the static primitives (found through reverseMapping)
+    // whose POSITION bounds lie entirely outside clipFromWorld's view volume, with the
+    // test frustumCulling uses. Primitives it cannot bound and drawables the mapping does
+    // not know (cube map, transmission copies) are kept. Returns the number removed.
+    size_t cullToClip(core::LinkedList<std::tuple<Mesh*, Material*>>& drawables, const ReverseMapping& reverseMapping,
+                      const math::mat4x4& clipFromWorld) const;
+
 private:
     IBLSampler m_iblSampler;
 

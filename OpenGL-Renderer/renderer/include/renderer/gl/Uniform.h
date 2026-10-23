@@ -28,6 +28,10 @@ public:
 
     void commit(GL* gl, const UniformBinding& binding) const;
 
+    // The value as written, e.g. to copy it into a uniform block.
+    const uint8_t* bytes() const { return m_bytes.data(); }
+    size_t byteSize() const { return m_bytes.size(); }
+
     std::string name;
 
 private:

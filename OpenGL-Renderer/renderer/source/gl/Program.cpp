@@ -8,6 +8,7 @@
 #include "renderer/gl/UniformBlock.h"
 
 #include <algorithm>
+#include <string_view>
 #include <atomic>
 
 namespace {
@@ -31,7 +32,11 @@ ux3d::renderer::gl::Program::Program(GL* gl, GLuint handle)
         UniformBinding binding;
         GLsizei size;
         m_gl->getActiveUniform(handle, i, sizeof(stringBuffer), nullptr, &size, reinterpret_cast<GLenum*>(&binding.type), stringBuffer);
-        binding.location = static_cast<GLuint>(m_gl->getUniformLocation(handle, stringBuffer));
+        const GLint location = m_gl->getUniformLocation(handle, stringBuffer);
+        if (location < 0) {
+            continue; // a uniform block member (P8.1b): set through its buffer, not glUniform*
+        }
+        binding.location = static_cast<GLuint>(location);
         std::string name = stringBuffer;
         if (name.find_last_of(']') != name.length() - 1) {
             m_uniformBindings[name] = binding;
@@ -54,6 +59,12 @@ ux3d::renderer::gl::Program::Program(GL* gl, GLuint handle)
         binding.blockIndex = i;
         GLint nameLength = 0;
         m_gl->getActiveUniformBlockName(handle, i, sizeof(stringBuffer), &nameLength, stringBuffer);
+        const std::string_view blockName(stringBuffer);
+        if (blockName == "CameraBlock" || blockName == "EnvironmentBlock") {
+            m_gl->uniformBlockBinding(handle, static_cast<GLuint>(i),
+                                      blockName == "CameraBlock" ? kCameraBlockBinding : kEnvironmentBlockBinding);
+            continue; // bound once per scene draw by CommandGenerator, not per command
+        }
         m_uniformBlockLocations[stringBuffer] = binding;
     }
 
@@ -103,6 +114,18 @@ void ux3d::renderer::gl::Program::commitUniform(const Uniform& uniform) const
         return;
     }
     uniform.commit(m_gl, iter->second);
+}
+
+auto ux3d::renderer::gl::Program::findUniformBinding(const std::string& name) const -> const UniformBinding*
+{
+    auto iter = m_uniformBindings.find(name);
+    return iter != m_uniformBindings.end() ? &iter->second : nullptr;
+}
+
+GLint ux3d::renderer::gl::Program::findAttributeLocation(const std::string& name) const
+{
+    auto iter = m_attributeLocations.find(name);
+    return iter != m_attributeLocations.end() ? static_cast<GLint>(iter->second) : -1;
 }
 
 void ux3d::renderer::gl::Program::commitUniformBlock(const UniformBlock& uniformBlock) const

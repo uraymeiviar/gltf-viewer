@@ -95,6 +95,7 @@ bool ux3d::renderer::Renderer::onDrawScenes(const core::Vector<CommandGenerator*
 {
     m_lastExecutedPasses.clear();
     for (auto& scene : scenes) {
+        scene->bindFrameBlocks();
         uint32_t passIndex = 0;
         for (Pass& passType : scene->getPassCommands()) {
             for (auto& [pass, commands] : passType) {

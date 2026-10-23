@@ -6,6 +6,7 @@
 #include "renderer/RendererScene.h"
 
 #include <algorithm>
+#include <cstring>
 
 ux3d::renderer::CommandGenerator::CommandGenerator(gl::GL* gl, const filesystem::Path& _shaderPath)
     : m_vertexLayoutCache(gl)
@@ -21,6 +22,62 @@ ux3d::renderer::CommandGenerator::CommandGenerator(gl::GL* gl, const filesystem:
     setEnvironmentMapBlurNormalized(0.0f);
     setEnvironmentMapIntensity(1.0f);
     setExposure(1.0f);
+    m_gl = gl;
+}
+
+ux3d::renderer::CommandGenerator::~CommandGenerator()
+{
+    for (FrameBlock* block : { &m_cameraBlock, &m_environmentBlock }) {
+        if (block->buffer != 0) {
+            m_gl->deleteBuffers(1, &block->buffer);
+        }
+    }
+}
+
+void ux3d::renderer::CommandGenerator::uploadFrameBlock(FrameBlock& block, GLuint binding, const uint8_t* data, size_t size)
+{
+    if (block.buffer == 0) {
+        m_gl->genBuffers(1, &block.buffer);
+    }
+    if (block.data.size() != size || std::memcmp(block.data.data(), data, size) != 0) {
+        block.data.assign(data, data + size);
+        m_gl->bindBuffer(GL_UNIFORM_BUFFER, block.buffer);
+        m_gl->bufferData(GL_UNIFORM_BUFFER, static_cast<GLsizeiptr>(size), data, GL_DYNAMIC_DRAW);
+    }
+    m_gl->bindBufferBase(GL_UNIFORM_BUFFER, binding, block.buffer);
+}
+
+void ux3d::renderer::CommandGenerator::bindFrameBlocks()
+{
+    // The bytes are the uniforms' own values, placed at their std140 offsets, so shaders
+    // see exactly what the individual uniforms carried.
+    auto place = [](uint8_t* block, size_t offset, size_t size, const gl::Uniform& uniform) {
+        std::memcpy(block + offset, uniform.bytes(), std::min(size, uniform.byteSize()));
+    };
+    if (m_activeCamera != nullptr) {
+        // CameraBlock: three mat4 at 0, 64 and 128, then vec3 u_Camera at 192.
+        uint8_t camera[208] = {};
+        place(camera, 0, 64, m_activeCamera->getViewUniform());
+        place(camera, 64, 64, m_activeCamera->getProjectionUniform());
+        place(camera, 128, 64, m_activeCamera->getViewProjectionUniform());
+        place(camera, 192, 12, m_activeCamera->getCameraPositionUniform());
+        uploadFrameBlock(m_cameraBlock, gl::kCameraBlockBinding, camera, sizeof(camera));
+    }
+    // EnvironmentBlock: mat3 u_EnvRotation as three 16-byte columns, then u_EnvIntensity
+    // at 48, u_EnvBlurNormalized at 52, int u_MipCount at 56 and u_Exposure at 60.
+    uint8_t environment[64] = {};
+    if (m_environmentMapRotationUniform.byteSize() == 36) {
+        for (size_t column = 0; column < 3; ++column) {
+            std::memcpy(environment + column * 16, m_environmentMapRotationUniform.bytes() + column * 12, 12);
+        }
+    }
+    place(environment, 48, 4, m_environmentMapIntensityUniform);
+    place(environment, 52, 4, m_environmentMapBlurNormalizedUniform);
+    if (m_activeEnvironmentMap != nullptr) {
+        place(environment, 56, 4, m_activeEnvironmentMap->getMipCount());
+    }
+    place(environment, 60, 4, m_exposureUniform);
+    uploadFrameBlock(m_environmentBlock, gl::kEnvironmentBlockBinding, environment, sizeof(environment));
 }
 
 void ux3d::renderer::CommandGenerator::update(const RendererScene& scene)

@@ -1700,6 +1700,38 @@ bool boxOutsideClip(const math::mat4x4& clipFromModel, const math::vec3& lo, con
 
 } // namespace
 
+size_t GltfRenderLayer::cullToClip(core::LinkedList<std::tuple<Mesh*, Material*>>& drawables, const ReverseMapping& reverseMapping,
+                                   const math::mat4x4& clipFromWorld) const
+{
+    size_t removed = 0;
+    for (auto it = drawables.begin(); it != drawables.end();) {
+        Mesh* mesh = std::get<Mesh*>(*it);
+        const auto nodeIt = mesh != nullptr ? reverseMapping.find(mesh) : reverseMapping.end();
+        const gltf::Mesh* gltfMesh = nodeIt != reverseMapping.end() ? nodeIt->second->getMesh() : nullptr;
+        bool outside = false;
+        if (gltfMesh != nullptr) {
+            for (const auto& gltfPrimitive : gltfMesh->getPrimitives()) {
+                const auto meshIt = m_meshMapping.map.find(std::tuple(nodeIt->second, gltfMesh, &gltfPrimitive));
+                if (meshIt == m_meshMapping.map.end() || meshIt->second != mesh) {
+                    continue;
+                }
+                math::vec3 lo;
+                math::vec3 hi;
+                outside = getStaticPositionBounds(gltfPrimitive, *mesh, lo, hi)
+                    && boxOutsideClip(clipFromWorld * mesh->getTransform(), lo, hi);
+                break;
+            }
+        }
+        if (outside) {
+            it = drawables.erase(it);
+            ++removed;
+        } else {
+            ++it;
+        }
+    }
+    return removed;
+}
+
 std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const gltf::Scene* gltfScene)
 {
     RendererScene scene;
