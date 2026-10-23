@@ -18,11 +18,130 @@
 #include <tinyexr.h>
 
 #include <algorithm>
+#include <condition_variable>
+#include <cstring>
+#include <mutex>
 
 #include "imageformats/imageformats.h"
 
 using namespace ux3d;
 using namespace ux3d::imageformats;
+
+namespace {
+
+std::mutex g_budgetMutex;
+std::condition_variable g_budgetReleased;
+uint64_t g_budgetBytes = 0;
+uint64_t g_inFlightBytes = 0;
+uint32_t g_inFlightCount = 0;
+DecodeBudgetStats g_budgetStats;
+
+uint32_t readLE32(const core::Vector<uint8_t>& _buffer, size_t _offset)
+{
+    uint32_t value = 0;
+    if (_offset + 4 <= _buffer.size()) {
+        std::memcpy(&value, _buffer.data() + _offset, 4);
+    }
+    return value;
+}
+
+// Decoded size from the header, without decoding; conservative where a header is not
+// parsed here (WebP, EXR: 8 bytes per encoded byte).
+uint64_t estimateDecodedBytes(const core::Vector<uint8_t>& _buffer, ImageEncoding _encoding)
+{
+    if (_encoding == ImageEncoding::KTX2) {
+        // KTX2 header: pixelWidth @20, pixelHeight @24, pixelDepth @28, layerCount @32,
+        // faceCount @36; transcoded to RGBA32, plus mips (x4/3).
+        const uint64_t w = std::max<uint32_t>(readLE32(_buffer, 20), 1u);
+        const uint64_t h = std::max<uint32_t>(readLE32(_buffer, 24), 1u);
+        const uint64_t d = std::max<uint32_t>(readLE32(_buffer, 28), 1u);
+        const uint64_t layers = std::max<uint32_t>(readLE32(_buffer, 32), 1u);
+        const uint64_t faces = std::max<uint32_t>(readLE32(_buffer, 36), 1u);
+        return w * h * d * layers * faces * 4u * 4u / 3u;
+    }
+    if (_encoding == ImageEncoding::DDS) {
+        // DDS: magic, then dwSize @4, dwFlags @8, dwHeight @12, dwWidth @16; up to RGBA32F.
+        const uint64_t h = std::max<uint32_t>(readLE32(_buffer, 12), 1u);
+        const uint64_t w = std::max<uint32_t>(readLE32(_buffer, 16), 1u);
+        return w * h * 16u;
+    }
+    if (_encoding == ImageEncoding::WEBP || _encoding == ImageEncoding::EXR) {
+        return static_cast<uint64_t>(_buffer.size()) * 8u;
+    }
+    int x = 0;
+    int y = 0;
+    int channels = 0;
+    if (_buffer.size() > INT_MAX
+        || !stbi_info_from_memory(static_cast<stbi_uc const*>(_buffer.data()), static_cast<int>(_buffer.size()), &x, &y, &channels)) {
+        return static_cast<uint64_t>(_buffer.size()) * 8u;
+    }
+    const uint64_t bytesPerChannel = _encoding == ImageEncoding::HDR
+        ? 4u
+        : (stbi_is_16_bit_from_memory(static_cast<stbi_uc const*>(_buffer.data()), static_cast<int>(_buffer.size())) ? 2u : 1u);
+    return static_cast<uint64_t>(x) * static_cast<uint64_t>(y) * 4u * bytesPerChannel;
+}
+
+// Holds an estimated share of the decode budget for one decode.
+class DecodeLease {
+public:
+    explicit DecodeLease(uint64_t _bytes)
+        : m_bytes(_bytes)
+    {
+        std::unique_lock lock(g_budgetMutex);
+        ++g_budgetStats.decodes;
+        bool waited = false;
+        while (g_budgetBytes != 0 && g_inFlightCount > 0 && g_inFlightBytes + m_bytes > g_budgetBytes) {
+            waited = true;
+            g_budgetReleased.wait(lock);
+        }
+        if (waited) {
+            ++g_budgetStats.waits;
+        }
+        g_inFlightBytes += m_bytes;
+        ++g_inFlightCount;
+        g_budgetStats.peakInFlightBytes = std::max(g_budgetStats.peakInFlightBytes, g_inFlightBytes);
+        g_budgetStats.peakInFlightCount = std::max(g_budgetStats.peakInFlightCount, g_inFlightCount);
+    }
+    ~DecodeLease()
+    {
+        {
+            std::lock_guard lock(g_budgetMutex);
+            g_inFlightBytes -= m_bytes;
+            --g_inFlightCount;
+        }
+        g_budgetReleased.notify_all();
+    }
+    DecodeLease(const DecodeLease&) = delete;
+    DecodeLease& operator=(const DecodeLease&) = delete;
+
+private:
+    uint64_t m_bytes;
+};
+
+} // namespace
+
+void imageformats::setDecodeMemoryBudget(uint64_t _bytes)
+{
+    {
+        std::lock_guard lock(g_budgetMutex);
+        g_budgetBytes = _bytes;
+        g_budgetStats.budgetBytes = _bytes;
+    }
+    g_budgetReleased.notify_all();
+}
+
+DecodeBudgetStats imageformats::getDecodeBudgetStats()
+{
+    std::lock_guard lock(g_budgetMutex);
+    return g_budgetStats;
+}
+
+void imageformats::resetDecodeBudgetStats()
+{
+    std::lock_guard lock(g_budgetMutex);
+    g_budgetStats = DecodeBudgetStats();
+    g_budgetStats.budgetBytes = g_budgetBytes;
+}
 
 ImageDecodingResult imageformats::decodeImageFromFile(
     const filesystem::File& _inFile,
@@ -343,6 +462,8 @@ ImageDecodingResult imageformats::decodeImage(
     uint8_t* imageData = nullptr;
     uint8_t* imageDataStb = nullptr;
     const ImageEncoding encoding = getEncodingFromBuffer(_inBuffer);
+    // A decode holds the decoder's output and the image's copy of it at the same time.
+    const DecodeLease lease(estimateDecodedBytes(_inBuffer, encoding) * 2u);
     if (encoding == ImageEncoding::KTX2) {
         return decodeKTX(_inBuffer, _outImage);
     } else if (encoding == ImageEncoding::WEBP) {

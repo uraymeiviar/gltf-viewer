@@ -424,6 +424,17 @@ struct StartupProfile {
     double validationMs = 0.0;
     double validationReportedMs = 0.0;
     double totalStartupMs = 0.0;
+    uint64_t validationBytesRead = 0;
+    uint64_t peakWorkingSetAfterDecode = 0;  // process peak working set after the parse/decode stage
+    uint64_t peakWorkingSetAfterUpload = 0;  // ... after the renderer upload stage
+    uint64_t decodeBudgetBytes = 0;          // image decode memory budget (P6.2), 0 = unlimited
+    uint64_t decodeBudgetWaits = 0;
+    uint64_t decodePeakInFlightBytes = 0;
+    uint64_t decodePeakInFlightCount = 0;
+    double validationReadMs = 0.0;
+    double validationParseMs = 0.0;
+    double validationSchemaMs = 0.0;
+    double validationSemanticMs = 0.0;
 
     uint64_t modelBytes = 0;
     uint64_t environmentBytes = 0;

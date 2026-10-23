@@ -25,6 +25,7 @@
 #include <nlohmann/json-schema.hpp>
 
 #include <cmath>
+#include <fstream>
 #include <sstream>
 #include <unordered_set>
 #include <unordered_map>
@@ -155,6 +156,21 @@ GltfValidator& GltfValidator::instance()
     return s_instance;
 }
 
+bool GltfValidator::writeReportJson(const ValidationReport& report, const std::string& path)
+{
+    nlohmann::json issues = nlohmann::json::array();
+    for (const auto& issue : report.issues) {
+        issues.push_back({ { "severity", issue.getSeverityString() }, { "code", issue.code }, { "message", issue.message },
+                           { "pointer", issue.jsonPointer }, { "targetType", static_cast<int>(issue.targetType) },
+                           { "targetIndex", issue.targetIndex }, { "hasTarget", issue.targetObject != nullptr } });
+    }
+    const nlohmann::json doc = { { "file", report.filePath }, { "validated", report.validated }, { "errors", report.errorCount },
+                                 { "warnings", report.warningCount }, { "infos", report.infoCount }, { "issues", issues } };
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    out << doc.dump(1) << "\n";
+    return static_cast<bool>(out);
+}
+
 std::string ValidationReport::toMarkdown() const
 {
     std::ostringstream ss;
@@ -218,20 +234,42 @@ ValidationReport GltfValidator::validate(const std::string& filePath, ux3d::gltf
     // Step 1: Ingest Raw Asset Text / Binary
     // -------------------------------------------------------------
     nlohmann::json jsonDoc;
+    using StageClock = std::chrono::high_resolution_clock;
+    const auto stageMs = [](StageClock::time_point from) {
+        return std::chrono::duration<double, std::milli>(StageClock::now() - from).count();
+    };
+    auto stageStart = StageClock::now();
     bool isGlb = (filePath.size() >= 4 && (filePath.compare(filePath.size() - 4, 4, ".glb") == 0 ||
                                           filePath.compare(filePath.size() - 4, 4, ".GLB") == 0));
 
     if (isGlb) {
+        // Validation needs the 12-byte header, the JSON chunk and the BIN chunk header, not
+        // the BIN payload (P6.1). `bytes` holds the first 20 bytes; the checks below see the
+        // same values and file size as with a whole-file read (--validation-full-read).
         core::Vector<uint8_t> binaryData;
-        auto fsFile = StdFileSystem::instance().toFile(filePath.c_str());
-        if (core::Failed(fsFile.load(binaryData))) {
-            report.addIssue(ValidationSeverity::Error, "FILE_READ_ERROR", "Could not read GLB file from filesystem: " + filePath, "/");
-            report.validated = true;
-            return report;
+        std::vector<uint8_t> head;
+        const uint8_t* bytes = nullptr;
+        size_t totalSize = 0;
+        uint64_t rangeFileSize = 0;
+        if (s_fullFileRead) {
+            auto fsFile = StdFileSystem::instance().toFile(filePath.c_str());
+            if (core::Failed(fsFile.load(binaryData))) {
+                report.addIssue(ValidationSeverity::Error, "FILE_READ_ERROR", "Could not read GLB file from filesystem: " + filePath, "/");
+                report.validated = true;
+                return report;
+            }
+            bytes = binaryData.data();
+            totalSize = binaryData.size();
+        } else {
+            if (!StdFileSystem::instance().readRange(filePath.c_str(), 0, 20, head, rangeFileSize)) {
+                report.addIssue(ValidationSeverity::Error, "FILE_READ_ERROR", "Could not read GLB file from filesystem: " + filePath, "/");
+                report.validated = true;
+                return report;
+            }
+            bytes = head.data();
+            totalSize = static_cast<size_t>(rangeFileSize);
         }
-
-        const uint8_t* bytes = binaryData.data();
-        size_t totalSize = binaryData.size();
+        report.timing.bytesRead = s_fullFileRead ? totalSize : head.size();
 
         // 1.1 Validate 12-byte GLB Header
         if (totalSize < 12) {
@@ -285,7 +323,22 @@ ValidationReport GltfValidator::validate(const std::string& filePath, ux3d::gltf
             return report;
         }
 
-        std::string jsonStr(reinterpret_cast<const char*>(bytes + 20), chunk0Length);
+        std::string jsonStr;
+        if (s_fullFileRead) {
+            jsonStr.assign(reinterpret_cast<const char*>(bytes + 20), chunk0Length);
+        } else {
+            std::vector<uint8_t> chunk;
+            uint64_t ignoredSize = 0;
+            if (!StdFileSystem::instance().readRange(filePath.c_str(), 20, chunk0Length, chunk, ignoredSize) || chunk.size() != chunk0Length) {
+                report.addIssue(ValidationSeverity::Error, "FILE_READ_ERROR", "Could not read GLB file from filesystem: " + filePath, "/");
+                report.validated = true;
+                return report;
+            }
+            jsonStr.assign(reinterpret_cast<const char*>(chunk.data()), chunk.size());
+            report.timing.bytesRead += chunk.size();
+        }
+        report.timing.readMs = stageMs(stageStart);
+        stageStart = StageClock::now();
         try {
             jsonDoc = nlohmann::json::parse(jsonStr);
         } catch (const std::exception& e) {
@@ -300,8 +353,23 @@ ValidationReport GltfValidator::validate(const std::string& filePath, ux3d::gltf
         if (chunk1Offset + 8 <= totalSize) {
             uint32_t chunk1Length = 0;
             uint32_t chunk1Type = 0;
-            std::memcpy(&chunk1Length, bytes + chunk1Offset, 4);
-            std::memcpy(&chunk1Type, bytes + chunk1Offset + 4, 4);
+            const uint8_t* chunk1Header = s_fullFileRead ? bytes + chunk1Offset : nullptr;
+            std::vector<uint8_t> chunk1;
+            if (!s_fullFileRead) {
+                uint64_t ignoredSize = 0;
+                StdFileSystem::instance().readRange(filePath.c_str(), chunk1Offset, 8, chunk1, ignoredSize);
+                if (chunk1.size() == 8) {
+                    chunk1Header = chunk1.data();
+                    report.timing.bytesRead += 8;
+                }
+            }
+            if (chunk1Header == nullptr) {
+                report.addIssue(ValidationSeverity::Error, "FILE_READ_ERROR", "Could not read GLB file from filesystem: " + filePath, "/");
+                report.validated = true;
+                return report;
+            }
+            std::memcpy(&chunk1Length, chunk1Header, 4);
+            std::memcpy(&chunk1Type, chunk1Header + 4, 4);
 
             // "BIN\0" is 0x004E4942
             if (chunk1Type != 0x004E4942) {
@@ -318,6 +386,9 @@ ValidationReport GltfValidator::validate(const std::string& filePath, ux3d::gltf
             return report;
         }
 
+        report.timing.bytesRead = textContent.size();
+        report.timing.readMs = stageMs(stageStart);
+        stageStart = StageClock::now();
         try {
             jsonDoc = nlohmann::json::parse(textContent.c_str());
         } catch (const std::exception& e) {
@@ -326,6 +397,9 @@ ValidationReport GltfValidator::validate(const std::string& filePath, ux3d::gltf
             return report;
         }
     }
+
+    report.timing.parseMs = stageMs(stageStart);
+    stageStart = StageClock::now();
 
     // -------------------------------------------------------------
     // Step 2: Tier 1 - In-Memory JSON Schema Validation
@@ -339,6 +413,9 @@ ValidationReport GltfValidator::validate(const std::string& filePath, ux3d::gltf
             report.addIssue(ValidationSeverity::Error, "SCHEMA_VALIDATION_EXCEPTION", e.what(), "/");
         }
     }
+
+    report.timing.schemaMs = stageMs(stageStart);
+    stageStart = StageClock::now();
 
     // -------------------------------------------------------------
     // Step 3: Tier 2 - Native C++ Semantic & Buffer Integrity Checks
@@ -792,6 +869,7 @@ ValidationReport GltfValidator::validate(const std::string& filePath, ux3d::gltf
         }
     }
 
+    report.timing.semanticMs = stageMs(stageStart);
     auto endTime = std::chrono::high_resolution_clock::now();
     report.durationMs = std::chrono::duration<double, std::milli>(endTime - startTime).count();
     report.validated = true;

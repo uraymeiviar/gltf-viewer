@@ -50,6 +50,21 @@ namespace imageformats {
 
     ImageDecodingResult decodeImage(const core::Vector<uint8_t>& _inBuffer, image::Image& _outImage, const uint32_t _inRequiredChannels = 0);
 
+    // Decode memory budget (P6.2). Images are decoded on parallel loader threads, and each
+    // decode briefly holds about twice its decoded size. decodeImage estimates that from the
+    // header and waits while the decodes in flight would exceed the budget; a decode larger
+    // than the budget runs alone. 0 (the default) means unlimited.
+    void setDecodeMemoryBudget(uint64_t _bytes);
+    struct DecodeBudgetStats {
+        uint64_t budgetBytes = 0;
+        uint64_t decodes = 0;
+        uint64_t waits = 0;            // decodes that had to wait for budget
+        uint64_t peakInFlightBytes = 0; // largest estimated in-flight total
+        uint32_t peakInFlightCount = 0;
+    };
+    DecodeBudgetStats getDecodeBudgetStats();
+    void resetDecodeBudgetStats();
+
     ImageEncodingResult encodePNG(const image::Image& image, core::Vector<uint8_t>& buffer);
     ImageEncodingResult encodeJPEG(const image::Image& image, const uint32_t quality, core::Vector<uint8_t>& buffer);
     ImageEncodingResult encodeHDR(const image::Image& image, core::Vector<uint8_t>& buffer);

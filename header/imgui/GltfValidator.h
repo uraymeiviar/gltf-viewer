@@ -47,6 +47,15 @@ struct ValidationReport {
     double durationMs = 0.0;
     bool validated = false;
 
+    // Stage timings and source bytes read (P6.1 measurements).
+    struct Timing {
+        double readMs = 0.0;
+        double parseMs = 0.0;
+        double schemaMs = 0.0;
+        double semanticMs = 0.0;
+        uint64_t bytesRead = 0;
+    } timing;
+
     void clear() {
         issues.clear();
         errorCount = 0;
@@ -80,6 +89,13 @@ public:
 
     // Runs Tier 1 (Schema) and Tier 2 (Semantic & Buffer checks)
     ValidationReport validate(const std::string& filePath, ux3d::gltf::Gltf& gltfModel);
+
+    // P6.1: a GLB is read in ranges (header, JSON chunk, BIN chunk header) instead of
+    // whole. true restores the whole-file read as a same-binary reference.
+    static inline bool s_fullFileRead = false;
+
+    // Writes the report without timings, as JSON, for byte-for-byte comparisons.
+    static bool writeReportJson(const ValidationReport& report, const std::string& path);
 
     // Get or clear last validation report
     const ValidationReport& getLastReport() const { return m_lastReport; }

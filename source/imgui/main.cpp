@@ -39,6 +39,7 @@
 #include "renderer/editor/EditorRenderLayer.h"
 #include "renderer/PickingRenderLayer.h"
 #include "imgui/IdleWait.h"
+#include "imageformats/imageformats.h"
 
 #include "core/Logger.h"
 
@@ -617,6 +618,11 @@ static bool s_disableIdleWait = false;
 static constexpr double kIdleWaitTimeoutSeconds = 0.25;
 static constexpr uint32_t kIdleQuietFrames = 3;
 static std::string s_idleStatsPath;
+// P6.1: --validation-report writes each load's validation report (no timings) as JSON.
+static std::string s_validationReportPath;
+// P6.2: image decode memory budget. Default: an eighth of physical memory, at least
+// 512 MiB. --decode-budget-mib N overrides it (0 = unlimited, the pre-P6.2 behaviour).
+static int64_t s_decodeBudgetMiB = -1;
 // P5.5: viewport scene builds leave out static primitives outside the camera frustum.
 // --disable-culling draws every primitive (the pre-P5.5 scene).
 static bool s_disableCulling = false;
@@ -1078,8 +1084,17 @@ static bool loadGltfModel(const std::string& filePath,
 
     ux3d::imgui::ElementInspector::clearPreviewCache();
     gltfModel.reset();
+    ux3d::imageformats::resetDecodeBudgetStats();
     auto result = ux3d::gltf::GltfParsing::fromFile(gltfModel, file, importOptions);
     startupProfile.loadDecodeMs = ux3d::imgui::profiling::elapsedMs(loadStart);
+    {
+        const auto budgetStats = ux3d::imageformats::getDecodeBudgetStats();
+        startupProfile.decodeBudgetBytes = budgetStats.budgetBytes;
+        startupProfile.decodeBudgetWaits = budgetStats.waits;
+        startupProfile.decodePeakInFlightBytes = budgetStats.peakInFlightBytes;
+        startupProfile.decodePeakInFlightCount = budgetStats.peakInFlightCount;
+    }
+    startupProfile.peakWorkingSetAfterDecode = ux3d::imgui::processPeakWorkingSetBytes();
     if (result.derived == ux3d::gltf::GltfFromFileResult::Success) {
         currentFilePath = filePath;
         activeScene = gltfModel.getDefaultScene();
@@ -1097,6 +1112,7 @@ static bool loadGltfModel(const std::string& filePath,
             }
         }
         startupProfile.rendererUploadMs = ux3d::imgui::profiling::elapsedMs(uploadStart);
+        startupProfile.peakWorkingSetAfterUpload = ux3d::imgui::processPeakWorkingSetBytes();
 
         animPlayer.setModel(gltfModel, gltfLayer);
 
@@ -1157,6 +1173,14 @@ static bool loadGltfModel(const std::string& filePath,
         auto valReport = ux3d::imgui::GltfValidator::instance().validate(filePath, gltfModel);
         startupProfile.validationMs = ux3d::imgui::profiling::elapsedMs(validationStart);
         startupProfile.validationReportedMs = valReport.durationMs;
+        if (!s_validationReportPath.empty()) {
+            ux3d::imgui::GltfValidator::writeReportJson(valReport, s_validationReportPath);
+        }
+        startupProfile.validationReadMs = valReport.timing.readMs;
+        startupProfile.validationParseMs = valReport.timing.parseMs;
+        startupProfile.validationSchemaMs = valReport.timing.schemaMs;
+        startupProfile.validationSemanticMs = valReport.timing.semanticMs;
+        startupProfile.validationBytesRead = valReport.timing.bytesRead;
         if (valReport.errorCount > 0) {
             char valBuf[256];
             std::snprintf(valBuf, sizeof(valBuf), "Validation: %d %s, %d %s (%.1f ms)",
@@ -2356,6 +2380,7 @@ int main(int argc, char** argv)
     std::string cacheInvalidationSelfCheckOutputPath;
     std::string loggerLayoutSelfCheckOutputPath;
     std::string revisionSelfCheckOutputPath;
+    std::string validateFileArg; // P6.1 test hook: validate a file without loading it, then exit
     std::string aaTargetSelfCheckOutputPath;
     std::string samplerSelfCheckOutputPath;
     std::string samplerSelfCheckCase = "all";
@@ -2467,6 +2492,14 @@ int main(int argc, char** argv)
             s_fullSizePicking = true;
         } else if (arg == "--disable-redraw-skip") {
             s_disableRedrawSkip = true;
+        } else if (arg == "--decode-budget-mib" && i + 1 < argc) {
+            s_decodeBudgetMiB = std::stoll(argv[++i]);
+        } else if (arg == "--validation-full-read") {
+            ux3d::imgui::GltfValidator::s_fullFileRead = true;
+        } else if (arg == "--validation-report" && i + 1 < argc) {
+            s_validationReportPath = argv[++i];
+        } else if (arg == "--validate-file" && i + 1 < argc) {
+            validateFileArg = argv[++i];
         } else if (arg == "--disable-culling") {
             s_disableCulling = true;
         } else if (arg == "--disable-idle-wait") {
@@ -2750,6 +2783,16 @@ int main(int argc, char** argv)
             "logger layout");
     }
 
+    if (!validateFileArg.empty()) {
+        // Container checks are reachable here for files the loader rejects; validation
+        // after a load only ever sees files the loader accepted.
+        ux3d::gltf::Gltf emptyModel;
+        const auto report = ux3d::imgui::GltfValidator::instance().validate(validateFileArg, emptyModel);
+        const bool written = s_validationReportPath.empty()
+            || ux3d::imgui::GltfValidator::writeReportJson(report, s_validationReportPath);
+        return written ? 0 : 1;
+    }
+
     if (!revisionSelfCheckOutputPath.empty()) {
         return writeSelfCheckReport(
             ux3d::imgui::SceneRevisions::runSelfCheck(selfCheckForceFailure),
@@ -2865,6 +2908,14 @@ int main(int argc, char** argv)
             ? std::filesystem::path("glider-scenario-settings.ini")
             : tempDir / "glider-scenario-settings.ini";
         ux3d::imgui::AppSettings::instance().setIniFilePath(tempSettings.string());
+    }
+
+    {
+        const uint64_t mib = 1024ull * 1024ull;
+        const uint64_t budget = s_decodeBudgetMiB >= 0
+            ? static_cast<uint64_t>(s_decodeBudgetMiB) * mib
+            : std::max<uint64_t>(512ull * mib, ux3d::imgui::physicalMemoryBytes() / 8u);
+        ux3d::imageformats::setDecodeMemoryBudget(budget);
     }
 
     if (hierarchyDisplayProvided) {
@@ -3101,6 +3152,10 @@ int main(int argc, char** argv)
             { "startup.loadDecode", startup.loadDecodeMs },
             { "startup.rendererUpload", startup.rendererUploadMs },
             { "startup.validation", startup.validationMs },
+            { "validation.read", startup.validationReadMs },
+            { "validation.parse", startup.validationParseMs },
+            { "validation.schema", startup.validationSchemaMs },
+            { "validation.semantic", startup.validationSemanticMs },
             { "startup.total", startup.totalStartupMs }
         };
         startup.counters = ux3d::imgui::profiling::frameCounters();

@@ -12,9 +12,33 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <psapi.h>
 #endif
 
 namespace ux3d::imgui {
+
+uint64_t processPeakWorkingSetBytes()
+{
+#ifdef _WIN32
+    PROCESS_MEMORY_COUNTERS counters{};
+    if (GetProcessMemoryInfo(GetCurrentProcess(), &counters, sizeof(counters))) {
+        return static_cast<uint64_t>(counters.PeakWorkingSetSize);
+    }
+#endif
+    return 0;
+}
+
+uint64_t physicalMemoryBytes()
+{
+#ifdef _WIN32
+    MEMORYSTATUSEX status{};
+    status.dwLength = sizeof(status);
+    if (GlobalMemoryStatusEx(&status)) {
+        return static_cast<uint64_t>(status.ullTotalPhys);
+    }
+#endif
+    return 0;
+}
 
 void waitForEvents(GLFWwindow* window, double timeoutSeconds, const std::function<bool()>& hasNewInput, IdleWaitStats& stats)
 {

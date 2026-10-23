@@ -12,6 +12,7 @@ UX3D_END_IGNORE_WARNINGS
 
 #include <algorithm>
 #include <cstring>
+#include <mutex>
 #include <thread>
 
 using namespace ux3d;
@@ -148,7 +149,18 @@ ImageDecodingResult imageformats::decodeKTX(const core::Vector<uint8_t>& _buffer
         // Also this is the only way to only reflect what is present in the gltf as the
         // transcoding target format is always decided by the renderers
         ktx_texture_transcode_fmt_e tf = KTX_TTF_RGBA32;
-        result = ktxTexture2_TranscodeBasis(texture, tf, 0);
+        // libktx initialises the Basis transcoder's global tables on first use through an
+        // unguarded static flag, and images are decoded on parallel loader threads. The
+        // first transcode therefore runs alone; later ones run in parallel (P6.2).
+        static std::once_flag s_firstTranscode;
+        bool transcoded = false;
+        std::call_once(s_firstTranscode, [&]() {
+            result = ktxTexture2_TranscodeBasis(texture, tf, 0);
+            transcoded = true;
+        });
+        if (!transcoded) {
+            result = ktxTexture2_TranscodeBasis(texture, tf, 0);
+        }
         if (result != KTX_SUCCESS) {
             core::debugLog(core::LogLevel::Error, "Failed to transcode texture");
             return ImageDecodingError::LoadFailure;

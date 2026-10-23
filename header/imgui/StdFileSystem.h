@@ -21,6 +21,12 @@ public:
     filesystem::PathResult remove(const filesystem::Path& file) const final;
     bool isFile(const filesystem::Path& path) const final;
 
+    // Reads up to `size` bytes at `offset` (P6.1): EmbeddedVFS first, then disk with the
+    // same search-path fallback as load(). `out` holds the bytes actually read (fewer at
+    // the end of the file). Returns false when the file cannot be opened; otherwise
+    // `fileSize` is the whole file's size.
+    bool readRange(const core::string& path, uint64_t offset, uint64_t size, std::vector<uint8_t>& out, uint64_t& fileSize) const;
+
 protected:
     bool isDirectory(const filesystem::Path& path) const final;
     bool isAbsolute(const filesystem::Path& path) const final;

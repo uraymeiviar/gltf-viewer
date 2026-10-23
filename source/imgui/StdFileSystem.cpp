@@ -304,6 +304,40 @@ filesystem::FileSaveResult StdFileSystem::append(const filesystem::File& file, c
     return filesystem::FileSaveResult::Success;
 }
 
+bool StdFileSystem::readRange(const core::string& path, uint64_t offset, uint64_t size, std::vector<uint8_t>& out, uint64_t& fileSize) const
+{
+    out.clear();
+    auto vfsFile = EmbeddedVFS::instance().getFile(path.c_str());
+    if (vfsFile.isValid()) {
+        fileSize = vfsFile.size;
+        if (offset < fileSize) {
+            const uint64_t count = std::min<uint64_t>(size, fileSize - offset);
+            out.assign(vfsFile.data + offset, vfsFile.data + offset + count);
+        }
+        return true;
+    }
+
+    std::ifstream stream(path.c_str(), std::ios::binary | std::ios::ate);
+    if (!stream.is_open()) {
+        std::string resolved = AppSettings::instance().resolveAssetPath(path.c_str());
+        if (!resolved.empty() && resolved != path.c_str()) {
+            stream.open(resolved.c_str(), std::ios::binary | std::ios::ate);
+        }
+    }
+    if (!stream.is_open()) {
+        return false;
+    }
+    fileSize = static_cast<uint64_t>(stream.tellg());
+    if (offset < fileSize) {
+        const uint64_t count = std::min<uint64_t>(size, fileSize - offset);
+        out.resize(static_cast<size_t>(count));
+        stream.seekg(static_cast<std::streamoff>(offset), std::ios::beg);
+        stream.read(reinterpret_cast<char*>(out.data()), static_cast<std::streamsize>(count));
+        out.resize(static_cast<size_t>(stream.gcount()));
+    }
+    return true;
+}
+
 filesystem::FileLoadResult StdFileSystem::loadBinary(const char* pPath, core::Vector<uint8_t>& outBuffer) const
 {
     auto vfsFile = EmbeddedVFS::instance().getFile(pPath);
