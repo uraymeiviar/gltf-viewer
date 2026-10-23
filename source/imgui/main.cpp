@@ -13,6 +13,7 @@
 #include "imgui/GladGL.h"
 #include "imgui/Framebuffer.h"
 #include "imgui/GridRenderer.h"
+#include "imgui/RenderQuality.h"
 #include "imgui/StdFileSystem.h"
 #include "imgui/EmbeddedVFS.h"
 #include "imgui/Profiling.h"
@@ -87,6 +88,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iomanip>
 #include <limits>
 #include <memory>
@@ -615,6 +617,8 @@ static uint64_t s_sceneSkipTotal = 0;
 // catch-all. --disable-idle-wait polls every frame (the pre-P5.4 loop).
 // --idle-stats writes frame start times and wait counts at exit for idle tests.
 static bool s_disableIdleWait = false;
+// Renders a frame from the framebuffer-size callback during a live window resize.
+static std::function<void()> s_resizeFrame;
 static constexpr double kIdleWaitTimeoutSeconds = 0.25;
 static constexpr uint32_t kIdleQuietFrames = 3;
 static std::string s_idleStatsPath;
@@ -2184,6 +2188,17 @@ int main(int argc, char** argv)
         }
     }
     s_isolatedState = isolatedArg;
+    // Phase 7 quality settings: persisted choice first, then command-line overrides,
+    // all before the default environment is filtered.
+    ux3d::imgui::RenderQuality::setPersistenceEnabled(!s_isolatedState);
+    ux3d::imgui::RenderQuality::load();
+    for (int i = 1; i < argc; ++i) {
+        std::string qualityError;
+        if (ux3d::imgui::RenderQuality::parseArgument(argc, argv, i, qualityError) && !qualityError.empty()) {
+            std::fprintf(stderr, "%s\n", qualityError.c_str());
+            return 1;
+        }
+    }
     s_windowSizeOverridden = requestedWidth > 0 && requestedHeight > 0;
     s_profilingEnabled = !noProfileArg && (profileArg || !profileReportArg.empty());
     ux3d::imgui::profiling::setCountingEnabled(s_profilingEnabled);
@@ -2295,6 +2310,7 @@ int main(int argc, char** argv)
     auto shaderSource = rendererResourcesDir / "shaders";
 
     auto gltfLayer = std::make_unique<ux3d::renderer::GltfRenderLayer>(gladGL.get(), shaderSource / "ibl_sampler");
+    ux3d::imgui::RenderQuality::applyIblParameters(*gltfLayer);
     auto commandGenerator = std::make_unique<ux3d::renderer::CommandGenerator>(gladGL.get(), shaderSource);
     auto glRenderer = std::make_unique<ux3d::renderer::Renderer>(gladGL.get());
     glRenderer->init(ux3d::math::vec4(0.12f, 0.12f, 0.14f, 1.0f));
@@ -2684,6 +2700,8 @@ int main(int argc, char** argv)
                 activeViewport->settings.renderMode = ux3d::renderer::RenderMode::None;
                 activeViewport->settings.renderModeIdx = 0;
             }
+        } else if (std::string qualityError; ux3d::imgui::RenderQuality::parseArgument(argc, argv, i, qualityError)) {
+            // Already applied by the pre-scan; this only skips the flag and its value.
         } else if (!arg.empty() && arg[0] != '-') {
             modelToLoad = arg;
         }
@@ -3193,26 +3211,13 @@ int main(int argc, char** argv)
             std::chrono::system_clock::now().time_since_epoch()).count()) / 1000.0;
     };
 
-    // Main Loop
-    while (!glfwWindowShouldClose(window)) {
-        // Automation (UI scripts, benchmarks, captures, dumps, reports) runs on frame
-        // counts, so it always polls.
-        const bool automationPending = uiScenario.active() || s_benchmarkEnabled
-            || !dumpFramePath.empty() || (!s_captureViewportPath.empty() && !s_captureAttempted)
-            || (!s_profileReportPath.empty() && !s_profileReportAttempted)
-            || (!scenarioReportPath.empty() && frameCount <= SCENARIO_REPORT_FRAME);
-        if (!s_disableIdleWait && !automationPending && idleQuietFrames >= kIdleQuietFrames) {
-            const double waitStart = glfwGetTime();
-            ux3d::imgui::waitForEvents(window, kIdleWaitTimeoutSeconds, [] {
-                return ImGui::GetCurrentContext()->InputEventsQueue.Size > 0;
-            }, idleWaitStats);
-            idleWaitSeconds += glfwGetTime() - waitStart;
-            if (!s_idleStatsPath.empty() && idleWakesMs.size() < 200000) {
-                idleWakesMs.push_back(wallClockMs());
-            }
-        } else {
-            glfwPollEvents();
-        }
+    // Renders one frame from already-processed events. Windows runs a modal loop while
+    // the user drags the window border, and glfwPollEvents does not return until the
+    // drag ends, so the framebuffer-size callback renders frames from inside that loop
+    // to keep the UI live instead of showing a blank area.
+    bool frameInProgress = false;
+    const auto runFrame = [&]() {
+        frameInProgress = true;
         if (!s_idleStatsPath.empty() && idleFrameStartsMs.size() < 200000) {
             idleFrameStartsMs.push_back(wallClockMs());
         }
@@ -3935,8 +3940,11 @@ int main(int argc, char** argv)
             ImVec2 viewportPos = ImGui::GetCursorScreenPos();
             ImVec2 viewportSize = ImGui::GetContentRegionAvail();
 
-            int vpW = static_cast<int>(viewportSize.x);
-            int vpH = static_cast<int>(viewportSize.y);
+            // P7.5: the scene renders at renderScale of the panel size and the image is
+            // stretched to the panel. Picking maps mouse positions through the same scale.
+            const float renderScale = ux3d::imgui::RenderQuality::settings().renderScale;
+            int vpW = static_cast<int>(viewportSize.x * renderScale);
+            int vpH = static_cast<int>(viewportSize.y * renderScale);
             if (vpW < 1) vpW = 1;
             if (vpH < 1) vpH = 1;
 
@@ -3985,8 +3993,8 @@ int main(int argc, char** argv)
                 ++s_pickingSkipTotal;
             }
             // The clicked pixel, computed exactly as the click handler computes it.
-            int pickPx = static_cast<int>(io.MousePos.x - viewportPos.x);
-            int pickPy = vpH - static_cast<int>(io.MousePos.y - viewportPos.y) - 1;
+            int pickPx = static_cast<int>((io.MousePos.x - viewportPos.x) * renderScale);
+            int pickPy = vpH - static_cast<int>((io.MousePos.y - viewportPos.y) * renderScale) - 1;
             pickPx = std::clamp(pickPx, 0, vpW - 1);
             pickPy = std::clamp(pickPy, 0, vpH - 1);
 
@@ -4277,7 +4285,8 @@ int main(int argc, char** argv)
             // 2. Render ground grid
             const auto overlayStart = ux3d::imgui::profiling::Clock::now();
             if (redrawScene && vp->settings.showGrid) {
-                gridRenderer.draw(view, (aaMode == ux3d::imgui::AntiAliasingMode::TAA ? jitteredProj : proj), ux3d::math::vec3(cameraEye.x, cameraEye.y, cameraEye.z), cameraZoom);
+                gridRenderer.draw(view, (aaMode == ux3d::imgui::AntiAliasingMode::TAA ? jitteredProj : proj), ux3d::math::vec3(cameraEye.x, cameraEye.y, cameraEye.z), cameraZoom,
+                                  ux3d::imgui::RenderQuality::settings().gridMode == ux3d::imgui::GridMode::PlaneMesh);
                 ux3d::imgui::profiling::countOverlayDraw();
             }
 
@@ -4487,8 +4496,8 @@ int main(int argc, char** argv)
 
                 // Left-click 3D mesh picking
                 if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::IsMouseDragging(ImGuiMouseButton_Left, 4.0f)) {
-                    float localX = io.MousePos.x - imagePos.x;
-                    float localY = io.MousePos.y - imagePos.y;
+                    float localX = (io.MousePos.x - imagePos.x) * renderScale;
+                    float localY = (io.MousePos.y - imagePos.y) * renderScale;
                     int px = static_cast<int>(localX);
                     int py = vpH - static_cast<int>(localY) - 1;
 
@@ -5175,7 +5184,46 @@ int main(int argc, char** argv)
             || io.WantTextInput
             || ImGui::IsAnyMouseDown();
         idleQuietFrames = frameActive ? 0 : idleQuietFrames + 1;
+        frameInProgress = false;
+    };
+    s_resizeFrame = [&]() {
+        int width = 0;
+        int height = 0;
+        glfwGetFramebufferSize(window, &width, &height);
+        if (!frameInProgress && width > 0 && height > 0) {
+            runFrame();
+        }
+    };
+    glfwSetFramebufferSizeCallback(window, [](GLFWwindow*, int, int) {
+        if (s_resizeFrame) {
+            s_resizeFrame();
+        }
+    });
+
+    // Main Loop
+    while (!glfwWindowShouldClose(window)) {
+        // Automation (UI scripts, benchmarks, captures, dumps, reports) runs on frame
+        // counts, so it always polls.
+        const bool automationPending = uiScenario.active() || s_benchmarkEnabled
+            || !dumpFramePath.empty() || (!s_captureViewportPath.empty() && !s_captureAttempted)
+            || (!s_profileReportPath.empty() && !s_profileReportAttempted)
+            || (!scenarioReportPath.empty() && frameCount <= SCENARIO_REPORT_FRAME);
+        if (!s_disableIdleWait && !automationPending && idleQuietFrames >= kIdleQuietFrames) {
+            const double waitStart = glfwGetTime();
+            ux3d::imgui::waitForEvents(window, kIdleWaitTimeoutSeconds, [] {
+                return ImGui::GetCurrentContext()->InputEventsQueue.Size > 0;
+            }, idleWaitStats);
+            idleWaitSeconds += glfwGetTime() - waitStart;
+            if (!s_idleStatsPath.empty() && idleWakesMs.size() < 200000) {
+                idleWakesMs.push_back(wallClockMs());
+            }
+        } else {
+            glfwPollEvents();
+        }
+        runFrame();
     }
+    glfwSetFramebufferSizeCallback(window, nullptr);
+    s_resizeFrame = nullptr;
 
     if (!s_idleStatsPath.empty()) {
         std::ofstream idleOut(s_idleStatsPath, std::ios::binary | std::ios::trunc);

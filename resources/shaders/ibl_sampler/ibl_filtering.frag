@@ -21,6 +21,7 @@ uniform  float u_lodBias;
 uniform  int u_distribution; // enum
 uniform int u_currentFace;
 uniform int u_isGeneratingLUT;
+uniform float u_maxValue; // largest value the output format holds
 
 //layout (location = 0) in vec2 inUV;
 in vec2 texCoord;
@@ -449,6 +450,6 @@ void main()
         color = LUT(texCoord.x, texCoord.y);
     }
     
-    fragmentColor = vec4(color,1.0);
+    fragmentColor = vec4(min(color, vec3(u_maxValue)),1.0);
 }
 

@@ -1,4 +1,5 @@
 #include "imgui/ViewportSettingsPanel.h"
+#include "imgui/RenderQuality.h"
 #include "imgui/StdFileSystem.h"
 #include "imgui/IconsMaterialDesignIcons.h"
 #include "renderViewInput/CameraActor.h"
@@ -334,6 +335,14 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
                 }
             }
 
+            ImGui::EndTabItem();
+        }
+
+        // -------------------------------------------------------------
+        // Tab 5: Render Quality (all viewports)
+        // -------------------------------------------------------------
+        if (ImGui::BeginTabItem("Quality")) {
+            RenderQuality::drawSettings(gltfLayer, revisions);
             ImGui::EndTabItem();
         }
 

@@ -71,6 +71,8 @@ set(GLIDER_SOURCES
 	"header/imgui/MaterialInspector.h"
 	"source/imgui/ViewportSettingsPanel.cpp"
 	"header/imgui/ViewportSettingsPanel.h"
+	"source/imgui/RenderQuality.cpp"
+	"header/imgui/RenderQuality.h"
 	"source/imgui/StatisticsPanel.cpp"
 	"header/imgui/StatisticsPanel.h"
 	"source/imgui/SceneHierarchyPanel.cpp"

@@ -1569,10 +1569,9 @@ void GltfRenderLayer::setEnvironmentMap(const filesystem::Path& panoramaIrradian
     }
 
     m_resourceManager.destroyAllOf<EnvironmentMap>();
-    InitizalizationParameters iblParams;
-
-    iblParams.textureSize = iblMaxResolution;
-    m_iblSampler.init(panoramaIrradiancePath, iblParams);
+    m_environmentMapPath = panoramaIrradiancePath;
+    m_iblSampler.setSamplingParamters(iblSampling);
+    m_iblSampler.init(panoramaIrradiancePath, iblParameters);
 
     m_activeEnvironmentMap = m_resourceManager.loadEnvironmentMap(m_iblSampler);
 }

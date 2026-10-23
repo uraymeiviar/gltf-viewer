@@ -92,8 +92,10 @@ public:
     uint64_t getGltfGeneration() const { return m_gltfGeneration; }
     uint64_t getPoseGeneration() const { return m_poseGeneration; }
 
+    // Loads the panorama with iblParameters and iblSampling; filterEnvironmentMap runs the filters.
     void setEnvironmentMap(const filesystem::Path& panoramaIrradiancePath);
     bool filterEnvironmentMap();
+    const filesystem::Path& getEnvironmentMapPath() const { return m_environmentMapPath; }
     EnvironmentMap* getActiveEnvironmentMap() { return m_activeEnvironmentMap; }
     void enableCubeMap(bool enable) { m_cubeMapEnabled = enable; };
 
@@ -146,7 +148,9 @@ public:
     GltfToRendererMapping<const gltf::Animation*, animation::Animation*> m_animationMapping;
     GltfToRendererMapping<std::tuple<const gltf::Node*, const gltf::Skin*>, renderer::Skin*> m_skinMapping;
 
-    uint32_t iblMaxResolution = 1024u;
+    // IBL filter quality, applied by the next setEnvironmentMap.
+    InitizalizationParameters iblParameters;
+    SamplingParameters iblSampling;
 
     bool recalculateBones = true;
 
@@ -163,6 +167,7 @@ private:
     Camera* m_activeCamera = nullptr;
     std::optional<uint32_t> m_materialVariantID = std::nullopt;
     EnvironmentMap* m_activeEnvironmentMap = nullptr;
+    filesystem::Path m_environmentMapPath;
     bool m_cubeMapEnabled = true;
     const gltf::Scene* m_gltfScene;
     size_t m_max2DTextureSize = 0;

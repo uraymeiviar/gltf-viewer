@@ -10,6 +10,7 @@
 #include "renderer/gl/Util.h"
 #include "renderer/gltf/GltfResourceManager.h"
 
+#include <algorithm>
 #include <cmath>
 
 using namespace ux3d;
@@ -38,10 +39,8 @@ void IBLSampler::setSamplingParamters(const SamplingParameters& _samplingParamet
 
 void IBLSampler::init(const filesystem::Path& _panoramaImage, const InitizalizationParameters& _initizalizationParameters)
 {
-    if (m_initizalizationParameters == _initizalizationParameters && m_samplerStatus.filteredEnvironment == _panoramaImage.toString() && (m_samplerStatus.isInitialized || m_samplerStatus.isFiltered)) {
-        return; // no need to recreate resources
-    }
-
+    // Always rebuilds: the caller has already released the EnvironmentMap that owned the
+    // previous textures.
     if (!gl::checkGLError(m_gl, "IBLSampler::init error")) {
         // Clear GL Error log as the sampler is relying on error reports
         // If we get an error here, it comes from a different system
@@ -61,7 +60,8 @@ void IBLSampler::init(const filesystem::Path& _panoramaImage, const Initizalizat
         return;
     }
 
-    cubemapTextureID = createCubemapTexture(true);
+    // The source cube keeps full precision; it is released after filtering.
+    cubemapTextureID = createCubemapTexture(true, m_initizalizationParameters.textureSize, GL_RGBA32F);
     if (cubemapTextureID == 0) {
         m_samplerStatus.hasFailed = true;
         return;
@@ -69,12 +69,14 @@ void IBLSampler::init(const filesystem::Path& _panoramaImage, const Initizalizat
 
     m_gl->genFramebuffers(1, &framebuffer);
 
-    lambertianTextureID = createCubemapTexture(false);
-    ggxTextureID = createCubemapTexture(true);
-    sheenTextureID = createCubemapTexture(true);
-    ggxLUTTextureID = createLutTexture(m_gl, m_initizalizationParameters.lutResolution, m_initizalizationParameters.lutResolution);
-    sheenLUTTextureID = createLutTexture(m_gl, m_initizalizationParameters.lutResolution, m_initizalizationParameters.lutResolution);
-    charlieLUTTextureID = createLutTexture(m_gl, m_initizalizationParameters.lutResolution, m_initizalizationParameters.lutResolution);
+    const GLint format = outputFormat();
+    const uint32_t lutSize = m_initizalizationParameters.lutResolution;
+    lambertianTextureID = createCubemapTexture(false, lambertianSize(), format);
+    ggxTextureID = createCubemapTexture(true, m_initizalizationParameters.textureSize, format);
+    sheenTextureID = createCubemapTexture(true, m_initizalizationParameters.textureSize, format);
+    ggxLUTTextureID = createLutTexture(m_gl, lutSize, lutSize, format);
+    sheenLUTTextureID = createLutTexture(m_gl, lutSize, lutSize, format);
+    charlieLUTTextureID = createLutTexture(m_gl, lutSize, lutSize, format);
 
     if (!gl::checkGLError(m_gl, "IBLSampler::init: Error")) {
         m_samplerStatus.hasFailed = true;
@@ -86,7 +88,9 @@ void IBLSampler::init(const filesystem::Path& _panoramaImage, const Initizalizat
     m_samplerStatus.isFiltered = false;
     m_samplerStatus.hasFailed = false;
 
-    core::logInfo("IBLSampler: initialized with %s", _panoramaImage.toString().c_str());
+    core::logInfo("IBLSampler: initialized with %s (cube %u, irradiance %u, LUT %u, %s)", _panoramaImage.toString().c_str(),
+        m_initizalizationParameters.textureSize, lambertianSize(), m_initizalizationParameters.lutResolution,
+        m_initizalizationParameters.halfFloat ? "RGBA16F" : "RGBA32F");
 }
 
 void IBLSampler::destroyRuntimeResources()
@@ -163,8 +167,9 @@ bool IBLSampler::filter()
     cubeMapToGGX();
     cubeMapToSheen();
 
-    m_gl->finish();
-
+    // P7.1: no glFinish. The filter passes are queued in order ahead of any frame that
+    // samples their outputs, and GL defers deleting the source textures until the queued
+    // passes no longer use them.
     destroyRuntimeResources();
 
     m_samplerStatus.isFiltered = true;
@@ -177,24 +182,42 @@ uint32_t IBLSampler::getMipmapLevels() const
     return std::floor(std::log2(m_initizalizationParameters.textureSize)) + 1 - m_initizalizationParameters.lowestMipLevel;
 }
 
-GLuint IBLSampler::createCubemapTexture(bool _withMipmaps)
+uint32_t IBLSampler::lambertianSize() const
+{
+    const uint32_t size = m_initizalizationParameters.lambertianSize;
+    return size == 0u ? m_initizalizationParameters.textureSize : std::min(size, m_initizalizationParameters.textureSize);
+}
+
+GLint IBLSampler::outputFormat() const
+{
+    return m_initizalizationParameters.halfFloat ? GL_RGBA16F : GL_RGBA32F;
+}
+
+void IBLSampler::setOutputClamp(gl::Program* shaderProgram)
+{
+    // Half floats overflow to infinity above 65504; clamp bright HDR highlights instead.
+    const GLfloat maxValue = m_initizalizationParameters.halfFloat ? 65504.0f : 3.0e38f;
+    const GLint location = m_gl->getUniformLocation(shaderProgram->getHandle(), "u_maxValue");
+    m_gl->uniform1fv(location, 1, &maxValue);
+}
+
+GLuint IBLSampler::createCubemapTexture(bool _withMipmaps, uint32_t _size, GLint _internalFormat)
 {
     GLuint targetTexture;
     m_gl->genTextures(1, &targetTexture);
     m_gl->bindTexture(GL_TEXTURE_CUBE_MAP, targetTexture); // GLenum target, GLuint texture
 
-    const GLint maxMipLevels = _withMipmaps ? std::floor(std::log2(m_initizalizationParameters.textureSize)) + 1 : 0;
+    const GLint maxMipLevels = _withMipmaps ? std::floor(std::log2(_size)) + 1 : 0;
 
     // define size and format of level 0
-    const GLint level = 0;
-    const GLint internalFormat = GL_RGBA32F;
+    const GLint internalFormat = _internalFormat;
     const GLint border = 0;
     const GLenum format = GL_RGBA;
     const GLenum type = GL_FLOAT;
     const void* data = nullptr;
 
     for (GLint level = 0; level <= maxMipLevels; ++level) {
-        GLint currentTextureSize = m_initizalizationParameters.textureSize >> level;
+        GLint currentTextureSize = std::max<GLint>(1, _size >> level);
         for (uint32_t i = 0; i < 6; ++i) {
             m_gl->texImage2D(
                 GL_TEXTURE_CUBE_MAP_POSITIVE_X + i,
@@ -229,13 +252,13 @@ GLuint IBLSampler::createCubemapTexture(bool _withMipmaps)
     return targetTexture;
 }
 
-GLuint IBLSampler::createLutTexture(gl::GL* gl, size_t width, size_t height)
+GLuint IBLSampler::createLutTexture(gl::GL* gl, size_t width, size_t height, GLint internalFormat)
 {
     GLuint texture;
     gl->genTextures(1, &texture);
 
     gl->bindTexture(GL_TEXTURE_2D, texture);
-    gl->texImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, width, height, 0, GL_RGBA, GL_FLOAT, nullptr);
+    gl->texImage2D(GL_TEXTURE_2D, 0, internalFormat, width, height, 0, GL_RGBA, GL_FLOAT, nullptr);
 
     gl->texParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     gl->texParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -288,6 +311,8 @@ void IBLSampler::sampleLut(uint32_t _distribution, uint32_t textureID, GLsizei _
 
     auto isGeneratingLutLocation = m_gl->getUniformLocation(shaderProgram->getHandle(), "u_isGeneratingLUT");
     m_gl->uniform1i(isGeneratingLutLocation, 1);
+
+    setOutputClamp(shaderProgram);
 
     GLuint vao;
     m_gl->genVertexArrays(1, &vao);
@@ -454,7 +479,8 @@ bool IBLSampler::panoramaToCubeMap()
 
 void IBLSampler::applyFilter(uint32_t _distribution, float _roughness, uint32_t _mipLevel, GLuint _targetTexture, uint32_t _sampleCount, float _lodBias)
 {
-    uint32_t currentTextreSize = m_initizalizationParameters.textureSize >> _mipLevel;
+    const uint32_t targetSize = _targetTexture == lambertianTextureID ? lambertianSize() : m_initizalizationParameters.textureSize;
+    uint32_t currentTextreSize = targetSize >> _mipLevel;
     for (uint32_t sideIdx = 0u; sideIdx < 6; ++sideIdx) {
         m_gl->bindFramebuffer(GL_FRAMEBUFFER, framebuffer);
         m_gl->framebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_CUBE_MAP_POSITIVE_X + sideIdx, _targetTexture, _mipLevel);
@@ -509,6 +535,8 @@ void IBLSampler::applyFilter(uint32_t _distribution, float _roughness, uint32_t 
 
         auto isGeneratingLutLocation = m_gl->getUniformLocation(shaderProgram->getHandle(), "u_isGeneratingLUT");
         m_gl->uniform1i(isGeneratingLutLocation, 0);
+
+        setOutputClamp(shaderProgram);
 
         GLuint vao;
         m_gl->genVertexArrays(1, &vao);
