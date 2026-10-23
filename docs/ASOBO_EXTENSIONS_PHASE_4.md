@@ -1,30 +1,37 @@
-# Phase A4 — Translucency and Special Surfaces
+# Phase A4 — Glass, Windshields, Glow, Opacity Effects
 
 [Journal index](ASOBO_EXTENSIONS_JOURNAL.md) · [Extension reference](ASOBO_EXTENSIONS_REFERENCE.md) · [Validation rules](RENDERER_OPTIMIZATION_VALIDATION.md)
 
 **Status:** Planned; not started.
 
-**Entry:** A0. **Goal:** MSFS shading models that have no glTF core or KHR equivalent.
+**Entry:** A1.2 and A0.6 notes. A4 can start before A2/A3 because glass stays forward, but its final review
+follows A3 (shadows) and A6 (sky). **Goal:** glass with refraction, reflection and blending (user priority 3), and
+emissive glow.
 
 ## Tasks
 
-- [ ] **A4.1 — `ASOBO_material_sail` (R3).** Back-face lighting and translucency controlled by
-  `sailLightAbsorption` (0 lets the light through, 1 is opaque). The schema requires double-sided materials:
-  report a validation warning when the material is not double-sided.
-- [ ] **A4.2 — `ASOBO_material_SSS` (R4).** A subsurface-scattering approximation (wrap lighting and
-  translucency tinted by `SSSColor`, thickness from `opacityTexture`). Confirm the model in `msfs_material_sss.py`.
-- [ ] **A4.3 — `ASOBO_material_parallax_window` (R4).** Interior mapping:
-  - a ray from the eye through the window plane is intersected with a virtual room grid (`roomNumberXY`,
-    `roomSizeX/YScale`, `parallaxScale`);
-  - the result samples `behindWindowMapTexture`.
-
-  Used by 12 project files. Tests:
-  - the room grid stays fixed relative to the surface as the camera moves;
-  - the result is stable under TAA.
-- [ ] **A4.4 — `ASOBO_material_wind_flex` (R3).** Wind-animated detail normal (`windFlexNormal`). Needs a viewer
-  wind setting and the animation clock. Off (static) when animation is paused, so captures stay deterministic.
+- [ ] **A4.1 — `ASOBO_material_glass_v2` (R3). Owner: Claude.** MSFS glass mapped onto Glider's transmission path:
+  refraction and reflection, with blending as MSFS does it. Glider's transmission path samples a mipmapped copy
+  of the opaque scene (fixed in `51266d3`).
+  - **Open:** what `glassWidth` controls (thickness, tint or refraction) comes from A0.6.
+  - **Covers:** the cockpit's glass and the exterior's three materials (`MAT_GLASS`, `_bluish`, `_red`).
+  - **Tests:** refraction through a slab of known width; tint; reflection at grazing angles.
+- [ ] **A4.2 — `ASOBO_material_windshield_v3` and v1 (R4). Owner: Claude.**
+  - Detail roughness and opacity masks, micro-scratch normals, detail-normal refraction.
+  - Wiper mask, lines and state; the wiper state is a viewer setting, parked by default.
+  - Confirm the `enabled` and `UVScale` keys the E195 data carries.
+  - Rain is not simulated (A7).
+  - **Reference views:** through the cockpit windshield, and the exterior cabin windshield.
+- [ ] **A4.3 — Emissive glow (bloom) (R3). Owner: Claude.** A bloom post-process (threshold, downsample chain,
+  intensity) so emissive panels and lights glow as in MSFS.
+  - A user setting, on by default for ASOBO files only.
+  - Applied before TAA and FXAA; the order is tested.
+  - **Tests:** energy and threshold on a fixture of emissive patches; stable under TAA.
+- [ ] **A4.4 — `ASOBO_material_fresnel_fade` and `ASOBO_material_ghost_effect` (R2). Owner: GPT Astra.**
+  View-angle-dependent opacity, using the A0.6 formulas.
+  - **Test:** opacity on a sphere at normal and grazing incidence matches the formula.
 
 **Exit gate:**
-- Each task passes its geometric tests (sail light transmission, parallax ray-room intersection) and the common
-  checks.
-- Ground-truth review is recorded where an asset is available.
+- Glass and windshield are reviewed against the reference screenshots.
+- Bloom on/off is verified, with files without ASOBO extensions byte-identical.
+- Cost is measured.

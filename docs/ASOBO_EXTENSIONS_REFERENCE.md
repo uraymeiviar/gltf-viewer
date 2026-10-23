@@ -69,7 +69,7 @@ No file uses the remaining 21 schema extensions, but they are still in scope: ot
 
 ## 3. All Extensions
 
-**Phase** is the phase in [the journal](ASOBO_EXTENSIONS_JOURNAL.md) that owns the extension. **Viewer meaning** is
+**Phase** is the phase in [the journal](ASOBO_EXTENSIONS_JOURNAL.md) that owns the extension (revised order, 2026-10-23). **Viewer meaning** is
 the planned behavior. Exact semantics are confirmed per task against the sources in journal §1.
 
 ### 3.1 Asset and texture level
@@ -78,65 +78,65 @@ the planned behavior. Exact semantics are confirmed per task against the sources
 |---|---|---|---|---|
 | `ASOBO_normal_map_convention` | `tangent_space_convention`: `DirectX` \| `OpenGL` | Every normal map in the asset uses that convention. DirectX inverts green relative to glTF's OpenGL convention. | Ignored | A1 |
 | `MSFT_texture_dds` (no ASOBO schema) | texture `source` → DDS image | Use the DDS image as the texture source (the core `source` is the fallback). | Ignored as an extension; DDS files are found only through search-path name matching | A1 |
-| `ASOBO_asset_optimized` (no schema) | — | Exporter metadata | Inspector | A0.2 (metadata) |
+| `ASOBO_asset_optimized` (no schema) | — | Exporter metadata | Inspector | A7 |
 
 ### 3.2 Material: core shading parameters
 
 | Extension | Schema properties | Viewer meaning | Current | Phase |
 |---|---|---|---|---|
 | `ASOBO_material_invisible` | `enabled` (default true) | Material not rendered | **Rendered** (hidden; per-viewport *Show Invisible Materials*) | A1.1 |
-| `ASOBO_material_UV_options` | `clampUVX/Y` (default true), `UVOffSetU/V`, `UVTilingU/V`, `UVRotation` | UV transform and clamping for the material's textures | Ignored | A1 |
+| `ASOBO_material_UV_options` | `clampUVX/Y` (default true), `UVOffSetU/V`, `UVTilingU/V`, `UVRotation` | UV transform and clamping for the material's textures | Ignored | A5 |
 | `ASOBO_occlusion_strength` | `strength` | Ambient occlusion strength | Ignored | A1 |
 | `ASOBO_extra_occlusion_texture` | `extra_occlusion_texture` (textureInfo) | Second occlusion map | Ignored | A1 |
 | `ASOBO_material_draw_order` | `drawOrderOffset` | Sorting offset for blended materials and decals | Ignored | A1 |
 | `ASOBO_material_alphamode_dither` | `enabled` (default true) | Dithered (screen-door) alpha instead of blending | Ignored | A1 |
-| `ASOBO_material_emissive` | `emissiveDayMultiplier`, `emissiveNightMultiplier` | Emissive scale by time of day; a viewer day/night setting | Ignored | A1 |
+| `ASOBO_material_emissive` | `emissiveDayMultiplier`, `emissiveNightMultiplier` | Emissive scale by time of day; a viewer day/night setting | Ignored | A1 (day/night: A6) |
 
 ### 3.3 Material: layered BRDF features
 
 | Extension | Schema properties | Viewer meaning | Current | Phase |
 |---|---|---|---|---|
-| `ASOBO_material_clear_coat` | `dirtTexture` | Clear coat with a dirt mask (v1) | Ignored | A2 |
-| `ASOBO_material_clear_coat_v2` | `clearcoatColorRoughnessTexture` (required), `clearcoatNormalTexture`, roughness/normal factors and tilings, `clearcoatInverseRoughness`, `clearcoatBaseRoughness` | Colored clear coat layer; can reuse the `KHR_materials_clearcoat` shader path | Ignored | A2 |
-| `ASOBO_material_iridescent` | `iridescentThicknessTexture`, min/max thickness (10–400 nm), `iridescentBrightness` | Thin-film interference; can reuse the `KHR_materials_iridescence` path | Ignored | A2 |
-| `ASOBO_material_pearlescent` | `pearlShift`, `pearlRange`, `pearlBrightness` | View-angle-dependent hue shift | Ignored | A2 |
-| `ASOBO_material_anisotropic` | `anisotropicTexture` | Anisotropic specular (v1) | Ignored | A2 |
-| `ASOBO_material_anisotropic_v2` | `anisoDirectionRoughnessTexture` (RG direction, B roughness Y) | Anisotropic GGX along a tangent-space direction | Ignored | A2 |
+| `ASOBO_material_clear_coat` | `dirtTexture` | Clear coat with a dirt mask (v1) | Ignored | A7 |
+| `ASOBO_material_clear_coat_v2` | `clearcoatColorRoughnessTexture` (required), `clearcoatNormalTexture`, roughness/normal factors and tilings, `clearcoatInverseRoughness`, `clearcoatBaseRoughness` | Colored clear coat layer; can reuse the `KHR_materials_clearcoat` shader path | Ignored | A7 |
+| `ASOBO_material_iridescent` | `iridescentThicknessTexture`, min/max thickness (10–400 nm), `iridescentBrightness` | Thin-film interference; can reuse the `KHR_materials_iridescence` path | Ignored | A7 |
+| `ASOBO_material_pearlescent` | `pearlShift`, `pearlRange`, `pearlBrightness` | View-angle-dependent hue shift | Ignored | A7 |
+| `ASOBO_material_anisotropic` | `anisotropicTexture` | Anisotropic specular (v1) | Ignored | A7 |
+| `ASOBO_material_anisotropic_v2` | `anisoDirectionRoughnessTexture` (RG direction, B roughness Y) | Anisotropic GGX along a tangent-space direction | Ignored | A7 |
 
 ### 3.4 Material: detail, glass, opacity effects
 
 | Extension | Schema properties | Viewer meaning | Current | Phase |
 |---|---|---|---|---|
-| `ASOBO_material_detail_map` | `UVScale`, `blendThreshold`, `detailColorTexture`, `detailNormalTexture`, `detailMetalRoughAOTexture`, `blendMaskTexture` | Tiled detail layers blended over the base material | Ignored | A3 |
-| `ASOBO_material_glass_v2` | `glassWidth` | MSFS glass shader | Ignored | A3 |
-| `ASOBO_material_windshield` | `rainDropScale`, `wiper1–4State`, `wiperMaskTexture` | Windshield (v1) | Ignored | A3 |
-| `ASOBO_material_windshield_v3` | detail roughness/opacity, micro-scratches, `detailNormalRefractScale`, wiper lines and state, three textures | Windshield with scratches, detail refraction and wiper traces | Ignored | A3 |
-| `ASOBO_material_fresnel_fade` | `fresnelFactor`, `fresnelOpacityOffset` | View-angle-dependent opacity | Ignored | A3 |
-| `ASOBO_material_ghost_effect` | `bias`, `scale`, `power` | Fresnel-style ghost transparency | Ignored | A3 |
+| `ASOBO_material_detail_map` | `UVScale`, `blendThreshold`, `detailColorTexture`, `detailNormalTexture`, `detailMetalRoughAOTexture`, `blendMaskTexture` | Tiled detail layers blended over the base material | Ignored | A5 |
+| `ASOBO_material_glass_v2` | `glassWidth` | MSFS glass shader | Ignored | A4 |
+| `ASOBO_material_windshield` | `rainDropScale`, `wiper1–4State`, `wiperMaskTexture` | Windshield (v1) | Ignored | A4 |
+| `ASOBO_material_windshield_v3` | detail roughness/opacity, micro-scratches, `detailNormalRefractScale`, wiper lines and state, three textures | Windshield with scratches, detail refraction and wiper traces | Ignored | A4 |
+| `ASOBO_material_fresnel_fade` | `fresnelFactor`, `fresnelOpacityOffset` | View-angle-dependent opacity | Ignored | A4 |
+| `ASOBO_material_ghost_effect` | `bias`, `scale`, `power` | Fresnel-style ghost transparency | Ignored | A4 |
 
 ### 3.5 Material: translucency and special surfaces
 
 | Extension | Schema properties | Viewer meaning | Current | Phase |
 |---|---|---|---|---|
-| `ASOBO_material_SSS` | `SSSColor`, `opacityTexture` | Subsurface scattering approximation | Ignored | A4 |
-| `ASOBO_material_sail` | `sailLightAbsorption` (0–1, requires double-sided) | Back-face lighting and translucency | Ignored | A4 |
-| `ASOBO_material_parallax_window` | `parallaxScale`, `roomSizeX/YScale`, `roomNumberXY`, `behindWindowMapTexture` | Interior mapping behind a flat window | Ignored | A4 |
-| `ASOBO_material_wind_flex` | `windFlexNormal` | Wind-animated detail normal; needs a viewer time/wind setting | Ignored | A4 |
+| `ASOBO_material_SSS` | `SSSColor`, `opacityTexture` | Subsurface scattering approximation | Ignored | A3 |
+| `ASOBO_material_sail` | `sailLightAbsorption` (0–1, requires double-sided) | Back-face lighting and translucency | Ignored | A7 |
+| `ASOBO_material_parallax_window` | `parallaxScale`, `roomSizeX/YScale`, `roomNumberXY`, `behindWindowMapTexture` | Interior mapping behind a flat window | Ignored | A5 |
+| `ASOBO_material_wind_flex` | `windFlexNormal` | Wind-animated detail normal; needs a viewer time/wind setting | Ignored | A5 |
 
 ### 3.6 Material: decals and simulator compositing
 
 | Extension | Schema properties | Viewer meaning | Current | Phase |
 |---|---|---|---|---|
-| `ASOBO_material_geometry_decal` | `enabled`, base color/metallic/roughness/normal/emissive/occlusion blend factors (+ `mode`, `decalChan0–2` in data) | Blends selected material channels onto the surface below | Ignored (drawn as a plain blended material) | A5 |
-| `ASOBO_material_blend_gbuffer` | same blend factors | Same channel blending, for non-decal geometry | Ignored | A5 |
-| `ASOBO_material_environment_occluder` | `enabled` | Occludes the environment (to be confirmed: reflection/rain masking) | Ignored | A5 |
-| `ASOBO_material_fake_terrain` | `enabled` | Renders as terrain in the simulator | Ignored | A5 |
+| `ASOBO_material_geometry_decal` | `enabled`, base color/metallic/roughness/normal/emissive/occlusion blend factors (+ `mode`, `decalChan0–2` in data) | Blends selected material channels onto the surface below | Ignored (drawn as a plain blended material) | A2 |
+| `ASOBO_material_blend_gbuffer` | same blend factors | Same channel blending, for non-decal geometry | Ignored | A2 |
+| `ASOBO_material_environment_occluder` | `enabled` | Occludes the environment (to be confirmed: reflection/rain masking) | Ignored | A2 |
+| `ASOBO_material_fake_terrain` | `enabled` | Renders as terrain in the simulator | Ignored | A2 |
 
 ### 3.7 Simulator-only material options
 
 | Extension | Schema properties | Viewer meaning | Current | Phase |
 |---|---|---|---|---|
-| `ASOBO_material_shadow_options` | `noCastShadow` | Glider has no shadow maps: not applicable | Ignored | A7 |
+| `ASOBO_material_shadow_options` | `noCastShadow` | Excluded from sun shadow casting once shadows exist (A3.2) | Ignored | A3 |
 | `ASOBO_material_disable_motion_blur` | `enabled` | Glider has no motion blur: not applicable | Ignored | A7 |
 | `ASOBO_material_antialiasing_options` | `responsiveAA` | Reduce TAA history for the material; applicable to Glider's TAA | Ignored | A7 |
 | `ASOBO_material_rain_options` | `rainDropScale`, `rainDropSide` | Rain on the surface; no weather in Glider | Ignored | A7 |
@@ -145,11 +145,11 @@ the planned behavior. Exact semantics are confirmed per task against the sources
 
 | Extension | Schema properties | Viewer meaning | Current | Phase |
 |---|---|---|---|---|
-| `ASOBO_collision_object` | `collision_objects[]`: type (box, cylinder, sphere), translation, rotation, params | Collision shapes; optional wireframe overlay | Inspector | A6 |
-| `ASOBO_gizmo_object` | `gizmo_objects[]`: type, translation, rotation, params | Gizmo shapes; optional overlay | Inspector | A6 |
-| `ASOBO_tags` (schema inside the gizmo folder) | `tags[]` | Collision and gizmo categories (e.g. collision) | Inspector | A6 |
-| `ASOBO_macro_light` | color, intensity, cone angle, symmetry, flashing frequency/duration/phase, rotation speed, day/night cycle | Light gizmo, optionally a punctual light with animated flashing | Inspector | A6 |
-| `ASOBO_softbody_mesh` | `type` (`balloon`) | Metadata (physics) | Inspector | A6 |
-| `ASOBO_property_animation` | `channels[]` (sampler, target) | Animates material or other properties; map onto the existing `KHR_animation_pointer` support | Inspector | A6 |
-| `ASOBO_animation_retargeting` | `id` | Node identity for retargeting animations between files | Inspector | A6 |
-| `ASOBO_unique_id` (no schema) | `id` | Node identity; show in the inspector and search | Inspector | A0.2 / A6 |
+| `ASOBO_collision_object` | `collision_objects[]`: type (box, cylinder, sphere), translation, rotation, params | Collision shapes; optional wireframe overlay | Inspector | A7 |
+| `ASOBO_gizmo_object` | `gizmo_objects[]`: type, translation, rotation, params | Gizmo shapes; optional overlay | Inspector | A7 |
+| `ASOBO_tags` (schema inside the gizmo folder) | `tags[]` | Collision and gizmo categories (e.g. collision) | Inspector | A7 |
+| `ASOBO_macro_light` | color, intensity, cone angle, symmetry, flashing frequency/duration/phase, rotation speed, day/night cycle | Light gizmo, optionally a punctual light with animated flashing | Inspector | A3 |
+| `ASOBO_softbody_mesh` | `type` (`balloon`) | Metadata (physics) | Inspector | A7 |
+| `ASOBO_property_animation` | `channels[]` (sampler, target) | Animates material or other properties; map onto the existing `KHR_animation_pointer` support | Inspector | A7 (low priority) |
+| `ASOBO_animation_retargeting` | `id` | Node identity for retargeting animations between files | Inspector | A7 |
+| `ASOBO_unique_id` (no schema) | `id` | Node identity; show in the inspector and search | Inspector | A7 |

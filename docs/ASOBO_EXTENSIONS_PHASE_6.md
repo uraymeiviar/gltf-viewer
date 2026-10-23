@@ -1,38 +1,39 @@
-# Phase A6 — Scene Objects and Animation
+# Phase A6 — Time of Day
 
 [Journal index](ASOBO_EXTENSIONS_JOURNAL.md) · [Extension reference](ASOBO_EXTENSIONS_REFERENCE.md) · [Validation rules](RENDERER_OPTIMIZATION_VALIDATION.md)
 
 **Status:** Planned; not started.
 
-**Entry:** A0.1, A0.2. Independent of the shading phases. **Goal:** make node-, mesh- and animation-level ASOBO
-data visible and, where it drives motion, working.
+**Entry:** A3.1 and A3.2 (sun and shadows). **Goal:** a dynamic, configurable time of day emulating MSFS (user
+priority 6). The sun, sky, environment lighting, exposure and emissive day/night all follow one time-of-day
+setting, and changing it is seamless.
 
 ## Tasks
 
-- [ ] **A6.1 — `ASOBO_collision_object`, `ASOBO_gizmo_object`, `ASOBO_tags` (R1).** Draw the box, cylinder and
-  sphere shapes at their node transform plus their local translation and rotation, as overlays like the
-  bounding-box renderer.
-  - Colored by type and tag.
-  - Off by default (journal open question 2), switched per viewport.
-  - Selectable in the hierarchy and inspector.
-  - Tests: each shape and parameter on a fixture, including transforms under an animated parent.
-- [ ] **A6.2 — `ASOBO_macro_light` (R3).** Show light gizmos (position, cone, color). Optionally act as punctual
-  lights, using the existing `KHR_lights_punctual` path, with flashing (frequency, duration, phase) and rotation
-  driven by the animation clock.
-  - Day/night cycle follows the A1.6 setting.
-  - Captures with `--anim-time` are deterministic.
-- [ ] **A6.3 — `ASOBO_property_animation` (R3).** Animate the properties its channels target. Map the channels
-  onto the existing `KHR_animation_pointer` support (`header/imgui/AnimationPlayer`, `KHRAnimationPointerTarget`).
-  - Confirm the target path syntax with the exporter first.
-  - The 207 project files contain no channels, so a fixture is required.
-  - Tests: an animated material factor matches the equivalent `KHR_animation_pointer` animation frame by frame.
-- [ ] **A6.4 — `ASOBO_animation_retargeting` and `ASOBO_unique_id` (R1).** Show the ids in the inspector and make
-  the hierarchy filter search them. Retargeting between files is a feature decision for later; the id is
-  metadata in a single-file viewer.
-- [ ] **A6.5 — `ASOBO_softbody_mesh` (R1).** Inspector metadata (type `balloon`); recorded as *Metadata* in the
-  support matrix.
+- [ ] **A6.1 — Solar position (R1). Owner: Claude.** Sun direction from date, time, latitude, longitude and
+  aircraft heading (a standard solar-position algorithm), driving the A3.1 sun.
+  - **Settings:** Viewport Settings → *Time of Day*, with presets (dawn, noon, dusk, night) and a slider.
+  - **Test:** sun azimuth and elevation against a published reference table.
+- [ ] **A6.2 — Procedural sky (R4). Owner: Claude.** A physically based sky model (for example
+  Hosek–Wilkie or a Bruneton-style precomputed atmosphere) rendered as the background and as the source of
+  environment lighting, replacing the fixed HDR in time-of-day mode. The HDR stays available as an option.
+  - **Tests:**
+    - sky color and luminance against the model's reference values;
+    - a smooth transition through sunset.
+- [ ] **A6.3 — Dynamic environment lighting (R4). Owner: Claude.** Re-filter the sky into the diffuse and specular
+  environment cubemaps as time changes, without hitches. A full filter costs about 100–700 ms depending on the
+  quality preset (Phase 7), so filtering is spread over frames and done at a reduced size while time is moving,
+  then refined when it stops.
+  - **Tests:**
+    - no frame spike above a stated budget while time is moving;
+    - the converged result matches a full filter.
+- [ ] **A6.4 — Exposure and tone mapping (R3). Owner: Claude.** Exposure that keeps noon, dusk and night readable,
+  either an MSFS-like auto exposure (eye adaptation) or presets per time of day, and the tone-mapping curve
+  closest to MSFS. Both are judged against the reference screenshots.
+- [ ] **A6.5 — Emissive day/night and lights (R2). Owner: Claude.** The A1.6 day/night switch and the A3.3 macro
+  lights' day/night cycle follow the time of day.
 
 **Exit gate:**
-- Overlays are correct under hierarchy animation.
-- Property animation matches its `KHR_animation_pointer` equivalent.
-- With overlays off, output is byte-identical to the baseline.
+- Moving time from dawn to night is seamless (frame budget met).
+- Reference screenshots at noon, sunset and night are reviewed.
+- Files without ASOBO extensions are unchanged unless time-of-day mode is explicitly enabled for them.

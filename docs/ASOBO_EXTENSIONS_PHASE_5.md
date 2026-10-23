@@ -1,61 +1,39 @@
-# Phase A5 — Decals and G-Buffer Blending
+# Phase A5 — Detail Map, UV Options, Parallax Window
 
 [Journal index](ASOBO_EXTENSIONS_JOURNAL.md) · [Extension reference](ASOBO_EXTENSIONS_REFERENCE.md) · [Validation rules](RENDERER_OPTIMIZATION_VALIDATION.md)
 
 **Status:** Planned; not started.
 
-**Entry:** A1.4 (draw order). **Goal:** correct decal compositing.
-- **Usage:** `ASOBO_material_geometry_decal` is the second most used material extension (486 objects in 144
-  of 207 project files; 7 cockpit and 4 exterior materials).
-- **Current behavior:** Glider draws decals as ordinary blended materials. Their own lighting covers the surface
-  below, instead of changing only selected channels of it.
-
-## Background
-
-MSFS composites decals into its deferred material buffer. A decal replaces each channel of the surface below
-(base color, metallic, roughness, normal, emissive, occlusion) by its blend factor, and the lighting is computed
-once afterwards.
-
-Glider is a forward renderer. Each object is shaded completely, and the only stored output is the final color
-plus depth. There is no material buffer (G-buffer).
+**Entry:** A2.1, the geometry pass. Material additions land in the shared material code, so they work in both
+the deferred and forward paths. **Goal:** user priority 5.
 
 ## Tasks
 
-- [ ] **A5.0 — Design spike (R0, no shipped code).** Prototype both options on the E195 decal sheets and record
-  the image difference, cost and memory of each:
-  1. **Forward approximation:** the decal is shaded with its own material and alpha-blended per channel, with
-     factors applied as alpha. It cannot read the surface's material, so channels the decal does not cover can
-     only be preserved by not drawing them.
-  2. **Material buffer for opaque geometry:**
-     - the opaque pass writes normal, base color, metallic/roughness/occlusion and emissive into extra targets;
-     - decals blend into those targets with per-channel factors (separate blend state per target);
-     - a full-screen pass lights the result;
-     - transparent and transmissive materials stay forward.
-
-     Cost: extra full-size targets per viewport (about 4 × RGBA8/RGBA16F), a lighting pass, harder MSAA
-     (per-sample lighting or resolve-before-light), and a possible TAA interaction.
-
-  Output: a recommendation and the measured numbers, for the user to decide (journal open question 3).
-- [ ] **A5.1 — `ASOBO_material_geometry_decal` (R4).** Implement the chosen design:
-  - every blend factor and its schema default;
-  - `mode`;
-  - the `decalChan0–2` channel flags, interpreted for a viewer, which has scenery and SimObject but no terrain.
-
-  Tests:
-  - factor 0 leaves the surface unchanged;
-  - factor 1 replaces that channel only;
-  - draw order between overlapping decals (A1.4).
-- [ ] **A5.2 — `ASOBO_material_blend_gbuffer` (R4).** The same channel blending for non-decal geometry, on the
-  same mechanism.
-- [ ] **A5.3 — `ASOBO_material_environment_occluder` and `ASOBO_material_fake_terrain` (R2).** Confirm their
-  meaning first (`asobo_material_environment_occluder.py`, `asobo_material_fake_terrain.py`).
-  - Expected: simulator compositing hints. These map to *Not applicable* or a viewer setting rather than
-    visible changes.
-  - Record the decision in the support matrix.
+- [ ] **A5.1 — `ASOBO_material_detail_map` (R3). Owner: GPT Astra, reviewed by Claude.**
+  - **What it does:** detail color, normal and metal-rough-AO textures, tiled by `UVScale` and blended by
+    `blendThreshold` and an optional `blendMaskTexture`, using the A0.6 operators.
+  - **Normal convention:** detail normals follow A1.2.
+  - **Tests:**
+    - a neutral detail (mid-grey, flat normal, neutral MRAO) leaves the material unchanged;
+    - mask at 0 and at 1;
+    - tiling.
+  - Used by 11 project files, one of them the E195 cockpit.
+- [ ] **A5.2 — `ASOBO_material_UV_options` (R2). Owner: GPT Astra, reviewed by Claude.** UV tiling, offset,
+  rotation and clamping (`clampUVX/Y`, default true, overrides the sampler wrap).
+  - Which textures it applies to, and how it composes with `KHR_texture_transform`, come from A0.6.
+  - **Tests:** each property alone; defaults; composition.
+  - E195: one material, tiled 125 × 125.
+- [ ] **A5.3 — `ASOBO_material_parallax_window` (R4). Owner: Claude.** Interior mapping: an eye ray through the
+  window plane is intersected with a room grid (`roomNumberXY`, `roomSizeX/YScale`, `parallaxScale`) and samples
+  `behindWindowMapTexture`.
+  - **Tests:**
+    - the room grid stays fixed to the surface as the camera moves;
+    - stable under TAA.
+  - Used by 12 project files.
+- [ ] **A5.4 — `ASOBO_material_wind_flex` (R3). Owner: Claude.** Wind-animated detail normal, driven by the
+  animation clock; static when animation is paused, so captures stay deterministic.
 
 **Exit gate:**
-- The user approves the A5.0 decision.
-- Decal tests pass.
-- Assets without decals stay byte-identical. If a material buffer is added, they still render through the
-  forward path, or the change is proven byte-identical for them.
-- The memory and frame cost per viewport are recorded.
+- Neutral-parameter tests are byte-identical to the base material.
+- Real-asset review is done.
+- Cost is measured.
