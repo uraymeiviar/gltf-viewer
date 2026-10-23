@@ -16,6 +16,8 @@
 #include "renderer/passes/TransmissivePass.h"
 #include "renderer/passes/TransparentPass.h"
 
+#include <nlohmann/json.hpp>
+
 #include <functional>
 #include <chrono>
 #include <memory>
@@ -23,6 +25,25 @@
 
 using namespace ux3d;
 using namespace ux3d::renderer;
+
+namespace {
+// ASOBO_material_invisible (MSFS SDK schema, resources/schemas/asobo): the material is not
+// rendered when the extension is present and "enabled" is not false (its default is true).
+bool isAsoboInvisible(const gltf::Material& material)
+{
+    const auto& extensions = material.getUnknownExtensions();
+    const auto it = extensions.find("ASOBO_material_invisible");
+    if (it == extensions.end()) {
+        return false;
+    }
+    const nlohmann::json json = nlohmann::json::parse(it->second.c_str(), nullptr, false);
+    if (json.is_discarded() || !json.is_object()) {
+        return true;
+    }
+    const auto enabled = json.find("enabled");
+    return enabled == json.end() || !enabled->is_boolean() || enabled->get<bool>();
+}
+}
 
 namespace ux3d::renderer {
 
@@ -455,6 +476,7 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
         if (gltfMaterial == nullptr) {
             return false;
         }
+        material->invisible = isAsoboInvisible(*gltfMaterial);
         material->samplers.clear();
         material->defines.clear();
 
@@ -1732,19 +1754,27 @@ size_t GltfRenderLayer::cullToClip(core::LinkedList<std::tuple<Mesh*, Material*>
     return removed;
 }
 
-std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const gltf::Scene* gltfScene)
+const GltfRenderLayer::SceneTraversal& GltfRenderLayer::traverseScene(const gltf::Scene* gltfScene)
 {
-    RendererScene scene;
-    ReverseMapping reverseMapping;
-    bool containsTransmissiveMaterial = false;
-    m_gltfScene = gltfScene;
-    m_lastSceneStats = SceneProfileStats();
-    const bool cull = frustumCulling && m_activeCamera != nullptr;
-    const math::mat4x4 clipFromWorld = cull ? m_activeCamera->getProjectionMatrix() * m_activeCamera->getViewMatrix() : math::mat4x4(1.0f);
+    SceneTraversal& t = m_traversal;
+    if (m_sceneFrameToken != 0 && t.frameToken == m_sceneFrameToken && t.scene == gltfScene
+        && t.showInvisibleMaterials == showInvisibleMaterials && t.materialVariantID == m_materialVariantID) {
+        ++m_traversalReuses;
+        return t;
+    }
+    t.primitives.clear();
+    t.lights.clear();
+    t.nodesVisited = 0;
+    t.primitivesVisited = 0;
+    t.containsTransmissiveMaterial = false;
+    t.scene = gltfScene;
+    t.showInvisibleMaterials = showInvisibleMaterials;
+    t.materialVariantID = m_materialVariantID;
+    t.frameToken = m_sceneFrameToken;
 
     std::function<void(const gltf::Node*)> addMeshMaterialRecursive;
     addMeshMaterialRecursive = [&](const gltf::Node* gltfNode) {
-        ++m_lastSceneStats.nodesVisited;
+        ++t.nodesVisited;
         for (const auto* child : gltfNode->getChildren()) {
             addMeshMaterialRecursive(child);
         }
@@ -1753,7 +1783,7 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
         if (gltfLight != nullptr) {
             auto lightIt = m_lightMapping.map.find(std::tuple(gltfNode, gltfLight));
             if (lightIt != m_lightMapping.map.end()) {
-                scene.lights.emplace_back(std::get<Light*>(lightIt->second));
+                t.lights.push_back(std::get<Light*>(lightIt->second));
             }
         }
 
@@ -1765,7 +1795,7 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
             return;
 
         for (auto& gltfPrimitive : gltfMesh->getPrimitives()) {
-            ++m_lastSceneStats.primitivesVisited;
+            ++t.primitivesVisited;
             // TODO: use new callback to sort commands into render passes
             if (!gltfPrimitive.getVisible())
                 continue;
@@ -1790,31 +1820,22 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
 
             if (gltfMaterial != nullptr) {
                 if (gltfMaterial->getTransmission().has_value()) {
-                    containsTransmissiveMaterial = true;
+                    t.containsTransmissiveMaterial = true;
                 }
             }
 
             auto* mesh = meshIt->second;
             auto* material = matIt->second;
-
-            if (cull) {
-                math::vec3 lo;
-                math::vec3 hi;
-                if (!getStaticPositionBounds(gltfPrimitive, *mesh, lo, hi)) {
-                    ++m_lastSceneStats.uncullable;
-                } else if (boxOutsideClip(clipFromWorld * mesh->getTransform(), lo, hi)) {
-                    ++m_lastSceneStats.culled;
-                    continue;
-                }
+            if (material != nullptr && material->invisible && !showInvisibleMaterials) {
+                continue;
             }
 
-            mesh->defines.define("DEBUG", static_cast<int>(RenderMode::None));
-            mesh->polygonMode = gl::PolygonMode::Fill;
-            material->fragmentShader = "pbr.frag";
-            material->renderSettings = renderSettings;
-
-            scene.drawables.emplace_back(mesh, material);
-            reverseMapping[meshIt->second] = gltfNode;
+            SceneTraversal::Primitive entry;
+            entry.mesh = mesh;
+            entry.material = material;
+            entry.node = gltfNode;
+            entry.bounded = getStaticPositionBounds(gltfPrimitive, *mesh, entry.lo, entry.hi);
+            t.primitives.push_back(entry);
         }
     };
 
@@ -1822,6 +1843,38 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
         for (const gltf::Node* gltfNode : gltfScene->getNodes()) {
             addMeshMaterialRecursive(gltfNode);
         }
+    }
+    return t;
+}
+
+std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const gltf::Scene* gltfScene)
+{
+    RendererScene scene;
+    ReverseMapping reverseMapping;
+    bool containsTransmissiveMaterial = false;
+    m_gltfScene = gltfScene;
+    m_lastSceneStats = SceneProfileStats();
+    const bool cull = frustumCulling && m_activeCamera != nullptr;
+    const math::mat4x4 clipFromWorld = cull ? m_activeCamera->getProjectionMatrix() * m_activeCamera->getViewMatrix() : math::mat4x4(1.0f);
+
+    const SceneTraversal& traversal = traverseScene(gltfScene);
+    m_lastSceneStats.nodesVisited = traversal.nodesVisited;
+    m_lastSceneStats.primitivesVisited = traversal.primitivesVisited;
+    containsTransmissiveMaterial = traversal.containsTransmissiveMaterial;
+    for (Light* light : traversal.lights) {
+        scene.lights.emplace_back(light);
+    }
+    for (const SceneTraversal::Primitive& entry : traversal.primitives) {
+        if (cull) {
+            if (!entry.bounded) {
+                ++m_lastSceneStats.uncullable;
+            } else if (boxOutsideClip(clipFromWorld * entry.mesh->getTransform(), entry.lo, entry.hi)) {
+                ++m_lastSceneStats.culled;
+                continue;
+            }
+        }
+        scene.drawables.emplace_back(entry.mesh, entry.material);
+        reverseMapping[entry.mesh] = entry.node;
     }
 
     scene.camera = m_activeCamera;

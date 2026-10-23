@@ -87,6 +87,14 @@ ux3d::renderer::gl::Sampler::Sampler(const std::string& name, const Texture* tex
 {
 }
 
+void ux3d::renderer::gl::Sampler::commitUnit(GL* gl, const UniformBinding& binding, GLint textureUnit) const
+{
+    if (binding.committedUnit != textureUnit) {
+        gl->uniform1i(binding.location, textureUnit);
+        binding.committedUnit = textureUnit;
+    }
+}
+
 void ux3d::renderer::gl::Sampler::commit(GL* gl, const UniformBinding& binding, GLint textureUnit, GLuint samplerHandle) const
 {
     if (texture == nullptr) {
@@ -122,6 +130,6 @@ void ux3d::renderer::gl::Sampler::commit(GL* gl, const UniformBinding& binding, 
         }
     }
 
-    gl->uniform1i(binding.location, textureUnit);
+    commitUnit(gl, binding, textureUnit);
     GLIDER_HOT_GL_CHECK(gl, "Failed to commit sampler");
 }

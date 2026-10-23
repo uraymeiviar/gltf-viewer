@@ -206,6 +206,12 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
                 revisions.mark(SceneChange::ViewportSettings);
             }
             ImGui::Separator();
+            ImGui::Text("MSFS Extensions:");
+            if (ImGui::Checkbox("Show Invisible Materials (ASOBO_material_invisible)", &state.showInvisibleMaterials)) {
+                revisions.mark(SceneChange::ViewportSettings);
+            }
+            ImGui::TextDisabled("Materials marked invisible, e.g. collision geometry, are not rendered unless shown here.");
+            ImGui::Separator();
             ImGui::Text("Wireframe:");
             if (ImGui::Checkbox("Wireframe Overlay", &state.wireframeOverlay)) {
                 revisions.mark(SceneChange::ViewportSettings);

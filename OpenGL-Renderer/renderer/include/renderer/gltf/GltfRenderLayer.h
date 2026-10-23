@@ -161,6 +161,19 @@ public:
     // bound-less primitives are always kept.
     bool frustumCulling = false;
 
+    // The scene traversal (visible primitives with their meshes, materials, nodes and
+    // static bounds, plus lights) does not depend on the camera, so between
+    // beginSceneFrame and endSceneFrame createScene computes it once and every viewport
+    // reuses it; only culling and the per-drawable state are redone. Outside a frame
+    // createScene always traverses.
+    void beginSceneFrame() { m_sceneFrameToken = ++m_nextSceneFrameToken; }
+    void endSceneFrame() { m_sceneFrameToken = 0; }
+    uint64_t getTraversalReuses() const { return m_traversalReuses; }
+
+    // When set, createScene also draws materials marked invisible by
+    // ASOBO_material_invisible (Material::invisible).
+    bool showInvisibleMaterials = false;
+
     // P8.5: removes from drawables the static primitives (found through reverseMapping)
     // whose POSITION bounds lie entirely outside clipFromWorld's view volume, with the
     // test frustumCulling uses. Primitives it cannot bound and drawables the mapping does
@@ -169,6 +182,31 @@ public:
                       const math::mat4x4& clipFromWorld) const;
 
 private:
+    struct SceneTraversal {
+        struct Primitive {
+            Mesh* mesh = nullptr;
+            Material* material = nullptr;
+            const gltf::Node* node = nullptr;
+            bool bounded = false; // lo/hi bound the vertex shader output (see getStaticPositionBounds)
+            math::vec3 lo = math::vec3(0.0f);
+            math::vec3 hi = math::vec3(0.0f);
+        };
+        std::vector<Primitive> primitives;
+        std::vector<Light*> lights;
+        uint64_t nodesVisited = 0;
+        uint64_t primitivesVisited = 0;
+        bool containsTransmissiveMaterial = false;
+        const gltf::Scene* scene = nullptr;
+        bool showInvisibleMaterials = false;
+        std::optional<uint32_t> materialVariantID;
+        uint64_t frameToken = 0;
+    };
+    const SceneTraversal& traverseScene(const gltf::Scene* gltfScene);
+    SceneTraversal m_traversal;
+    uint64_t m_sceneFrameToken = 0;
+    uint64_t m_nextSceneFrameToken = 0;
+    uint64_t m_traversalReuses = 0;
+
     IBLSampler m_iblSampler;
 
     Camera* m_activeCamera = nullptr;

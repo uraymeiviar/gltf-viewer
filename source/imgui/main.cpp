@@ -609,6 +609,8 @@ static uint64_t s_pickUnservedTotal = 0;
 static bool s_disablePickCulling = false;
 // P8.3: --disable-instancing draws every drawable separately (the P8.1 path) as an A/B reference.
 static bool s_disableInstancing = false;
+// --disable-shared-traversal: every viewport traverses the scene itself (A/B reference).
+static bool s_disableSharedTraversal = false;
 static uint64_t s_pickCulledTotal = 0;
 // P5.3: a viewport whose render key is unchanged shows its last image again.
 // --disable-redraw-skip redraws every frame (the pre-P5.3 schedule). TAA keeps
@@ -959,6 +961,29 @@ struct WindowState {
     int posY = 100;
     bool maximized = false;
 };
+
+// settings.ini (search paths, panel display options) lives in %APPDATA%/Glider like the
+// other persisted state, so a settings.ini in the working directory can no longer shadow
+// it. On first use, the one next to the executable (where earlier builds kept it) is
+// copied over.
+static std::string getSettingsConfigPath() {
+    const char* appData = std::getenv("APPDATA");
+    if (appData == nullptr || std::strlen(appData) == 0) {
+        return "settings.ini";
+    }
+    std::filesystem::path dir = std::filesystem::path(appData) / "Glider";
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    std::filesystem::path path = dir / "settings.ini";
+    if (!std::filesystem::exists(path, ec)) {
+        const auto exeDir = ux3d::imgui::StdFileSystem::instance().getExecutableDirPath();
+        const std::filesystem::path legacy = std::filesystem::u8path(exeDir.toString().c_str()) / "settings.ini";
+        if (std::filesystem::exists(legacy, ec)) {
+            std::filesystem::copy_file(legacy, path, ec);
+        }
+    }
+    return path.string();
+}
 
 static std::string getWindowStateConfigPath() {
     const char* appData = std::getenv("APPDATA");
@@ -2528,6 +2553,10 @@ int main(int argc, char** argv)
             s_fullSizePicking = true;
         } else if (arg == "--disable-pick-culling") {
             s_disablePickCulling = true;
+        } else if (arg == "--disable-shared-traversal") {
+            s_disableSharedTraversal = true;
+        } else if (arg == "--show-invisible-materials") {
+            activeViewport->settings.showInvisibleMaterials = true;
         } else if (arg == "--disable-instancing") {
             s_disableInstancing = true;
             commandGenerator->getCommandMapping().setInstancingEnabled(false);
@@ -2945,7 +2974,7 @@ int main(int argc, char** argv)
     }
 
     if (!s_isolatedState) {
-        ux3d::imgui::AppSettings::instance().loadSettings();
+        ux3d::imgui::AppSettings::instance().loadSettings(getSettingsConfigPath());
         s_recentFiles = loadRecentFiles();
     } else {
         // Keep any panel-triggered save away from the user's settings.ini.
@@ -3705,6 +3734,10 @@ int main(int argc, char** argv)
         // -------------------------------------------------------------
         // Viewport Windows (Multi-Viewport)
         // -------------------------------------------------------------
+        // Viewports drawn this frame share one scene traversal (see GltfRenderLayer).
+        if (!s_disableSharedTraversal) {
+            gltfLayer->beginSceneFrame();
+        }
         for (auto& vp : viewports) {
             if (!vp->isOpen) {
                 vp->antiAliasing.releaseTargets();
@@ -4162,6 +4195,7 @@ int main(int argc, char** argv)
 
                 const auto createSceneStart = ux3d::imgui::profiling::Clock::now();
                 gltfLayer->frustumCulling = !s_disableCulling;
+                gltfLayer->showInvisibleMaterials = vp->settings.showInvisibleMaterials;
                 auto [scene, reverseMapping] = gltfLayer->createScene(activeScene);
                 gltfLayer->frustumCulling = false;
                 s_culledTotal += gltfLayer->getLastSceneStats().culled;
@@ -4275,6 +4309,7 @@ int main(int argc, char** argv)
                     glPolygonOffset(-1.0f, -1.0f);
                     glLineWidth(1.0f);
                     gltfLayer->frustumCulling = !s_disableCulling;
+                    gltfLayer->showInvisibleMaterials = vp->settings.showInvisibleMaterials;
                     auto [wireScene, _] = gltfLayer->createScene(activeScene);
                     gltfLayer->frustumCulling = false;
                     // The overlay draws lines over the finished shaded image. With
@@ -4597,6 +4632,7 @@ int main(int argc, char** argv)
 
             ImGui::End(); // End Viewport Window
         }
+        gltfLayer->endSceneFrame();
 
         // -------------------------------------------------------------
         // Hierarchy Panel
@@ -5010,6 +5046,7 @@ int main(int argc, char** argv)
                     + ",\"pickReads\":" + std::to_string(s_pickReadTotal)
                     + ",\"pickUnserved\":" + std::to_string(s_pickUnservedTotal)
                     + ",\"pickCulled\":" + std::to_string(s_pickCulledTotal)
+                    + ",\"traversalReuses\":" + std::to_string(gltfLayer->getTraversalReuses())
                     + ",\"instancedDraws\":" + std::to_string(commandGenerator->getCommandMapping().getInstancedDraws())
                     + ",\"instancedMembers\":" + std::to_string(commandGenerator->getCommandMapping().getInstancedMembers())
                     + ",\"sceneRenders\":" + std::to_string(s_sceneRenderTotal)
@@ -5191,6 +5228,7 @@ int main(int argc, char** argv)
                 else if (k == "bbox" || k == "boundingbox" || k == "showsceneboundingbox") targetVp->settings.showSceneBoundingBox = val;
                 else if (k == "doublesided" || k == "forcedoublesided") targetVp->settings.forceDoubleSided = val;
                 else if (k == "invertwinding") targetVp->settings.invertWinding = val;
+                else if (k == "invisible" || k == "showinvisiblematerials") targetVp->settings.showInvisibleMaterials = val;
                 else return false;
                 return true;
             };

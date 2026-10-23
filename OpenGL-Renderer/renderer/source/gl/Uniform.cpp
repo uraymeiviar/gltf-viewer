@@ -5,6 +5,8 @@
 #include "renderer/gl/UniformBinding.h"
 #include "renderer/gl/Util.h"
 
+#include <atomic>
+
 ux3d::renderer::gl::Uniform::Uniform(const std::string& name)
     : name(name)
 {
@@ -15,11 +17,21 @@ void ux3d::renderer::gl::Uniform::write(bool value)
     write<uint32_t>(value ? GL_TRUE : GL_FALSE);
 }
 
+uint64_t ux3d::renderer::gl::Uniform::nextRevision()
+{
+    static std::atomic<uint64_t> s_revision { 0 };
+    return ++s_revision;
+}
+
 void ux3d::renderer::gl::Uniform::commit(GL* gl, const UniformBinding& binding) const
 {
     if (m_bytes.empty()) {
         return;
     }
+    if (binding.committedRevision == m_revision) {
+        return; // the program location already holds exactly these bytes
+    }
+    binding.committedRevision = m_revision;
 
     const auto* floats = reinterpret_cast<const GLfloat*>(m_bytes.data());
     const auto* ints = reinterpret_cast<const GLint*>(m_bytes.data());

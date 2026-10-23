@@ -16,6 +16,7 @@ void ux3d::renderer::CommandExecutor::init()
 {
     m_samplerCache.init(m_gl);
     m_gl->getIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS, &m_maxTextureUnits);
+    m_textureUnits.assign(static_cast<size_t>(std::max(m_maxTextureUnits, 0)), TextureUnitState());
     m_gl->enable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
     m_activePolygonMode.reset();
     m_cullingEnabled.reset();
@@ -47,6 +48,9 @@ void ux3d::renderer::CommandExecutor::resetState()
 
 void ux3d::renderer::CommandExecutor::unbindSamplers()
 {
+    for (TextureUnitState& unit : m_textureUnits) {
+        unit.valid = false;
+    }
     if (m_maxBoundTextureUnit >= 0) {
         for (GLint unit = 0; unit <= m_maxBoundTextureUnit; ++unit) {
             m_gl->bindSampler(static_cast<GLuint>(unit), 0);
@@ -141,12 +145,22 @@ void ux3d::renderer::CommandExecutor::draw(const Command& command)
             : s_defaultSamplerState;
         GLuint samplerHandle = m_samplerCache.getOrCreateSampler(state);
 
-        if (command.samplerBindings.size() == command.samplers.size()) {
-            if (command.samplerBindings[i] != nullptr) {
-                sampler->commit(m_gl, *command.samplerBindings[i], i, samplerHandle);
+        const gl::UniformBinding* binding = command.samplerBindings.size() == command.samplers.size()
+            ? command.samplerBindings[i]
+            : command.program->findUniformBinding(sampler->name);
+        if (binding != nullptr && sampler->texture != nullptr) {
+            TextureUnitState& unit = m_textureUnits[static_cast<size_t>(i)];
+            const GLenum target = static_cast<GLenum>(sampler->texture->target);
+            if (samplerHandle != 0 && unit.valid && unit.texture == sampler->texture->handle && unit.target == target
+                && unit.sampler == samplerHandle) {
+                sampler->commitUnit(m_gl, *binding, i);
+            } else {
+                sampler->commit(m_gl, *binding, i, samplerHandle);
+                unit.valid = samplerHandle != 0; // without a sampler object, texture parameters are set per commit
+                unit.target = target;
+                unit.texture = sampler->texture->handle;
+                unit.sampler = samplerHandle;
             }
-        } else {
-            command.program->commitSampler(*sampler, i, samplerHandle);
         }
         if (i > m_maxBoundTextureUnit) {
             m_maxBoundTextureUnit = i;

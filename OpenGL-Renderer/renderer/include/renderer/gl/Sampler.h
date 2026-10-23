@@ -85,6 +85,8 @@ struct Sampler {
     Sampler(const std::string& name, const Texture* texture = nullptr, const SamplerState* samplerState = nullptr);
 
     void commit(GL* gl, const UniformBinding& binding, GLint textureUnit, GLuint samplerHandle = 0) const;
+    // Only points the program's sampler uniform at textureUnit (skipped when it already does).
+    void commitUnit(GL* gl, const UniformBinding& binding, GLint textureUnit) const;
 
     std::string name;
     const Texture* texture = nullptr;

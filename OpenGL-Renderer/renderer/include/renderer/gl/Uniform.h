@@ -32,11 +32,18 @@ public:
     const uint8_t* bytes() const { return m_bytes.data(); }
     size_t byteSize() const { return m_bytes.size(); }
 
+    // Changes with every write and is unique across all uniforms, so two equal revisions
+    // always carry the same bytes (a copy keeps both). 0 means never written.
+    uint64_t revision() const { return m_revision; }
+
     std::string name;
 
 private:
+    static uint64_t nextRevision();
+
     size_t m_count = 1;
     std::vector<uint8_t> m_bytes;
+    uint64_t m_revision = 0;
 };
 
 template <class T>
@@ -58,5 +65,6 @@ void Uniform::write(const T* values, size_t count)
     m_count = count;
     m_bytes.resize(count * sizeof(T));
     memcpy(m_bytes.data(), values, count * sizeof(T));
+    m_revision = nextRevision();
 }
 }

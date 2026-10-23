@@ -66,6 +66,16 @@ private:
     std::optional<GLenum> m_blendDstFactor = std::nullopt;
     std::optional<GLenum> m_blendEquation = std::nullopt;
     GLint m_maxBoundTextureUnit = -1;
+    // What each texture unit holds since the last reset (P8 follow-up): a draw whose
+    // sampler matches skips the activeTexture/bindTexture/bindSampler calls. Cleared
+    // whenever code outside the executor may have changed texture bindings.
+    struct TextureUnitState {
+        bool valid = false;
+        GLenum target = 0;
+        GLuint texture = 0;
+        GLuint sampler = 0;
+    };
+    std::vector<TextureUnitState> m_textureUnits;
     gl::SamplerCache m_samplerCache;
 };
 }

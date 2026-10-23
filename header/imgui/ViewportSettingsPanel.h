@@ -34,6 +34,7 @@ struct ViewportSettingsState {
     int renderModeIdx = 0; // 0 = None / Shaded
     bool showGrid = true;
     bool forceDoubleSided = false; // Disable backface culling globally
+    bool showInvisibleMaterials = false; // Also draw ASOBO_material_invisible materials
     bool invertWinding = false;    // Invert front/back face winding order (CW vs CCW)
     int antiAliasingIdx = 2;       // 0=None, 1=MSAA 2x, 2=MSAA 4x (Default), 3=MSAA 8x, 4=FXAA, 5=TAA
 

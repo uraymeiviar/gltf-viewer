@@ -41,6 +41,10 @@ public:
 
     Defines defines;
     bool isDoubleSided = false;
+    // ASOBO_material_invisible with "enabled" true (the schema default): the material is
+    // not rendered, e.g. MSFS collision geometry. GltfRenderLayer leaves it out of scenes
+    // unless showInvisibleMaterials is set.
+    bool invisible = false;
     RenderPass* renderPass = nullptr;
     RenderSettings renderSettings;
     std::string fragmentShader;

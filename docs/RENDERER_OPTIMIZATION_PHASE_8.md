@@ -2,7 +2,7 @@
 
 [Journal index](RENDERER_OPTIMIZATION_JOURNAL.md) · [Reference audit](RENDERER_OPTIMIZATION_REFERENCE.md) · [Validation rules](RENDERER_OPTIMIZATION_VALIDATION.md)
 
-**Status:** Complete, uncommitted ([§12.61](#section-12-61)). Entry measurements are in [§12.57](#section-12-57). P8.5 PASS ([§12.58](#section-12-58)). P8.1 PASS for uniform submission, with skin storage REJECTED ([§12.59](#section-12-59)). P8.3 PASS ([§12.60](#section-12-60)). P8.2 DEFERRED and P8.4 REJECTED ([§12.57](#section-12-57)).
+**Status:** Complete, uncommitted ([§12.61](#section-12-61)). Entry measurements are in [§12.57](#section-12-57). P8.5 PASS ([§12.58](#section-12-58)). P8.1 PASS for uniform submission, with skin storage REJECTED ([§12.59](#section-12-59)). P8.3 PASS ([§12.60](#section-12-60)). P8.2 DEFERRED and P8.4 REJECTED ([§12.57](#section-12-57)). A follow-up for the three-viewport E195 use case is in [§12.62](#section-12-62).
 
 **Scope decision (user, 2026-10-23):** P8.1, P8.3 and P8.5 are implemented even where the representative assets show little gain, because some assets have thousands of objects. A change is kept unless it is shown to be slower or to change the image. P8.2 and P8.4 are not implemented ([§12.57](#section-12-57)).
 
@@ -258,3 +258,85 @@ Measured against the Phase 8 baseline, frames with every drawable redrawn are ab
 - **P8.2** is deferred: its only cost is a one-time shader compile.
 - **P8.4** is rejected: the driver already caches shaders.
 - **Skin uniform blocks** are rejected: skin storage costs negligible GPU time.
+
+<a id="section-12-62"></a>
+
+### 12.62 Follow-up — Three-Viewport E195 Use Case (2026-10-23)
+
+**Status:** PASS. Done after the Phase 8 commit `23f61c6`, for the user's typical setup: the E195 cockpit in three
+TAA viewports with the environment map, at 1920×1080.
+
+#### 1. Measurement before changes
+- **The setup is CPU-bound.** With every frame redrawn, the frame took 8.9 ms of CPU, against about 4.7 ms of
+  GPU pass time:
+
+  | CPU stage | Time |
+  |---|---|
+  | `draw.submit` | 4.0 ms |
+  | `scene.create` | 1.8 ms |
+  | `commands.generate` | 1.1 ms |
+  | UI submit (waiting on the GPU) | about 1 ms |
+
+  Interacting in one viewport (the other two skip their redraw) took 4.2 ms.
+- **448 collider primitives drawn for nothing.** Of the cockpit's 1,314 primitives, 448 use the materials
+  `InvisibleCollider` and `COLLIDER`, which declare `ASOBO_material_invisible`.
+
+#### 2. Changes
+- **`settings.ini` location (bug fix).** Settings were read from the working directory before the executable's
+  folder. A stale, git-ignored `settings.ini` in the repository root (search path `../texture` only) therefore
+  shadowed the real one whenever Glider started from there, and the cockpit's textures in
+  `../texture.E195.cockpit` were not found.
+  - Settings now live in `%APPDATA%\Glider\settings.ini`, like the other persisted state.
+  - On first use, the file next to the executable is copied there. The working directory is never read.
+- **`ASOBO_material_invisible` support.** Primitives whose material declares the extension with `enabled` true
+  (the schema default) are not rendered.
+  - Turned on by the per-viewport option *Show Invisible Materials (ASOBO_material_invisible)*, or with
+    `--show-invisible-materials` or `vpsetting <id> invisible on`.
+  - This is phase A1.1 of the [ASOBO extension journal](ASOBO_EXTENSIONS_JOURNAL.md).
+- **Shared scene traversal.** `GltfRenderLayer::createScene` splits into a camera-independent traversal and
+  per-viewport culling.
+  - **What the traversal holds:** visible primitives with their meshes, materials, nodes and static bounds,
+    plus lights.
+  - **Reuse:** between `beginSceneFrame` and `endSceneFrame` (around the viewport loop), the viewports of one
+    frame reuse a single traversal, keyed by scene, invisible setting and material variant. Outside a frame,
+    `createScene` always traverses.
+  - **Duplicate resets:** per-drawable state was reset twice per call; the redundant first pass was removed.
+  - **Reference:** `--disable-shared-traversal` is the same-binary reference; the UI snapshot reports
+    `traversalReuses`.
+- **Redundant uploads skipped.**
+  - **Uniforms:** every `gl::Uniform` write takes a new value from a global revision counter, so equal
+    revisions mean equal bytes, even after a copy. Each program-side `UniformBinding` remembers the revision it
+    last received and skips the `glUniform*` call when they match. Uniform values are program state.
+  - **Samplers:** the sampler uniform's texture unit is remembered the same way.
+  - **Texture units:** `CommandExecutor` remembers what each unit holds and skips the bind when nothing changed.
+    That memory is cleared at every `Renderer::draw` and after external functions, so changes made outside the
+    renderer are never missed.
+
+#### 3. Validation
+- **`python scripts/validate_p8_followup.py`: PASS.**
+  - **Invisible materials:** hidden by default. The option (at startup or switched on at runtime) and
+    `"enabled": false` both render byte-identically to `23f61c6`, and assets without the extension are
+    unchanged. Checked on a generated grid and on the E195 cockpit.
+  - **Shared traversal:** three-viewport scenes are byte-identical with and without it, including viewports
+    with different invisible settings, and the traversal is reused (29–114 times per run).
+- **Smoke test for the redundant-upload change:** six scenes under TAA were byte-identical to the build before it,
+  with no GL errors.
+- **Broad suites against `23f61c6`** (with `--show-invisible-materials`, so E195 stays comparable):
+  `validate_p8_1.py` PASS and `validate_p8_3.py` PASS.
+
+#### 4. Result
+Three TAA viewports of E195 at 1920×1080, every frame redrawn, 3 rounds:
+
+| Build | Frame interval (median) | Draws | GL calls |
+|---|---|---|---|
+| `23f61c6` | 8.72 ms | 2,831 | 88,701 |
+| Final, default | 4.67 ms (−46%) | 1,485 | 14,512 |
+| Final, invisible materials shown | 8.42 ms (−3.4%) | 2,831 | 25,511 |
+
+**Where the gain comes from:**
+- **Invisible materials:** most of it comes from not drawing the declared-invisible colliders, which are blended,
+  unsortable geometry.
+- **Same content:** with the colliders shown, the gain is 3.4% despite 71% fewer GL calls. The calls that are
+  skipped are cheap.
+- **Shared traversal:** on its own it moved `scene.create` only from 1.01 to 0.96 ms. The traversal is a small
+  part of `scene.create`; most of it is per-viewport work on every drawable.
