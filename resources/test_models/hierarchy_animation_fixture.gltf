@@ -4,7 +4,9 @@
     "generator": "Glider P4.7 hierarchy fixture generator"
   },
   "extensionsUsed": [
-    "KHR_lights_punctual"
+    "KHR_lights_punctual",
+    "KHR_materials_variants",
+    "EXT_glider_test"
   ],
   "extensions": {
     "KHR_lights_punctual": {
@@ -18,6 +20,13 @@
             0.6
           ],
           "intensity": 40.0
+        }
+      ]
+    },
+    "KHR_materials_variants": {
+      "variants": [
+        {
+          "name": "Alt"
         }
       ]
     }
@@ -98,7 +107,13 @@
       ],
       "children": [
         6
-      ]
+      ],
+      "extensions": {
+        "EXT_glider_test": {
+          "enabled": true,
+          "weight": 0.5
+        }
+      }
     },
     {
       "name": "StaticChild",
@@ -135,7 +150,19 @@
             "NORMAL": 1
           },
           "indices": 2,
-          "material": 0
+          "material": 0,
+          "extensions": {
+            "KHR_materials_variants": {
+              "mappings": [
+                {
+                  "material": 1,
+                  "variants": [
+                    0
+                  ]
+                }
+              ]
+            }
+          }
         }
       ]
     },

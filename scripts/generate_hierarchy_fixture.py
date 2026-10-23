@@ -7,8 +7,11 @@ Scene:
       GrandChild  (mesh, translated; inherits the non-uniform scale)
     RootCamera    (perspective camera looking at the origin; moves with the root)
     RootLight     (KHR_lights_punctual point light; moves with the root)
-  StaticSibling   (mesh, never animated)
+  StaticSibling   (mesh, never animated; carries an unknown vendor extension)
     StaticChild   (mesh)
+
+KHR_materials_variants: variant "Alt" maps CubeA (ScaledChild, StaticChild) to
+the Teal material, for material-variant transition tests.
 
 Covers animated ancestors, attached camera and light, non-uniform scales and a
 static subtree next to an animated one. Self-contained (base64 buffer); not
@@ -67,9 +70,10 @@ for i, data in enumerate(chunks):
 
 gltf = {
     "asset": {"version": "2.0", "generator": "Glider P4.7 hierarchy fixture generator"},
-    "extensionsUsed": ["KHR_lights_punctual"],
+    "extensionsUsed": ["KHR_lights_punctual", "KHR_materials_variants", "EXT_glider_test"],
     "extensions": {"KHR_lights_punctual": {"lights": [
-        {"name": "RootPointLight", "type": "point", "color": [1.0, 0.8, 0.6], "intensity": 40.0}]}},
+        {"name": "RootPointLight", "type": "point", "color": [1.0, 0.8, 0.6], "intensity": 40.0}]},
+        "KHR_materials_variants": {"variants": [{"name": "Alt"}]}},
     "scene": 0,
     "scenes": [{"nodes": [0, 5]}],
     "nodes": [
@@ -78,12 +82,14 @@ gltf = {
         {"name": "GrandChild", "mesh": 1, "translation": [0.0, 1.5, 0.0]},
         {"name": "RootCamera", "camera": 0, "translation": [0.0, 1.5, 7.0]},
         {"name": "RootLight", "translation": [0.0, 2.0, 2.0], "extensions": {"KHR_lights_punctual": {"light": 0}}},
-        {"name": "StaticSibling", "mesh": 2, "translation": [-2.0, 0.0, 0.0], "children": [6]},
+        {"name": "StaticSibling", "mesh": 2, "translation": [-2.0, 0.0, 0.0], "children": [6],
+         "extensions": {"EXT_glider_test": {"enabled": True, "weight": 0.5}}},
         {"name": "StaticChild", "mesh": 0, "translation": [0.0, 1.2, 0.0], "scale": [0.5, 0.5, 0.5]},
     ],
     "cameras": [{"type": "perspective", "perspective": {"yfov": 0.8, "znear": 0.1, "zfar": 100.0}}],
     "meshes": [
-        {"name": "CubeA", "primitives": [{"attributes": {"POSITION": 0, "NORMAL": 1}, "indices": 2, "material": 0}]},
+        {"name": "CubeA", "primitives": [{"attributes": {"POSITION": 0, "NORMAL": 1}, "indices": 2, "material": 0,
+                                          "extensions": {"KHR_materials_variants": {"mappings": [{"material": 1, "variants": [0]}]}}}]},
         {"name": "CubeB", "primitives": [{"attributes": {"POSITION": 0, "NORMAL": 1}, "indices": 2, "material": 1}]},
         {"name": "CubeC", "primitives": [{"attributes": {"POSITION": 0, "NORMAL": 1}, "indices": 2, "material": 2}]},
     ],
