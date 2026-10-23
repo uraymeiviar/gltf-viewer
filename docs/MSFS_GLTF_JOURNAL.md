@@ -171,6 +171,8 @@ flowchart TD
 
 ### Workstream 3: MSFS Shading Enhancements (Future Rendering Roadmap)
 
+> Superseded by the phased plan in [`ASOBO_EXTENSIONS_JOURNAL.md`](ASOBO_EXTENSIONS_JOURNAL.md), which covers every ASOBO extension. The notes below are kept for history.
+
 1. **Normal Map Convention (`ASOBO_normal_map_convention`)**:
    * If an MSFS material declares `"tangent_space_convention": "DirectX"`, invert the normal map green channel ($Y$) in [`pbr.frag`](file:///H:/git-repos/gltf-viewer/resources/shaders/pbr.frag):
      $$\vec{N}_{\text{tangent}} = \text{vec3}(2.0 \cdot R - 1.0, -(2.0 \cdot G - 1.0), 2.0 \cdot B - 1.0)$$

@@ -74,6 +74,7 @@ gltf-viewer/
 │   ├── images/              # README screenshots & assets
 │   ├── MIGRATION_PLAN_IMGUI.md  # Architectural Qt-to-Dear-ImGui migration plan
 │   ├── MSFS_GLTF_JOURNAL.md # Development journal tracking MSFS extension support
+│   ├── ASOBO_EXTENSIONS_JOURNAL.md # Phased plan for rendering every ASOBO (MSFS) glTF extension (+ _REFERENCE, _PHASE_0..7)
 │   └── RENDERER_OPTIMIZATION_JOURNAL.md # Comprehensive render loop audit and optimization roadmap
 ├── CMakeLists.txt           # Main build configuration (Qt removed, standalone ImGui)
 ├── AGENTS.md                # This developer/agent onboarding guide
@@ -147,7 +148,7 @@ Implemented in [`CameraActor.cpp`](file:///H:/git-repos/gltf-viewer/source/rende
   - **Right**: Element Inspector (full height).
   - Optional panels (Viewport Settings, Statistics) dock into the center-bottom tab bar.
 - Layout reset shortcut: `Ctrl + L`.
-- Window position, dimensions, maximized state, and recent file history are persisted across sessions in `%APPDATA%/Gestaltor/`.
+- Window position, dimensions, maximized state, recent file history and `settings.ini` (texture search paths, panel display options) are persisted in `%APPDATA%/Glider/`. A `settings.ini` next to the executable is copied there on first use; the working directory is never read.
 
 ### 3.7 Built-in In-Process glTF 2.0 Validator
 
@@ -205,6 +206,8 @@ build/bin/Release/Glider.exe
 - `--exit-after-dump`: Exits the application immediately after dumping the frame.
 - `--quality <high|balanced|performance>`: Render-quality preset for this run (default High, the original quality). Finer overrides: `--ibl-size`, `--ibl-irradiance-size`, `--ibl-lut-size`, `--ibl-precision <32|16>`, `--ibl-samples`, `--grid-mode <ray|plane>`, `--render-scale`. The UI equivalent is **Viewport Settings → Quality**, saved in `%APPDATA%/Glider/render_quality.txt`.
 - `--hdr-rotation <deg>`, `--exposure <ev>`: Environment rotation and exposure for this run.
+- `--show-invisible-materials`: Also draw materials marked invisible by `ASOBO_material_invisible` (hidden by default).
+- `--disable-shared-traversal`: Every viewport traverses the scene itself (A/B reference).
 - `--disable-pick-culling`, `--disable-instancing`: Same-binary A/B references for the Phase 8 hybrid picking and instancing (see `docs/RENDERER_OPTIMIZATION_PHASE_8.md`).
 
 Example test command:
@@ -229,6 +232,25 @@ python scripts/create_release.py
 ```
 
 ---
+
+### 4.5 Regression Testing
+
+After each commit, build it and save its binary as the baseline. Then check later uncommitted changes against it:
+
+```cmd
+python scripts/save_baseline.py
+python scripts/run_regression.py
+python scripts/run_regression.py --tier full
+```
+
+- **`save_baseline.py`** writes `build/baselines/<short sha>.exe`. It refuses when tracked files differ from the
+  commit.
+- **`run_regression.py`** (quick tier, about 2–3 minutes) runs the renderer harnesses
+  (`scripts/validate_p8_*.py`, `validate_p4_exit_gate.py`) and the built-in self-checks against that baseline, three
+  at a time. They check byte-identical captures and identical selections.
+- **`--tier full`** adds each feature's same-binary A/B switch and `validate_p5_1.py`.
+- **Benchmarks** never run here. They back timing claims only: pass `--bench` to the harness concerned, and do not
+  run them in parallel.
 
 ## 5. Critical Rules & Guardrails for AI Agents
 

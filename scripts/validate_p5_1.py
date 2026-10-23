@@ -32,13 +32,16 @@ HIER = "resources/test_models/hierarchy_animation_fixture.gltf"
 MANY = "build/p5.1/fixtures/many_drawables.gltf"
 # Seen from behind, the transmissive, blend and opaque quads overlap with visible edges.
 BEHIND = ["--camera-yaw", "160", "--camera-pitch", "10"]
-COMMON = ["--isolated", "--window-size", "1280x800", "--fixed-frame-time", "0.05"]
+# --fixed-frame-time makes scripted runs deterministic, so they need not wait for vsync.
+COMMON = ["--isolated", "--window-size", "1280x800", "--fixed-frame-time", "0.05", "--vsync", "off"]
 
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 parser.add_argument("--only", choices=["equivalence", "benchmark"])
 parser.add_argument("--pairs", type=int, default=5)
 parser.add_argument("--pre-exe", help="reference binary (default: pre-P5.1)")
 parser.add_argument("--off-flag", default="--always-pick", help="same-binary reference switch")
+parser.add_argument("--bench", action="store_true", help="also run the benchmark section")
+parser.add_argument("--with-ab", action="store_true", help="also compare with the candidate's own --off-flag switch")
 args = parser.parse_args()
 if args.pre_exe:
     PRE_EXE = Path(args.pre_exe).resolve()
@@ -46,6 +49,8 @@ failures = []
 
 
 def section(name):
+    if name == "benchmark":
+        return args.only == "benchmark" or args.bench
     return args.only in (None, name)
 
 
@@ -89,18 +94,19 @@ def run(mode, exe, name, script, extra):
 def equivalence(name, script, extra, clicks, idle=()):
     """clicks: viewport clicks in the script (each must render exactly one picking pass)."""
     pre = run("pre", PRE_EXE, name, script, extra)
-    always = run("always", EXE, name, script, extra)
+    always = run("always", EXE, name, script, extra) if args.with_ab else None
     cand = run("candidate", EXE, name, script, extra)
-    if not (pre and always and cand):
+    if not (pre and cand and (always or not args.with_ab)):
         return None
+    others = (pre, always) if args.with_ab else (pre,)
+    against = "the reference and --always-pick" if args.with_ab else "the reference"
     for label, snap in cand["snaps"].items():
         same = all((o["snaps"][label]["selection"], o["snaps"][label]["camera"]) == (snap["selection"], snap["camera"])
-                   for o in (pre, always))
-        check(same, f"{name}/{label}: selection and camera match pre and --always-pick ({snap['selection']})")
+                   for o in others)
+        check(same, f"{name}/{label}: selection and camera match {against} ({snap['selection']})")
     for shot, path in cand["shots"].items():
         h = sha(path)
-        check(h == sha(pre["shots"][shot]) and h == sha(always["shots"][shot]),
-              f"{name}/{shot}: byte-identical to pre-P5.1 and to --always-pick")
+        check(all(h == sha(o["shots"][shot]) for o in others), f"{name}/{shot}: byte-identical to {against}")
     rev = {k: v["revisions"] for k, v in cand["snaps"].items()}
     last = rev[list(rev)[-1]]
     check(last["pickUnserved"] == 0, f"{name}: no click went unserved ({last['pickUnserved']})")
@@ -110,9 +116,10 @@ def equivalence(name, script, extra, clicks, idle=()):
         renders = rev[after]["pickingRenders"] - rev[before]["pickingRenders"]
         skips = rev[after]["pickingSkips"] - rev[before]["pickingSkips"]
         check(renders == 0 and skips > 0, f"{name} {before}->{after}: idle frames render no picking pass ({renders} renders, {skips} skips)")
-    arev = {k: v["revisions"] for k, v in always["snaps"].items()}
-    alast = arev[list(arev)[-1]]
-    check(alast["pickingSkips"] == 0, f"{name}: --always-pick never skips ({alast['pickingSkips']})")
+    if args.with_ab:
+        arev = {k: v["revisions"] for k, v in always["snaps"].items()}
+        alast = arev[list(arev)[-1]]
+        check(alast["pickingSkips"] == 0, f"{name}: --always-pick never skips ({alast['pickingSkips']})")
     return cand
 
 
@@ -121,7 +128,9 @@ def grid(xs, ys, prefix, wait=6, gap_ms=0):
     beyond its wall-clock double-click time, so none becomes a focusing double-click."""
     lines = []
     for i, (x, y) in enumerate((x, y) for y in ys for x in xs):
-        lines += [f"click {x} {y}", f"wait {wait}", f"snap {prefix}{i}"] + ([f"waitms {gap_ms}"] if gap_ms else [])
+        # Spaced clicks wait 12 fixed frames (0.6 s of --fixed-frame-time) instead of wall-clock
+        # time, so TAA screenshots repeat exactly between runs.
+        lines += [f"click {x} {y}", f"wait {12 if gap_ms else wait}", f"snap {prefix}{i}"]
     return lines, len(xs) * len(ys)
 
 

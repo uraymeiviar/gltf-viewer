@@ -34,11 +34,16 @@ MANY = "build/p8/fixtures/many_1600.gltf"
 LEAF = "build/p8/fixtures/many_leaf.gltf"
 ROOT = "build/p8/fixtures/many_root.gltf"
 E195 = Path(r"F:/new-fss-aircraft-ejet/msfs24-projects/fss-aircraft-e195/SimObjects/Airplanes/E195/model/E195-Cockpit-LOD00.gltf")
-COMMON = ["--isolated", "--window-size", "1280x800", "--fixed-frame-time", "0.05"]
+# --fixed-frame-time makes scripted runs deterministic, so they need not wait for vsync
+# (a 400-click case: 108 s with vsync, 4 s without, identical results).
+COMMON = ["--isolated", "--window-size", "1280x800", "--fixed-frame-time", "0.05", "--vsync", "off"]
 
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 parser.add_argument("--ref-exe", default=str(REPO / "build" / "p8" / "Glider_p81c.exe"))
+parser.add_argument("--with-ab", action="store_true",
+                    help="also compare with the candidate's own A/B switch (slower; the baseline comparison is the regression check)")
 parser.add_argument("--case", action="append", help="run only cases whose name starts with this (repeatable)")
+parser.add_argument("--extra", action="append", default=[], help="extra argument passed to every binary (repeatable)")
 args = parser.parse_args()
 REF = Path(args.ref_exe).resolve()
 failures = []
@@ -56,8 +61,9 @@ def sha(path):
 
 for path, size, anim in ((MANY, "40", "none"), (LEAF, "40", "leaf"), (ROOT, "40", "root")):
     (REPO / path).parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run([sys.executable, str(REPO / "scripts" / "generate_many_drawables_fixture.py"), str(REPO / path), size, anim],
-                   check=True, capture_output=True)
+    if not (REPO / path).exists():  # shared with other harnesses; run_regression.py writes them up front
+        subprocess.run([sys.executable, str(REPO / "scripts" / "generate_many_drawables_fixture.py"), str(REPO / path), size, anim],
+                       check=True, capture_output=True)
 
 
 def run(mode, name, model, extra, lines):
@@ -72,7 +78,7 @@ def run(mode, name, model, extra, lines):
     scenario.write_text(text, encoding="utf-8")
     report.unlink(missing_ok=True)
     flags = ["--disable-instancing"] if mode == "noinst" else []
-    subprocess.run([str(exe), model] + COMMON + extra + flags + ["--ui-script", str(scenario), "--ui-report", str(report)],
+    subprocess.run([str(exe), model] + COMMON + extra + args.extra + flags + ["--ui-script", str(scenario), "--ui-report", str(report)],
                    cwd=REPO, capture_output=True, timeout=600)
     if not report.exists():
         return None
@@ -86,20 +92,23 @@ def case(name, model, extra, lines, expect_merge=True):
     if args.case and not any(name.startswith(c) for c in args.case):
         return None
     lines = lines + ["snap end"]  # the last snapshot carries the instancing counters
-    results = {mode: run(mode, name, model, extra, lines) for mode in ("ref", "noinst", "cand")}
+    modes = ("ref", "noinst", "cand") if args.with_ab else ("ref", "cand")
+    results = {mode: run(mode, name, model, extra, lines) for mode in modes}
     if any(r is None for r in results.values()):
         check(False, f"{name}: script run failed ({[m for m, r in results.items() if r is None]})")
         return None
-    ref, noinst, cand = results["ref"], results["noinst"], results["cand"]
+    ref, cand = results["ref"], results["cand"]
+    others = [results[m] for m in modes if m != "cand"]
     key = lambda r: [(s["label"], s["selection"], s["camera"]) for s in r["snaps"]]
-    check(key(cand) == key(ref) == key(noinst), f"{name}: {len(cand['snaps'])} snapshots (selection, camera) identical")
+    check(all(key(o) == key(cand) for o in others), f"{name}: {len(cand['snaps'])} snapshots (selection, camera) identical")
     for shot, path in cand["shots"].items():
         h = sha(path)
-        check(h == sha(ref["shots"][shot]) and h == sha(noinst["shots"][shot]),
-              f"{name}/{shot}: byte-identical to reference and to --disable-instancing")
+        check(all(h == sha(o["shots"][shot]) for o in others),
+              f"{name}/{shot}: byte-identical to reference" + (" and to --disable-instancing" if args.with_ab else ""))
     rev = cand["snaps"][-1]["revisions"]
-    off = noinst["snaps"][-1]["revisions"]
-    check(off.get("instancedDraws", 0) == 0, f"{name}: --disable-instancing merges nothing")
+    if args.with_ab:
+        off = results["noinst"]["snaps"][-1]["revisions"]
+        check(off.get("instancedDraws", 0) == 0, f"{name}: --disable-instancing merges nothing")
     if name == "grid_hidden_node":
         check(rev.get("instancedMembers", 0) == 1199, f"{name}: the hidden node is not drawn ({rev.get('instancedMembers', 0)} of 1,200 opaque drawables merged)")
     print(f"    {name}: last frame {rev.get('instancedDraws', 0)} instanced draws for {rev.get('instancedMembers', 0)} drawables")

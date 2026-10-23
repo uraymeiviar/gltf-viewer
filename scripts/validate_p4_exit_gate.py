@@ -27,7 +27,8 @@ REPO = Path(__file__).resolve().parents[1]
 EXE = REPO / "build" / "bin" / "Release" / "Glider.exe"
 OUT = REPO / "build" / "exitgate"
 HIER = "resources/test_models/hierarchy_animation_fixture.gltf"
-COMMON = ["--isolated", "--window-size", "1920x1080", "--fixed-frame-time", "0.05", "--aa", "none"]
+# --fixed-frame-time makes scripted runs deterministic, so they need not wait for vsync.
+COMMON = ["--isolated", "--window-size", "1920x1080", "--fixed-frame-time", "0.05", "--aa", "none", "--vsync", "off"]
 REFERENCE = ["--force-full-sync", "--disable-command-caches", "--disable-transform-reuse",
              "--always-pick", "--disable-redraw-skip"]
 NO_SYNC = {"Selection", "ViewCamera", "AnimationTime"}

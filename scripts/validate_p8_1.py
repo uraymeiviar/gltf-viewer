@@ -41,7 +41,9 @@ TRUCK = "build/_deps/assimp-src/test/models/glTF/CesiumMilkTruck/CesiumMilkTruck
 MANY = "build/p8/fixtures/many_1600.gltf"
 HUGE = "build/p8/fixtures/many_10000.gltf"
 E195 = Path(r"F:/new-fss-aircraft-ejet/msfs24-projects/fss-aircraft-e195/SimObjects/Airplanes/E195/model/E195-Cockpit-LOD00.gltf")
-COMMON = ["--isolated", "--window-size", "1280x800", "--fixed-frame-time", "0.05"]
+# --fixed-frame-time makes scripted runs deterministic, so they need not wait for vsync
+# (a 400-click case: 108 s with vsync, 4 s without, identical results).
+COMMON = ["--isolated", "--window-size", "1280x800", "--fixed-frame-time", "0.05", "--vsync", "off"]
 BEHIND = ["--camera-yaw", "160", "--camera-pitch", "10"]
 
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -49,6 +51,8 @@ parser.add_argument("--only", choices=["equivalence", "benchmark"])
 parser.add_argument("--ref-exe", default=str(REPO / "build" / "p8" / "Glider_p85.exe"), help="reference binary")
 parser.add_argument("--label", default="p8.1", help="output subfolder name")
 parser.add_argument("--pairs", type=int, default=5)
+parser.add_argument("--bench", action="store_true", help="also run the benchmark section")
+parser.add_argument("--extra", action="append", default=[], help="extra argument passed to both binaries (repeatable)")
 args = parser.parse_args()
 REF = Path(args.ref_exe).resolve()
 OUT = OUT.parent / args.label
@@ -56,6 +60,9 @@ failures = []
 
 
 def section(name):
+    # Benchmarks back timing claims and are slow; regression runs skip them unless asked.
+    if name == "benchmark":
+        return args.only == "benchmark" or args.bench
     return args.only in (None, name)
 
 
@@ -87,7 +94,7 @@ def capture(exe, name, model, extra, folder):
     folder.mkdir(parents=True, exist_ok=True)
     png = folder / f"{name}.png"
     png.unlink(missing_ok=True)
-    subprocess.run([str(exe)] + ([model] if model else []) + COMMON + extra +
+    subprocess.run([str(exe)] + ([model] if model else []) + COMMON + extra + args.extra +
                    ["--capture-viewport", str(png), "--capture-frame", "24", "--profile-report", str(folder / "p.json"),
                     "--exit-after-profile"], cwd=REPO, capture_output=True, timeout=600)
     return png if png.exists() else None
@@ -102,7 +109,7 @@ def run_script(exe, name, model, extra, lines, folder):
     scenario, report = folder / f"{name}.txt", folder / f"{name}.json"
     scenario.write_text(text, encoding="utf-8")
     report.unlink(missing_ok=True)
-    subprocess.run([str(exe)] + ([model] if model else []) + COMMON + extra + ["--ui-script", str(scenario), "--ui-report", str(report)],
+    subprocess.run([str(exe)] + ([model] if model else []) + COMMON + extra + args.extra + ["--ui-script", str(scenario), "--ui-report", str(report)],
                    cwd=REPO, capture_output=True, timeout=600)
     if not report.exists():
         return None
@@ -155,7 +162,7 @@ def bench(exe, model, label, index):
     out.unlink(missing_ok=True)
     subprocess.run([str(exe), model, "--isolated", "--window-size", "1280x800", "--aa", "none", "--vsync", "off",
                     "--disable-redraw-skip", "--profile", "--benchmark", "--benchmark-warmup", "120",
-                    "--benchmark-frames", "300", "--benchmark-output", str(out), "--exit-after-benchmark"],
+                    "--benchmark-frames", "300", "--benchmark-output", str(out), "--exit-after-benchmark"] + args.extra,
                    cwd=REPO, capture_output=True, timeout=900)
     data = json.loads(out.read_text(encoding="utf-8"))
     frames = data["measuredFrames"]

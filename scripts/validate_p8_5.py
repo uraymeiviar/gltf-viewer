@@ -37,15 +37,21 @@ MANY = "build/p8/fixtures/many_1600.gltf"
 HUGE = "build/p8/fixtures/many_10000.gltf"
 E195 = Path(r"F:/new-fss-aircraft-ejet/msfs24-projects/fss-aircraft-e195/SimObjects/Airplanes/E195/model/E195-Cockpit-LOD00.gltf")
 BEHIND = ["--camera-yaw", "160", "--camera-pitch", "10"]
-COMMON = ["--isolated", "--window-size", "1280x800", "--fixed-frame-time", "0.05"]
+# --fixed-frame-time makes scripted runs deterministic, so they need not wait for vsync
+# (a 400-click case: 108 s with vsync, 4 s without, identical results).
+COMMON = ["--isolated", "--window-size", "1280x800", "--fixed-frame-time", "0.05", "--vsync", "off"]
 # Default 1280x800 layout: clickable viewport pixels are x 288..1013, y 70..765.
 LEFT, RIGHT, TOP, BOTTOM = 288, 1013, 70, 765
 
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 parser.add_argument("--only", choices=["equivalence", "benchmark"])
 parser.add_argument("--pairs", type=int, default=5)
+parser.add_argument("--bench", action="store_true", help="also run the benchmark section")
+parser.add_argument("--with-ab", action="store_true",
+                    help="also compare with the candidate's own A/B switch (slower; the baseline comparison is the regression check)")
 parser.add_argument("--pre-exe", help="reference binary (default: build/p8/Glider_base.exe)")
 parser.add_argument("--case", action="append", help="run only equivalence cases whose name starts with this (repeatable)")
+parser.add_argument("--extra", action="append", default=[], help="extra argument passed to every binary (repeatable)")
 args = parser.parse_args()
 if args.pre_exe:
     PRE_EXE = Path(args.pre_exe).resolve()
@@ -53,6 +59,9 @@ failures = []
 
 
 def section(name):
+    # Benchmarks back timing claims and are slow; regression runs skip them unless asked.
+    if name == "benchmark":
+        return args.only == "benchmark" or args.bench
     return args.only in (None, name)
 
 
@@ -68,8 +77,9 @@ def sha(path):
 
 for path, size in ((MANY, "40"), (HUGE, "100")):
     (REPO / path).parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run([sys.executable, str(REPO / "scripts" / "generate_many_drawables_fixture.py"), str(REPO / path), size],
-                   check=True, capture_output=True)
+    if not (REPO / path).exists():  # shared with other harnesses; run_regression.py writes them up front
+        subprocess.run([sys.executable, str(REPO / "scripts" / "generate_many_drawables_fixture.py"), str(REPO / path), size],
+                       check=True, capture_output=True)
 
 
 def run(mode, exe, name, script, extra):
@@ -83,7 +93,7 @@ def run(mode, exe, name, script, extra):
     scenario.write_text(text, encoding="utf-8")
     report.unlink(missing_ok=True)
     flags = ["--disable-pick-culling"] if mode == "nocull" else []
-    result = subprocess.run([str(exe)] + extra + COMMON + flags + ["--ui-script", str(scenario), "--ui-report", str(report)],
+    result = subprocess.run([str(exe)] + extra + COMMON + args.extra + flags + ["--ui-script", str(scenario), "--ui-report", str(report)],
                             cwd=REPO, capture_output=True, text=True, timeout=600)
     if result.returncode != 0 or not report.exists():
         check(False, f"{name} [{mode}]: exit {result.returncode} {result.stderr[-300:]}")
@@ -103,27 +113,29 @@ def equivalence(name, script, extra, clicks, expect_culled=False):
     if not wanted(name):
         return None
     pre = run("pre", PRE_EXE, name, script, extra)
-    nocull = run("nocull", EXE, name, script, extra)
+    nocull = run("nocull", EXE, name, script, extra) if args.with_ab else None
     cand = run("candidate", EXE, name, script, extra)
-    if not (pre and nocull and cand):
+    if not (pre and cand and (nocull or not args.with_ab)):
         return None
+    others = (pre, nocull) if args.with_ab else (pre,)
+    against = "baseline and --disable-pick-culling" if args.with_ab else "baseline"
     mismatches = [label for label, snap in cand["snaps"].items()
                   if any((o["snaps"][label]["selection"], o["snaps"][label]["camera"]) != (snap["selection"], snap["camera"])
-                         for o in (pre, nocull))]
-    check(not mismatches, f"{name}: {len(cand['snaps'])} snapshots, selection and camera match baseline and "
-                          f"--disable-pick-culling (mismatches: {mismatches[:5]})")
+                         for o in others)]
+    check(not mismatches, f"{name}: {len(cand['snaps'])} snapshots, selection and camera match {against} "
+                          f"(mismatches: {mismatches[:5]})")
     for shot, path in cand["shots"].items():
         h = sha(path)
-        check(h == sha(pre["shots"][shot]) and h == sha(nocull["shots"][shot]),
-              f"{name}/{shot}: byte-identical to baseline and to --disable-pick-culling")
+        check(all(h == sha(o["shots"][shot]) for o in others), f"{name}/{shot}: byte-identical to {against}")
     last = list(cand["snaps"].values())[-1]["revisions"]
     pre_last = list(pre["snaps"].values())[-1]["revisions"]
     # A click can land where the baseline also reads nothing (e.g. on the viewport
     # toolbar), so the read count is compared with the baseline, not the click count.
     check(last["pickUnserved"] == 0 and last["pickReads"] == pre_last["pickReads"] and last["pickReads"] >= clicks - 2,
           f"{name}: {clicks} clicks -> {last['pickReads']} reads (baseline {pre_last['pickReads']}), {last['pickUnserved']} unserved")
-    nocull_last = list(nocull["snaps"].values())[-1]["revisions"]
-    check(nocull_last.get("pickCulled", 0) == 0, f"{name}: --disable-pick-culling culls nothing")
+    if args.with_ab:
+        nocull_last = list(nocull["snaps"].values())[-1]["revisions"]
+        check(nocull_last.get("pickCulled", 0) == 0, f"{name}: --disable-pick-culling culls nothing")
     culled = last.get("pickCulled", 0)
     print(f"    {name}: {culled} drawables culled over {clicks} clicks")
     if expect_culled:
