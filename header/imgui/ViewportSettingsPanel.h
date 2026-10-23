@@ -3,6 +3,7 @@
 #pragma once
 
 #include "renderer/CommandGenerator.h"
+#include "imgui/SceneEnvironment.h"
 #include "imgui/SceneRevisions.h"
 #include "renderer/gltf/GltfRenderLayer.h"
 #include "renderer/editor/EditorRenderLayer.h"
@@ -14,22 +15,7 @@ class CameraActor;
 
 namespace ux3d::imgui {
 
-// Default IBL/skybox environment, embedded under resources/environments/.
-inline constexpr const char* kDefaultEnvironmentFile = "default_hdr_env4k.hdr";
-
 struct ViewportSettingsState {
-    bool showBackground = true;
-    glm::vec4 clearColor = glm::vec4(0.12f, 0.12f, 0.14f, 1.0f);
-    float hdrBlur = 0.0f;
-    float hdrIntensity = 1.0f;
-    float hdrRotation = 0.0f;
-    std::string currentHdrPath = kDefaultEnvironmentFile;
-
-    int toneMappingIdx = 1; // 0 = PBR Neutral, 1 = ACES Hill, 2 = ACES Narkowicz
-    float exposureEV = 0.0f; // EV value, exposure = 2^EV
-    bool iblEnabled = true;
-    bool punctualLightsEnabled = true;
-
     ux3d::renderer::RenderMode renderMode = ux3d::renderer::RenderMode::None;
     int renderModeIdx = 0; // 0 = None / Shaded
     bool showGrid = true;

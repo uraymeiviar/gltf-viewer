@@ -2,7 +2,7 @@
 """Phase 4 exit gate: one targeted transition test per revision producer.
 
 Every step drives a real UI control on resources/test_models/hierarchy_animation_fixture.gltf
-(1920x1080, so all Viewport Settings tabs fit) and requires:
+(1920x1080, so all Inspector controls fit) and requires:
   * the expected SceneChange kind's revision advanced (the producer marks correctly),
   * a full renderer sync happened for kinds that need one, and none for the
     no-rebuild kinds (Selection, ViewCamera; AnimationTime applies the pose),
@@ -34,6 +34,8 @@ REFERENCE = ["--force-full-sync", "--disable-command-caches", "--disable-transfo
 NO_SYNC = {"Selection", "ViewCamera", "AnimationTime"}
 
 # (label, kind expected to advance, visible change expected, script lines)
+# Environment controls (IBL, lights, skybox) are in the Scene Inspector (hier.scene); viewport
+# settings open on their first tab, Render Modes.
 STEPS = [
     ("variant_alt", "Material", True, ["click 110 800"]),
     ("variant_default", "Material", True, ["click 110 778"]),
@@ -43,13 +45,13 @@ STEPS = [
     ("camera_fov", "SceneCamera", False, ["click 20 712", "wait 4", "click 120 734", "wait 6", "click 1700 124"]),
     ("rename", "Metadata", True, ["picknode 5", "wait 6", "dclick 1660 93", "wait 4", "key a ctrl", "type Renamed", "key enter"]),
     ("extension", "Extension", False, ["click 1571 475"]),
-    ("ibl_off", "RenderSettings", True, ["clickp hier.viewport 1", "wait 6", "click 1675 132", "wait 4", "click 1551 235"]),
-    ("punctual_off", "RenderSettings", True, ["click 1551 267"]),
-    ("lights_on", "RenderSettings", True, ["click 1551 235", "wait 4", "click 1551 267"]),
-    ("double_sided", "ViewportSettings", False, ["click 1772 132", "wait 4", "click 1551 330"]),
+    ("ibl_off", "RenderSettings", True, ["clickp hier.scene 0", "wait 6", "click 1551 431"]),
+    ("punctual_off", "RenderSettings", True, ["click 1551 463"]),
+    ("lights_on", "RenderSettings", True, ["click 1551 431", "wait 4", "click 1551 463"]),
+    ("double_sided", "ViewportSettings", False, ["clickp hier.viewport 1", "wait 6", "click 1551 330"]),
     ("invert_winding", "ViewportSettings", True, ["click 1551 362"]),
     ("overlay", "ViewportSettings", True, ["click 1551 362", "wait 4", "click 1551 423"]),
-    ("skybox_off", "RenderSettings", True, ["click 1551 423", "wait 4", "click 1580 132", "wait 4", "click 1551 164"]),
+    ("skybox_off", "RenderSettings", True, ["click 1551 423", "wait 4", "clickp hier.scene 0", "wait 6", "click 1551 164"]),
     ("eye_hide", "Visibility", True, ["click 1551 164", "wait 4", "click 405 149"]),
     ("transform", "Transform", True, ["click 405 149", "wait 4", "picknode 0", "wait 6", "dclick 1577 163", "wait 4",
                                       "key a ctrl", "type 1.5", "key enter"]),

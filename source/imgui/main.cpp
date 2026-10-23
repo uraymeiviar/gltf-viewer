@@ -45,6 +45,8 @@
 #include "core/Logger.h"
 
 #include "imgui/MaterialInspector.h"
+#include "imgui/SceneEnvironment.h"
+#include "imgui/SceneInspector.h"
 #include "imgui/ViewportSettingsPanel.h"
 #include "imgui/StatisticsPanel.h"
 #include "imgui/ValidationPanel.h"
@@ -1098,6 +1100,28 @@ static void updateWindowTitle(GLFWwindow* window, const std::string& currentFile
     glfwSetWindowTitle(window, title.c_str());
 }
 
+static ux3d::imgui::SceneEnvironmentState& getSceneEnvironment(
+    std::vector<ux3d::imgui::SceneEnvironmentState>& sceneEnvironments,
+    const ux3d::gltf::Gltf& gltfModel,
+    const ux3d::gltf::Scene* scene)
+{
+    const auto& scenes = gltfModel.getElements<ux3d::gltf::Scene>();
+    const size_t needed = std::max<size_t>(1, scenes.size());
+    if (sceneEnvironments.size() < needed) {
+        sceneEnvironments.resize(needed);
+    }
+    if (scene != nullptr) {
+        size_t idx = 0;
+        for (const auto& s : scenes) {
+            if (&s == scene) {
+                return sceneEnvironments[idx];
+            }
+            ++idx;
+        }
+    }
+    return sceneEnvironments[0];
+}
+
 // glTF loader helper
 static bool loadGltfModel(const std::string& filePath,
                           ux3d::gltf::Gltf& gltfModel,
@@ -1107,7 +1131,8 @@ static bool loadGltfModel(const std::string& filePath,
                           std::vector<std::unique_ptr<ux3d::imgui::ViewportInstance>>& viewports,
                           ux3d::renderer::GltfRenderLayer* gltfLayer,
                           ux3d::imgui::AnimationPlayer& animPlayer,
-                          ux3d::imgui::SceneRevisions& revisions)
+                          ux3d::imgui::SceneRevisions& revisions,
+                          std::vector<ux3d::imgui::SceneEnvironmentState>& sceneEnvironments)
 {
     logMessage("Opening file: " + filePath);
     ux3d::imgui::StatisticsPanel::invalidate();
@@ -1137,6 +1162,8 @@ static bool loadGltfModel(const std::string& filePath,
             activeScene = &gltfModel.getElements<ux3d::gltf::Scene>().front();
         }
         selection = ux3d::imgui::SelectionState();
+        const size_t sceneCount = gltfModel.getElements<ux3d::gltf::Scene>().size();
+        sceneEnvironments.assign(std::max<size_t>(1, sceneCount), ux3d::imgui::SceneEnvironmentState{});
 
         const auto uploadStart = ux3d::imgui::profiling::Clock::now();
         if (gltfLayer != nullptr) {
@@ -1457,6 +1484,15 @@ static ux3d::filesystem::Path resolveEnvironmentPath(const ux3d::filesystem::Pat
     return env1;
 }
 
+static ux3d::filesystem::Path resolveHdrPath(const std::string& hdrPath,
+                                             const ux3d::filesystem::Path& rendererRes)
+{
+    if (hdrPath.empty() || hdrPath == ux3d::imgui::kDefaultEnvironmentFile) {
+        return resolveEnvironmentPath(rendererRes);
+    }
+    return ux3d::imgui::StdFileSystem::instance().toPath(hdrPath.c_str());
+}
+
 static std::string resolveSampleModelPath()
 {
     auto& fs = ux3d::imgui::StdFileSystem::instance();
@@ -1628,6 +1664,7 @@ static bool writeScenarioReport(const std::string& reportPath,
                                 ux3d::gltf::Gltf& gltfModel,
                                 ux3d::gltf::Scene* activeScene,
                                 const ux3d::imgui::ViewportInstance& viewport,
+                                const ux3d::imgui::SceneEnvironmentState& environment,
                                 const std::string& environmentPath,
                                 bool environmentLoaded,
                                 const ux3d::imgui::AnimationPlayer& animationPlayer,
@@ -1802,16 +1839,16 @@ static bool writeScenarioReport(const std::string& reportPath,
         out << "null";
     }
     out << ",\n";
-    out << "    \"uiPath\": " << jsonEscape(settings.currentHdrPath) << ",\n";
-    out << "    \"iblEnabled\": " << (settings.iblEnabled ? "true" : "false") << ",\n";
+    out << "    \"uiPath\": " << jsonEscape(environment.currentHdrPath) << ",\n";
+    out << "    \"iblEnabled\": " << (environment.iblEnabled ? "true" : "false") << ",\n";
     out << "    \"rotation\": ";
-    writeJsonNumber(out, settings.hdrRotation);
+    writeJsonNumber(out, environment.hdrRotation);
     out << ",\n";
     out << "    \"intensity\": ";
-    writeJsonNumber(out, settings.hdrIntensity);
+    writeJsonNumber(out, environment.hdrIntensity);
     out << ",\n";
     out << "    \"blur\": ";
-    writeJsonNumber(out, settings.hdrBlur);
+    writeJsonNumber(out, environment.hdrBlur);
     out << "\n";
     out << "  },\n";
 
@@ -1819,11 +1856,11 @@ static bool writeScenarioReport(const std::string& reportPath,
     out << "    \"antiAliasing\": " << jsonEscape(antiAliasingName(settings.antiAliasingIdx)) << ",\n";
     out << "    \"antiAliasingIndex\": " << settings.antiAliasingIdx << ",\n";
     out << "    \"renderModeIndex\": " << settings.renderModeIdx << ",\n";
-    out << "    \"toneMappingIndex\": " << settings.toneMappingIdx << ",\n";
+    out << "    \"toneMappingIndex\": " << environment.toneMappingIdx << ",\n";
     out << "    \"exposureEV\": ";
-    writeJsonNumber(out, settings.exposureEV);
+    writeJsonNumber(out, environment.exposureEV);
     out << ",\n";
-    out << "    \"showBackground\": " << (settings.showBackground ? "true" : "false") << ",\n";
+    out << "    \"showBackground\": " << (environment.showBackground ? "true" : "false") << ",\n";
     out << "    \"showGrid\": " << (settings.showGrid ? "true" : "false") << ",\n";
     out << "    \"forceDoubleSided\": " << (settings.forceDoubleSided ? "true" : "false") << ",\n";
     out << "    \"invertWinding\": " << (settings.invertWinding ? "true" : "false") << ",\n";
@@ -1837,15 +1874,15 @@ static bool writeScenarioReport(const std::string& reportPath,
     out << "    \"turntableSpeed\": ";
     writeJsonNumber(out, settings.turntableSpeed);
     out << ",\n";
-    out << "    \"punctualLightsEnabled\": " << (settings.punctualLightsEnabled ? "true" : "false") << ",\n";
+    out << "    \"punctualLightsEnabled\": " << (environment.punctualLightsEnabled ? "true" : "false") << ",\n";
     out << "    \"clearColor\": [";
-    writeJsonNumber(out, settings.clearColor.r);
+    writeJsonNumber(out, environment.clearColor.r);
     out << ", ";
-    writeJsonNumber(out, settings.clearColor.g);
+    writeJsonNumber(out, environment.clearColor.g);
     out << ", ";
-    writeJsonNumber(out, settings.clearColor.b);
+    writeJsonNumber(out, environment.clearColor.b);
     out << ", ";
-    writeJsonNumber(out, settings.clearColor.a);
+    writeJsonNumber(out, environment.clearColor.a);
     out << "]\n";
     out << "  },\n";
 
@@ -2326,6 +2363,7 @@ int main(int argc, char** argv)
 
     ux3d::gltf::Gltf gltfModel;
     ux3d::gltf::Scene* activeScene = nullptr;
+    std::vector<ux3d::imgui::SceneEnvironmentState> sceneEnvironments(1);
     ux3d::imgui::SelectionState selection;
     std::string currentFilePath = "";
     ux3d::imgui::SceneRevisions sceneRevisions;
@@ -2472,6 +2510,14 @@ int main(int argc, char** argv)
     float cameraTargetZ = 0.0f;
     float cameraFovArg = 0.0f;
     std::string cameraProjectionArg;
+    bool cliHdrProvided = false;
+    std::string cliHdrPath;
+    bool cliHdrRotationProvided = false;
+    float cliHdrRotation = 0.0f;
+    bool cliExposureProvided = false;
+    float cliExposureEV = 0.0f;
+    bool cliToneMappingProvided = false;
+    int cliToneMappingIdx = 1;
     bool modelLoaded = false;
 
     auto parseDisplayOptions = [](const std::string& spec, ux3d::imgui::HierarchyDisplayOptions& options) {
@@ -2733,7 +2779,9 @@ int main(int argc, char** argv)
                 startupProfile.environmentFilterMs += ux3d::imgui::profiling::elapsedMs(environmentFilterStart);
                 startupProfile.environmentLoads++;
                 scenarioEnvironmentLoaded = true;
-                activeViewport->settings.currentHdrPath = customHdr;
+                cliHdrProvided = true;
+                cliHdrPath = customHdr;
+                getSceneEnvironment(sceneEnvironments, gltfModel, activeScene).currentHdrPath = customHdr;
                 commandGenerator->setIBLEnabled(true);
                 logMessage("Loaded environment map: " + customHdr);
             }
@@ -2746,9 +2794,20 @@ int main(int argc, char** argv)
             else if (aaVal == "fxaa" || aaVal == "4") activeViewport->settings.antiAliasingIdx = 4;
             else if (aaVal == "taa" || aaVal == "5") activeViewport->settings.antiAliasingIdx = 5;
         } else if (arg == "--hdr-rotation" && i + 1 < argc) {
-            activeViewport->settings.hdrRotation = std::stof(argv[++i]);
+            cliHdrRotation = std::stof(argv[++i]);
+            cliHdrRotationProvided = true;
+            getSceneEnvironment(sceneEnvironments, gltfModel, activeScene).hdrRotation = cliHdrRotation;
         } else if (arg == "--exposure" && i + 1 < argc) {
-            activeViewport->settings.exposureEV = std::stof(argv[++i]);
+            cliExposureEV = std::stof(argv[++i]);
+            cliExposureProvided = true;
+            getSceneEnvironment(sceneEnvironments, gltfModel, activeScene).exposureEV = cliExposureEV;
+        } else if (arg == "--tone-mapping" && i + 1 < argc) {
+            std::string tmVal = toLowerAscii(argv[++i]);
+            if (tmVal == "pbr_neutral" || tmVal == "neutral" || tmVal == "0") cliToneMappingIdx = 0;
+            else if (tmVal == "aces_hill" || tmVal == "hill" || tmVal == "1") cliToneMappingIdx = 1;
+            else if (tmVal == "aces_narkowicz" || tmVal == "narkowicz" || tmVal == "2") cliToneMappingIdx = 2;
+            cliToneMappingProvided = true;
+            getSceneEnvironment(sceneEnvironments, gltfModel, activeScene).toneMappingIdx = cliToneMappingIdx;
         } else if (arg == "--render-mode" && i + 1 < argc) {
             std::string rmVal = toLowerAscii(argv[++i]);
             if (rmVal == "wireframe" || rmVal == "1") {
@@ -2885,7 +2944,7 @@ int main(int argc, char** argv)
 
     if (!samplerSelfCheckOutputPath.empty()) {
         auto reloadAndDraw = [&](const std::string& path) -> bool {
-            bool ok = loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, sceneRevisions);
+            bool ok = loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, sceneRevisions, sceneEnvironments);
             if (!ok || activeScene == nullptr) return false;
             auto [scene, reverseMapping] = gltfLayer->createScene(activeScene);
             commandGenerator->update(scene);
@@ -2900,7 +2959,7 @@ int main(int argc, char** argv)
 
     if (!vaoSelfCheckOutputPath.empty()) {
         auto reloadAndDraw = [&](const std::string& path) -> bool {
-            bool ok = loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, sceneRevisions);
+            bool ok = loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, sceneRevisions, sceneEnvironments);
             if (!ok || activeScene == nullptr) return false;
             auto [scene, reverseMapping] = gltfLayer->createScene(activeScene);
             commandGenerator->update(scene);
@@ -2915,7 +2974,7 @@ int main(int argc, char** argv)
 
     if (!polygonModeSelfCheckOutputPath.empty()) {
         auto reloadAndDraw = [&](const std::string& path) -> bool {
-            bool ok = loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, sceneRevisions);
+            bool ok = loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, sceneRevisions, sceneEnvironments);
             if (!ok || activeScene == nullptr) return false;
             auto [scene, reverseMapping] = gltfLayer->createScene(activeScene);
             commandGenerator->update(scene);
@@ -2930,7 +2989,7 @@ int main(int argc, char** argv)
 
     if (!cullWindingSelfCheckOutputPath.empty()) {
         auto reloadAndDraw = [&](const std::string& path) -> bool {
-            bool ok = loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, sceneRevisions);
+            bool ok = loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, sceneRevisions, sceneEnvironments);
             if (!ok || activeScene == nullptr) return false;
             auto [scene, reverseMapping] = gltfLayer->createScene(activeScene);
             commandGenerator->update(scene);
@@ -2945,7 +3004,7 @@ int main(int argc, char** argv)
 
     if (!depthSelfCheckOutputPath.empty()) {
         auto reloadAndDraw = [&](const std::string& path) -> bool {
-            bool ok = loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, sceneRevisions);
+            bool ok = loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, sceneRevisions, sceneEnvironments);
             if (!ok || activeScene == nullptr) return false;
             auto [scene, reverseMapping] = gltfLayer->createScene(activeScene);
             commandGenerator->update(scene);
@@ -2960,7 +3019,7 @@ int main(int argc, char** argv)
 
     if (!blendSelfCheckOutputPath.empty()) {
         auto reloadAndDraw = [&](const std::string& path) -> bool {
-            bool ok = loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, sceneRevisions);
+            bool ok = loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, sceneRevisions, sceneEnvironments);
             if (!ok || activeScene == nullptr) return false;
             auto [scene, reverseMapping] = gltfLayer->createScene(activeScene);
             commandGenerator->update(scene);
@@ -3002,7 +3061,7 @@ int main(int argc, char** argv)
     }
 
     if (ux3d::imgui::StdFileSystem::instance().isFile(ux3d::imgui::StdFileSystem::instance().toFile(modelToLoad.c_str()))) {
-        modelLoaded = loadGltfModel(modelToLoad, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, sceneRevisions);
+        modelLoaded = loadGltfModel(modelToLoad, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, sceneRevisions, sceneEnvironments);
         updateWindowTitle(window, currentFilePath);
 
         auto renameNamedElement = [](auto& elements, const std::string& assignment, const char* label) {
@@ -3142,9 +3201,18 @@ int main(int argc, char** argv)
     }
 
     if (!reloadModelArg.empty()) {
-        modelLoaded = loadGltfModel(reloadModelArg, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, sceneRevisions);
+        modelLoaded = loadGltfModel(reloadModelArg, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, sceneRevisions, sceneEnvironments);
         updateWindowTitle(window, currentFilePath);
         std::printf("Reloaded model: %s\n", reloadModelArg.c_str());
+    }
+
+    if (cliHdrProvided || cliHdrRotationProvided || cliExposureProvided || cliToneMappingProvided) {
+        for (auto& env : sceneEnvironments) {
+            if (cliHdrProvided) env.currentHdrPath = cliHdrPath;
+            if (cliHdrRotationProvided) env.hdrRotation = cliHdrRotation;
+            if (cliExposureProvided) env.exposureEV = cliExposureEV;
+            if (cliToneMappingProvided) env.toneMappingIdx = cliToneMappingIdx;
+        }
     }
 
     // P0.1 explicit camera/projection controls are applied after model load and
@@ -3417,7 +3485,7 @@ int main(int argc, char** argv)
             if (ImGui::IsKeyPressed(ImGuiKey_O)) {
                 auto openResult = pfd::open_file("Open glTF / GLB", "", { "glTF files (*.gltf *.glb)", "*.gltf *.glb" }).result();
                 if (!openResult.empty()) {
-                    loadGltfModel(openResult[0], gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, sceneRevisions);
+                    loadGltfModel(openResult[0], gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, sceneRevisions, sceneEnvironments);
                     updateWindowTitle(window, currentFilePath);
                 }
             }
@@ -3450,7 +3518,7 @@ int main(int argc, char** argv)
                 if (ImGui::MenuItem(ICON_MDI_FOLDER_OPEN " Open ...", "Ctrl+O")) {
                     auto openResult = pfd::open_file("Open glTF / GLB", "", { "glTF files (*.gltf *.glb)", "*.gltf *.glb" }).result();
                     if (!openResult.empty()) {
-                        loadGltfModel(openResult[0], gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, sceneRevisions);
+                        loadGltfModel(openResult[0], gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, sceneRevisions, sceneEnvironments);
                         updateWindowTitle(window, currentFilePath);
                     }
                 }
@@ -3470,7 +3538,7 @@ int main(int argc, char** argv)
                             saveRecentFiles(s_recentFiles);
                         }
                         if (!fileToOpen.empty()) {
-                            loadGltfModel(fileToOpen, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, sceneRevisions);
+                            loadGltfModel(fileToOpen, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, sceneRevisions, sceneEnvironments);
                             updateWindowTitle(window, currentFilePath);
                         }
                     }
@@ -3734,6 +3802,22 @@ int main(int argc, char** argv)
         // -------------------------------------------------------------
         // Viewport Windows (Multi-Viewport)
         // -------------------------------------------------------------
+        auto& activeEnvironment = getSceneEnvironment(sceneEnvironments, gltfModel, activeScene);
+        if (gltfLayer != nullptr) {
+            const auto desiredEnvPath = resolveHdrPath(activeEnvironment.currentHdrPath, rendererResourcesDir);
+            if (gltfLayer->getEnvironmentMapPath().toString() != desiredEnvPath.toString()) {
+                scenarioEnvironmentPath = desiredEnvPath.toString().c_str();
+                scenarioEnvironmentLoaded = false;
+                if (ux3d::imgui::StdFileSystem::instance().isFile(desiredEnvPath)) {
+                    gltfLayer->setEnvironmentMap(desiredEnvPath);
+                    if (gltfLayer->filterEnvironmentMap()) {
+                        scenarioEnvironmentLoaded = true;
+                        sceneRevisions.mark(ux3d::imgui::SceneChange::RenderSettings);
+                    }
+                }
+            }
+        }
+
         // Viewports drawn this frame share one scene traversal (see GltfRenderLayer).
         if (!s_disableSharedTraversal) {
             gltfLayer->beginSceneFrame();
@@ -4136,6 +4220,7 @@ int main(int argc, char** argv)
             renderKey.attached = vp->isAttachedToCamera;
             renderKey.attachedCameraNode = vp->attachedCameraNode;
             renderKey.settings = vp->settings;
+            renderKey.environment = activeEnvironment;
             const bool keyUnchanged = vp->hasCachedImage && renderKey == vp->lastRenderKey;
             const bool isTaa = aaMode == ux3d::imgui::AntiAliasingMode::TAA;
             const bool taaAccumulating = isTaa
@@ -4158,10 +4243,10 @@ int main(int argc, char** argv)
             if (redrawScene) {
                 vp->sceneFbo.bind();
                 glViewport(0, 0, vpW, vpH);
-                if (vp->settings.showBackground) {
+                if (activeEnvironment.showBackground) {
                     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
                 } else {
-                    glClearColor(vp->settings.clearColor.r, vp->settings.clearColor.g, vp->settings.clearColor.b, vp->settings.clearColor.a);
+                    glClearColor(activeEnvironment.clearColor.r, activeEnvironment.clearColor.g, activeEnvironment.clearColor.b, activeEnvironment.clearColor.a);
                 }
                 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
             }
@@ -4175,7 +4260,7 @@ int main(int argc, char** argv)
             // 1. Render glTF scene & background skybox
             if (redrawScene && gltfLayer != nullptr && glRenderer != nullptr && commandGenerator != nullptr) {
                 const auto sceneBuildStart = ux3d::imgui::profiling::Clock::now();
-                gltfLayer->enableCubeMap(vp->settings.showBackground);
+                gltfLayer->enableCubeMap(activeEnvironment.showBackground);
 
                 auto mode = vp->settings.renderMode;
 
@@ -4236,13 +4321,20 @@ int main(int argc, char** argv)
                 }
                 markStage("scene.build", sceneBuildStart);
 
-                // Continuously synchronize viewport lighting, exposure, and environment parameters
-                commandGenerator->setExposure(std::pow(2.0f, vp->settings.exposureEV));
-                commandGenerator->setEnvironmentMapIntensity(vp->settings.hdrIntensity);
-                commandGenerator->setEnvironmentMapRotation(vp->settings.hdrRotation);
-                commandGenerator->setEnvironmentMapBlurNormalized(vp->settings.hdrBlur);
-                commandGenerator->setIBLEnabled(vp->settings.iblEnabled);
-                commandGenerator->setPunctualLightsEnabled(vp->settings.punctualLightsEnabled);
+                // Continuously synchronize scene lighting, tone mapping, exposure, and environment parameters
+                if (activeEnvironment.toneMappingIdx == 0) {
+                    commandGenerator->setToneMapping(ux3d::renderer::ToneMappingsEnum::PBR_NEUTRAL);
+                } else if (activeEnvironment.toneMappingIdx == 1) {
+                    commandGenerator->setToneMapping(ux3d::renderer::ToneMappingsEnum::ACES_HILL);
+                } else if (activeEnvironment.toneMappingIdx == 2) {
+                    commandGenerator->setToneMapping(ux3d::renderer::ToneMappingsEnum::ACES_NARKOWICZ);
+                }
+                commandGenerator->setExposure(std::pow(2.0f, activeEnvironment.exposureEV));
+                commandGenerator->setEnvironmentMapIntensity(activeEnvironment.hdrIntensity);
+                commandGenerator->setEnvironmentMapRotation(activeEnvironment.hdrRotation);
+                commandGenerator->setEnvironmentMapBlurNormalized(activeEnvironment.hdrBlur);
+                commandGenerator->setIBLEnabled(activeEnvironment.iblEnabled);
+                commandGenerator->setPunctualLightsEnabled(activeEnvironment.punctualLightsEnabled);
 
                 const auto commandGenerationStart = ux3d::imgui::profiling::Clock::now();
                 const uint64_t programHitsBefore = commandGenerator->getCommandMapping().getProgramCacheHits();
@@ -4661,7 +4753,18 @@ int main(int argc, char** argv)
         // -------------------------------------------------------------
         if (showInspector) {
             if (ImGui::Begin(WND_INSPECTOR, &showInspector)) {
-                ux3d::imgui::ElementInspector::render(selection, gltfModel, sceneRevisions, &animationPlayer, gltfLayer.get(), &viewports, commandGenerator.get());
+                if (selection.type == ux3d::imgui::SelectionType::Scene) {
+                    auto* inspectedScene = selection.selectedScene != nullptr ? selection.selectedScene : activeScene;
+                    ux3d::imgui::SceneInspector::render(
+                        getSceneEnvironment(sceneEnvironments, gltfModel, inspectedScene),
+                        commandGenerator.get(),
+                        gltfLayer.get(),
+                        sceneRevisions,
+                        inspectedScene
+                    );
+                } else {
+                    ux3d::imgui::ElementInspector::render(selection, gltfModel, sceneRevisions, &animationPlayer, gltfLayer.get(), &viewports, commandGenerator.get());
+                }
             }
             ImGui::End();
         }
@@ -4690,7 +4793,7 @@ int main(int argc, char** argv)
         if (showSearchPaths) {
             ux3d::imgui::renderSearchPathsWindow(&showSearchPaths, [&]() {
                 if (!currentFilePath.empty()) {
-                    loadGltfModel(currentFilePath, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, sceneRevisions);
+                    loadGltfModel(currentFilePath, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, sceneRevisions, sceneEnvironments);
                 }
             });
         }
@@ -4933,7 +5036,7 @@ int main(int argc, char** argv)
             const std::string reportModelPath = currentFilePath.empty() ? modelToLoad : currentFilePath;
             if (writeScenarioReport(scenarioReportPath, scenarioName, frameCount, window,
                                     reportModelPath, modelLoaded, gltfModel, activeScene,
-                                    *activeViewport, scenarioEnvironmentPath, scenarioEnvironmentLoaded,
+                                    *activeViewport, activeEnvironment, scenarioEnvironmentPath, scenarioEnvironmentLoaded,
                                     animationPlayer, selection)) {
                 std::printf("Wrote scenario report to %s\n", scenarioReportPath.c_str());
             } else {
@@ -5090,7 +5193,7 @@ int main(int argc, char** argv)
                 return saveImage(path.c_str(), displayW, displayH, pixels.data());
             };
             uiFrame.loadModel = [&](const std::string& path) {
-                const bool loaded = loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, sceneRevisions);
+                const bool loaded = loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(), animationPlayer, sceneRevisions, sceneEnvironments);
                 updateWindowTitle(window, currentFilePath);
                 return loaded;
             };

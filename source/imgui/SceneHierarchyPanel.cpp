@@ -697,6 +697,9 @@ static void buildRowModel(const ux3d::gltf::Gltf& gltfModel,
         sceneRow.isOpen = sceneOpen;
         sceneRow.label = &s_hierarchyCache.sceneLabel;
 
+        if (selection.type == SelectionType::Scene && selection.selectedScene == activeScene) {
+            s_hierarchyCache.selectedRowIndex = static_cast<int>(s_hierarchyCache.rows.size());
+        }
         s_hierarchyCache.rowIdToIndex[sceneId] = static_cast<int>(s_hierarchyCache.rows.size());
         s_hierarchyCache.rows.push_back(sceneRow);
 
@@ -900,7 +903,12 @@ static void renderRow(const HierarchyRow& row,
     }
 
     ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_NoTreePushOnOpen;
-    if (row.type == HierarchyRowType::Scene || row.type == HierarchyRowType::ViewportsHeader) {
+    if (row.type == HierarchyRowType::Scene) {
+        flags |= ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth;
+        if (!row.isLeaf) {
+            flags |= ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick;
+        }
+    } else if (row.type == HierarchyRowType::ViewportsHeader) {
         flags |= ImGuiTreeNodeFlags_DefaultOpen;
     } else {
         flags |= ImGuiTreeNodeFlags_SpanAvailWidth;
@@ -961,6 +969,13 @@ static void renderRow(const HierarchyRow& row,
     }
 
     switch (row.type) {
+        case HierarchyRowType::Scene: {
+            auto* scene = static_cast<ux3d::gltf::Scene*>(row.object);
+            if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
+                selection.selectScene(scene);
+            }
+            break;
+        }
         case HierarchyRowType::Node: {
             auto* node = static_cast<ux3d::gltf::Node*>(row.object);
             if (ImGui::IsItemClicked()) {
@@ -1598,6 +1613,7 @@ void SceneHierarchyPanel::render(ux3d::gltf::Gltf& gltfModel,
     else if (selection.type == SelectionType::Material) curSelectedObj = selection.selectedMaterial;
     else if (selection.type == SelectionType::Camera) curSelectedObj = selection.selectedCamera;
     else if (selection.type == SelectionType::Light) curSelectedObj = selection.selectedLight;
+    else if (selection.type == SelectionType::Scene) curSelectedObj = selection.selectedScene;
     else if (selection.type == SelectionType::Viewport) curSelectedObj = reinterpret_cast<void*>(static_cast<intptr_t>(selection.selectedViewportId));
 
     const bool selectionStale = (selection.type != s_hierarchyCache.lastSelectionType)

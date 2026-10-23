@@ -110,7 +110,7 @@ flowchart TD
 - **Core Pipeline**:
   - `ux3d::renderer::GltfRenderLayer`: Manages the active scene, geometry buffers, skins, and reverse mapping from drawables to glTF nodes.
   - `ux3d::renderer::CommandGenerator`: Manages PBR material uniforms, punctual lights, tone mapping (ACES Hill), exposure EV, and IBL parameters.
-  - `ux3d::renderer::IBLSampler`: Loads the default environment `resources/environments/default_hdr_env4k.hdr` (`kDefaultEnvironmentFile` in `ViewportSettingsPanel.h`) from memory, converts equirectangular panorama to cubemap, and computes diffuse Lambertian irradiance, specular GGX reflection cubemap mips, and Charlie sheen LUT.
+  - `ux3d::renderer::IBLSampler`: Loads the default environment `resources/environments/default_hdr_env4k.hdr` (`kDefaultEnvironmentFile` in `SceneEnvironment.h`) from memory, converts equirectangular panorama to cubemap, and computes diffuse Lambertian irradiance, specular GGX reflection cubemap mips, and Charlie sheen LUT.
   - `ux3d::imgui::GridRenderer`: Infinite fading ground plane grid with adaptive grid subdivisions based on camera altitude and zoom.
   - `ux3d::imgui::BoundingBoxRenderer`: Immediate-mode wireframe bounding box renderer supporting both axis-aligned (AABB) and oriented bounding boxes (OBB).
 
@@ -205,7 +205,9 @@ build/bin/Release/Glider.exe
 - `--dump-frame <output.jpg>`: Renders 8 warm-up frames and dumps the window framebuffer to disk as `.jpg` or `.png`.
 - `--exit-after-dump`: Exits the application immediately after dumping the frame.
 - `--quality <high|balanced|performance>`: Render-quality preset for this run (default High, the original quality). Finer overrides: `--ibl-size`, `--ibl-irradiance-size`, `--ibl-lut-size`, `--ibl-precision <32|16>`, `--ibl-samples`, `--grid-mode <ray|plane>`, `--render-scale`. The UI equivalent is **Viewport Settings → Quality**, saved in `%APPDATA%/Glider/render_quality.txt`.
-- `--hdr-rotation <deg>`, `--exposure <ev>`: Environment rotation and exposure for this run.
+- `--hdr-rotation <deg>`, `--exposure <ev>`, `--tone-mapping <neutral|hill|narkowicz>`: Environment rotation,
+  exposure and tone mapping for this run. Environment settings belong to the glTF scene (one set per scene, shared
+  by every viewport) and are edited in the Inspector when the scene row is selected (`SceneInspector`).
 - `--show-invisible-materials`: Also draw materials marked invisible by `ASOBO_material_invisible` (hidden by default).
 - `--disable-shared-traversal`: Every viewport traverses the scene itself (A/B reference).
 - `--disable-pick-culling`, `--disable-instancing`: Same-binary A/B references for the Phase 8 hybrid picking and instancing (see `docs/RENDERER_OPTIMIZATION_PHASE_8.md`).
@@ -222,7 +224,7 @@ Edit, add or remove files under `resources/` (shaders, fonts, environments, samp
 ```cmd
 cmake --build build --config Release --target Glider
 ```
-CMake reruns `scripts/pack_resources.py` before compiling whenever a packed resource or the packer changes, and the generated `EmbeddedResources.cpp` is never committed. Python 3 with `pip install zstandard` is required at build time. New files are picked up through `CONFIGURE_DEPENDS` globbing. The default environment's file name is `kDefaultEnvironmentFile` in `header/imgui/ViewportSettingsPanel.h`. Keep it at 4096×2048 or below: the renderer resamples it to 1024-pixel cube faces, and the generated hex array grows by about 6 bytes of source per compressed byte.
+CMake reruns `scripts/pack_resources.py` before compiling whenever a packed resource or the packer changes, and the generated `EmbeddedResources.cpp` is never committed. Python 3 with `pip install zstandard` is required at build time. New files are picked up through `CONFIGURE_DEPENDS` globbing. The default environment's file name is `kDefaultEnvironmentFile` in `header/imgui/SceneEnvironment.h`. Keep it at 4096×2048 or below: the renderer resamples it to 1024-pixel cube faces, and the generated hex array grows by about 6 bytes of source per compressed byte.
 
 ### 4.4 Publishing GitHub Releases
 

@@ -47,6 +47,7 @@ struct ViewportRenderKey {
     bool attached = false;
     const void* attachedCameraNode = nullptr;
     ViewportSettingsState settings;
+    SceneEnvironmentState environment;
 
     bool operator==(const ViewportRenderKey&) const = default;
 };

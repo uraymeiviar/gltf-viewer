@@ -19,6 +19,8 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
                                    const std::string& attachedCameraName,
                                    std::function<void()> onDetachCamera)
 {
+    (void)commandGenerator;
+
     if (isAttachedToCamera) {
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.4f, 0.8f, 1.0f, 1.0f));
         ImGui::Text(ICON_MDI_CAMERA " Attached to glTF Camera: %s", attachedCameraName.empty() ? "(Unnamed)" : attachedCameraName.c_str());
@@ -34,122 +36,7 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
 
     if (ImGui::BeginTabBar("ViewportSettingsTabs")) {
         // -------------------------------------------------------------
-        // Tab 1: Environment
-        // -------------------------------------------------------------
-        if (ImGui::BeginTabItem("Environment")) {
-            // Show background skybox toggle
-            if (ImGui::Checkbox("Show Background Skybox", &state.showBackground)) {
-                if (gltfLayer != nullptr) {
-                    gltfLayer->enableCubeMap(state.showBackground);
-                    revisions.mark(SceneChange::RenderSettings);
-                }
-            }
-
-            // Clear color (used when skybox is disabled)
-            if (!state.showBackground) {
-                float clr[4] = { state.clearColor.r, state.clearColor.g, state.clearColor.b, state.clearColor.a };
-                if (ImGui::ColorEdit4("Clear Color", clr)) {
-                    state.clearColor = glm::vec4(clr[0], clr[1], clr[2], clr[3]);
-                }
-            }
-
-            ImGui::Separator();
-
-            // HDR environment map
-            ImGui::Text("HDR / EXR Environment: %s", state.currentHdrPath.c_str());
-            if (ImGui::Button("Load Custom HDR / EXR...")) {
-                auto selection = pfd::open_file("Open HDR / EXR Panorama", "", { "HDR / OpenEXR Environment (*.hdr *.exr)", "*.hdr *.exr", "All Files (*.*)", "*.*" }).result();
-                if (!selection.empty() && gltfLayer != nullptr) {
-                    auto path = ux3d::imgui::StdFileSystem::instance().toPath(selection[0].c_str());
-                    gltfLayer->setEnvironmentMap(path);
-                    if (gltfLayer->filterEnvironmentMap()) {
-                        state.currentHdrPath = selection[0];
-                        if (commandGenerator != nullptr) {
-                            commandGenerator->setIBLEnabled(true);
-                        }
-                        revisions.mark(SceneChange::RenderSettings);
-                    }
-                }
-            }
-
-            // HDR Blur
-            if (ImGui::SliderFloat("HDR Blur", &state.hdrBlur, 0.0f, 1.0f, "%.2f")) {
-                if (commandGenerator != nullptr) {
-                    commandGenerator->setEnvironmentMapBlurNormalized(state.hdrBlur);
-                }
-            }
-
-            // HDR Intensity
-            if (ImGui::SliderFloat("HDR Intensity", &state.hdrIntensity, 0.0f, 10.0f, "%.2f")) {
-                if (commandGenerator != nullptr) {
-                    commandGenerator->setEnvironmentMapIntensity(state.hdrIntensity);
-                }
-            }
-
-            // HDR Rotation
-            if (ImGui::SliderFloat("HDR Rotation", &state.hdrRotation, 0.0f, 360.0f, "%.1f deg")) {
-                if (commandGenerator != nullptr) {
-                    commandGenerator->setEnvironmentMapRotation(state.hdrRotation);
-                }
-            }
-
-            ImGui::EndTabItem();
-        }
-
-        // -------------------------------------------------------------
-        // Tab 2: Lighting & Tone Mapping
-        // -------------------------------------------------------------
-        if (ImGui::BeginTabItem("Lighting & Exposure")) {
-            // Tone Mapping
-            const char* toneMappingNames[] = {
-                "Khronos PBR Neutral",
-                "ACES Hill",
-                "ACES Narkowicz"
-            };
-            if (ImGui::Combo("Tone Mapping", &state.toneMappingIdx, toneMappingNames, 3)) {
-                if (commandGenerator != nullptr) {
-                    if (state.toneMappingIdx == 0) {
-                        commandGenerator->setToneMapping(ux3d::renderer::ToneMappingsEnum::PBR_NEUTRAL);
-                    } else if (state.toneMappingIdx == 1) {
-                        commandGenerator->setToneMapping(ux3d::renderer::ToneMappingsEnum::ACES_HILL);
-                    } else if (state.toneMappingIdx == 2) {
-                        commandGenerator->setToneMapping(ux3d::renderer::ToneMappingsEnum::ACES_NARKOWICZ);
-                    }
-                    revisions.mark(SceneChange::RenderSettings);
-                }
-            }
-
-            // Exposure (EV slider and linear multiplier)
-            if (ImGui::SliderFloat("Exposure (EV)", &state.exposureEV, -4.0f, 4.0f, "%.2f EV")) {
-                float linearExposure = std::pow(2.0f, state.exposureEV);
-                if (commandGenerator != nullptr) {
-                    commandGenerator->setExposure(linearExposure);
-                }
-            }
-
-            ImGui::Separator();
-
-            // IBL toggle
-            if (ImGui::Checkbox("Image Based Lighting (IBL)", &state.iblEnabled)) {
-                if (commandGenerator != nullptr) {
-                    commandGenerator->setIBLEnabled(state.iblEnabled);
-                    revisions.mark(SceneChange::RenderSettings);
-                }
-            }
-
-            // Punctual lights toggle
-            if (ImGui::Checkbox("Punctual / Analytical Lights", &state.punctualLightsEnabled)) {
-                if (commandGenerator != nullptr) {
-                    commandGenerator->setPunctualLightsEnabled(state.punctualLightsEnabled);
-                    revisions.mark(SceneChange::RenderSettings);
-                }
-            }
-
-            ImGui::EndTabItem();
-        }
-
-        // -------------------------------------------------------------
-        // Tab 3: Debug Render Modes
+        // Tab 1: Debug Render Modes
         // -------------------------------------------------------------
         if (ImGui::BeginTabItem("Render Modes")) {
             const char* renderModes[] = {
@@ -244,7 +131,7 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
                     }
                     for (const auto& v : variants) {
                         bool isSel = (gltfLayer && gltfLayer->getMaterialVariant().has_value() && gltfLayer->getMaterialVariant().value() == v.m_ID);
-                        std::string vLabel = v.hasName() ? v.getName().c_str() : ("Variant " + std::to_string(v.m_ID));
+                        std::string vLabel = v.hasName() ? v.hasName() ? v.getName().c_str() : ("Variant " + std::to_string(v.m_ID)) : ("Variant " + std::to_string(v.m_ID));
                         if (ImGui::Selectable(vLabel.c_str(), isSel)) {
                             if (gltfLayer) {
                                 gltfLayer->setMaterialVariant(v.m_ID);
@@ -260,7 +147,7 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
         }
 
         // -------------------------------------------------------------
-        // Tab 4: Camera & Helpers
+        // Tab 2: Camera & Helpers
         // -------------------------------------------------------------
         if (ImGui::BeginTabItem("Camera & Helpers")) {
             ImGui::Text("Viewport Display:");
@@ -345,7 +232,7 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
         }
 
         // -------------------------------------------------------------
-        // Tab 5: Render Quality (all viewports)
+        // Tab 3: Render Quality (all viewports)
         // -------------------------------------------------------------
         if (ImGui::BeginTabItem("Quality")) {
             RenderQuality::drawSettings(gltfLayer, revisions);
