@@ -89,7 +89,7 @@ CommandMapping::CommandSignature CommandMapping::makeSignature(const Mesh& mesh,
     sig.useIBL = m_scene.m_useIBL;
     sig.usePunctualLights = m_scene.m_usePunctualLights;
     sig.culling = material.isDoubleSided ? 1u : 0u;
-    sig.winding = static_cast<uint32_t>(mesh.frontFace);
+    sig.winding = static_cast<uint32_t>(mesh.effectiveFrontFace());
     sig.polygonMode = static_cast<uint32_t>(mesh.polygonMode);
     sig.topology = static_cast<uint32_t>(mesh.primitiveTopology);
     return sig;
@@ -604,7 +604,9 @@ std::optional<CmdDesc> CommandMapping::makeCommand(MeshMaterialTuple meshMat)
     command->vertexLayout = m_scene.getVertexLayoutCache().getOrCreate(mesh, program);
 
     command->culling = material->isDoubleSided ? gl::Culling::None : gl::Culling::Back;
-    command->winding = mesh->frontFace;
+    // The single front-face decision for every pass that builds glTF draw commands.
+    // It folds in the mirrored-node rule and the packaged clockwise storage convention.
+    command->winding = mesh->effectiveFrontFace();
     command->polygonMode = mesh->polygonMode;
     command->primitiveTopology = mesh->primitiveTopology;
 

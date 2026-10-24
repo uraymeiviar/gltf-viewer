@@ -52,6 +52,18 @@ public:
     uint64_t getGeneration() const noexcept { return m_generation; }
     void bumpGeneration() noexcept { ++m_generation; }
 
+    // A1.9: ASOBO_asset_optimized stores every triangle clockwise (Direct3D). The
+    // mirrored-node rule and a viewport's invert-winding override are already in
+    // `frontFace`; this applies the packaged storage convention on top, so the two flips
+    // cancel for a mirrored packaged node. Undeclared files return `frontFace` unchanged.
+    gl::Winding effectiveFrontFace() const
+    {
+        if (!assetOptimizedWinding) {
+            return frontFace;
+        }
+        return frontFace == gl::Winding::Clockwise ? gl::Winding::CounterClockwise : gl::Winding::Clockwise;
+    }
+
     using MeshDestroyCallback = std::function<void(uint64_t meshId)>;
     static void addMeshDestroyCallback(void* ownerKey, MeshDestroyCallback cb);
     static void removeMeshDestroyCallback(void* ownerKey);
@@ -63,7 +75,13 @@ public:
     uint32_t indexByteOffset = 0;
     uint32_t vertexCount = 0;
     gl::PolygonMode polygonMode = gl::PolygonMode::Fill;
+    // Winding of the node's geometry after the mirrored-node rule and a viewport's
+    // invert-winding override. The packaged ASOBO layout stores the opposite winding,
+    // which effectiveFrontFace() applies on top, so every pass that draws a glTF mesh
+    // gets the same answer. Later passes (the A2 decal prepass) must query this, not
+    // `frontFace` directly.
     gl::Winding frontFace = gl::Winding::CounterClockwise;
+    bool assetOptimizedWinding = false;
     gl::PrimitiveTopology primitiveTopology = gl::PrimitiveTopology::TriangleList;
     gl::PrimitiveType indexFormat = gl::PrimitiveType::UnsignedShort;
     size_t morphTargetAttributeCount = 0;

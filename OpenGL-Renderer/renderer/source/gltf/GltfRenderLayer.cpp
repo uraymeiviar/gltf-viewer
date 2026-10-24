@@ -934,6 +934,11 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
     m_meshMapping.updateRendererobjectFromGltf = [this](std::tuple<const gltf::Node*, const gltf::Mesh*, const gltf::Primitive*> gltfTuple, renderer::Mesh* mesh) -> bool {
         auto [gltfNode, gltfMesh, gltfPrimitive] = gltfTuple;
 
+        // A1.9: the packaged asset declares that its triangles are stored clockwise. Keep
+        // the declaration on the drawable; CommandMapping combines it with the node rule
+        // below in Mesh::effectiveFrontFace(), so every pass sees one winding.
+        mesh->assetOptimizedWinding = m_assetOptimized;
+
         const gltf::Accessor* indexAccessor = gltfPrimitive->getIndicesAccessor();
         mesh->primitiveTopology = renderer::gl::PrimitiveTopology(gltfPrimitive->getPrimitiveMode());
 
@@ -1215,6 +1220,8 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
 
         if (nodeIt != m_transformHierarchyMapping.map.end()) {
             // from the spec: If the determinant of the transform is a negative value, the winding order of the mesh triangle faces should be reversed. This supports negative scales for mirroring geometry.
+            // Mesh::effectiveFrontFace() applies the asset-optimized (clockwise) convention
+            // on top of this, so a mirrored packaged mesh ends up counter-clockwise again.
             const float det = math::determinant(nodeIt->second->getWorldTransform());
             if (det < 0.f) {
                 mesh->frontFace = gl::Winding::Clockwise;

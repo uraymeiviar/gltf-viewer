@@ -1,18 +1,26 @@
 # Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
-"""A1.9: ASOBO_asset_optimized vertex decoding and windshield v3 vertex colour masks.
+"""A1.9: ASOBO_asset_optimized vertex decoding, winding and windshield v3 vertex colour masks.
 
 The MSFS package tool rewrites vertex attributes without the glTF normalisation
 flags: TEXCOORD_n and COLOR_0 hold IEEE half-floats in SHORT/USHORT accessors,
 NORMAL and TANGENT hold signed bytes (value / 127), and the 48-byte skinned
-COLOR_0 holds RGBA8 bytes in a BYTE accessor. This harness checks:
-  - a synthetic lit, textured quad with float attributes and a copy stored the
-    packaged way (declaring ASOBO_asset_optimized) render within a small
-    tolerance; the same packaged copy without the declaration is byte-identical
-    to the pre-change binary;
+COLOR_0 holds RGBA8 bytes in a BYTE accessor. It also stores every triangle
+clockwise (the Direct3D convention). This harness checks:
+  - a synthetic lit, textured quad stored the packaged way with reversed
+    (clockwise) indices and declaring ASOBO_asset_optimized renders like the
+    float counter-clockwise quad; the same clockwise copy without the declaration
+    is culled and byte-identical to the pre-change binary;
   - ASOBO_asset_optimized is not switchable: --asobo-disable changes nothing;
+  - a double-sided clockwise packaged quad seen from the back is lit like the
+    float counter-clockwise quad, so gl_FrontFacing agrees with the flipped
+    front face; a mirrored node in a declared file still renders correctly;
+  - clicking the packaged quad selects it (the picking pass uses the same rule);
   - the E190 exterior and E195 cockpit source/package pairs render with the same
-    camera; per-channel mean and maximum differences are reported, and the
-    packaged E190 fuselage is no longer white;
+    camera; per-channel mean and maximum differences are reported, the package
+    covers the source geometry (holes and mean colour compared against a
+    background capture at the same camera), the packaged E190 fuselage is no
+    longer white, and the packaged E195 view around SCREEN_EICAS is no longer
+    near-uniform grey;
   - a windshield v3 quad with a red COLOR_0 renders like the same quad without
     COLOR_0, disabling the extension restores the old tint, and a standard
     material still multiplies its base colour by the same COLOR_0.
@@ -26,6 +34,8 @@ import struct
 import sys
 import types
 from pathlib import Path
+
+import harness_process as subprocess
 
 # validate_asobo_common imports e195_assets, which copies E195 models on import.
 # This harness only needs its render/compare helpers, so stub the unused module.
@@ -60,7 +70,19 @@ E195_CAMERA = ["--select-node", "SCREEN_EICAS", "--camera-yaw", "180", "--camera
                "--camera-distance", "0.75"]
 # The E190 fuselage in the reference view, in viewport-capture pixels (918x796).
 FUSELAGE_REGION = (500, 300, 900, 550)
+# The E195 instrument panel around SCREEN_EICAS, in the same capture pixels.
+E195_REGION = (150, 250, 650, 650)
 TOLERANCE = 10
+# Coverage: a source pixel is geometry when it differs from the background render;
+# it is a hole when the package matches that background at the same pixel. The
+# exact-background tolerance keeps a flat lit surface that happens to be close to
+# the background colour (the packaged armrest) from counting as a hole.
+GEOMETRY_THRESHOLD = 16
+BACKGROUND_TOLERANCE = 2
+MIN_COVERAGE = 0.98
+PICK_COMMON = ["--isolated", "--window-size", "1280x800", "--fixed-frame-time", "0.05",
+               "--vsync", "off", "--aa", "none"]
+PICK_CLICK = (650, 418)  # centre of the default 1280x800 viewport
 
 POSITIONS = ((-1.0, -1.0, 0.0), (1.0, -1.0, 0.0), (1.0, 1.0, 0.0), (-1.0, 1.0, 0.0))
 NORMALS = ((0.2, 0.3, 0.9327379),) * 4
@@ -95,7 +117,7 @@ def signed_byte(value):
     return max(-127, min(127, int(round(float(value) * 127.0))))
 
 
-def geometry(packed, with_color=True, color_value=(1.0, 0.62, 0.31, 1.0)):
+def geometry(packed, with_color=True, color_value=(1.0, 0.62, 0.31, 1.0), clockwise=False):
     """The quad's bufferViews/accessors, stored as floats or in the package layout."""
     chunks = []
     views = []
@@ -136,7 +158,11 @@ def geometry(packed, with_color=True, color_value=(1.0, 0.62, 0.31, 1.0)):
         color = (add(b"".join(struct.pack("<4f", *color_value) for _ in POSITIONS),
                      5126, "VEC4", 4) if with_color else None)
 
-    indices = add(struct.pack("<6H", *INDICES), 5123, "SCALAR", 6)
+    indices = list(INDICES)
+    if clockwise:
+        # The package tool reverses each triangle (Direct3D front faces).
+        indices = [indices[base + offset] for base in range(0, len(indices), 3) for offset in (2, 1, 0)]
+    indices = add(struct.pack("<6H", *indices), 5123, "SCALAR", 6)
     attributes = {"POSITION": position, "NORMAL": normal, "TANGENT": tangent,
                   "TEXCOORD_0": uv0, "TEXCOORD_1": uv1}
     if color is not None:
@@ -146,8 +172,9 @@ def geometry(packed, with_color=True, color_value=(1.0, 0.62, 0.31, 1.0)):
 
 
 def quad_document(name, packed, extensions_used, with_color=True, material_extension=None,
-                  base_color_texcoord=0, color_value=(1.0, 0.62, 0.31, 1.0)):
-    binary, views, accessors, attributes, indices = geometry(packed, with_color, color_value)
+                  base_color_texcoord=0, color_value=(1.0, 0.62, 0.31, 1.0), clockwise=False,
+                  double_sided=False, node_scale=None):
+    binary, views, accessors, attributes, indices = geometry(packed, with_color, color_value, clockwise)
     material = {
         "name": "Quad",
         "pbrMetallicRoughness": {
@@ -157,13 +184,18 @@ def quad_document(name, packed, extensions_used, with_color=True, material_exten
             "roughnessFactor": 0.6,
         },
     }
+    if double_sided:
+        material["doubleSided"] = True
     if material_extension is not None:
         material["extensions"] = {material_extension: {}}
+    node = {"name": "Quad", "mesh": 0}
+    if node_scale is not None:
+        node["scale"] = list(node_scale)
     document = {
         "asset": {"version": "2.0", "generator": "Glider A1.9 packaged vertex fixture"},
         "scene": 0,
         "scenes": [{"nodes": [0]}],
-        "nodes": [{"name": "Quad", "mesh": 0}],
+        "nodes": [node],
         "meshes": [{"primitives": [{"attributes": attributes, "indices": indices, "material": 0}]}],
         "materials": [material],
         "samplers": [{"magFilter": 9729, "minFilter": 9729, "wrapS": 33071, "wrapT": 33071}],
@@ -181,9 +213,11 @@ def quad_document(name, packed, extensions_used, with_color=True, material_exten
     return path
 
 
-def texture_quad(name, packed, extensions_used, with_color, material_extension=None):
+def texture_quad(name, packed, extensions_used, with_color, material_extension=None, clockwise=False,
+                 double_sided=False, node_scale=None):
     """The synthetic test quad with a smooth albedo texture and a tan normal map."""
-    document = quad_document(name, packed, extensions_used, with_color, material_extension)
+    document = quad_document(name, packed, extensions_used, with_color, material_extension,
+                             clockwise=clockwise, double_sided=double_sided, node_scale=node_scale)
     data = json.loads(document.read_text(encoding="utf-8"))
     data["images"].append({"uri": "quad_normal.png"})
     data["textures"].append({"sampler": 0, "source": 1})
@@ -232,6 +266,114 @@ def near_white_share(path, box):
     return sum(1 for p in pixels if min(p) > 235) / max(1, len(pixels))
 
 
+def max_channel_difference(first, second):
+    difference = ImageChops.difference(first.convert("RGB"), second.convert("RGB"))
+    red, green, blue = difference.split()
+    return ImageChops.lighter(ImageChops.lighter(red, green), blue)
+
+
+def mask_count(mask):
+    return mask.histogram()[255]
+
+
+def geometry_mask(image, background):
+    return max_channel_difference(image, background).point(
+        lambda value: 255 if value > GEOMETRY_THRESHOLD else 0)
+
+
+def background_mask(image, background):
+    return max_channel_difference(image, background).point(
+        lambda value: 255 if value <= BACKGROUND_TOLERANCE else 0)
+
+
+def coverage(source, package, background):
+    """Share of the source's geometric pixels that the package does not leave as background."""
+    if source is None or package is None or background is None:
+        return None
+    source_image = Image.open(source).convert("RGB")
+    package_image = Image.open(package).convert("RGB")
+    background_image = Image.open(background).convert("RGB")
+    if source_image.size != package_image.size or source_image.size != background_image.size:
+        return None
+    source_geometry = geometry_mask(source_image, background_image)
+    package_background = background_mask(package_image, background_image)
+    total = mask_count(source_geometry)
+    holes = mask_count(ImageChops.multiply(source_geometry, package_background))
+    return (total - holes) / total if total else None
+
+
+def region_saturation(path, box):
+    return round(ImageStat.Stat(Image.open(path).convert("HSV").crop(box)).mean[1] / 255.0, 3)
+
+
+def background_document():
+    path = OUT / "background.gltf"
+    path.write_text(json.dumps({
+        "asset": {"version": "2.0", "generator": "Glider A1.9 background fixture"},
+        "scene": 0,
+        "scenes": [{"nodes": [0]}],
+        "nodes": [{"name": "Empty"}],
+    }), encoding="utf-8")
+    return path
+
+
+def camera_probe(model, flags, name):
+    """The camera target and zoom after --select-node framing, read from a UI snap."""
+    script = OUT / f"{name}_camera.txt"
+    report = OUT / f"{name}_camera.json"
+    script.write_text("wait 8\nsnap camera\n", encoding="utf-8")
+    report.unlink(missing_ok=True)
+    subprocess.run([str(EXE), str(model)] + COMMON + list(flags) +
+                   ["--ui-script", str(script), "--ui-report", str(report)],
+                   cwd=REPO, capture_output=True, text=True, timeout=900)
+    if not report.exists():
+        return None
+    snaps = json.loads(report.read_text(encoding="utf-8")).get("snaps", [])
+    if not snaps:
+        return None
+    camera = snaps[-1].get("camera", "")
+    if "target=" not in camera or "zoom=" not in camera:
+        return None
+    return camera.split("target=", 1)[1].split(" zoom=", 1)[0], camera.split("zoom=", 1)[1]
+
+
+def background_flags(flags, target=None, zoom=None):
+    """The same camera without --select-node, so an empty scene gets the same background."""
+    skip = {"--select-node"}
+    if target is not None:
+        skip |= {"--camera-target", "--camera-distance"}
+    result = []
+    index = 0
+    while index < len(flags):
+        if flags[index] in skip:
+            index += 2
+            continue
+        result.append(flags[index])
+        index += 1
+    if target is not None:
+        result = ["--camera-target", target, "--camera-distance", zoom] + result
+    return result
+
+
+def pick(model, name):
+    """Click the middle of the default viewport and return the UI report's last snap."""
+    script = OUT / f"{name}.txt"
+    report = OUT / f"{name}.json"
+    script.write_text(f"wait 10\nclick {PICK_CLICK[0]} {PICK_CLICK[1]}\nwait 12\nsnap picked\n",
+                      encoding="utf-8")
+    report.unlink(missing_ok=True)
+    subprocess.run([str(EXE), str(model)] + PICK_COMMON +
+                   ["--camera-target", "0,0,0", "--camera-yaw", "0", "--camera-pitch", "0",
+                    "--camera-distance", "2", "--ui-script", str(script), "--ui-report", str(report)],
+                   cwd=REPO, capture_output=True, text=True, timeout=600)
+    if not report.exists():
+        return None
+    data = json.loads(report.read_text(encoding="utf-8"))
+    if data.get("failed", True) or not data.get("snaps"):
+        return None
+    return data["snaps"][-1]
+
+
 def check_close(a, b, label, tolerance):
     if same(a, b):
         return check(True, f"{label} (byte-identical)")
@@ -252,29 +394,65 @@ def main():
     write_textures()
 
     source = texture_quad("packed_source", False, [], True)
-    declared = texture_quad("packed_declared", True, [ASSET_OPTIMIZED], True)
-    undeclared = texture_quad("packed_undeclared", True, [], True)
+    declared = texture_quad("packed_declared", True, [ASSET_OPTIMIZED], True, clockwise=True)
+    undeclared = texture_quad("packed_undeclared", True, [], True, clockwise=True)
     data = json.loads(declared.read_text(encoding="utf-8"))
     data["asset"]["extensions"] = {ASSET_OPTIMIZED: {}}
     declared.write_text(json.dumps(data), encoding="utf-8")
 
     flags = ["--select-node", "Quad"]
-    print("[synthetic packaged quad]")
+    print("[synthetic packaged quad: clockwise indices]")
     source_capture = render(EXE, source, "packed_source", flags, OUT)
     declared_capture = render(EXE, declared, "packed_declared", flags, OUT)
     undeclared_capture = render(EXE, undeclared, "packed_undeclared", flags, OUT)
     disabled_capture = render(EXE, declared, "packed_declared_disabled", flags + ["--asobo-disable", ASSET_OPTIMIZED], OUT)
-    check_close(declared_capture, source_capture, "packaged copy renders like the float quad", TOLERANCE)
+    check_close(declared_capture, source_capture,
+                "clockwise packaged copy renders like the float counter-clockwise quad", TOLERANCE)
     check(not same(declared_capture, undeclared_capture),
-          "the declaration changes the render (the packed copy is not read as integers)")
+          "the declaration changes the render (the clockwise copy is not culled)")
     if PRE_A19_EXE.exists():
         undeclared_baseline = render(PRE_A19_EXE, undeclared, "packed_undeclared_baseline", flags, OUT)
         check(same(undeclared_capture, undeclared_baseline),
-              "packaged copy without the declaration is byte-identical to the pre-change binary")
+              "clockwise copy without the declaration is culled, byte-identical to the pre-change binary")
     else:
         print(f"  SKIP pre-A1.9 binary {PRE_A19_EXE} not found")
     check(same(declared_capture, disabled_capture),
-          "--asobo-disable ASOBO_asset_optimized does not switch the decoding off")
+          "--asobo-disable ASOBO_asset_optimized does not switch the winding or the decoding off")
+
+    print("[double-sided from the back and a mirrored node]")
+    source_back = texture_quad("packed_source_back", False, [], True, double_sided=True)
+    declared_back = texture_quad("packed_declared_back", True, [ASSET_OPTIMIZED], True, double_sided=True,
+                                 clockwise=True)
+    data = json.loads(declared_back.read_text(encoding="utf-8"))
+    data["asset"]["extensions"] = {ASSET_OPTIMIZED: {}}
+    declared_back.write_text(json.dumps(data), encoding="utf-8")
+    back_flags = ["--select-node", "Quad", "--camera-yaw", "180", "--camera-pitch", "0",
+                  "--camera-distance", "2"]
+    source_back_capture = render(EXE, source_back, "packed_source_back", back_flags, OUT)
+    declared_back_capture = render(EXE, declared_back, "packed_declared_back", back_flags, OUT)
+    check_close(declared_back_capture, source_back_capture,
+                "double-sided clockwise packaged quad seen from the back is lit like the float quad", TOLERANCE)
+
+    source_mirrored = texture_quad("packed_source_mirrored", False, [], True, node_scale=(-1.0, 1.0, 1.0))
+    declared_mirrored = texture_quad("packed_declared_mirrored", True, [ASSET_OPTIMIZED], True, clockwise=True,
+                                     node_scale=(-1.0, 1.0, 1.0))
+    data = json.loads(declared_mirrored.read_text(encoding="utf-8"))
+    data["asset"]["extensions"] = {ASSET_OPTIMIZED: {}}
+    declared_mirrored.write_text(json.dumps(data), encoding="utf-8")
+    source_mirrored_capture = render(EXE, source_mirrored, "packed_source_mirrored", flags, OUT)
+    declared_mirrored_capture = render(EXE, declared_mirrored, "packed_declared_mirrored", flags, OUT)
+    check_close(declared_mirrored_capture, source_mirrored_capture,
+                "mirrored node in a declared file still renders correctly", TOLERANCE)
+
+    print("[picking]")
+    picked = pick(declared, "packed_declared_pick")
+    if picked is None:
+        check(False, "clicking the packaged quad produced no UI report")
+    else:
+        revisions = picked.get("revisions", {})
+        check("node=Quad" in picked.get("selection", "") and revisions.get("pickReads", 0) > 0,
+              f"clicking the packaged quad selects it (selection {picked.get('selection')}, "
+              f"pickReads {revisions.get('pickReads')})")
 
     print("[windshield v3 vertex colour]")
     windshield = quad_document("windshield_red", False, [WINDSHIELD], True, WINDSHIELD,
@@ -308,6 +486,18 @@ def main():
     if not all(path.exists() for path in (E190_SOURCE, E190_PACKAGE, E195_SOURCE, E195_PACKAGE)):
         print("  SKIP one or more E190/E195 source or package files not found")
     else:
+        background = background_document()
+        e190_background = render(EXE, background, "e190_background",
+                                 background_flags(E190_CAMERA), OUT)
+        probe = camera_probe(E195_SOURCE, E195_CAMERA, "e195")
+        if probe is None:
+            check(False, "could not read the E195 SCREEN_EICAS camera target")
+            e195_background = None
+        else:
+            target, zoom = probe
+            e195_background = render(EXE, background, "e195_background",
+                                     background_flags(E195_CAMERA, target, zoom), OUT)
+
         e190_source = render(EXE, E190_SOURCE, "e190_source", E190_CAMERA, OUT, search_paths(E190_SOURCE))
         e190_package = render(EXE, E190_PACKAGE, "e190_package", E190_CAMERA, OUT, search_paths(E190_PACKAGE))
         e195_source = render(EXE, E195_SOURCE, "e195_source", E195_CAMERA, OUT, search_paths(E195_SOURCE))
@@ -324,16 +514,34 @@ def main():
                 mean, maximum = difference
                 print(f"  INFO {label}: mean per-channel {mean}, maximum {maximum}")
                 check(max(maximum) > 1, f"{label}: source and package differ")
-            source_mean = region_mean(e190_source, FUSELAGE_REGION)
-            package_mean = region_mean(e190_package, FUSELAGE_REGION)
-            white_share = near_white_share(e190_package, FUSELAGE_REGION)
-            print(f"  INFO E190 fuselage region {FUSELAGE_REGION}: source {source_mean}, package {package_mean}, "
-                  f"near-white {white_share:.1%}")
-            channel_delta = max(abs(a - b) for a, b in zip(source_mean, package_mean))
-            check(white_share < 0.05 and min(package_mean) < 200,
+
+            e190_coverage = coverage(e190_source, e190_package, e190_background)
+            e190_source_mean = region_mean(e190_source, FUSELAGE_REGION)
+            e190_package_mean = region_mean(e190_package, FUSELAGE_REGION)
+            e190_white_share = near_white_share(e190_package, FUSELAGE_REGION)
+            print(f"  INFO E190 fuselage region {FUSELAGE_REGION}: source {e190_source_mean}, "
+                  f"package {e190_package_mean}, near-white {e190_white_share:.1%}, coverage {e190_coverage}")
+            e190_delta = max(abs(a - b) for a, b in zip(e190_source_mean, e190_package_mean))
+            check(e190_white_share < 0.05 and min(e190_package_mean) < 200,
                   "packaged E190 fuselage is no longer white")
-            check(channel_delta < 60,
-                  f"packaged E190 fuselage colour is close to the source (largest channel delta {channel_delta:.1f})")
+            check(e190_delta < 20,
+                  f"packaged E190 fuselage colour is close to the source (largest channel delta {e190_delta:.1f})")
+            check(e190_coverage is not None and e190_coverage >= MIN_COVERAGE,
+                  f"packaged E190 exterior covers the source geometry (coverage {e190_coverage})")
+
+            e195_coverage = coverage(e195_source, e195_package, e195_background)
+            e195_source_mean = region_mean(e195_source, E195_REGION)
+            e195_package_mean = region_mean(e195_package, E195_REGION)
+            e195_saturation = region_saturation(e195_package, E195_REGION)
+            e195_delta = max(abs(a - b) for a, b in zip(e195_source_mean, e195_package_mean))
+            print(f"  INFO E195 SCREEN_EICAS region {E195_REGION}: source {e195_source_mean}, "
+                  f"package {e195_package_mean}, saturation {e195_saturation}, coverage {e195_coverage}")
+            check(e195_saturation > 0.20,
+                  f"packaged E195 view is not near-uniform grey (saturation {e195_saturation:.3f})")
+            check(e195_delta < 60,
+                  f"packaged E195 view colour is close to the source (largest channel delta {e195_delta:.1f})")
+            check(e195_coverage is not None and e195_coverage >= MIN_COVERAGE,
+                  f"packaged E195 cockpit covers the source geometry (coverage {e195_coverage})")
 
     finish()
 

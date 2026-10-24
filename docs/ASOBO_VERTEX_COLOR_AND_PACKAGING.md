@@ -366,6 +366,26 @@ instead. The exact transform/bind convention is unresolved (Open questions 3–4
 `-0.0` vs `0.0`; package `NORMAL`, `TANGENT`, `TEXCOORD` and `COLOR_0`
 accessors have no min/max. Animations, skins and scenes keep their counts.
 
+## 2.7 Triangle winding
+
+**[V]** The packager also reverses the triangle winding. `build/review/winding.py`
+compares each indexed triangle's geometric normal (`cross(p1-p0, p2-p0)`) with
+the sum of its three vertex normals, over every indexed mode-4 primitive that
+has `NORMAL`:
+
+| Pair | Source: triangles agreeing with normals | Package: triangles agreeing with normals |
+|---|---:|---:|
+| E195 cockpit | 100% of 821,087 | 0% of 821,134 |
+| E190 exterior | 100% of 441,099 | 0% of 467,103 |
+
+The source files are counter-clockwise (glTF's front-face convention); every
+packaged triangle is clockwise (the Direct3D convention). The declaration that
+selects the packaged layout, `ASOBO_asset_optimized`, therefore also selects the
+clockwise front face. The viewer combines that with the glTF mirrored-node rule
+(a negative-determinant world matrix reverses the winding), so the two flips
+cancel for a mirrored packaged node. Files without the declaration keep the
+counter-clockwise convention byte for byte.
+
 ---
 
 # Open questions
