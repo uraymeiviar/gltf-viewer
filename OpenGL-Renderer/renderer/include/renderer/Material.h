@@ -5,8 +5,10 @@
 #include "Defines.h"
 #include "gl/Sampler.h"
 #include "gl/Uniform.h"
+#include "gltf/extensions/AsoboExtensions.h"
 
 #include <algorithm>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -41,6 +43,9 @@ public:
 
     Defines defines;
     bool isDoubleSided = false;
+    // The material's declared ASOBO_* extensions, parsed with their defaults (A0.1). Shared, so the
+    // per-frame material copies of the transmission path stay cheap; null when it has none.
+    std::shared_ptr<const gltf::asobo::ExtensionSet> asobo;
     // ASOBO_material_invisible with "enabled" true (the schema default): the material is
     // not rendered, e.g. MSFS collision geometry. GltfRenderLayer leaves it out of scenes
     // unless showInvisibleMaterials is set.

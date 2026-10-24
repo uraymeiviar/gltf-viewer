@@ -550,6 +550,7 @@ void Gltf::reset()
 
     m_pDefaultScene = nullptr;
     m_materialVariantsArrayObject.reset();
+    m_declaredExtensions.clear();
 }
 
 Extensions Gltf::getUsedExtensions() const

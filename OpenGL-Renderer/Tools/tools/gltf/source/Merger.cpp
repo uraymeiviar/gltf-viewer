@@ -248,4 +248,7 @@ void Merger::resolveExtensionsExtras()
     m_Destination.getRequiredUnknownExtensions().insert(requiredUnknownExtensions.begin(), requiredUnknownExtensions.end());
     m_Destination.addRootExtension(m_Source.getRootExtensions());
     m_Destination.addRequiredKnownExtension(m_Source.getRequiredKnownExtensions());
+    for (const auto& declaredExtension : m_Source.getDeclaredExtensions()) {
+        m_Destination.addDeclaredExtension(declaredExtension);
+    }
 }

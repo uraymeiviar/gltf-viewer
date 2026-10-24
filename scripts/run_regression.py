@@ -12,7 +12,7 @@ uncommitted change alter anything since the last commit?".
 
 Quick tier (equivalence only, byte-identical images and identical selections):
   validate_p8_1.py, validate_p8_3.py, validate_p8_5.py, validate_p8_followup.py,
-  validate_p4_exit_gate.py and the four built-in self-checks.
+  validate_p4_exit_gate.py, validate_asobo_model.py (ASOBO extension model) and the four built-in self-checks.
 Full tier adds:
   --with-ab (each feature against its own switch), validate_p5_1.py against the baseline.
 Benchmarks never run here: they back timing claims (each harness's --bench).
@@ -67,6 +67,7 @@ jobs = [
     ("p8_5", ["scripts/validate_p8_5.py", "--only", "equivalence", "--pre-exe", str(baseline)] + ab + extra),
     ("p8_followup", ["scripts/validate_p8_followup.py", "--only", "equivalence", "--ref-exe", str(baseline)]),
     ("p4_exit_gate", ["scripts/validate_p4_exit_gate.py"]),
+    ("asobo_model", ["scripts/validate_asobo_model.py"]),
 ]
 if args.tier == "full":
     jobs.append(("p5_1", ["scripts/validate_p5_1.py", "--pre-exe", str(baseline)]))

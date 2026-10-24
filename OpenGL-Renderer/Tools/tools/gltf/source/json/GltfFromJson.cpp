@@ -296,6 +296,7 @@ void GltfFromJson::convertRootExtensions()
                     continue;
                 }
             }
+            m_gltf.addDeclaredExtension(extensionName);
             Extension extension = stringToExtension(extensionName);
 
             if (extension == Extension::MeshQuantization) {

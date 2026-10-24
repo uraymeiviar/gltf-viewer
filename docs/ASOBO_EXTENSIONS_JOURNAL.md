@@ -160,3 +160,4 @@ Argon's quota runs out, the task returns to Claude unchanged.
 |---|---|
 | 2026-10-23 | Journal created (planning only): inventory of 38 schemas and of usage across 207 E195 project files. `ASOBO_material_invisible` implemented earlier, during the multi-viewport follow-up (`00274ce`); recorded as A1.1. |
 | 2026-10-23 | Revised after the user's decisions (Purpose): MSFS fidelity is the target, only the glTF is read, animation and LOD are out of scope, and decals use a deferred path. Phases reordered; work allocation added (§4). |
+| 2026-10-24 | A0 started. A0.1 typed extension model (Claude) and A0.6 exporter semantics (DeepSeek, `ASOBO_EXTENSIONS_SEMANTICS.md`) done; A0.3 reference views running on Gemini Flash. Details in [Phase A0](ASOBO_EXTENSIONS_PHASE_0.md). |

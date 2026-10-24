@@ -20,11 +20,13 @@
 #include "gltf/Image.h"
 #include "gltf/Sampler.h"
 #include "gltf/GlTypes.h"
+#include "gltf/extensions/AsoboExtensions.h"
 
 #include <nlohmann/json.hpp>
 #include <nlohmann/json-schema.hpp>
 
 #include <cmath>
+#include <cstdlib>
 #include <fstream>
 #include <sstream>
 #include <unordered_set>
@@ -834,6 +836,23 @@ ValidationReport GltfValidator::validate(const std::string& filePath, ux3d::gltf
                 }
             }
         }
+    }
+
+    // 3.9 ASOBO (MSFS) extensions: undeclared use, values outside the schema range, wrong types (A0.1).
+    for (const auto& diagnostic : ux3d::gltf::asobo::validateExtensions(gltfModel)) {
+        SelectionType type = SelectionType::None;
+        int index = -1;
+        for (const auto& [prefix, selection] : {std::pair<const char*, SelectionType>{"/materials/", SelectionType::Material},
+                                                {"/nodes/", SelectionType::Node}, {"/meshes/", SelectionType::Mesh}}) {
+            const std::string_view pointer(diagnostic.pointer);
+            if (pointer.rfind(prefix, 0) == 0) {
+                type = selection;
+                index = std::atoi(diagnostic.pointer.c_str() + std::strlen(prefix));
+            }
+        }
+        const bool warning = diagnostic.severity == ux3d::gltf::asobo::Diagnostic::Severity::Warning;
+        report.addIssue(warning ? ValidationSeverity::Warning : ValidationSeverity::Info,
+                        diagnostic.code, diagnostic.message, diagnostic.pointer, type, index);
     }
 
     // Correlate target objects with target indices for issues gathered in Tier 1

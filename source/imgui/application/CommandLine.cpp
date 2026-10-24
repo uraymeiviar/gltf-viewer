@@ -16,13 +16,17 @@
 #include "imgui/Theme.h"
 #include "imageformats/imageformats.h"
 #include "gltf/Material.h"
+#include "gltf/extensions/AsoboExtensions.h"
 #include "renderer/Skin.h"
 #include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
 #include <sstream>
+#include <type_traits>
+#include <variant>
 #include <glm/gtc/matrix_transform.hpp>
 
 namespace ux3d::imgui::application {
@@ -67,11 +71,93 @@ std::string Application::toLowerAscii(std::string text)
     return text;
 }
 
+namespace {
+nlohmann::json asoboValueToJson(const ux3d::gltf::asobo::Value& value)
+{
+    return std::visit([](const auto& v) -> nlohmann::json {
+        using T = std::decay_t<decltype(v)>;
+        if constexpr (std::is_same_v<T, std::monostate>) {
+            return nullptr;
+        } else if constexpr (std::is_same_v<T, ux3d::gltf::asobo::TextureRef>) {
+            nlohmann::json texture = {{"index", v.index}, {"texCoord", v.texCoord}, {"scale", v.scale}};
+            if (!v.extensions.is_null()) {
+                texture["extensions"] = v.extensions;
+            }
+            return texture;
+        } else {
+            return nlohmann::json(v);
+        }
+    }, value);
+}
+
+// --asobo-report: the typed ASOBO extension model of the loaded file (A0.1), read by
+// scripts/validate_asobo_model.py.
+bool writeAsoboReport(const ux3d::gltf::Gltf& gltf, const std::string& path)
+{
+    namespace asobo = ux3d::gltf::asobo;
+    nlohmann::json report;
+    std::vector<std::string> declared(gltf.getDeclaredExtensions().begin(), gltf.getDeclaredExtensions().end());
+    std::sort(declared.begin(), declared.end());
+    report["declared"] = declared;
+    report["specCount"] = asobo::extensionSpecs().size();
+    report["objects"] = nlohmann::json::array();
+    auto add = [&](const ux3d::gltf::GltfObject& object, uint32_t scope, const std::string& pointer) {
+        const asobo::ExtensionSet set = asobo::parseExtensions(gltf, object, scope, pointer);
+        if (set.empty()) {
+            return;
+        }
+        nlohmann::json extensions = nlohmann::json::array();
+        for (const asobo::ExtensionData& data : set.all()) {
+            nlohmann::json values = nlohmann::json::object();
+            nlohmann::json explicitKeys = nlohmann::json::array();
+            if (data.spec() != nullptr) {
+                for (const asobo::PropertySpec& property : data.spec()->properties) {
+                    const std::string key(property.name);
+                    if (const asobo::Value* value = data.value(key)) {
+                        values[key] = asoboValueToJson(*value);
+                    }
+                    if (data.isExplicit(key)) {
+                        explicitKeys.push_back(key);
+                    }
+                }
+            }
+            extensions.push_back({{"name", std::string(data.name())}, {"hasSpec", data.spec() != nullptr},
+                                  {"values", values}, {"explicit", explicitKeys}, {"unknown", data.unknownKeys()}});
+        }
+        report["objects"].push_back({{"pointer", pointer}, {"extensions", extensions}});
+    };
+    add(gltf, asobo::Scope::Root, "");
+    add(gltf.getAsset(), asobo::Scope::Asset, "/asset");
+    auto addAll = [&](const auto& elements, uint32_t scope, const char* collection) {
+        size_t index = 0;
+        for (const auto& element : elements) {
+            add(element, scope, std::string("/") + collection + "/" + std::to_string(index++));
+        }
+    };
+    addAll(gltf.getElements<ux3d::gltf::Material>(), asobo::Scope::Material, "materials");
+    addAll(gltf.getElements<ux3d::gltf::Node>(), asobo::Scope::Node, "nodes");
+    addAll(gltf.getElements<ux3d::gltf::Mesh>(), asobo::Scope::Mesh, "meshes");
+    addAll(gltf.getElements<ux3d::gltf::Animation>(), asobo::Scope::Animation, "animations");
+
+    report["diagnostics"] = nlohmann::json::array();
+    for (const asobo::Diagnostic& diagnostic : asobo::validateExtensions(gltf)) {
+        const bool warning = diagnostic.severity == asobo::Diagnostic::Severity::Warning;
+        report["diagnostics"].push_back({{"severity", warning ? "warning" : "info"}, {"code", diagnostic.code},
+                                         {"pointer", diagnostic.pointer}, {"message", diagnostic.message}});
+    }
+    std::ofstream out(path, std::ios::binary);
+    out << report.dump(2) << "\n";
+    std::printf("Wrote ASOBO extension report to %s\n", path.c_str());
+    return static_cast<bool>(out);
+}
+}
+
 std::optional<int> Application::configure(int argc, char** argv)
 {
     auto& startupProfile = ux3d::imgui::profiling::startupProfile();
     modelToLoad = resolveSampleModelPath();
     std::string reloadModelArg;
+    std::string asoboReportPath;
     std::string selectNodeArg;
     std::string hideNodeArg;
     std::string renameNodeArg;
@@ -292,6 +378,8 @@ std::optional<int> Application::configure(int argc, char** argv)
             hideNodeArg = argv[++i];
         } else if (arg == "--reload-model" && i + 1 < argc) {
             reloadModelArg = argv[++i];
+        } else if (arg == "--asobo-report" && i + 1 < argc) {
+            asoboReportPath = argv[++i];
         } else if (arg == "--rename-node" && i + 1 < argc) {
             renameNodeArg = argv[++i];
         } else if (arg == "--rename-mesh" && i + 1 < argc) {
@@ -829,6 +917,10 @@ std::optional<int> Application::configure(int argc, char** argv)
                                     gltfLayer.get(), animationPlayer, sceneRevisions, sceneEnvironments);
         updateWindowTitle(window, currentFilePath);
         std::printf("Reloaded model: %s\n", reloadModelArg.c_str());
+    }
+
+    if (!asoboReportPath.empty()) {
+        return writeAsoboReport(gltfModel, asoboReportPath) ? 0 : 1;
     }
 
     if (cliHdrProvided || cliHdrRotationProvided || cliExposureProvided || cliToneMappingProvided) {

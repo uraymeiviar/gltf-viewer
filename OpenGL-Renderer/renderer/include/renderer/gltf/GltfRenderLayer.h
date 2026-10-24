@@ -135,6 +135,9 @@ private:
     void updateTransformHierarchy(const core::LinkedList<gltf::Node>& nodes, const core::Vector<gltf::Node*>& rootNodes);
     void updateAnimationPointer(const core::LinkedList<gltf::Animation>& animations);
 
+    // The document updateGltf is synchronising; the material mapping reads its extensionsUsed.
+    const gltf::Gltf* m_syncingGltf = nullptr;
+
 public:
     GltfToRendererMapping<std::tuple<const gltf::Image*, bool>, renderer::gl::Texture*> m_textureMapping;
     GltfToRendererMapping<const gltf::Accessor*, renderer::gl::Buffer*> m_bufferMapping;

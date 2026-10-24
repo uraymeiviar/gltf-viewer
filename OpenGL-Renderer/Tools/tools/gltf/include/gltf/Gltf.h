@@ -64,6 +64,9 @@ class Gltf : public GltfObject {
     std::optional<GltfObject> m_audioArrayObject;
     Extensions m_requiredKnownExtensions;
     std::unordered_set<core::string> m_requiredUnknownExtensions;
+    // Every name in the loaded file's extensionsUsed, known or not. Vendor extensions
+    // (ASOBO_*) are only honoured when declared here.
+    std::unordered_set<core::string> m_declaredExtensions;
 
     // Monotonic revision for UI caches. It changes whenever the model is reset
     // or an element is created, so cached pointers and labels can be rejected
@@ -251,6 +254,10 @@ public:
     std::unordered_set<core::string>& getRequiredUnknownExtensions() { return m_requiredUnknownExtensions; }
     const std::unordered_set<core::string>& getRequiredUnknownExtensions() const { return m_requiredUnknownExtensions; }
     bool containsUnknownRequiredExtensions() const { return m_requiredUnknownExtensions.size() > 0; }
+
+    void addDeclaredExtension(const core::string& _extensionName) { m_declaredExtensions.insert(_extensionName); }
+    bool isExtensionDeclared(const core::string& _extensionName) const { return m_declaredExtensions.count(_extensionName) != 0; }
+    const std::unordered_set<core::string>& getDeclaredExtensions() const { return m_declaredExtensions; }
 
     core::Vector<TextureInfo*> getTextureInfos();
 

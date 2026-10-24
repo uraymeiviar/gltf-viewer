@@ -16,7 +16,7 @@
 #include "renderer/passes/TransmissivePass.h"
 #include "renderer/passes/TransparentPass.h"
 
-#include <nlohmann/json.hpp>
+#include "gltf/extensions/AsoboExtensions.h"
 
 #include <functional>
 #include <chrono>
@@ -28,20 +28,11 @@ using namespace ux3d::renderer;
 
 namespace {
 // ASOBO_material_invisible (MSFS SDK schema, resources/schemas/asobo): the material is not
-// rendered when the extension is present and "enabled" is not false (its default is true).
-bool isAsoboInvisible(const gltf::Material& material)
+// rendered when the extension is declared, present and "enabled" (its default is true).
+bool isAsoboInvisible(const gltf::asobo::ExtensionSet& extensions)
 {
-    const auto& extensions = material.getUnknownExtensions();
-    const auto it = extensions.find("ASOBO_material_invisible");
-    if (it == extensions.end()) {
-        return false;
-    }
-    const nlohmann::json json = nlohmann::json::parse(it->second.c_str(), nullptr, false);
-    if (json.is_discarded() || !json.is_object()) {
-        return true;
-    }
-    const auto enabled = json.find("enabled");
-    return enabled == json.end() || !enabled->is_boolean() || enabled->get<bool>();
+    const gltf::asobo::ExtensionData* invisible = extensions.find("ASOBO_material_invisible");
+    return invisible != nullptr && invisible->boolean("enabled").value_or(true);
 }
 }
 
@@ -476,7 +467,14 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
         if (gltfMaterial == nullptr) {
             return false;
         }
-        material->invisible = isAsoboInvisible(*gltfMaterial);
+        material->asobo.reset();
+        if (m_syncingGltf != nullptr) {
+            auto extensions = gltf::asobo::parseExtensions(*m_syncingGltf, *gltfMaterial, gltf::asobo::Scope::Material);
+            if (!extensions.empty()) {
+                material->asobo = std::make_shared<const gltf::asobo::ExtensionSet>(std::move(extensions));
+            }
+        }
+        material->invisible = material->asobo != nullptr && isAsoboInvisible(*material->asobo);
         material->samplers.clear();
         material->defines.clear();
 
@@ -1552,7 +1550,9 @@ void GltfRenderLayer::updateGltf(const gltf::Gltf& gltf)
     m_samplerStateMapping.update(gltf.getSamplers());
 
     // Materials: determine the fragment shader and which textures are used within that.
+    m_syncingGltf = &gltf;
     updateMaterials(gltf.getMaterials());
+    m_syncingGltf = nullptr;
 }
 
 void GltfRenderLayer::applyAnimationTime(const std::optional<float>& animationTime)
