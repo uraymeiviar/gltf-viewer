@@ -24,6 +24,17 @@ namespace {
 uint32_t renderSettingsBits(const RenderSettings& rs);
 }
 
+float CommandMapping::computeDistanceSortKey(const Mesh& mesh, const Material& material) const
+{
+    if (m_scene.m_activeCamera == nullptr) {
+        return 0.0f;
+    }
+    const uint32_t passId = material.renderPass != nullptr ? material.renderPass->getId() : RenderPassType::MaxRenderPasses;
+    const bool coveredTransparent = material.drawOrderActive && material.drawOrderClass != DrawOrderClass::None
+        && (passId == RenderPassType::Transparent || passId == RenderPassType::Transparent2);
+    return m_scene.m_activeCamera->getDistance(coveredTransparent ? mesh.getBoundingCenter() : mesh.getPosition());
+}
+
 CommandMapping::CommandMapping(gl::GL* gl, CommandGenerator& scene, gl::ShaderCache& _shaderCache)
     : m_gl(gl)
     , m_shaderCache(_shaderCache)
@@ -106,7 +117,7 @@ void CommandMapping::update(const core::LinkedList<MeshMaterialTuple>& drawables
             CmdDesc& desc = *it->second.desc;
             desc.mesh = mesh;
             desc.material = material;
-            desc.distanceSortKey = camera != nullptr ? camera->getDistance(mesh->getPosition()) : 0.0f;
+            desc.distanceSortKey = computeDistanceSortKey(*mesh, *material);
             desc.command.vertexLayout = m_scene.getVertexLayoutCache().getOrCreate(mesh, desc.command.program);
             it->second.lastUse = m_updateSerial;
             commands.push_back(&desc);
@@ -631,7 +642,7 @@ std::optional<CmdDesc> CommandMapping::makeCommand(MeshMaterialTuple meshMat)
     }
 
     if (m_scene.m_activeCamera != nullptr) {
-        desc.distanceSortKey = m_scene.m_activeCamera->getDistance(mesh->getPosition());
+        desc.distanceSortKey = computeDistanceSortKey(*mesh, *material);
 
         command->uniforms.push_back(&m_scene.m_activeCamera->getViewUniform());
         command->uniforms.push_back(&m_scene.m_activeCamera->getProjectionUniform());

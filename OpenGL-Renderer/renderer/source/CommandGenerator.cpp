@@ -8,6 +8,18 @@
 #include <algorithm>
 #include <cstring>
 
+namespace {
+bool isTransparentPass(const ux3d::renderer::Material& material)
+{
+    if (material.renderPass == nullptr) {
+        return false;
+    }
+    const uint32_t passId = material.renderPass->getId();
+    return passId == ux3d::renderer::RenderPassType::Transparent
+        || passId == ux3d::renderer::RenderPassType::Transparent2;
+}
+}
+
 ux3d::renderer::CommandGenerator::CommandGenerator(gl::GL* gl, const filesystem::Path& _shaderPath)
     : m_vertexLayoutCache(gl)
     , m_shaderCache(gl, _shaderPath)
@@ -103,7 +115,23 @@ void ux3d::renderer::CommandGenerator::emitCommands()
 
         // sort into passes
         auto& pass = m_passCommands[desc->pass->getId()];
-        pass[desc->pass].emplace_back(&desc->command, desc->distanceSortKey);
+        const Material* material = desc->material;
+        const bool covered = material != nullptr && isTransparentPass(*material) && material->drawOrderActive
+            && material->drawOrderClass != DrawOrderClass::None;
+        // A1.4: covered transparent draws keep depth testing against opaque geometry but stop
+        // writing depth, so their explicit order decides what is on top (a deferred decal path
+        // will replace this in A2).
+        desc->command.depthWriteEnabled = !covered;
+        float sortKey = desc->distanceSortKey;
+        if (covered && material->drawOrderClass == DrawOrderClass::Glass) {
+            // MSFS SDK: for glass and windshield the value is added to the distance used for
+            // sorting. The SDK does not state the sign more precisely; this is the literal
+            // key = distance + offset, and TransparentPass draws larger keys first.
+            sortKey += static_cast<float>(material->drawOrderOffset);
+        }
+        pass[desc->pass].emplace_back(&desc->command, sortKey,
+                                      covered ? material->drawOrderClass : DrawOrderClass::None,
+                                      covered ? material->drawOrderOffset : 0);
     }
 }
 

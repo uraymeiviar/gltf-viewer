@@ -170,6 +170,9 @@ protected:
     void mergeInstances(std::vector<CmdDesc*>& commands);
     void releaseInstanceGroup(InstanceGroup& group);
     void clearInstanceGroups();
+    // A1.4: the bounding-box centre is used for the transparent classes the draw-order rule
+    // covers; every other drawable keeps the node-pivot depth it had before.
+    float computeDistanceSortKey(const Mesh& mesh, const Material& material) const;
 
     std::optional<CmdDesc> makeCommand(MeshMaterialTuple meshMat);
     CommandSignature makeSignature(const Mesh& mesh, const Material& material) const;

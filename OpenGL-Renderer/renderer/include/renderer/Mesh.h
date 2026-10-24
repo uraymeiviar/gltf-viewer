@@ -31,6 +31,10 @@ public:
     void updateTransform(const math::mat4x4& transform);
     math::vec3 getPosition() const { return math::vec3(m_transform[3]); }
     const math::mat4x4& getTransform() const { return m_transform; }
+    // A1.4: world-space centre of the primitive's POSITION bounds (the node pivot when the
+    // bounds cannot be computed), refreshed by GltfRenderLayer::createScene.
+    math::vec3 getBoundingCenter() const { return m_boundingCenter; }
+    void setBoundingCenter(const math::vec3& center) { m_boundingCenter = center; }
 
     void updateWeights(const std::vector<float>& weights);
 
@@ -76,6 +80,7 @@ private:
     gl::Sampler m_morphTargetSampler;
     gl::SamplerState m_morphTargetSamplerState;
     math::mat4x4 m_transform = math::mat4x4(1.0f);
+    math::vec3 m_boundingCenter = math::vec3(0.0f);
 
     uint64_t m_id = 0;
     uint64_t m_generation = 1;

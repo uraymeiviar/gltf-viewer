@@ -25,7 +25,7 @@ const std::vector<SupportInfo>& supportTable()
         {"ASOBO_material_clear_coat_v2", Support::NotYetSupported, "A7", ""},
         {"ASOBO_material_detail_map", Support::NotYetSupported, "A5", ""},
         {"ASOBO_material_disable_motion_blur", Support::NotApplicable, "A7", "Glider has no motion blur"},
-        {"ASOBO_material_draw_order", Support::NotYetSupported, "A1", ""},
+        {"ASOBO_material_draw_order", Support::Rendered, "A1.4", "decals, glass and windshield sort by drawOrderOffset"},
         {"ASOBO_material_emissive", Support::NotYetSupported, "A1", ""},
         {"ASOBO_material_environment_occluder", Support::NotYetSupported, "A2", ""},
         {"ASOBO_material_fake_terrain", Support::NotYetSupported, "A2", ""},

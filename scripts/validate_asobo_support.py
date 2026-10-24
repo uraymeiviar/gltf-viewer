@@ -16,7 +16,7 @@ CODE = "ASOBO_EXTENSIONS_NOT_RENDERED"
 METADATA = {"ASOBO_unique_id", "ASOBO_tags", "ASOBO_asset_optimized",
             "ASOBO_animation_retargeting", "ASOBO_softbody_mesh"}
 EXCLUDED = METADATA | {"ASOBO_material_invisible", "ASOBO_material_disable_motion_blur",
-                       "ASOBO_normal_map_convention"}
+                       "ASOBO_normal_map_convention", "ASOBO_material_draw_order"}
 failures = []
 
 
@@ -82,7 +82,7 @@ def main():
         check(set(support) == expected, "every spec plus MSFT_texture_dds has a status, with no extra entries")
         for name in sorted(expected):
             status = "Metadata" if name in METADATA else "Not yet supported"
-            if name in ("ASOBO_material_invisible", "ASOBO_normal_map_convention"):
+            if name in ("ASOBO_material_invisible", "ASOBO_normal_map_convention", "ASOBO_material_draw_order"):
                 status = "Rendered"
             elif name == "ASOBO_material_disable_motion_blur":
                 status = "Not applicable"
@@ -99,8 +99,8 @@ def main():
         doc = json.loads(COCKPIT.read_text(encoding="utf-8"))
         unsupported = {name for name in doc.get("extensionsUsed", [])
                        if (name.startswith("ASOBO_") or name == "MSFT_texture_dds") and name not in EXCLUDED}
-        check({"ASOBO_material_draw_order", "ASOBO_material_glass_v2"} <= unsupported,
-              "cockpit declares draw order and glass v2")
+        check("ASOBO_material_glass_v2" in unsupported and "ASOBO_material_draw_order" not in unsupported,
+              "cockpit declares glass v2 (unsupported) and draw order (supported)")
         check_validation(COCKPIT, unsupported)
     else:
         print("  SKIP E195-Cockpit-LOD00.gltf (not found)")

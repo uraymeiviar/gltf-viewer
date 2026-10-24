@@ -2,7 +2,7 @@
 
 [Journal index](ASOBO_EXTENSIONS_JOURNAL.md) · [Extension reference](ASOBO_EXTENSIONS_REFERENCE.md) · [Validation rules](RENDERER_OPTIMIZATION_VALIDATION.md)
 
-**Status:** Planned. A1.1 done (`00274ce`).
+**Status:** Planned. A1.1 and A1.2 done (`00274ce`, `b61072c`); A1.4 done (uncommitted).
 
 **Entry:** A0.1, A0.4, A0.5, and A0.6 notes for each task's extension. **Goal:** occlusion/roughness/metallic,
 emissive and normals close to MSFS (user priority 1), and the explicit draw order artists export (priority 2).
@@ -36,13 +36,34 @@ emissive and normals close to MSFS (user priority 1), and the explicit draw orde
   - sRGB versus linear decoding.
 
   Compare against the reference screenshots. Expected outcome: no code change, or a documented difference.
-- [ ] **A1.4 — `ASOBO_material_draw_order` (R2). Owner: Claude.** `drawOrderOffset` sets the order of blended
-  materials and decals.
-  - Implement the ordering rule from A0.6, for example a priority applied before the distance sort.
-  - **Tests:**
-    - overlapping coplanar blended quads with different offsets;
-    - unchanged order without the extension.
-  - Used by 143 project files.
+- [x] **A1.4 — `ASOBO_material_draw_order` (R2). Owner: Claude.**
+  - **Rule (verified, SDK):** transparent objects sort back to front by the **mesh bounding-box centre**, not the
+    pivot (MSFS SDK `flightsim-materials.md`, "Draw Order", line 371). Decals: the offset strictly specifies their
+    order, higher drawn above/later, equal offsets keep back-to-front. Glass and windshield: `key = distance +
+    offset`, drawn larger key first. Other material types ignore the value.
+  - **Types:** decal = `ASOBO_material_geometry_decal` or `ASOBO_material_blend_gbuffer`; glass =
+    `ASOBO_material_glass_v2` or `ASOBO_material_glass`; windshield = `ASOBO_material_windshield_v3` or
+    `ASOBO_material_windshield`, all read from `renderer::Material::asobo`.
+  - **Mechanism:** the offset is read once per material sync into `Material`; `createScene` sets the world
+    bounding-box centre on `Mesh` and the per-viewport active flag when the asset declares the extension and
+    `asoboOptions.applies(...)` is true. `CommandGenerator` copies class/offset into each `SortedCommand` and adds
+    the glass offset to its key; `TransparentPass` draws decals first (offset ascending, then back to front) and
+    every other blended draw by key. Covered transparent draws stop writing depth so their explicit order decides
+    what is on top while they are forward blended; A2's deferred path replaces this. Files that do not declare the
+    extension keep the previous pivot-distance order and depth writes byte for byte.
+  - **Glass sign (inferred from the literal rule):** the SDK does not state which direction the offset moves a
+    glass draw. The implementation uses the literal `key = distance + offset` with the existing larger-key-first
+    transparent sort, so a positive glass offset acts like extra distance: it is drawn earlier, i.e. below other
+    glass. Decals are the opposite convention: a higher offset is drawn later, above.
+  - **Harness:** `scripts/validate_asobo_draworder.py` (quick tier, `run_regression.py`): a higher decal offset
+    wins even when its quad is farther; equal offsets sort by the bounding-box centre (not the pivot); decals draw
+    before glass; large/small glass offsets and windshield; an offset on a plain blended material is ignored with a
+    byte-identical capture; switch off and an undeclared extension are byte-identical to the file without it.
+  - **Results:** all harness checks PASS. `run_regression.py --extra=--asobo --extra=off` PASS. With ASOBO on, only
+    the E195 cockpit cases differ: p8_1 (`e195` in all four AA modes), p8_3 (`e195`) and p8_5 (`e195`). E195
+    `SCREEN_EICAS` on/off: the hazard-stripe decal placards around the pedestal knobs are fully visible with the
+    switch on (mostly hidden without it), and a thin left screen-bezel line becomes visible; the EICAS glass itself
+    looks the same in this dark frame.
 - [ ] **A1.5 — `ASOBO_occlusion_strength` and `ASOBO_extra_occlusion_texture` (R2). Owner: Claude.** An occlusion
   strength override, and a second occlusion map combined by the A0.6 rule.
 - [ ] **A1.6 — Emissive (R2). Owner: Claude.**

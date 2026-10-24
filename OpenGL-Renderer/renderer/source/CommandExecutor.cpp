@@ -24,6 +24,7 @@ void ux3d::renderer::CommandExecutor::init()
     m_activeWinding.reset();
     m_depthTestEnabled.reset();
     m_depthFunc.reset();
+    m_depthWriteEnabled.reset();
     m_blendEnabled.reset();
     m_blendSrcFactor.reset();
     m_blendDstFactor.reset();
@@ -40,10 +41,14 @@ void ux3d::renderer::CommandExecutor::resetState()
     m_activeWinding.reset();
     m_depthTestEnabled.reset();
     m_depthFunc.reset();
+    m_depthWriteEnabled.reset();
     m_blendEnabled.reset();
     m_blendSrcFactor.reset();
     m_blendDstFactor.reset();
     m_blendEquation.reset();
+    // A1.4 covered draws may have left depth writes disabled; never leak that into the UI
+    // or the next frame. The per-draw cache starts from the restored state.
+    m_gl->depthMask(GL_TRUE);
 }
 
 void ux3d::renderer::CommandExecutor::unbindSamplers()
@@ -89,6 +94,7 @@ void ux3d::renderer::CommandExecutor::execute(const Command& command)
         m_activeWinding.reset();
         m_depthTestEnabled.reset();
         m_depthFunc.reset();
+        m_depthWriteEnabled.reset();
         m_blendEnabled.reset();
         m_blendSrcFactor.reset();
         m_blendDstFactor.reset();
@@ -171,6 +177,7 @@ void ux3d::renderer::CommandExecutor::draw(const Command& command)
     setupCulling(command);
     setupPolygonMode(command);
     setupFrontFace(command);
+    setupDepthWrite(command);
 
     GLIDER_HOT_GL_CHECK(m_gl, "before draw failed");
 
@@ -314,6 +321,14 @@ void ux3d::renderer::CommandExecutor::setupDepthTest(const Command& command)
     }
 
     checkGLError(m_gl, "Failed to set depth test");
+}
+
+void ux3d::renderer::CommandExecutor::setupDepthWrite(const Command& command)
+{
+    if (!m_depthWriteEnabled.has_value() || m_depthWriteEnabled.value() != command.depthWriteEnabled) {
+        m_depthWriteEnabled = command.depthWriteEnabled;
+        m_gl->depthMask(command.depthWriteEnabled ? GL_TRUE : GL_FALSE);
+    }
 }
 
 bool ux3d::renderer::CommandExecutor::activateProgram(const Command& command)

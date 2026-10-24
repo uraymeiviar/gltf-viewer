@@ -60,6 +60,7 @@ public:
     virtual void blendFunc(GLenum sfactor, GLenum dfactor) override;
     virtual void blendEquation(GLenum mode) override;
     virtual void depthFunc(GLenum func) override;
+    virtual void depthMask(GLboolean flag) override { glDepthMask(flag); }
     virtual void colorMask(GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha) override;
     virtual void clearColor(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha) override;
     virtual void clear(GLbitfield mask) override;

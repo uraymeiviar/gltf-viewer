@@ -31,6 +31,7 @@ public:
     std::optional<gl::Winding> getActiveWinding() const { return m_activeWinding; }
     std::optional<bool> getDepthTestEnabled() const { return m_depthTestEnabled; }
     std::optional<GLenum> getDepthFunc() const { return m_depthFunc; }
+    std::optional<bool> getDepthWriteEnabled() const { return m_depthWriteEnabled; }
     std::optional<bool> getBlendEnabled() const { return m_blendEnabled; }
     std::optional<GLenum> getBlendSrcFactor() const { return m_blendSrcFactor; }
     std::optional<GLenum> getBlendDstFactor() const { return m_blendDstFactor; }
@@ -48,6 +49,7 @@ private:
     void setupPolygonMode(const Command& command);
     void setupFrontFace(const Command& command);
     void setupDepthTest(const Command& command);
+    void setupDepthWrite(const Command& command);
     void setupScissorTest(const Command& command) const;
     void readPixel(const Command& command) const;
 
@@ -61,6 +63,7 @@ private:
     std::optional<gl::Winding> m_activeWinding = std::nullopt;
     std::optional<bool> m_depthTestEnabled = std::nullopt;
     std::optional<GLenum> m_depthFunc = std::nullopt;
+    std::optional<bool> m_depthWriteEnabled = std::nullopt;
     std::optional<bool> m_blendEnabled = std::nullopt;
     std::optional<GLenum> m_blendSrcFactor = std::nullopt;
     std::optional<GLenum> m_blendDstFactor = std::nullopt;

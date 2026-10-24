@@ -56,6 +56,9 @@ public:
     virtual void blendFunc(GLenum sfactor, GLenum dfactor) = 0;
     virtual void blendEquation(GLenum mode) = 0;
     virtual void depthFunc(GLenum func) = 0;
+    // A1.4: transparent decals and glass stop writing depth while draw order is active. The
+    // default keeps the interface source-compatible for implementations that do not need it.
+    virtual void depthMask(GLboolean /*flag*/) { }
     virtual void colorMask(GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha) = 0;
     virtual void clearColor(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha) = 0;
     virtual void clear(GLbitfield mask) = 0;

@@ -7,6 +7,7 @@
 #include "gl/Uniform.h"
 #include "gl/UniformBlock.h"
 #include "gl/VertexLayout.h"
+#include "renderer/DrawOrder.h"
 
 #include <array>
 #include <functional>
@@ -56,6 +57,9 @@ public:
     gl::PolygonMode polygonMode = gl::PolygonMode::Fill;
     bool blendingEnabled = false;
     bool depthTestEnabled = false;
+    // A1.4: covered transparent draws (decals, glass, windshield) do not write depth while
+    // ASOBO_material_draw_order is active, so their order decides what is on top.
+    bool depthWriteEnabled = true;
 
     gl::PrimitiveTopology primitiveTopology = gl::PrimitiveTopology::TriangleList;
     GLsizei primitiveCount = 0u;
@@ -85,14 +89,19 @@ public:
 };
 
 struct SortedCommand {
-    SortedCommand(Command* command, float sortKey)
+    SortedCommand(Command* command, float sortKey, DrawOrderClass drawOrderClass = DrawOrderClass::None, int drawOrderOffset = 0)
         : command(command)
         , sortKey(sortKey)
+        , drawOrderClass(drawOrderClass)
+        , drawOrderOffset(drawOrderOffset)
     {
     }
 
     Command* command;
     float sortKey;
+    // A1.4: ASOBO_material_draw_order, effective only for the transparent classes.
+    DrawOrderClass drawOrderClass = DrawOrderClass::None;
+    int drawOrderOffset = 0;
 };
 
 using SortedCommands = std::vector<SortedCommand>;

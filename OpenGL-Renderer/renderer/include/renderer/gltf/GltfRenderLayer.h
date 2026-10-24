@@ -165,6 +165,8 @@ private:
 
     // Set by updateGltf from the asset's declared ASOBO_normal_map_convention (A1.2).
     bool m_assetNormalMapConventionDirectX = false;
+    // Set by updateGltf when extensionsUsed declares ASOBO_material_draw_order (A1.4).
+    bool m_assetDrawOrderDeclared = false;
 
 public:
     GltfToRendererMapping<std::tuple<const gltf::Image*, bool>, renderer::gl::Texture*> m_textureMapping;

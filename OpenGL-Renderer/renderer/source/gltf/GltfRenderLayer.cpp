@@ -18,6 +18,8 @@
 
 #include "gltf/extensions/AsoboExtensions.h"
 
+#include <algorithm>
+#include <cmath>
 #include <functional>
 #include <chrono>
 #include <memory>
@@ -33,6 +35,32 @@ bool isAsoboInvisible(const gltf::asobo::ExtensionSet& extensions)
 {
     const gltf::asobo::ExtensionData* invisible = extensions.find("ASOBO_material_invisible");
     return invisible != nullptr && invisible->boolean("enabled").value_or(true);
+}
+
+// A1.4: the material classes ASOBO_material_draw_order affects. Decals keep their own
+// offset order; glass and windshield add the offset to the distance key.
+DrawOrderClass asoboDrawOrderClass(const gltf::asobo::ExtensionSet& extensions)
+{
+    const auto has = [&extensions](const char* name) { return extensions.find(name) != nullptr; };
+    if (has("ASOBO_material_geometry_decal") || has("ASOBO_material_blend_gbuffer")) {
+        return DrawOrderClass::Decal;
+    }
+    if (has("ASOBO_material_glass_v2") || has("ASOBO_material_glass")
+        || has("ASOBO_material_windshield_v3") || has("ASOBO_material_windshield")) {
+        return DrawOrderClass::Glass;
+    }
+    return DrawOrderClass::None;
+}
+
+// The MSFS SDK range; the extension schema itself does not constrain the number.
+int asoboDrawOrderOffset(const gltf::asobo::ExtensionSet& extensions)
+{
+    const gltf::asobo::ExtensionData* drawOrder = extensions.find("ASOBO_material_draw_order");
+    if (drawOrder == nullptr) {
+        return 0;
+    }
+    const double value = drawOrder->number("drawOrderOffset").value_or(0.0);
+    return static_cast<int>(std::lround(std::clamp(value, -999.0, 999.0)));
 }
 }
 
@@ -475,6 +503,9 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
             }
         }
         material->invisible = material->asobo != nullptr && isAsoboInvisible(*material->asobo);
+        material->drawOrderClass = material->asobo != nullptr ? asoboDrawOrderClass(*material->asobo) : DrawOrderClass::None;
+        material->drawOrderOffset = material->asobo != nullptr ? asoboDrawOrderOffset(*material->asobo) : 0;
+        material->drawOrderActive = false;
         material->samplers.clear();
         material->defines.clear();
 
@@ -1448,6 +1479,11 @@ void GltfRenderLayer::updateGltf(const gltf::Gltf& gltf)
         convention != nullptr ? convention->string("tangent_space_convention") : nullptr;
     m_assetNormalMapConventionDirectX = tangentSpaceConvention != nullptr && *tangentSpaceConvention == "DirectX";
 
+    // A1.4: an extension the file does not declare is ignored. Without this declaration the
+    // draw-order rule stays off even when the viewport applies the extension, so files that
+    // do not use it keep the previous transparent order byte for byte.
+    m_assetDrawOrderDeclared = gltf.isExtensionDeclared("ASOBO_material_draw_order");
+
     // Textures: first create glTextures for all textures present in the gltf
     // We have to scan the material for used textures, as whether the texture is in
     // Linear or sRGB format is only determined by the textures usage in the material.
@@ -1900,6 +1936,22 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
             } else if (boxOutsideClip(clipFromWorld * entry.mesh->getTransform(), entry.lo, entry.hi)) {
                 ++m_lastSceneStats.culled;
                 continue;
+            }
+        }
+        // A1.4: MSFS sorts transparent decals, glass and windshield by the mesh's bounding
+        // box centre, not the node pivot. Skinned, morphed and quantized primitives cannot
+        // be bounded statically, so they keep the pivot as the fallback.
+        const bool drawOrderActive = m_assetDrawOrderDeclared
+            && asoboOptions.applies("ASOBO_material_draw_order");
+        if (entry.material != nullptr) {
+            entry.material->drawOrderActive = drawOrderActive;
+            if (drawOrderActive && entry.material->drawOrderClass != DrawOrderClass::None) {
+                if (entry.bounded) {
+                    const math::vec3 localCenter = (entry.lo + entry.hi) * 0.5f;
+                    entry.mesh->setBoundingCenter(math::vec3(entry.mesh->getTransform() * math::vec4(localCenter, 1.0f)));
+                } else {
+                    entry.mesh->setBoundingCenter(entry.mesh->getPosition());
+                }
             }
         }
         scene.drawables.emplace_back(entry.mesh, entry.material);
