@@ -27,8 +27,9 @@ MSFS as practical, while still opening any glTF.
    4. Shadows with a sun, whose direction and position later come from time of day.
    5. Detail map, UV repeat, parallax window.
    6. A dynamic, configurable time of day emulating MSFS.
-6. **Decals use a deferred path** (G-buffer for opaque geometry); forward emulation cannot reproduce
-   normal-, roughness- or occlusion-only decals ([Phase A2](ASOBO_EXTENSIONS_PHASE_2.md)).
+6. **Decals use a screen-space decal buffer** filled before the forward opaque pass, which applies it before
+   lighting; plain forward blending cannot reproduce normal-, roughness- or occlusion-only decals
+   ([Phase A2](ASOBO_EXTENSIONS_PHASE_2.md), revised 2026-10-24 from a full deferred path).
 7. **Ground truth:** the team can capture MSFS 2024 reference screenshots.
 
 ## Phases
@@ -37,7 +38,7 @@ MSFS as practical, while still opening any glTF.
 |---|---|---|
 | A0 | [Foundations: typed extension model, support matrix, fixtures, harness, reference screenshots](ASOBO_EXTENSIONS_PHASE_0.md) | Planned |
 | A1 | [Basic materials and draw order: normal convention, ORM/occlusion, emissive, draw order, dither, DDS](ASOBO_EXTENSIONS_PHASE_1.md) | Planned (A1.1 invisible materials: done, `00274ce`) |
-| A2 | [Deferred opaque path and decals](ASOBO_EXTENSIONS_PHASE_2.md) | Planned |
+| A2 | [Decal buffer and decals](ASOBO_EXTENSIONS_PHASE_2.md) | Designed |
 | A3 | [Sun, shadows, macro lights, SSS](ASOBO_EXTENSIONS_PHASE_3.md) | Planned |
 | A4 | [Glass, windshields, glow (bloom), fresnel and ghost opacity](ASOBO_EXTENSIONS_PHASE_4.md) | Planned |
 | A5 | [Detail map, UV options, parallax window, wind flex](ASOBO_EXTENSIONS_PHASE_5.md) | Planned |
@@ -114,13 +115,13 @@ record *matches* or *differs because …*. They are judgments, not pixel gates.
 ## 3. Phase Overview
 
 ```
-A0 ── A1 ── A2 (deferred + decals) ── A3 (sun + shadows) ── A6 (time of day)
+A0 ── A1 ── A2 (decal buffer + decals) ── A3 (sun + shadows) ── A6 (time of day)
         └── A4 (glass, bloom)  ── A5 (detail, UV, parallax)
 A7 (remaining) proceeds in parallel where it touches no shared shader code.
 ```
 
-- **Why A2 comes before shadows (A3):** the sun and shadow lookups are cheaper and simpler in a deferred lighting
-  pass.
+- **Why A2 comes before shadows (A3):** A2 adds the prepass that A3 and A4 can reuse for screen-space data;
+  shadows themselves go into the forward shader.
 - **Why A6 comes last:** it replaces the fixed HDR environment with a sky driven by the A3 sun. Tuning A4/A5
   materials before A6 is acceptable because A6 changes lighting, not material math. The reference screenshots
   are rechecked after A6.
@@ -142,7 +143,7 @@ and the renderer-critical paths, and reviews and integrates every handoff.
 | Fixture generators (`scripts/generate_asobo_*_fixture.py`) for A1 | **GPT Astra** | Pure Python with clear schema-driven specs |
 | A1.2 normal convention, A1.4 draw order, A1.5 occlusion, A1.6 emissive | Claude | Shader and sort changes on the hot path |
 | A1.7 alpha dither, A1.8 `MSFT_texture_dds` | **GPT Astra** | Small, well-bounded, testable in isolation |
-| A2 deferred path and decals; A3 sun and shadows; A4 glass and bloom; A6 time of day | Claude | Architecture, performance and image correctness |
+| A2 design and review (implementation: DeepSeek, Sol, Astra per Phase A2); A3 sun and shadows; A4 glass and bloom; A6 time of day | Claude | Architecture, performance and image correctness |
 | A5.1 detail map, A5.2 UV options | **GPT Astra**, after A2 lands | Material-shader additions with neutral-parameter tests; reviewed by Claude |
 | A7.4 collision and gizmo overlays | **GPT Astra** | Follows the existing bounding-box overlay pattern |
 | A7 classification of simulator-only extensions | **Gemini Argon** | Research and documentation |

@@ -551,6 +551,8 @@ void Application::drawViewports(FrameContext& frame)
             commandGenerator->setAsoboNormalMapConvention(
                 gltfLayer->usesDirectXNormalMaps() &&
                 vp->settings.asobo.applies("ASOBO_normal_map_convention"));
+            commandGenerator->setAsoboWindshieldVertexColorMask(
+                vp->settings.asobo.applies("ASOBO_material_windshield_v3"));
 
             const auto commandGenerationStart = ux3d::imgui::profiling::Clock::now();
             const uint64_t programHitsBefore = commandGenerator->getCommandMapping().getProgramCacheHits();

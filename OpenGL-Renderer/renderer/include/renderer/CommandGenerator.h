@@ -83,6 +83,9 @@ public:
     // A1.2: the asset's ASOBO_normal_map_convention is DirectX and this viewport applies it;
     // the shaders invert the green channel of every normal-map sample.
     void setAsoboNormalMapConvention(bool directX);
+    // A4 (partial): this viewport applies ASOBO_material_windshield_v3. Windshield v3
+    // materials then keep COLOR_0 out of the base colour; it holds masks instead.
+    void setAsoboWindshieldVertexColorMask(bool enabled);
 
     // Generate the commands and sort them to renderpasses
     void emitCommands();
@@ -122,6 +125,7 @@ protected:
     gl::Uniform m_environmentMapIntensityUniform;
     gl::Uniform m_exposureUniform;
     gl::Uniform m_asoboNormalMapDirectXUniform;
+    gl::Uniform m_asoboWindshieldVertexColorMaskUniform;
     EnvironmentMap* m_activeEnvironmentMap = nullptr;
     const renderer::Camera* m_activeCamera = nullptr;
     LightData m_lights;

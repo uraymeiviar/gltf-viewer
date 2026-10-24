@@ -14,6 +14,9 @@ struct SupportInfo {
     Support status;
     std::string_view phase;
     std::string_view note;
+    // False for extensions that are part of how the file is stored or read (for example
+    // ASOBO_asset_optimized), so Viewport Settings lists a switch only where one has an effect.
+    bool viewportSwitch = true;
 };
 
 const std::vector<SupportInfo>& supportTable();

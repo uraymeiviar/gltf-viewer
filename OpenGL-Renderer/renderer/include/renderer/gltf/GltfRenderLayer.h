@@ -168,6 +168,10 @@ private:
     bool m_assetNormalMapConventionDirectX = false;
     // Set by updateGltf when extensionsUsed declares ASOBO_material_draw_order (A1.4).
     bool m_assetDrawOrderDeclared = false;
+    // Set by updateGltf when extensionsUsed declares ASOBO_asset_optimized (A1.9). The package
+    // tool stores TEXCOORD_n/COLOR_0 as half-floats in SHORT/USHORT and NORMAL/TANGENT as
+    // signed bytes; the vertex attributes are fed to GL with the matching type.
+    bool m_assetOptimized = false;
 
 public:
     GltfToRendererMapping<std::tuple<const gltf::Image*, bool>, renderer::gl::Texture*> m_textureMapping;

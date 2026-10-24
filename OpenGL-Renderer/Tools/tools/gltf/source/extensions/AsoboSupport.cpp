@@ -8,7 +8,7 @@ const std::vector<SupportInfo>& supportTable()
 {
     static const std::vector<SupportInfo> table = {
         {"ASOBO_animation_retargeting", Support::Metadata, "A7", ""},
-        {"ASOBO_asset_optimized", Support::Metadata, "A7", ""},
+        {"ASOBO_asset_optimized", Support::Rendered, "A1.9", "packaged half-float UV/colour and signed-byte normal/tangent decoding", false},
         {"ASOBO_collision_object", Support::NotYetSupported, "A7", ""},
         {"ASOBO_extra_occlusion", Support::NotYetSupported, "A1", ""},
         {"ASOBO_extra_occlusion_texture", Support::NotYetSupported, "A1", ""},
@@ -40,14 +40,14 @@ const std::vector<SupportInfo>& supportTable()
         {"ASOBO_material_sail", Support::NotYetSupported, "A7", ""},
         {"ASOBO_material_shadow_options", Support::NotYetSupported, "A3", ""},
         {"ASOBO_material_windshield", Support::NotYetSupported, "A4", ""},
-        {"ASOBO_material_windshield_v3", Support::NotYetSupported, "A4", ""},
+        {"ASOBO_material_windshield_v3", Support::Partial, "A4", "vertex colour masks not used as colour; masks and windshield shading in A4"},
         {"ASOBO_normal_map_convention", Support::Rendered, "A1.2", "DirectX convention flips normal-map green"},
         {"ASOBO_occlusion_strength", Support::NotYetSupported, "A1", ""},
         {"ASOBO_property_animation", Support::NotYetSupported, "A7", ""},
         {"ASOBO_softbody_mesh", Support::Metadata, "A7", ""},
         {"ASOBO_tags", Support::Metadata, "A7", ""},
         {"ASOBO_unique_id", Support::Metadata, "A7", ""},
-        {"MSFT_texture_dds", Support::Rendered, "A1.8", "DDS image preferred over core source with automatic fallback"},
+        {"MSFT_texture_dds", Support::Rendered, "A1.8", "DDS image preferred over core source with automatic fallback; always read when declared", false},
     };
     return table;
 }

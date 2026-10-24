@@ -20,7 +20,7 @@ Quick tier (equivalence only: byte-identical viewport images, identical selectio
   validate_p4_exit_gate.py  every UI producer of a scene revision
   the four built-in self-checks
   then, one at a time: validate_asobo_model.py, validate_asobo_normal.py, validate_asobo_common.py,
-  validate_asobo_support.py, validate_asobo_draworder.py
+  validate_asobo_support.py, validate_asobo_draworder.py, validate_asobo_packaged.py
 Full tier adds:
   --with-ab (each feature against its own switch), validate_p5_1.py against the baseline, and
   validate_p8_5.py's 10,000-drawable grid and MSAA/TAA fixture copies.
@@ -89,6 +89,7 @@ serial_jobs = [
     ("asobo_common", ["scripts/validate_asobo_common.py"]),
     ("asobo_support", ["scripts/validate_asobo_support.py"]),
     ("asobo_draworder", ["scripts/validate_asobo_draworder.py"]),
+    ("asobo_packaged", ["scripts/validate_asobo_packaged.py"]),
     ("texture_dds", ["scripts/validate_texture_dds.py"]),
     ("texture_ktx2", ["scripts/validate_texture_ktx2.py"]),
 ]

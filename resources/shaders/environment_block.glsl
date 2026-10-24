@@ -11,4 +11,7 @@ layout(std140) uniform EnvironmentBlock
     // Non-zero when this asset declares ASOBO_normal_map_convention "DirectX" and the
     // viewport applies it (A1.2). It is per viewport, so it cannot be a material define.
     int u_AsoboNormalMapDirectX;
+    // Non-zero when the viewport applies ASOBO_material_windshield_v3. Materials that
+    // declare it then use COLOR_0 as masks, not as a base-colour multiplier (A4 partial).
+    int u_AsoboWindshieldVertexColorMask;
 };

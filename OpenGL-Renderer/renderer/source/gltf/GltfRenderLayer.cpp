@@ -532,6 +532,13 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
         material->samplers.clear();
         material->defines.clear();
 
+        // A4 (partial): on windshield v3 materials COLOR_0 holds masks, not a colour. The
+        // material-side decision is a define; the viewport switch is a frame-block uniform
+        // so the command cache does not depend on which viewport draws the material.
+        if (material->asobo != nullptr && material->asobo->find("ASOBO_material_windshield_v3") != nullptr) {
+            material->defines.define("ASOBO_MATERIAL_WINDSHIELD_V3");
+        }
+
         material->setUniform<float>("u_AlphaCutoff", gltfMaterial->getAlphaModeOrDefault() == gltf::AlphaMode::Mask ? static_cast<float>(gltfMaterial->getAlphaCutoffOrDefault()) : 0.f);
 
         // Select renderpass for transparent, transmissive, or opaque material
@@ -987,8 +994,16 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
                 return;
             }
 
+            // The packaged layout pads NORMAL to VEC4 (the fourth byte is 127), while the
+            // shaders read a vec3. Define and size the vertex attribute as VEC3 so the
+            // padded component is ignored; the stored byte order is x, y, z, w.
+            gltf::AttributeType attributeType = accessor->getType();
+            if (m_assetOptimized && name == "NORMAL" && attributeType == gltf::AttributeType::Vec4) {
+                attributeType = gltf::AttributeType::Vec3;
+            }
+
             std::string define = "HAS_" + core::toUpper(name) + "_";
-            switch (accessor->getType()) {
+            switch (attributeType) {
             case gltf::AttributeType::Scalar:
                 define += "FLOAT";
                 break;
@@ -1022,7 +1037,30 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
             attribute.normalized = accessor->isNormalized() ? GL_TRUE : GL_FALSE;
             attribute.type = static_cast<gl::ComponentType>(accessor->getComponentType());
 
-            switch (accessor->getType()) {
+            // A1.9: packaged MSFS files keep half-floats in SHORT/USHORT accessors and signed
+            // components in BYTE accessors, all with normalized false. Hand those bit patterns
+            // to GL as they are stored; everything else keeps the accessor's own type.
+            if (m_assetOptimized && !accessor->isNormalized()) {
+                const bool halfFloat = (name.rfind("TEXCOORD_", 0) == 0 || name == "COLOR_0")
+                    && (accessor->getComponentType() == gltf::ComponentType::Short
+                        || accessor->getComponentType() == gltf::ComponentType::UnsignedShort);
+                const bool signedByte = (name == "NORMAL" || name == "TANGENT")
+                    && accessor->getComponentType() == gltf::ComponentType::Byte;
+                // The skinned 48-byte layout stores COLOR_0 as BYTE but the bytes are RGBA8
+                // (all 0xFF for the added white), so this one is unsigned despite the accessor.
+                const bool unsignedByteColor = name == "COLOR_0"
+                    && accessor->getComponentType() == gltf::ComponentType::Byte;
+                if (halfFloat) {
+                    attribute.type = gl::ComponentType::HalfFloat;
+                } else if (signedByte) {
+                    attribute.normalized = GL_TRUE;
+                } else if (unsignedByteColor) {
+                    attribute.type = gl::ComponentType::UByte;
+                    attribute.normalized = GL_TRUE;
+                }
+            }
+
+            switch (attributeType) {
             case gltf::AttributeType::Scalar:
                 attribute.dimension = 1;
                 break;
@@ -1037,6 +1075,14 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
                 break;
             default:
                 break;
+            }
+
+            // Without a bufferView byteStride GL tightly packs attribute.dimension components.
+            // When the packaged VEC4 normal is read as VEC3, keep the source element stride so
+            // the fourth byte is skipped per vertex instead of shifting the following ones.
+            if (attribute.stride == 0 && attributeType != accessor->getType()) {
+                attribute.stride = static_cast<GLsizei>(
+                    accessor->getByteLengthFrom(accessor->getComponentType(), accessor->getType(), false));
             }
 
             mesh->attributes.emplace_back(attribute);
@@ -1528,6 +1574,12 @@ void GltfRenderLayer::updateGltf(const gltf::Gltf& gltf)
     // draw-order rule stays off even when the viewport applies the extension, so files that
     // do not use it keep the previous transparent order byte for byte.
     m_assetDrawOrderDeclared = gltf.isExtensionDeclared("ASOBO_material_draw_order");
+
+    // A1.9: ASOBO_asset_optimized describes how the packaged file stores the vertex data,
+    // not an effect the viewport can switch. Its types are decoded whenever the file
+    // declares it; every other file keeps the accessor's own component type and
+    // normalization.
+    m_assetOptimized = gltf.isExtensionDeclared("ASOBO_asset_optimized");
 
     // Textures: first create glTextures for all textures present in the gltf
     // We have to scan the material for used textures, as whether the texture is in

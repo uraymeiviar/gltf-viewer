@@ -29,6 +29,7 @@ ux3d::renderer::CommandGenerator::CommandGenerator(gl::GL* gl, const filesystem:
     , m_environmentMapIntensityUniform("u_EnvIntensity")
     , m_exposureUniform("u_Exposure")
     , m_asoboNormalMapDirectXUniform("u_AsoboNormalMapDirectX")
+    , m_asoboWindshieldVertexColorMaskUniform("u_AsoboWindshieldVertexColorMask")
     , m_lights(gl)
 {
     setEnvironmentMapRotation(0.0f);
@@ -36,6 +37,7 @@ ux3d::renderer::CommandGenerator::CommandGenerator(gl::GL* gl, const filesystem:
     setEnvironmentMapIntensity(1.0f);
     setExposure(1.0f);
     setAsoboNormalMapConvention(false);
+    setAsoboWindshieldVertexColorMask(false);
     m_gl = gl;
 }
 
@@ -78,8 +80,9 @@ void ux3d::renderer::CommandGenerator::bindFrameBlocks()
         uploadFrameBlock(m_cameraBlock, gl::kCameraBlockBinding, camera, sizeof(camera));
     }
     // EnvironmentBlock: mat3 u_EnvRotation as three 16-byte columns, then u_EnvIntensity
-    // at 48, u_EnvBlurNormalized at 52, int u_MipCount at 56, u_Exposure at 60 and
-    // int u_AsoboNormalMapDirectX at 64 (the block is padded to 80 for std140).
+    // at 48, u_EnvBlurNormalized at 52, int u_MipCount at 56, u_Exposure at 60,
+    // int u_AsoboNormalMapDirectX at 64 and int u_AsoboWindshieldVertexColorMask at 68
+    // (the block is padded to 80 for std140).
     uint8_t environment[80] = {};
     if (m_environmentMapRotationUniform.byteSize() == 36) {
         for (size_t column = 0; column < 3; ++column) {
@@ -93,6 +96,7 @@ void ux3d::renderer::CommandGenerator::bindFrameBlocks()
     }
     place(environment, 60, 4, m_exposureUniform);
     place(environment, 64, 4, m_asoboNormalMapDirectXUniform);
+    place(environment, 68, 4, m_asoboWindshieldVertexColorMaskUniform);
     uploadFrameBlock(m_environmentBlock, gl::kEnvironmentBlockBinding, environment, sizeof(environment));
 }
 
@@ -174,4 +178,9 @@ void ux3d::renderer::CommandGenerator::setExposure(float _exposure)
 void ux3d::renderer::CommandGenerator::setAsoboNormalMapConvention(bool directX)
 {
     m_asoboNormalMapDirectXUniform.write(static_cast<int>(directX ? 1 : 0));
+}
+
+void ux3d::renderer::CommandGenerator::setAsoboWindshieldVertexColorMask(bool enabled)
+{
+    m_asoboWindshieldVertexColorMaskUniform.write(static_cast<int>(enabled ? 1 : 0));
 }

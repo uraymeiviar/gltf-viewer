@@ -115,6 +115,9 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
                 if (info.status != ux3d::gltf::asobo::Support::Rendered && info.status != ux3d::gltf::asobo::Support::Partial) {
                     continue;
                 }
+                if (!info.viewportSwitch) {
+                    continue;
+                }
                 const std::string extension(info.name);
                 const std::string label = ExtensionInspector::formatExtensionLabel(extension) + "##asobo_" + extension;
                 bool applied = std::find(state.asobo.disabled.begin(), state.asobo.disabled.end(), extension) == state.asobo.disabled.end();

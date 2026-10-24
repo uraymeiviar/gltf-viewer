@@ -192,6 +192,14 @@ vec4 getBaseColor()
     baseColor *= texture(u_BaseColorSampler, getBaseColorUV());
 #endif
 
+#ifdef ASOBO_MATERIAL_WINDSHIELD_V3
+    // COLOR_0 on a windshield v3 material is a set of masks (scratch, detail, fingerprint,
+    // icing), not a colour. The viewport switch decides; the masks themselves are A4.
+    if (u_AsoboWindshieldVertexColorMask != 0) {
+        return baseColor;
+    }
+#endif
+
     return baseColor * getVertexColor();
 }
 
