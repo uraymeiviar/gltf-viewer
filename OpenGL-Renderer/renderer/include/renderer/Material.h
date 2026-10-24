@@ -51,6 +51,9 @@ public:
     // not rendered, e.g. MSFS collision geometry. GltfRenderLayer leaves it out of scenes
     // when the viewport does not apply ASOBO_material_invisible (GltfRenderLayer::asoboOptions).
     bool invisible = false;
+    // ASOBO_material_environment_occluder (enabled, the default): hidden the same way, under its
+    // own viewport switch (ASOBO_material_environment_occluder).
+    bool environmentOccluder = false;
     // A1.4: ASOBO_material_draw_order. The class comes from the material type extensions and
     // the offset is read once per material sync; drawOrderActive is set per viewport by
     // GltfRenderLayer::createScene when the asset declares the extension and the viewport applies it.

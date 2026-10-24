@@ -323,6 +323,7 @@ std::optional<int> Application::configure(int argc, char** argv)
             s_disableSharedTraversal = true;
         } else if (arg == "--show-invisible-materials") {
             activeViewport->settings.asobo.setApplied("ASOBO_material_invisible", false);
+            activeViewport->settings.asobo.setApplied("ASOBO_material_environment_occluder", false);
         } else if (arg == "--asobo" && i + 1 < argc) {
             activeViewport->settings.asobo.enabled = toLowerAscii(argv[++i]) != "off";
         } else if (arg == "--asobo-disable" && i + 1 < argc) {

@@ -27,7 +27,7 @@ const std::vector<SupportInfo>& supportTable()
         {"ASOBO_material_disable_motion_blur", Support::NotApplicable, "A7", "Glider has no motion blur"},
         {"ASOBO_material_draw_order", Support::Rendered, "A1.4", "decals, glass and windshield sort by drawOrderOffset"},
         {"ASOBO_material_emissive", Support::NotYetSupported, "A1", ""},
-        {"ASOBO_material_environment_occluder", Support::NotYetSupported, "A2", ""},
+        {"ASOBO_material_environment_occluder", Support::Rendered, "A2.4", "hidden: Glider draws no weather or vegetation to occlude; switch off to draw it"},
         {"ASOBO_material_fake_terrain", Support::NotYetSupported, "A2", ""},
         {"ASOBO_material_fresnel_fade", Support::NotYetSupported, "A4", ""},
         {"ASOBO_material_geometry_decal", Support::NotYetSupported, "A2", ""},

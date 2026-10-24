@@ -245,7 +245,7 @@ build/bin/Release/Glider.exe
 - `--hdr-rotation <deg>`, `--exposure <ev>`, `--tone-mapping <neutral|hill|narkowicz>`: Environment rotation,
   exposure and tone mapping for this run. Environment settings belong to the glTF scene (one set per scene, shared
   by every viewport) and are edited in the Inspector when the scene row is selected (`SceneInspector`).
-- `--show-invisible-materials`: Also draw materials marked invisible by `ASOBO_material_invisible` (hidden by default).
+- `--show-invisible-materials`: Also draw materials marked invisible by `ASOBO_material_invisible` and environment occluders (`ASOBO_material_environment_occluder`); both are hidden by default.
 - `--asobo off|on`, `--asobo-disable <extension>` (repeatable): MSFS (ASOBO) extensions the active viewport applies (Viewport Settings → MSFS Extensions; all on by default; off renders the file as if it had none).
 - `--search-path <dir>` (repeatable): extra texture folder for this run, relative to the model; works with `--isolated`, which ignores `settings.ini`.
 - `--validate-file <gltf> --validation-report <out.json>`: validate headlessly and exit; files the loader accepts are validated with their model, so the model-based checks (including ASOBO) run.

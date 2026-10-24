@@ -41,6 +41,16 @@ bool isAsoboInvisible(const gltf::asobo::ExtensionSet& extensions)
     return invisible != nullptr && invisible->boolean("enabled").value_or(true);
 }
 
+// ASOBO_material_environment_occluder: a volume around the cabin that hides MSFS rain, snow
+// and vegetation inside it (docs/ASOBO_GBUFFER_STUDY.md 4a). It is never meant to be seen,
+// and Glider draws no weather or vegetation to occlude, so it is hidden like an invisible
+// material.
+bool isAsoboEnvironmentOccluder(const gltf::asobo::ExtensionSet& extensions)
+{
+    const gltf::asobo::ExtensionData* occluder = extensions.find("ASOBO_material_environment_occluder");
+    return occluder != nullptr && occluder->boolean("enabled").value_or(true);
+}
+
 // A1.4: the material classes ASOBO_material_draw_order affects. Decals keep their own
 // offset order; glass and windshield add the offset to the distance key.
 DrawOrderClass asoboDrawOrderClass(const gltf::asobo::ExtensionSet& extensions)
@@ -657,6 +667,7 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
             }
         }
         material->invisible = material->asobo != nullptr && isAsoboInvisible(*material->asobo);
+        material->environmentOccluder = material->asobo != nullptr && isAsoboEnvironmentOccluder(*material->asobo);
         material->drawOrderClass = material->asobo != nullptr ? asoboDrawOrderClass(*material->asobo) : DrawOrderClass::None;
         material->drawOrderOffset = material->asobo != nullptr ? asoboDrawOrderOffset(*material->asobo) : 0;
         material->drawOrderActive = false;
@@ -2090,6 +2101,7 @@ const GltfRenderLayer::SceneTraversal& GltfRenderLayer::traverseScene(const gltf
     t.isolationIncludeChildren = m_isolationIncludeChildren;
     t.frameToken = m_sceneFrameToken;
     const bool hideInvisible = asoboOptions.applies("ASOBO_material_invisible");
+    const bool hideOccluders = asoboOptions.applies("ASOBO_material_environment_occluder");
 
     std::function<void(const gltf::Node*, bool, bool)> addMeshMaterialRecursive;
     addMeshMaterialRecursive = [&](const gltf::Node* gltfNode, bool insideIsolation, bool parentHidden) {
@@ -2161,7 +2173,8 @@ const GltfRenderLayer::SceneTraversal& GltfRenderLayer::traverseScene(const gltf
 
             auto* mesh = meshIt->second;
             auto* material = matIt->second;
-            if (material != nullptr && material->invisible && hideInvisible) {
+            if (material != nullptr && ((material->invisible && hideInvisible)
+                    || (material->environmentOccluder && hideOccluders))) {
                 continue;
             }
 

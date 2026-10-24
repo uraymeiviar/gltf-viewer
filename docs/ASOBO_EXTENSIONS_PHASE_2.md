@@ -149,7 +149,7 @@ Run one at a time; each lands, is reviewed and committed before the next. Owners
 - [ ] **A2.3 — Modes and legacy decals. Owner: GPT Sol.** `blendMasked` ramp, `frosted` coverage,
   `ASOBO_material_blend_gbuffer`, `decalChan0–2`, `normalOverrideFactor`, support-table entries and notes.
   **Tests:** fixtures per mode; ramp endpoints; blend_gbuffer renders like the equivalent default decal.
-- [ ] **A2.4 — Environment occluder and fake terrain. Owner: GPT Astra (small).** Per study §4a, neither has
+- [x] **A2.4 — Environment occluder and fake terrain. Done 2026-10-25 (occluder hidden; fake terrain not yet recorded).** Was: Owner: GPT Astra (small).** Per study §4a, neither has
   anything to render in a viewer:
   - `ASOBO_material_environment_occluder` only hides MSFS weather and vegetation inside the cabin, which Glider does
     not draw. It is in every cabin LOD00 file (E170, E175, E190, E190F, E195, E195F), and today Glider draws it as a
