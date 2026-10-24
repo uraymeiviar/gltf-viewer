@@ -15,8 +15,11 @@
 #include "imgui/BlendTest.h"
 #include "imgui/Theme.h"
 #include "imageformats/imageformats.h"
+#include "gltf/GltfParsing.h"
+#include "gltf/ImportOptions.h"
 #include "gltf/Material.h"
 #include "gltf/extensions/AsoboExtensions.h"
+#include "gltf/extensions/AsoboSupport.h"
 #include "renderer/Skin.h"
 #include <algorithm>
 #include <cctype>
@@ -100,6 +103,10 @@ bool writeAsoboReport(const ux3d::gltf::Gltf& gltf, const std::string& path)
     std::sort(declared.begin(), declared.end());
     report["declared"] = declared;
     report["specCount"] = asobo::extensionSpecs().size();
+    report["support"] = nlohmann::json::object();
+    for (const asobo::SupportInfo& info : asobo::supportTable()) {
+        report["support"][std::string(info.name)] = asobo::supportLabel(info.status);
+    }
     report["objects"] = nlohmann::json::array();
     auto add = [&](const ux3d::gltf::GltfObject& object, uint32_t scope, const std::string& pointer) {
         const asobo::ExtensionSet set = asobo::parseExtensions(gltf, object, scope, pointer);
@@ -158,6 +165,7 @@ std::optional<int> Application::configure(int argc, char** argv)
     modelToLoad = resolveSampleModelPath();
     std::string reloadModelArg;
     std::string asoboReportPath;
+    std::vector<std::string> searchPathArgs;
     std::string selectNodeArg;
     std::string hideNodeArg;
     std::string renameNodeArg;
@@ -313,7 +321,11 @@ std::optional<int> Application::configure(int argc, char** argv)
         } else if (arg == "--disable-shared-traversal") {
             s_disableSharedTraversal = true;
         } else if (arg == "--show-invisible-materials") {
-            activeViewport->settings.showInvisibleMaterials = true;
+            activeViewport->settings.asobo.setApplied("ASOBO_material_invisible", false);
+        } else if (arg == "--asobo" && i + 1 < argc) {
+            activeViewport->settings.asobo.enabled = toLowerAscii(argv[++i]) != "off";
+        } else if (arg == "--asobo-disable" && i + 1 < argc) {
+            activeViewport->settings.asobo.setApplied(argv[++i], false);
         } else if (arg == "--disable-instancing") {
             s_disableInstancing = true;
             commandGenerator->getCommandMapping().setInstancingEnabled(false);
@@ -380,6 +392,8 @@ std::optional<int> Application::configure(int argc, char** argv)
             reloadModelArg = argv[++i];
         } else if (arg == "--asobo-report" && i + 1 < argc) {
             asoboReportPath = argv[++i];
+        } else if (arg == "--search-path" && i + 1 < argc) {
+            searchPathArgs.emplace_back(argv[++i]);
         } else if (arg == "--rename-node" && i + 1 < argc) {
             renameNodeArg = argv[++i];
         } else if (arg == "--rename-mesh" && i + 1 < argc) {
@@ -634,9 +648,15 @@ std::optional<int> Application::configure(int argc, char** argv)
 
     if (!validateFileArg.empty()) {
         // Container checks are reachable here for files the loader rejects; validation
-        // after a load only ever sees files the loader accepted.
-        ux3d::gltf::Gltf emptyModel;
-        const auto report = ux3d::imgui::GltfValidator::instance().validate(validateFileArg, emptyModel);
+        // after a load only ever sees files the loader accepted. A file the loader accepts is
+        // validated with its model too, so the model-based checks (ASOBO extensions) run.
+        ux3d::gltf::Gltf model;
+        const auto loaded = ux3d::gltf::GltfParsing::fromFile(model, ux3d::imgui::StdFileSystem::instance().toFile(validateFileArg.c_str()),
+                                                             ux3d::gltf::ImportOptions{});
+        if (loaded.derived != ux3d::gltf::GltfFromFileResult::Success) {
+            model.reset();
+        }
+        const auto report = ux3d::imgui::GltfValidator::instance().validate(validateFileArg, model);
         const bool written = s_validationReportPath.empty() ||
                              ux3d::imgui::GltfValidator::writeReportJson(report, s_validationReportPath);
         return written ? 0 : 1;
@@ -760,6 +780,11 @@ std::optional<int> Application::configure(int argc, char** argv)
                                     ? static_cast<uint64_t>(s_decodeBudgetMiB) * mib
                                     : std::max<uint64_t>(512ull * mib, ux3d::imgui::physicalMemoryBytes() / 8u);
         ux3d::imageformats::setDecodeMemoryBudget(budget);
+    }
+
+    // --search-path: extra texture folders for this run (also with --isolated, which ignores settings.ini).
+    for (const std::string& searchPath : searchPathArgs) {
+        ux3d::imgui::AppSettings::instance().addSearchPath(searchPath);
     }
 
     if (hierarchyDisplayProvided) {

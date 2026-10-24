@@ -6,6 +6,8 @@
 #include "imgui/TextureUtils.h"
 #include "gltf/Texture.h"
 #include "gltf/Image.h"
+#include "gltf/extensions/AsoboExtensions.h"
+#include "gltf/extensions/AsoboSupport.h"
 
 #include <imgui.h>
 #include <algorithm>
@@ -298,6 +300,29 @@ bool ExtensionInspector::renderExtensions(ux3d::gltf::GltfObject* object,
                 extToRemove = extName;
             }
             ImGui::EndPopup();
+        }
+
+        namespace asobo = ux3d::gltf::asobo;
+        if (asobo::isAsoboExtension(extName) || extName == "MSFT_texture_dds") {
+            const auto info = asobo::supportOf(extName);
+            const char* status = asobo::supportLabel(info.status);
+            ImVec4 color = ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
+            switch (info.status) {
+                case asobo::Support::Rendered: color = ImVec4(0.13f, 0.67f, 0.42f, 1.0f); break;
+                case asobo::Support::Partial: color = ImVec4(1.0f, 0.8f, 0.2f, 1.0f); break;
+                case asobo::Support::ViewerSetting:
+                case asobo::Support::Metadata: color = ImVec4(0.55f, 0.65f, 0.75f, 1.0f); break;
+                default: break;
+            }
+            ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+            ImGui::TextColored(color, "[%s]", status);
+            if (ImGui::IsItemHovered()) {
+                ImGui::BeginTooltip();
+                ImGui::TextUnformatted(status);
+                if (!info.phase.empty()) ImGui::Text("Phase: %.*s", static_cast<int>(info.phase.size()), info.phase.data());
+                if (!info.note.empty()) ImGui::TextUnformatted(info.note.data(), info.note.data() + info.note.size());
+                ImGui::EndTooltip();
+            }
         }
 
         if (headerOpen) {

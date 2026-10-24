@@ -21,6 +21,7 @@
 #include "gltf/Sampler.h"
 #include "gltf/GlTypes.h"
 #include "gltf/extensions/AsoboExtensions.h"
+#include "gltf/extensions/AsoboSupport.h"
 
 #include <nlohmann/json.hpp>
 #include <nlohmann/json-schema.hpp>
@@ -853,6 +854,26 @@ ValidationReport GltfValidator::validate(const std::string& filePath, ux3d::gltf
         const bool warning = diagnostic.severity == ux3d::gltf::asobo::Diagnostic::Severity::Warning;
         report.addIssue(warning ? ValidationSeverity::Warning : ValidationSeverity::Info,
                         diagnostic.code, diagnostic.message, diagnostic.pointer, type, index);
+    }
+
+    namespace asobo = ux3d::gltf::asobo;
+    std::vector<std::string> notRendered;
+    for (const auto& name : gltfModel.getDeclaredExtensions()) {
+        if (asobo::isAsoboExtension(name) || name == "MSFT_texture_dds") {
+            const auto status = asobo::supportOf(name).status;
+            if (status == asobo::Support::NotYetSupported || status == asobo::Support::Partial) {
+                notRendered.push_back(name);
+            }
+        }
+    }
+    if (!notRendered.empty()) {
+        std::sort(notRendered.begin(), notRendered.end());
+        std::string message = "Declared extensions not rendered by Glider: ";
+        for (size_t i = 0; i < notRendered.size(); ++i) {
+            if (i != 0) message += ", ";
+            message += notRendered[i];
+        }
+        report.addIssue(ValidationSeverity::Info, "ASOBO_EXTENSIONS_NOT_RENDERED", message, "/extensionsUsed");
     }
 
     // Correlate target objects with target indices for issues gathered in Tier 1

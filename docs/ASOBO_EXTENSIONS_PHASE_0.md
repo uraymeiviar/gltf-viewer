@@ -2,7 +2,7 @@
 
 [Journal index](ASOBO_EXTENSIONS_JOURNAL.md) · [Extension reference](ASOBO_EXTENSIONS_REFERENCE.md) · [Validation rules](RENDERER_OPTIMIZATION_VALIDATION.md)
 
-**Status:** In progress. A0.1, A0.3 and A0.6 done (uncommitted); A0.2, A0.4 and A0.5 next; MSFS screenshots pending.
+**Status:** Tasks done (A0.1, A0.3, A0.6 in `b137320`; A0.2, A0.4, A0.5 uncommitted). Open: the MSFS screenshots and re-framing view 08.
 
 **Entry:** none. **Goal:** every later phase has the following in place:
 - extension data parsed into typed values with schema defaults;
@@ -61,13 +61,28 @@
     - **Evidence:** `scripts/validate_asobo_model.py` (in the regression quick tier) reads the new
       `--asobo-report <out.json>` output for fixtures covering each rule and a `--reload-model`, and parses the E195
       cockpit and exterior: 2,446 and 312 declared extension instances, all parsed, with no warnings.
-- [ ] **A0.2 — Support matrix and inspector badges (R1). Owner: GPT Astra.** One table in code lists every
+- [x] **A0.2 — Support matrix and inspector badges (R1). Owner: GPT Astra.** One table in code lists every
   extension with its status: *Rendered*, *Partial*, *Viewer setting*, *Metadata*, *Not applicable*,
   *Not yet supported*. It drives:
   - the inspector badge next to each extension;
   - an info-level validation message listing declared extensions that Glider does not render.
 
   Include `ASOBO_unique_id`, `ASOBO_asset_optimized` and `MSFT_texture_dds`.
+  - **Done (2026-10-24):** `gltf/extensions/AsoboSupport.h` (`supportTable()`, `supportOf()`, `supportLabel()`; 41
+    entries with their phase). Today: *Rendered* `ASOBO_material_invisible`; *Metadata* `unique_id`, `tags`,
+    `asset_optimized`, `animation_retargeting`, `softbody_mesh`; *Not applicable* `disable_motion_blur`; the rest
+    *Not yet supported*. Badges sit on each extension header's line (rows unchanged); the validator adds one
+    `ASOBO_EXTENSIONS_NOT_RENDERED` info listing the declared extensions not rendered; `--asobo-report` includes
+    the table. **Evidence:** `scripts/validate_asobo_support.py` (quick tier).
+  - **Handoff:** GPT Astra (Codex, medium effort) in its own worktree, 6.5 min, 1.59M tokens (1.50M cached).
+    Its sandbox blocked MSBuild (access to `AppData\Local\Microsoft SDKs`), so it could not build; it said so.
+    Claude built and fixed it: `--validate-file` validated against an empty model, so every model-based check,
+    including all ASOBO diagnostics, saw nothing there; it now loads the file first (and falls back to the empty
+    model when the loader rejects it). Claude also updated a stale note, spaced the badge, and made the A0.4
+    viewport switches come from the table (one per *Rendered* or *Partial* extension).
+  - **Follow-up:** the extension property editor (`ExtensionInspector`) shows a property the file omits as 0
+    from its own schema reader, while the model uses the exporter default (for example 1.0 for the decal blend
+    factors). It should take its defaults from the A0.1 spec table.
 - [x] **A0.3 — Reference views (R0). Owner: Gemini Argon (list), user's team (screenshots).** Produce:
   - A list of E195 cockpit and exterior views covering normals, ORM, emissive, decals, glass, windshield and
     shadows.
@@ -83,12 +98,21 @@
     re-framed. Gemini 3.8 Flash High (Argon was unavailable: wrong agy account), three runs because two
     multi-line `git grep` calls were denied: 2.5M tokens, 74.8M cache reads.
   - **Screenshots:** *path to be recorded when the team has captured them.*
-- [ ] **A0.4 — Per-viewport extension switches (R1). Owner: Claude.** Viewport Settings → *MSFS Extensions*: a
+- [x] **A0.4 — Per-viewport extension switches (R1). Owner: Claude.** Viewport Settings → *MSFS Extensions*: a
   master switch, plus one switch per rendered extension, all on by default. *Show Invisible Materials* moves
   here.
   - **Command line:** `--asobo off|on`, `--asobo-disable <name>`.
   - **Test:** with everything off, output is byte-identical to the build before this journal.
-- [ ] **A0.5 — Harness template (R0). Owner: Claude.** `scripts/validate_asobo_common.py` provides:
+  - **Done (2026-10-24):** `renderer::AsoboOptions` (master switch plus a sorted list of disabled extensions)
+    replaces `GltfRenderLayer::showInvisibleMaterials`; each viewport's `ViewportSettingsState::asobo` is applied
+    before its scene is built, and the shared traversal compares it. The panel shows *Apply MSFS (ASOBO)
+    Extensions* (kept on the row `validate_p4_exit_gate.py` clicks) and one switch per rendered extension
+    (today *Hide Invisible Materials*; generated from the A0.2 support table once that lands).
+    `--show-invisible-materials` and the UI-script key `invisible` now disable `ASOBO_material_invisible`; the
+    key `asobo` sets the master switch. **Evidence:** `validate_asobo_common.py`: with `--asobo off`, and with
+    only `--asobo-disable ASOBO_material_invisible`, the E195 cockpit and exterior reference views are
+    byte-identical to `167a5e0` (the last build before this journal) run with `--show-invisible-materials`.
+- [x] **A0.5 — Harness template (R0). Owner: Claude.** `scripts/validate_asobo_common.py` provides:
   - byte identity for files without the extension;
   - the "everything off" equivalence;
   - schema-default fixtures;
@@ -96,9 +120,13 @@
   - render helpers that apply the A0.3 camera flags.
 
   Wired into `scripts/run_regression.py`.
-  - **Note (2026-10-24):** real-asset renders need their textures, which come from the texture search paths in
-    `settings.ini`; `--isolated` ignores it. Add a `--search-path <dir>` flag so harness renders stay isolated
-    and textured.
+  - **Done (2026-10-24):** `scripts/validate_asobo_common.py`, in the regression quick tier. Later phases import
+    `views()` (parsed from the A0.3 table), `render()` / `render_view()` (isolated viewport captures with a
+    view's camera flags, textured through the new repeatable `--search-path <dir>`), `fixture()` (extensions
+    injected into a geometry fixture) and `same()` / `check()` / `finish()`. Run alone it checks A0.4 and that
+    `--search-path` gives a textured isolated render (0.0% missing-texture magenta). Binaries older than
+    `--search-path` read it as a model path, so comparisons with them render untextured
+    (`render_view(..., textured=False)`).
 - [x] **A0.6 — Specification extraction (R0). Owner: DeepSeek.** For every extension in phases A1–A5, read
   the SDK Blender exporter (journal §1) and write the exact semantics into the reference doc:
   - formulas and blend operators;

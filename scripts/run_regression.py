@@ -12,7 +12,8 @@ uncommitted change alter anything since the last commit?".
 
 Quick tier (equivalence only, byte-identical images and identical selections):
   validate_p8_1.py, validate_p8_3.py, validate_p8_5.py, validate_p8_followup.py,
-  validate_p4_exit_gate.py, validate_asobo_model.py (ASOBO extension model) and the four built-in self-checks.
+  validate_p4_exit_gate.py, validate_asobo_model.py, validate_asobo_common.py and validate_asobo_support.py (ASOBO extensions, run
+  one at a time after the others) and the four built-in self-checks.
 Full tier adds:
   --with-ab (each feature against its own switch), validate_p5_1.py against the baseline.
 Benchmarks never run here: they back timing claims (each harness's --bench).
@@ -67,7 +68,13 @@ jobs = [
     ("p8_5", ["scripts/validate_p8_5.py", "--only", "equivalence", "--pre-exe", str(baseline)] + ab + extra),
     ("p8_followup", ["scripts/validate_p8_followup.py", "--only", "equivalence", "--ref-exe", str(baseline)]),
     ("p4_exit_gate", ["scripts/validate_p4_exit_gate.py"]),
+]
+# Run one at a time after the parallel batch: their E195 renders load the machine enough to upset
+# validate_p8_5.py's timing-sensitive edge clicks when they overlap.
+serial_jobs = [
     ("asobo_model", ["scripts/validate_asobo_model.py"]),
+    ("asobo_common", ["scripts/validate_asobo_common.py"]),
+    ("asobo_support", ["scripts/validate_asobo_support.py"]),
 ]
 if args.tier == "full":
     jobs.append(("p5_1", ["scripts/validate_p5_1.py", "--pre-exe", str(baseline)]))
@@ -97,6 +104,7 @@ print(f"[regression: {args.tier} tier, candidate {EXE.relative_to(REPO)} vs base
 start = time.time()
 with ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
     results = list(pool.map(run_job, jobs))
+results += [run_job(job) for job in serial_jobs]
 results += [run_selfcheck(check) for check in SELFCHECKS]
 
 failed = False

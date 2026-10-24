@@ -3,6 +3,8 @@
 #include "imgui/StdFileSystem.h"
 #include "imgui/IconsMaterialDesignIcons.h"
 #include "imgui/AntiAliasing.h"
+#include "imgui/ExtensionInspector.h"
+#include "gltf/extensions/AsoboSupport.h"
 #include "renderViewInput/CameraActor.h"
 #include <imgui.h>
 #include <portable-file-dialogs.h>
@@ -97,10 +99,32 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
             }
             ImGui::Separator();
             ImGui::Text("MSFS Extensions:");
-            if (ImGui::Checkbox("Show Invisible Materials (ASOBO_material_invisible)", &state.showInvisibleMaterials)) {
+            // The master switch keeps this row: validate_p4_exit_gate.py clicks it.
+            if (ImGui::Checkbox("Apply MSFS (ASOBO) Extensions", &state.asobo.enabled)) {
                 revisions.mark(SceneChange::ViewportSettings);
             }
-            ImGui::TextDisabled("Materials marked invisible, e.g. collision geometry, are not rendered unless shown here.");
+            // One switch per extension Glider renders, from the A0.2 support table.
+            ImGui::BeginDisabled(!state.asobo.enabled);
+            ImGui::Indent();
+            for (const ux3d::gltf::asobo::SupportInfo& info : ux3d::gltf::asobo::supportTable()) {
+                if (info.status != ux3d::gltf::asobo::Support::Rendered && info.status != ux3d::gltf::asobo::Support::Partial) {
+                    continue;
+                }
+                const std::string extension(info.name);
+                const std::string label = ExtensionInspector::formatExtensionLabel(extension) + "##asobo_" + extension;
+                bool applied = std::find(state.asobo.disabled.begin(), state.asobo.disabled.end(), extension) == state.asobo.disabled.end();
+                if (ImGui::Checkbox(label.c_str(), &applied)) {
+                    state.asobo.setApplied(extension, applied);
+                    revisions.mark(SceneChange::ViewportSettings);
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("%s%s%.*s", extension.c_str(), info.note.empty() ? "" : ": ",
+                                      static_cast<int>(info.note.size()), info.note.data());
+                }
+            }
+            ImGui::Unindent();
+            ImGui::EndDisabled();
+            ImGui::TextDisabled("Off: this viewport renders the file as if it had no ASOBO extensions.");
             ImGui::Separator();
             ImGui::Text("Wireframe:");
             if (ImGui::Checkbox("Wireframe Overlay", &state.wireframeOverlay)) {

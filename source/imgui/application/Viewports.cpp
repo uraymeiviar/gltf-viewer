@@ -493,7 +493,7 @@ void Application::drawViewports(FrameContext& frame)
 
             const auto createSceneStart = ux3d::imgui::profiling::Clock::now();
             gltfLayer->frustumCulling = !s_disableCulling;
-            gltfLayer->showInvisibleMaterials = vp->settings.showInvisibleMaterials;
+            gltfLayer->asoboOptions = vp->settings.asobo;
             auto [scene, reverseMapping] = gltfLayer->createScene(activeScene);
             gltfLayer->frustumCulling = false;
             s_culledTotal += gltfLayer->getLastSceneStats().culled;
@@ -617,7 +617,7 @@ void Application::drawViewports(FrameContext& frame)
                 glPolygonOffset(-1.0f, -1.0f);
                 glLineWidth(1.0f);
                 gltfLayer->frustumCulling = !s_disableCulling;
-                gltfLayer->showInvisibleMaterials = vp->settings.showInvisibleMaterials;
+                gltfLayer->asoboOptions = vp->settings.asobo;
                 auto [wireScene, _] = gltfLayer->createScene(activeScene);
                 gltfLayer->frustumCulling = false;
                 // The overlay draws lines over the finished shaded image. With

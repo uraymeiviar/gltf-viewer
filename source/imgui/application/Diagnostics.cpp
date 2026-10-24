@@ -1061,7 +1061,9 @@ void Application::finishFrame(FrameContext& frame, int displayW, int displayH)
             else if (k == "invertwinding")
                 targetVp->settings.invertWinding = val;
             else if (k == "invisible" || k == "showinvisiblematerials")
-                targetVp->settings.showInvisibleMaterials = val;
+                targetVp->settings.asobo.setApplied("ASOBO_material_invisible", !val);
+            else if (k == "asobo")
+                targetVp->settings.asobo.enabled = val;
             else
                 return false;
             return true;

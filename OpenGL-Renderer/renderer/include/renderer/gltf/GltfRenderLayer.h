@@ -22,8 +22,10 @@
 #include "renderer/gltf/GltfLightMapping.h"
 #include "renderer/gltf/GltfResourceManager.h"
 
+#include <algorithm>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <unordered_map>
 #include <vector>
@@ -50,6 +52,29 @@ struct AnimationProfileTimes {
     double channelsMs = 0.0;
     double transformsMs = 0.0;
     double skinsMs = 0.0;
+};
+
+// Which declared ASOBO (MSFS) extensions a viewport applies (docs/ASOBO_EXTENSIONS_PHASE_0.md, A0.4).
+// Defaults apply all of them; with everything off, rendering matches a build without ASOBO support.
+struct AsoboOptions {
+    bool enabled = true; // master switch
+    std::vector<std::string> disabled; // extensions switched off individually, sorted
+
+    bool applies(std::string_view extension) const
+    {
+        return enabled && std::find(disabled.begin(), disabled.end(), extension) == disabled.end();
+    }
+    void setApplied(const std::string& extension, bool applied)
+    {
+        const auto it = std::lower_bound(disabled.begin(), disabled.end(), extension);
+        const bool present = it != disabled.end() && *it == extension;
+        if (applied && present) {
+            disabled.erase(it);
+        } else if (!applied && !present) {
+            disabled.insert(it, extension);
+        }
+    }
+    bool operator==(const AsoboOptions&) const = default;
 };
 
 struct SceneProfileStats {
@@ -173,9 +198,9 @@ public:
     void endSceneFrame() { m_sceneFrameToken = 0; }
     uint64_t getTraversalReuses() const { return m_traversalReuses; }
 
-    // When set, createScene also draws materials marked invisible by
-    // ASOBO_material_invisible (Material::invisible).
-    bool showInvisibleMaterials = false;
+    // Which ASOBO (MSFS) extensions createScene applies; set per viewport (A0.4). With
+    // ASOBO_material_invisible not applied, materials it marks invisible are drawn.
+    AsoboOptions asoboOptions;
 
     // Isolation (local view): when root is not null, only that node is drawn, plus its
     // descendants when includeChildren is set. Nodes already hidden by their own visible
@@ -213,7 +238,7 @@ private:
         uint64_t primitivesVisited = 0;
         bool containsTransmissiveMaterial = false;
         const gltf::Scene* scene = nullptr;
-        bool showInvisibleMaterials = false;
+        AsoboOptions asoboOptions;
         std::optional<uint32_t> materialVariantID;
         const gltf::Node* isolationRoot = nullptr;
         bool isolationIncludeChildren = false;

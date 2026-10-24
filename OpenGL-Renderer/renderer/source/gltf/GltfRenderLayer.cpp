@@ -1758,7 +1758,7 @@ const GltfRenderLayer::SceneTraversal& GltfRenderLayer::traverseScene(const gltf
 {
     SceneTraversal& t = m_traversal;
     if (m_sceneFrameToken != 0 && t.frameToken == m_sceneFrameToken && t.scene == gltfScene
-        && t.showInvisibleMaterials == showInvisibleMaterials && t.materialVariantID == m_materialVariantID
+        && t.asoboOptions == asoboOptions && t.materialVariantID == m_materialVariantID
         && t.isolationRoot == m_isolationRoot && t.isolationIncludeChildren == m_isolationIncludeChildren) {
         ++m_traversalReuses;
         return t;
@@ -1769,11 +1769,12 @@ const GltfRenderLayer::SceneTraversal& GltfRenderLayer::traverseScene(const gltf
     t.primitivesVisited = 0;
     t.containsTransmissiveMaterial = false;
     t.scene = gltfScene;
-    t.showInvisibleMaterials = showInvisibleMaterials;
+    t.asoboOptions = asoboOptions;
     t.materialVariantID = m_materialVariantID;
     t.isolationRoot = m_isolationRoot;
     t.isolationIncludeChildren = m_isolationIncludeChildren;
     t.frameToken = m_sceneFrameToken;
+    const bool hideInvisible = asoboOptions.applies("ASOBO_material_invisible");
 
     std::function<void(const gltf::Node*, bool, bool)> addMeshMaterialRecursive;
     addMeshMaterialRecursive = [&](const gltf::Node* gltfNode, bool insideIsolation, bool parentHidden) {
@@ -1845,7 +1846,7 @@ const GltfRenderLayer::SceneTraversal& GltfRenderLayer::traverseScene(const gltf
 
             auto* mesh = meshIt->second;
             auto* material = matIt->second;
-            if (material != nullptr && material->invisible && !showInvisibleMaterials) {
+            if (material != nullptr && material->invisible && hideInvisible) {
                 continue;
             }
 
