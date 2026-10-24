@@ -19,7 +19,7 @@ import ctypes
 import ctypes.wintypes as wt
 import json
 import statistics
-import subprocess
+import harness_process as subprocess
 import sys
 import time
 from pathlib import Path

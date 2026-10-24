@@ -16,7 +16,7 @@ import json
 import math
 import os
 import struct
-import subprocess
+import harness_process as subprocess
 import sys
 import types
 import zlib

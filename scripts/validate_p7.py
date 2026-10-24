@@ -22,7 +22,7 @@ import json
 import math
 import statistics
 import struct
-import subprocess
+import harness_process as subprocess
 import sys
 from pathlib import Path
 

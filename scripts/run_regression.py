@@ -35,7 +35,7 @@ script.
 """
 
 import argparse
-import subprocess
+import harness_process as subprocess
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor

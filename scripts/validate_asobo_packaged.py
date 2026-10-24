@@ -42,7 +42,9 @@ from PIL import Image, ImageChops, ImageStat
 
 REPO = Path(__file__).resolve().parents[1]
 EXE = Path(os.environ.get("GLIDER_EXE", REPO / "build" / "bin" / "Release" / "Glider.exe"))
-BASELINE = Path(os.environ.get("GLIDER_BASELINE", REPO / "build" / "baselines" / "a9c0a29.exe"))
+# The pre-A1.9 reference is fixed, not GLIDER_BASELINE: run_regression.py points that at
+# the current HEAD baseline (6285c86), which already contains A1.9. a9c0a29 predates it.
+PRE_A19_EXE = REPO / "build" / "baselines" / "a9c0a29.exe"
 OUT = REPO / "build" / "asobo_packaged"
 ASSET_OPTIMIZED = "ASOBO_asset_optimized"
 WINDSHIELD = "ASOBO_material_windshield_v3"
@@ -265,12 +267,12 @@ def main():
     check_close(declared_capture, source_capture, "packaged copy renders like the float quad", TOLERANCE)
     check(not same(declared_capture, undeclared_capture),
           "the declaration changes the render (the packed copy is not read as integers)")
-    if BASELINE.exists():
-        undeclared_baseline = render(BASELINE, undeclared, "packed_undeclared_baseline", flags, OUT)
+    if PRE_A19_EXE.exists():
+        undeclared_baseline = render(PRE_A19_EXE, undeclared, "packed_undeclared_baseline", flags, OUT)
         check(same(undeclared_capture, undeclared_baseline),
               "packaged copy without the declaration is byte-identical to the pre-change binary")
     else:
-        print(f"  SKIP baseline {BASELINE} not found")
+        print(f"  SKIP pre-A1.9 binary {PRE_A19_EXE} not found")
     check(same(declared_capture, disabled_capture),
           "--asobo-disable ASOBO_asset_optimized does not switch the decoding off")
 
@@ -291,16 +293,16 @@ def main():
           "windshield v3 with a red COLOR_0 renders like the same quad without COLOR_0")
     check(not same(standard_capture, standard_without_capture) and not same(windshield_capture, standard_capture),
           "a standard material with the same COLOR_0 is still tinted")
-    if BASELINE.exists():
-        disabled_baseline = render(BASELINE, windshield, "windshield_red_disabled_baseline", quad_flags, OUT)
+    if PRE_A19_EXE.exists():
+        disabled_baseline = render(PRE_A19_EXE, windshield, "windshield_red_disabled_baseline", quad_flags, OUT)
         check(same(disabled, disabled_baseline),
               "--asobo-disable ASOBO_material_windshield_v3 renders as the pre-change binary")
         check(same(master_off, disabled_baseline), "--asobo off also renders as the pre-change binary")
-        standard_baseline = render(BASELINE, standard, "standard_red_baseline", quad_flags, OUT)
+        standard_baseline = render(PRE_A19_EXE, standard, "standard_red_baseline", quad_flags, OUT)
         check(same(standard_capture, standard_baseline),
               "the standard material keeps its pre-change vertex-colour tint")
     else:
-        print(f"  SKIP baseline {BASELINE} not found")
+        print(f"  SKIP pre-A1.9 binary {PRE_A19_EXE} not found")
 
     print("[real source/package pairs]")
     if not all(path.exists() for path in (E190_SOURCE, E190_PACKAGE, E195_SOURCE, E195_PACKAGE)):

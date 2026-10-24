@@ -22,6 +22,12 @@ void Application::glfw_error_callback(int error, const char* description)
     std::fprintf(stderr, "GLFW Error %d: %s\n", error, description);
 }
 
+static bool noFocusRequested()
+{
+    const char* value = std::getenv("GLIDER_NO_FOCUS");
+    return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
 int Application::run(int argc, char** argv)
 {
     // P0.1 pre-scan: window size and state isolation must be known before GLFW
@@ -102,6 +108,11 @@ int Application::run(int argc, char** argv)
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_MAXIMIZED, winState.maximized ? GLFW_TRUE : GLFW_FALSE);
+    if (noFocusRequested()) {
+        // Harness runs show and render normally but must never activate the window (AGENTS.md 4.2).
+        glfwWindowHint(GLFW_FOCUSED, GLFW_FALSE);
+        glfwWindowHint(GLFW_FOCUS_ON_SHOW, GLFW_FALSE);
+    }
 #ifdef __APPLE__
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 #endif

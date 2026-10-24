@@ -20,9 +20,11 @@ Exit code: 0 ok, 1 a run failed/incomplete, 2 report could not be written.
 import argparse
 import json
 import statistics
-import subprocess
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import harness_process as subprocess  # noqa: E402 - shared harness launcher
 
 REPO = Path(__file__).resolve().parents[2]
 FIX_P24 = REPO / "build" / "p2.4" / "fixtures"

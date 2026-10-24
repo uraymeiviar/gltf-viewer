@@ -16,7 +16,7 @@ on the pre-fix binary (build/wireframe_fix/before/Glider.exe) and the fixed one:
 """
 
 import json
-import subprocess
+import harness_process as subprocess
 import sys
 from pathlib import Path
 

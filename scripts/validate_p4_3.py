@@ -24,7 +24,7 @@ Sections: selfcheck, pointer, pointer_taa_mv, fox, morph, load, reload.
 import argparse
 import hashlib
 import json
-import subprocess
+import harness_process as subprocess
 import sys
 from pathlib import Path
 

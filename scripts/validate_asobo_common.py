@@ -20,7 +20,7 @@ import argparse
 import hashlib
 import json
 import re
-import subprocess
+import harness_process as subprocess
 import sys
 from pathlib import Path
 
@@ -74,9 +74,12 @@ def render(exe, model, name, flags=(), folder=OUT, search_paths=()):
     png = folder / f"{name}.png"
     png.unlink(missing_ok=True)
     paths = [arg for path in search_paths for arg in ("--search-path", path)]
-    subprocess.run([str(exe), str(model)] + COMMON + paths + list(flags) +
-                   ["--capture-viewport", str(png), "--capture-frame", "24", "--profile-report", str(folder / f"{name}.json"),
-                    "--exit-after-profile"], cwd=REPO, capture_output=True, timeout=900)
+    result = subprocess.run([str(exe), str(model)] + COMMON + paths + list(flags) +
+                            ["--capture-viewport", str(png), "--capture-frame", "24",
+                             "--profile-report", str(folder / f"{name}.json"), "--exit-after-profile"],
+                            cwd=REPO, capture_output=True, timeout=900)
+    if getattr(result, "from_cache", False):
+        print(f"  INFO {name}: {Path(exe).name} render served from the cache (hit)")
     return png if png.exists() else None
 
 

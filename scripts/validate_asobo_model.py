@@ -15,7 +15,7 @@ Loads generated fixtures with --asobo-report and checks the parsed model:
 """
 
 import json
-import subprocess
+import harness_process as subprocess
 import sys
 from pathlib import Path
 

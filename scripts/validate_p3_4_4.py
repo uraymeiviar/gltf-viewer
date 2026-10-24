@@ -3,7 +3,7 @@
 import argparse
 import json
 import os
-import subprocess
+import harness_process as subprocess
 import sys
 from pathlib import Path
 

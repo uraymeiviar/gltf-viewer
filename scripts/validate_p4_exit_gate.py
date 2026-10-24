@@ -19,7 +19,7 @@ re-exercised here too so the gate is checked on one binary.
 
 import hashlib
 import json
-import subprocess
+import harness_process as subprocess
 import sys
 from pathlib import Path
 

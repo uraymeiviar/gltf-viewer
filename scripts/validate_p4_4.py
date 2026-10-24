@@ -18,7 +18,7 @@ Sections: static, playback.
 import argparse
 import hashlib
 import json
-import subprocess
+import harness_process as subprocess
 import sys
 from pathlib import Path
 

@@ -13,10 +13,12 @@ Exit code: 0 all assertions passed, 1 assertion/run failure, 2 report-write fail
 import argparse
 import json
 import re
-import subprocess
 import sys
 import time
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import harness_process as subprocess  # noqa: E402 - shared harness launcher
 
 REPO = Path(__file__).resolve().parents[2]
 RES = "ResourcesTreeScrollRegion"

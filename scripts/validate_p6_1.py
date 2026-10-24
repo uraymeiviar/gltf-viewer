@@ -15,7 +15,7 @@ import argparse
 import json
 import statistics
 import struct
-import subprocess
+import harness_process as subprocess
 import sys
 import time
 from pathlib import Path
