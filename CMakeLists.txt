@@ -15,6 +15,11 @@ set(UX3D_BUILD_NUMBER "0" CACHE STRING "Incremental build number")
 set(UX3D_ENABLE_CCACHE OFF CACHE BOOL "Use ccache")
 option(GLIDER_GL_DEBUG_CHECKS "Enable per-command OpenGL error checks in Release builds" OFF)
 
+# The UX3D libraries' own unit tests are not built: Glider does not ship them, and their
+# catch2 and glTF-Schema sources are no longer part of the repository.
+set(UX3D_RUNTIME_TESTING OFF CACHE BOOL "" FORCE)
+set(UX3D_TOOLS_TESTING OFF CACHE BOOL "" FORCE)
+
 include("${Runtime_DIR}/cmake/defines.cmake")
 include("${Tools_DIR}/cmake/defines.cmake")
 include("${Renderer_DIR}/defines.cmake")
@@ -186,7 +191,7 @@ target_include_directories(${APP_NAME} PRIVATE
 	"${PROJECT_SOURCE_DIR}/OpenGL-Renderer/Tools/tools/gltf/include"
 	"${PROJECT_SOURCE_DIR}/OpenGL-Renderer/Tools/Runtime/runtime/core/include"
 	"${PROJECT_SOURCE_DIR}/OpenGL-Renderer/Tools/Runtime/runtime/math/include"
-	"${PROJECT_SOURCE_DIR}/OpenGL-Renderer/Tools/Runtime/thirdparty/glm"
+	"${PROJECT_SOURCE_DIR}/thirdparty/glm"
 )
 
 target_link_libraries(${APP_NAME} PRIVATE

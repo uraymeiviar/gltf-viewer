@@ -41,7 +41,8 @@ E195 = Path(r"F:/new-fss-aircraft-ejet/msfs24-projects/fss-aircraft-e195/SimObje
 COMMON = ["--isolated", "--window-size", "1280x800", "--fixed-frame-time", "0.05", "--vsync", "off"]
 
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-parser.add_argument("--only", choices=["equivalence", "benchmark"])
+parser.add_argument("--only", choices=["equivalence", "invisible", "traversal", "benchmark"],
+                    help="equivalence runs both the invisible and the traversal sections")
 parser.add_argument("--ref-exe", default=str(REPO / "build" / "p8" / "Glider_23f61c6.exe"))
 parser.add_argument("--pairs", type=int, default=3)
 parser.add_argument("--bench", action="store_true", help="also run the benchmark section")
@@ -55,6 +56,8 @@ def section(name):
     # Benchmarks back timing claims and are slow; regression runs skip them unless asked.
     if name == "benchmark":
         return args.only == "benchmark" or args.bench
+    if name in ("invisible", "traversal"):
+        return args.only in (None, "equivalence", name)
     return args.only in (None, name)
 
 
@@ -86,20 +89,12 @@ def write_fixtures():
         if "ASOBO_material_invisible" in material.get("extensions", {}):
             material["extensions"]["ASOBO_material_invisible"]["enabled"] = False
     (OUT / "grid_invisible_disabled.gltf").write_text(json.dumps(grid), encoding="utf-8")
-    if not E195.exists():
+    # The E195 cockpit with absolute texture paths (scripts/e195_assets.py).
+    from e195_assets import textured_copy
+    copy = textured_copy(E195, OUT)
+    if copy is None:
         return False
-    base = E195.parent
-    textures = base.parent
-    g = json.loads(E195.read_text(encoding="utf-8"))
-    for buffer in g["buffers"]:
-        buffer["uri"] = (base / buffer["uri"]).as_posix()
-    for image in g["images"]:
-        for folder in ("texture", "texture.E195.cockpit", "texture.FSS"):
-            candidate = textures / folder / image["uri"]
-            if candidate.exists():
-                image["uri"] = candidate.as_posix()
-                break
-    (OUT / "e195_abs.gltf").write_text(json.dumps(g), encoding="utf-8")
+    copy.replace(OUT / "e195_abs.gltf")
     return True
 
 
@@ -129,7 +124,9 @@ def shot(exe, name, model, extra, lines, size=None):
 
 THREE = ["wait 8", "vpcreate", "vpsplit 2", "vpcreate", "vpsplit 3", "aamode taa 1", "aamode taa 2", "aamode taa 3", "wait 70"]
 
-if section("equivalence"):
+# The regression runs only the traversal section: validate_asobo_common.py and validate_asobo_model.py cover
+# ASOBO_material_invisible since A0.4.
+if section("invisible"):
     print("[ASOBO_material_invisible on a grid whose Blend quads carry the extension]")
     base, _ = shot(REF, "grid_ref", MANY, ["--aa", "msaa4"], ["wait 10"])
     hidden, _ = shot(EXE, "grid_hidden", GRID_INV, ["--aa", "msaa4"], ["wait 10"])
@@ -153,6 +150,7 @@ if section("equivalence"):
     else:
         print("  NOT RUN E195: asset not present")
 
+if section("traversal"):
     print("[three TAA viewports: shared traversal vs --disable-shared-traversal]")
     cases = [("fixture3", FIXTURE, THREE),
              ("grid3_mixed", GRID_INV, THREE[:-1] + ["vpsetting 2 invisible on", "wait 70"])]

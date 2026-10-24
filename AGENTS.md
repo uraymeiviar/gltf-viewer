@@ -285,12 +285,22 @@ python scripts/run_regression.py --tier full
 
 - **`save_baseline.py`** writes `build/baselines/<short sha>.exe`. It refuses when tracked files differ from the
   commit.
-- **`run_regression.py`** (quick tier, about 2–3 minutes) runs the renderer harnesses
-  (`scripts/validate_p8_*.py`, `validate_p4_exit_gate.py`, `validate_asobo_model.py`, `validate_asobo_common.py`) and the built-in self-checks against that baseline, three
-  at a time. They check byte-identical captures and identical selections.
-- **`--tier full`** adds each feature's same-binary A/B switch and `validate_p5_1.py`.
+- **`run_regression.py`** (quick tier, about 2 minutes) runs the renderer harnesses
+  (`scripts/validate_p8_*.py`, `validate_p4_exit_gate.py`) three at a time, then the built-in self-checks and the ASOBO
+  harnesses (`validate_asobo_*.py`) one at a time, against that baseline. They check byte-identical captures and
+  identical selections. Window screenshots are compared on their viewport area only, so side-panel UI changes do
+  not fail them (`validate_p4_exit_gate.py` covers the panels). The script's docstring lists what each suite covers.
+- **`--tier full`** adds each feature's same-binary A/B switch, `validate_p5_1.py`, and `validate_p8_5.py`'s
+  10,000-drawable and MSAA/TAA picking cases.
 - **Benchmarks** never run here. They back timing claims only: pass `--bench` to the harness concerned, and do not
   run them in parallel.
+
+### 4.6 Third-party code
+
+There are no git submodules. GLM is vendored as headers in `thirdparty/glm` (version in its README); the other
+libraries are fetched by CMake `FetchContent` (`cmake/standalone_dependencies.cmake`). The glTF, Khronos and ASOBO
+JSON schemas live in `resources/schemas`. The UX3D libraries' own unit tests (`UX3D_RUNTIME_TESTING`,
+`UX3D_TOOLS_TESTING`) and the editor's `Operations` library are not built.
 
 ## 5. Critical Rules & Guardrails for AI Agents
 

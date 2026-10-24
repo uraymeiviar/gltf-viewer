@@ -6,7 +6,8 @@ add_library(Math ${UX3D_MODULE_LINKAGE} "${target_sources}")
 target_include_directories(Math PUBLIC "${target_includes}")
 
 #find_package(glm)
-target_include_directories(Math SYSTEM PUBLIC ${PROJECT_SOURCE_DIR}/thirdparty/glm/glm)
+# GLM is vendored at the repository root (thirdparty/glm); the math headers include its files directly.
+target_include_directories(Math SYSTEM PUBLIC ${CMAKE_SOURCE_DIR}/thirdparty/glm/glm)
 
 target_link_libraries(Math PRIVATE Core)
 set_directory_structure(Math)

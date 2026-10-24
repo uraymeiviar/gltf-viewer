@@ -7,7 +7,8 @@ add_subdirectory(datastorage)
 add_subdirectory(mementos)
 add_subdirectory(gltf)
 add_subdirectory(reactor)
-add_subdirectory(operations)
+# operations/ (document edit operations from the Gestaltor editor) is not configured: Glider does
+# not use it, and it needs the glTF-Schema generated headers, which are no longer in the repository.
 
 if (CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
 	target_compile_options(Filesystem PRIVATE "-Wall" "-Wextra" "-Wconversion" "-Wno-unused-parameter")

@@ -35,7 +35,9 @@ ALPHA = "OpenGL-Renderer/Tools/tools/operations/tests/resources/AlphaBlendModeTe
 FOX = "OpenGL-Renderer/Tools/tools/operations/tests/resources/Fox/glb/Fox.glb"
 MANY = "build/p8/fixtures/many_1600.gltf"
 HUGE = "build/p8/fixtures/many_10000.gltf"
-E195 = Path(r"F:/new-fss-aircraft-ejet/msfs24-projects/fss-aircraft-e195/SimObjects/Airplanes/E195/model/E195-Cockpit-LOD00.gltf")
+# The E195 cockpit with absolute texture paths (scripts/e195_assets.py), so every binary loads all its textures.
+from e195_assets import COCKPIT, textured_copy
+E195 = textured_copy(COCKPIT, REPO / "build" / "e195_assets") or COCKPIT
 BEHIND = ["--camera-yaw", "160", "--camera-pitch", "10"]
 # --fixed-frame-time makes scripted runs deterministic, so they need not wait for vsync
 # (a 400-click case: 108 s with vsync, 4 s without, identical results).
@@ -50,6 +52,9 @@ parser.add_argument("--bench", action="store_true", help="also run the benchmark
 parser.add_argument("--with-ab", action="store_true",
                     help="also compare with the candidate's own A/B switch (slower; the baseline comparison is the regression check)")
 parser.add_argument("--pre-exe", help="reference binary (default: build/p8/Glider_base.exe)")
+parser.add_argument("--quick", action="store_true",
+                    help="regression quick tier: skip the 10,000-drawable grid and the MSAA/TAA copies of the fixture "
+                         "(the full tier still runs them)")
 parser.add_argument("--case", action="append", help="run only equivalence cases whose name starts with this (repeatable)")
 parser.add_argument("--extra", action="append", default=[], help="extra argument passed to every binary (repeatable)")
 args = parser.parse_args()
@@ -73,6 +78,17 @@ def check(condition, label):
 
 def sha(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def viewport_sha(path):
+    """Hash of a window screenshot's viewport area only. The default dock layout (Menus.cpp) gives the left
+    panels 22% of the width and the Inspector 26% of the rest, so the viewports span about 22-79.7%; the panels
+    are left out so that UI changes there do not fail render-equivalence checks."""
+    from PIL import Image
+    image = Image.open(path).convert("RGB")
+    width, height = image.size
+    box = (int(width * 0.22) + 6, 0, int(width * (1 - 0.78 * 0.26)) - 6, height)
+    return hashlib.sha256(image.crop(box).tobytes()).hexdigest()
 
 
 for path, size in ((MANY, "40"), (HUGE, "100")):
@@ -125,8 +141,8 @@ def equivalence(name, script, extra, clicks, expect_culled=False):
     check(not mismatches, f"{name}: {len(cand['snaps'])} snapshots, selection and camera match {against} "
                           f"(mismatches: {mismatches[:5]})")
     for shot, path in cand["shots"].items():
-        h = sha(path)
-        check(all(h == sha(o["shots"][shot]) for o in others), f"{name}/{shot}: byte-identical to {against}")
+        h = viewport_sha(path)
+        check(all(h == viewport_sha(o["shots"][shot]) for o in others), f"{name}/{shot}: viewports byte-identical to {against}")
     last = list(cand["snaps"].values())[-1]["revisions"]
     pre_last = list(pre["snaps"].values())[-1]["revisions"]
     # A click can land where the baseline also reads nothing (e.g. on the viewport
@@ -170,14 +186,15 @@ if section("equivalence"):
         if cand:
             check(len(nodes_of(cand)) >= 50, f"many: {len(nodes_of(cand))} distinct selections")
 
-        print("[10,000 drawables: whole grid in view]")
-        lines, n = grid(range(330, 960, 90), range(160, 720, 80), "pick")
-        cand = equivalence("huge", "\n".join(["wait 8"] + lines + ["shot @OUT@/huge.png", "wait 2"]) + "\n",
-                           [HUGE, "--aa", "none"], n, expect_culled=True)
-        if cand:
-            check(len(nodes_of(cand)) >= 20, f"huge: {len(nodes_of(cand))} distinct selections")
+        if not args.quick:
+            print("[10,000 drawables: whole grid in view]")
+            lines, n = grid(range(330, 960, 90), range(160, 720, 80), "pick")
+            cand = equivalence("huge", "\n".join(["wait 8"] + lines + ["shot @OUT@/huge.png", "wait 2"]) + "\n",
+                               [HUGE, "--aa", "none"], n, expect_culled=True)
+            if cand:
+                check(len(nodes_of(cand)) >= 20, f"huge: {len(nodes_of(cand))} distinct selections")
 
-        for aa in ("none", "msaa4", "taa"):
+        for aa in ("none",) if args.quick else ("none", "msaa4", "taa"):
             print(f"[production fixture from behind: overlap grid and 1-px edge steps, AA {aa}]")
             lines, n = grid(range(360, 960, 75), range(250, 600, 70), "pick")
             edge, ne = grid(list(range(480, 524, 2)) + list(range(734, 752, 1)), [450], "edge", spaced=True)

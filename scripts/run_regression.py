@@ -10,17 +10,26 @@ Save a baseline right after each commit with scripts/save_baseline.py. Without
 --baseline, the run uses build/baselines/<HEAD short sha>.exe, so it answers "did my
 uncommitted change alter anything since the last commit?".
 
-Quick tier (equivalence only, byte-identical images and identical selections):
-  validate_p8_1.py, validate_p8_3.py, validate_p8_5.py, validate_p8_followup.py,
-  validate_p4_exit_gate.py, validate_asobo_model.py, validate_asobo_common.py and validate_asobo_support.py (ASOBO extensions, run
-  one at a time after the others) and the four built-in self-checks.
+Quick tier (equivalence only: byte-identical viewport images, identical selections):
+  validate_p8_1.py     9 models x 4 AA modes, plus scripted UI cases
+  validate_p8_3.py     instancing grid in 11 situations (wireframe, ortho, playback, split viewports...)
+  validate_p8_5.py     --quick: picking clicks on the 1,600-drawable grid, the fixture (AA none), ortho,
+                       wireframe and alpha masks
+  validate_p8_followup.py --only traversal: three TAA viewports sharing one scene traversal
+  validate_p4_exit_gate.py  every UI producer of a scene revision
+  the four built-in self-checks
+  then, one at a time: validate_asobo_model.py, validate_asobo_common.py, validate_asobo_support.py
 Full tier adds:
-  --with-ab (each feature against its own switch), validate_p5_1.py against the baseline.
+  --with-ab (each feature against its own switch), validate_p5_1.py against the baseline, and
+  validate_p8_5.py's 10,000-drawable grid and MSAA/TAA fixture copies.
+Window screenshots are compared on their viewport area only, so changes to the side panels do not
+fail render checks; the panels are covered by validate_p4_exit_gate.py.
 Benchmarks never run here: they back timing claims (each harness's --bench).
 
-Harnesses run in parallel (--jobs). Captures are deterministic under --fixed-frame-time,
-so concurrent GPU use does not change results. Timing runs must not be parallel and are
-not part of this script.
+Harnesses run in parallel (--jobs). Captures are deterministic under --fixed-frame-time, but
+validate_p8_5.py's 1-px edge clicks have failed while heavy E195 renders ran beside it, so the ASOBO
+harnesses run after the parallel batch. Timing runs must not be parallel and are not part of this
+script.
 """
 
 import argparse
@@ -65,8 +74,9 @@ ab = ["--with-ab"] if args.tier == "full" else []
 jobs = [
     ("p8_1", ["scripts/validate_p8_1.py", "--only", "equivalence", "--ref-exe", str(baseline), "--label", "regression_p8_1"] + extra),
     ("p8_3", ["scripts/validate_p8_3.py", "--ref-exe", str(baseline)] + ab + extra),
-    ("p8_5", ["scripts/validate_p8_5.py", "--only", "equivalence", "--pre-exe", str(baseline)] + ab + extra),
-    ("p8_followup", ["scripts/validate_p8_followup.py", "--only", "equivalence", "--ref-exe", str(baseline)]),
+    ("p8_5", ["scripts/validate_p8_5.py", "--only", "equivalence", "--pre-exe", str(baseline)] + ab + extra
+             + (["--quick"] if args.tier == "quick" else [])),
+    ("p8_followup", ["scripts/validate_p8_followup.py", "--only", "traversal", "--ref-exe", str(baseline)]),
     ("p4_exit_gate", ["scripts/validate_p4_exit_gate.py"]),
 ]
 # Run one at a time after the parallel batch: their E195 renders load the machine enough to upset

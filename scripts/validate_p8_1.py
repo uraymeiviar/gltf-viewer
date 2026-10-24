@@ -40,7 +40,9 @@ ENGINE = "build/_deps/assimp-src/test/models/glTF2/2CylinderEngine-glTF-Binary/2
 TRUCK = "build/_deps/assimp-src/test/models/glTF/CesiumMilkTruck/CesiumMilkTruck.gltf"
 MANY = "build/p8/fixtures/many_1600.gltf"
 HUGE = "build/p8/fixtures/many_10000.gltf"
-E195 = Path(r"F:/new-fss-aircraft-ejet/msfs24-projects/fss-aircraft-e195/SimObjects/Airplanes/E195/model/E195-Cockpit-LOD00.gltf")
+# The E195 cockpit with absolute texture paths (scripts/e195_assets.py), so every binary loads all its textures.
+from e195_assets import COCKPIT, textured_copy
+E195 = textured_copy(COCKPIT, REPO / "build" / "e195_assets") or COCKPIT
 # --fixed-frame-time makes scripted runs deterministic, so they need not wait for vsync
 # (a 400-click case: 108 s with vsync, 4 s without, identical results).
 COMMON = ["--isolated", "--window-size", "1280x800", "--fixed-frame-time", "0.05", "--vsync", "off"]
@@ -74,6 +76,17 @@ def check(condition, label):
 
 def sha(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def viewport_sha(path):
+    """Hash of a window screenshot's viewport area only. The default dock layout (Menus.cpp) gives the left
+    panels 22% of the width and the Inspector 26% of the rest, so the viewports span about 22-79.7%; the panels
+    are left out so that UI changes there do not fail render-equivalence checks."""
+    from PIL import Image
+    image = Image.open(path).convert("RGB")
+    width, height = image.size
+    box = (int(width * 0.22) + 6, 0, int(width * (1 - 0.78 * 0.26)) - 6, height)
+    return hashlib.sha256(image.crop(box).tobytes()).hexdigest()
 
 
 for path, size in ((MANY, "40"), (HUGE, "100")):
@@ -153,7 +166,7 @@ if section("equivalence"):
             continue
         check(ref["snaps"] == cand["snaps"], f"{name}: {len(cand['snaps'])} snapshots (selection, camera) identical")
         for shot, path in cand["shots"].items():
-            check(sha(path) == sha(ref["shots"][shot]), f"{name}/{shot}: byte-identical")
+            check(viewport_sha(path) == viewport_sha(ref["shots"][shot]), f"{name}/{shot}: viewports byte-identical")
 
 
 def bench(exe, model, label, index):

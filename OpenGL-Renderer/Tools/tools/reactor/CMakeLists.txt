@@ -22,7 +22,8 @@ find_package(Ktx)
 target_link_libraries(${lib_name} PUBLIC KTX::ktx)
 target_link_libraries(${lib_name} PRIVATE stb::stb)
 find_package(glm)
-target_include_directories(${lib_name} SYSTEM PUBLIC ${PROJECT_SOURCE_DIR}/../Tools/Runtime/thirdparty/glm/glm)
+# ImageOperations.h includes <glm.hpp> directly, so the headers folder itself is on the path.
+target_include_directories(${lib_name} SYSTEM PUBLIC ${glm_INCLUDE_DIR}/glm)
 
 find_package(WebP REQUIRED)
 target_link_libraries(${lib_name} PUBLIC WebP::WebP)

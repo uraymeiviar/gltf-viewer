@@ -3,7 +3,8 @@
 
 Later phases import it (`from validate_asobo_common import ...`) for:
   * views():          the A0.3 reference views (docs/ASOBO_REFERENCE_VIEWS.md) with their camera flags;
-  * render():         an isolated, textured viewport capture of a model with a view's flags;
+  * render():         an isolated viewport capture of a model with a view's flags (the E195 assets load
+                      fully textured through scripts/e195_assets.py);
   * fixture():        a small model with ASOBO extensions injected into its materials;
   * same() / check(): byte comparison and PASS/FAIL reporting in the regression format.
 
@@ -28,10 +29,12 @@ EXE = REPO / "build" / "bin" / "Release" / "Glider.exe"
 OUT = REPO / "build" / "asobo_common"
 # The last build before ASOBO support; its default rendering hides ASOBO_material_invisible only.
 PRE_ASOBO_EXE = REPO / "build" / "baselines" / "167a5e0.exe"
-E195 = Path(r"F:\new-fss-aircraft-ejet\msfs24-projects\fss-aircraft-e195\SimObjects\Airplanes\E195\model")
-REAL_ASSETS = {"Cockpit": E195 / "E195-Cockpit-LOD00.gltf", "Exterior": E195 / "E195-Exterior-LOD00.gltf"}
-# Texture folders of the E195 project (relative to the model), as in the user's settings.ini.
-E195_SEARCH_PATHS = ["../texture", "../texture.E195.cockpit", "../texture.FSS"]
+# The E195 assets with absolute texture paths (scripts/e195_assets.py): every binary, including baselines
+# older than --search-path, loads them fully textured.
+from e195_assets import COCKPIT, EXTERIOR, TEXTURE_FOLDERS, textured_copy
+REAL_ASSETS = {"Cockpit": textured_copy(COCKPIT, OUT) or COCKPIT, "Exterior": textured_copy(EXTERIOR, OUT) or EXTERIOR}
+# The same texture folders as --search-path arguments, relative to the original model.
+E195_SEARCH_PATHS = [f"../{folder}" for folder in TEXTURE_FOLDERS]
 PLAIN_FIXTURE = REPO / "resources" / "test_models" / "hierarchy_animation_fixture.gltf"
 COMMON = ["--isolated", "--window-size", "1600x900", "--fixed-frame-time", "0.05", "--vsync", "off", "--aa", "none"]
 
@@ -77,10 +80,17 @@ def render(exe, model, name, flags=(), folder=OUT, search_paths=()):
     return png if png.exists() else None
 
 
-def render_view(exe, view_entry, name, flags=(), folder=OUT, textured=True):
-    """textured=False leaves out --search-path, for binaries older than the flag (they read it as a model path)."""
-    return render(exe, REAL_ASSETS[view_entry["model"]], name, list(view_entry["flags"]) + list(flags), folder,
-                  E195_SEARCH_PATHS if textured else ())
+def render_view(exe, view_entry, name, flags=(), folder=OUT):
+    return render(exe, REAL_ASSETS[view_entry["model"]], name, list(view_entry["flags"]) + list(flags), folder)
+
+
+def magenta(path):
+    """Fraction of the image Glider drew as a missing texture (magenta); 1.0 when there is no image."""
+    if not path:
+        return 1.0
+    from PIL import Image
+    pixels = list(Image.open(path).convert("RGB").getdata())
+    return sum(1 for r, g, b in pixels if r > 180 and b > 180 and g < 90) / max(1, len(pixels))
 
 
 def digest(path):
@@ -128,13 +138,11 @@ if __name__ == "__main__":
     check(same(shown, on), "--asobo-disable ASOBO_material_invisible draws it again")
 
     print("[--search-path]")
-    if all(p.exists() for p in REAL_ASSETS.values()):
-        from PIL import Image
-        textured = render_view(EXE, view("cockpit_main_displays"), "cockpit_main_displays_textured")
-        pixels = list(Image.open(textured).convert("RGB").getdata()) if textured else []
-        # Glider draws a missing texture as magenta.
-        magenta = sum(1 for r, g, b in pixels if r > 180 and b > 180 and g < 90) / max(1, len(pixels))
-        check(textured is not None and magenta < 0.01, f"isolated render with --search-path is textured ({magenta:.1%} magenta)")
+    if COCKPIT.exists():
+        entry = view("cockpit_main_displays")
+        textured = render(EXE, COCKPIT, "cockpit_main_displays_textured", entry["flags"], OUT, E195_SEARCH_PATHS)
+        share = magenta(textured)
+        check(share < 0.001, f"isolated render of the original file with --search-path is textured ({share:.2%} magenta)")
 
     print("[everything off versus the build before ASOBO support]")
     if not pre.exists():
@@ -144,11 +152,11 @@ if __name__ == "__main__":
     else:
         for name in ("cockpit_main_displays", "exterior_fuselage_nose"):
             entry = view(name)
-            # The old build has no --search-path, so both sides render with the default texture folder only.
-            reference = render_view(pre, entry, f"{name}_pre", ["--show-invisible-materials"], textured=False)
-            all_off = render_view(EXE, entry, f"{name}_off", ["--asobo", "off"], textured=False)
-            one_off = render_view(EXE, entry, f"{name}_invisible_off", ["--asobo-disable", "ASOBO_material_invisible"],
-                                  textured=False)
+            reference = render_view(pre, entry, f"{name}_pre", ["--show-invisible-materials"])
+            all_off = render_view(EXE, entry, f"{name}_off", ["--asobo", "off"])
+            one_off = render_view(EXE, entry, f"{name}_invisible_off", ["--asobo-disable", "ASOBO_material_invisible"])
+            share = magenta(reference)
+            check(share < 0.001, f"{name}: the {pre.stem} reference is fully textured ({share:.2%} magenta)")
             check(reference is not None and same(all_off, reference), f"{name}: --asobo off is byte-identical to {pre.stem}")
             check(same(one_off, reference), f"{name}: --asobo-disable ASOBO_material_invisible is byte-identical to {pre.stem}")
 
