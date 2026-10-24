@@ -14,11 +14,19 @@ emissive and normals close to MSFS (user priority 1), and the explicit draw orde
   - Verified: byte-identical to `23f61c6` with the option on, and with `"enabled": false`.
   - Harness: `scripts/validate_p8_followup.py`.
   - Moves onto the A0.1 model.
-- [ ] **A1.2 — `ASOBO_normal_map_convention` (R2). Owner: Claude.** An asset-level `DirectX` convention inverts
-  the green channel of every normal map before use, including normal maps added by later phases (detail, clear
-  coat, windshield).
-  - **Test (analytic):** a DirectX-flagged map renders byte-identically to the same map with green pre-inverted
-    and no extension.
+- [x] **A1.2 — `ASOBO_normal_map_convention` (R2).** An asset-level `DirectX` convention inverts the green
+  channel of every normal map before use, including normal maps added by later phases (detail, clear coat,
+  windshield).
+  - **Mechanism:** `sampleTangentSpaceNormal()` (`functions.glsl`) flips `texel.g` before decoding; the core,
+    clear-coat and gizmo samples go through it. `u_AsoboNormalMapDirectX` is part of `EnvironmentBlock`, uploaded
+    per viewport by `CommandGenerator` from `GltfRenderLayer`'s parsed asset extension combined with the
+    viewport's `AsoboOptions`. The switch is already in the redraw key; the value is a frame-block upload, so
+    the command and uniform caches stay valid.
+  - **Harness:** `scripts/validate_asobo_normal.py` (quick tier). DirectX + M matches pre-inverted M' within 1
+    LSB (max per-channel difference 1: the sampled UNORM value and `1.0 - g` round differently); with the switch
+    off, and for `OpenGL`, a missing extension or an undeclared extension, the captures are byte-identical.
+  - **Results:** `scripts/run_regression.py` PASS. E195 cockpit `SCREEN_EICAS` on/off reviewed: the panel bevels
+    and knob rims read raised with the flip and inverted without it (subtle at the default exposure).
   - Every one of the 166 project files that declares it uses DirectX.
 - [ ] **A1.3 — ORM fidelity check (R1). Owner: Claude.** MSFS's `_COMP` texture uses the same packing as glTF's
   occlusion/roughness/metallic texture (R occlusion, G roughness, B metallic). Confirm Glider reads it the same

@@ -15,7 +15,8 @@ COCKPIT = Path(r"F:\new-fss-aircraft-ejet\msfs24-projects\fss-aircraft-e195\SimO
 CODE = "ASOBO_EXTENSIONS_NOT_RENDERED"
 METADATA = {"ASOBO_unique_id", "ASOBO_tags", "ASOBO_asset_optimized",
             "ASOBO_animation_retargeting", "ASOBO_softbody_mesh"}
-EXCLUDED = METADATA | {"ASOBO_material_invisible", "ASOBO_material_disable_motion_blur"}
+EXCLUDED = METADATA | {"ASOBO_material_invisible", "ASOBO_material_disable_motion_blur",
+                       "ASOBO_normal_map_convention"}
 failures = []
 
 
@@ -81,7 +82,7 @@ def main():
         check(set(support) == expected, "every spec plus MSFT_texture_dds has a status, with no extra entries")
         for name in sorted(expected):
             status = "Metadata" if name in METADATA else "Not yet supported"
-            if name == "ASOBO_material_invisible":
+            if name in ("ASOBO_material_invisible", "ASOBO_normal_map_convention"):
                 status = "Rendered"
             elif name == "ASOBO_material_disable_motion_blur":
                 status = "Not applicable"

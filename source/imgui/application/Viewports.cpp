@@ -548,6 +548,9 @@ void Application::drawViewports(FrameContext& frame)
             commandGenerator->setEnvironmentMapBlurNormalized(activeEnvironment.hdrBlur);
             commandGenerator->setIBLEnabled(activeEnvironment.iblEnabled);
             commandGenerator->setPunctualLightsEnabled(activeEnvironment.punctualLightsEnabled);
+            commandGenerator->setAsoboNormalMapConvention(
+                gltfLayer->usesDirectXNormalMaps() &&
+                vp->settings.asobo.applies("ASOBO_normal_map_convention"));
 
             const auto commandGenerationStart = ux3d::imgui::profiling::Clock::now();
             const uint64_t programHitsBefore = commandGenerator->getCommandMapping().getProgramCacheHits();

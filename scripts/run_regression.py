@@ -5,6 +5,7 @@ Usage:
   python scripts/run_regression.py                  # quick tier, baseline of HEAD
   python scripts/run_regression.py --tier full      # adds each feature's A/B switch and validate_p5_1.py
   python scripts/run_regression.py --baseline build/baselines/23f61c6.exe --extra=--show-invisible-materials
+  python scripts/run_regression.py --extra=--asobo --extra=off   # uncommitted work that changes ASOBO rendering
 
 Save a baseline right after each commit with scripts/save_baseline.py. Without
 --baseline, the run uses build/baselines/<HEAD short sha>.exe, so it answers "did my
@@ -18,7 +19,8 @@ Quick tier (equivalence only: byte-identical viewport images, identical selectio
   validate_p8_followup.py --only traversal: three TAA viewports sharing one scene traversal
   validate_p4_exit_gate.py  every UI producer of a scene revision
   the four built-in self-checks
-  then, one at a time: validate_asobo_model.py, validate_asobo_common.py, validate_asobo_support.py
+  then, one at a time: validate_asobo_model.py, validate_asobo_normal.py, validate_asobo_common.py,
+  validate_asobo_support.py
 Full tier adds:
   --with-ab (each feature against its own switch), validate_p5_1.py against the baseline, and
   validate_p8_5.py's 10,000-drawable grid and MSAA/TAA fixture copies.
@@ -83,6 +85,7 @@ jobs = [
 # validate_p8_5.py's timing-sensitive edge clicks when they overlap.
 serial_jobs = [
     ("asobo_model", ["scripts/validate_asobo_model.py"]),
+    ("asobo_normal", ["scripts/validate_asobo_normal.py"]),
     ("asobo_common", ["scripts/validate_asobo_common.py"]),
     ("asobo_support", ["scripts/validate_asobo_support.py"]),
 ]

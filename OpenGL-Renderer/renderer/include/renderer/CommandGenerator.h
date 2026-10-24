@@ -80,6 +80,9 @@ public:
     void setEnvironmentMapIntensity(float _value);
     void setToneMapping(ToneMappingsEnum _toneMapping);
     void setExposure(float _exposure);
+    // A1.2: the asset's ASOBO_normal_map_convention is DirectX and this viewport applies it;
+    // the shaders invert the green channel of every normal-map sample.
+    void setAsoboNormalMapConvention(bool directX);
 
     // Generate the commands and sort them to renderpasses
     void emitCommands();
@@ -118,6 +121,7 @@ protected:
     gl::Uniform m_environmentMapBlurNormalizedUniform;
     gl::Uniform m_environmentMapIntensityUniform;
     gl::Uniform m_exposureUniform;
+    gl::Uniform m_asoboNormalMapDirectXUniform;
     EnvironmentMap* m_activeEnvironmentMap = nullptr;
     const renderer::Camera* m_activeCamera = nullptr;
     LightData m_lights;

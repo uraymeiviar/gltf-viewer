@@ -163,6 +163,9 @@ private:
     // The document updateGltf is synchronising; the material mapping reads its extensionsUsed.
     const gltf::Gltf* m_syncingGltf = nullptr;
 
+    // Set by updateGltf from the asset's declared ASOBO_normal_map_convention (A1.2).
+    bool m_assetNormalMapConventionDirectX = false;
+
 public:
     GltfToRendererMapping<std::tuple<const gltf::Image*, bool>, renderer::gl::Texture*> m_textureMapping;
     GltfToRendererMapping<const gltf::Accessor*, renderer::gl::Buffer*> m_bufferMapping;
@@ -201,6 +204,10 @@ public:
     // Which ASOBO (MSFS) extensions createScene applies; set per viewport (A0.4). With
     // ASOBO_material_invisible not applied, materials it marks invisible are drawn.
     AsoboOptions asoboOptions;
+
+    // A1.2: the asset's ASOBO_normal_map_convention is "DirectX". Whether the viewport
+    // applies it is a separate AsoboOptions switch, so the shader flag combines both.
+    bool usesDirectXNormalMaps() const { return m_assetNormalMapConventionDirectX; }
 
     // Isolation (local view): when root is not null, only that node is drawn, plus its
     // descendants when includeChildren is set. Nodes already hidden by their own visible

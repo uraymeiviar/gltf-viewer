@@ -11,7 +11,7 @@ Later phases import it (`from validate_asobo_common import ...`) for:
 Run on its own, it checks A0.4 (docs/ASOBO_EXTENSIONS_PHASE_0.md):
   * everything off: with --asobo off, the E195 views are byte-identical to the build before ASOBO support
     (167a5e0) run with --show-invisible-materials, which is that build with every ASOBO effect off;
-  * one extension off: --asobo-disable ASOBO_material_invisible gives the same result;
+  * supported extensions off: --asobo-disable of both rendered extensions gives the same result;
   * defaults: an extension written as {} renders like the same extension with its defaults written out;
   * files without ASOBO extensions render identically with ASOBO on and off.
 """
@@ -154,10 +154,12 @@ if __name__ == "__main__":
             entry = view(name)
             reference = render_view(pre, entry, f"{name}_pre", ["--show-invisible-materials"])
             all_off = render_view(EXE, entry, f"{name}_off", ["--asobo", "off"])
-            one_off = render_view(EXE, entry, f"{name}_invisible_off", ["--asobo-disable", "ASOBO_material_invisible"])
+            one_off = render_view(EXE, entry, f"{name}_supported_off",
+                                  ["--asobo-disable", "ASOBO_material_invisible",
+                                   "--asobo-disable", "ASOBO_normal_map_convention"])
             share = magenta(reference)
             check(share < 0.001, f"{name}: the {pre.stem} reference is fully textured ({share:.2%} magenta)")
             check(reference is not None and same(all_off, reference), f"{name}: --asobo off is byte-identical to {pre.stem}")
-            check(same(one_off, reference), f"{name}: --asobo-disable ASOBO_material_invisible is byte-identical to {pre.stem}")
+            check(same(one_off, reference), f"{name}: --asobo-disable of both rendered extensions is byte-identical to {pre.stem}")
 
     finish()

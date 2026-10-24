@@ -51,7 +51,7 @@ NormalInfo getNormalInfo(vec3 v)
     NormalInfo info;
     info.ng = ng;
 #ifdef HAS_NORMAL_MAP
-    info.ntex = texture(u_NormalSampler, UV).rgb * 2.0 - vec3(1.0);
+    info.ntex = sampleTangentSpaceNormal(u_NormalSampler, UV);
     info.ntex *= vec3(u_NormalScale, u_NormalScale, 1.0);
     info.ntex = normalize(info.ntex);
     info.n = normalize(mat3(t, b, ng) * info.ntex);

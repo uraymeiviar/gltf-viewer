@@ -45,6 +45,20 @@ struct NormalInfo {
 };
 
 
+// Samples a tangent-space normal map and decodes it to [-1, 1]. ASOBO_normal_map_convention
+// (A1.2) is asset-level: DirectX stores green inverted relative to glTF's OpenGL convention,
+// and the value arrives in EnvironmentBlock because the viewport switch is per viewport.
+// Every normal-map sample goes through here so later phases reuse the same convention.
+vec3 sampleTangentSpaceNormal(sampler2D normalSampler, vec2 uv)
+{
+    vec3 texel = texture(normalSampler, uv).rgb;
+    if (u_AsoboNormalMapDirectX != 0) {
+        texel.g = 1.0 - texel.g;
+    }
+    return texel * 2.0 - vec3(1.0);
+}
+
+
 float clampedDot(vec3 x, vec3 y)
 {
     return clamp(dot(x, y), 0.0, 1.0);

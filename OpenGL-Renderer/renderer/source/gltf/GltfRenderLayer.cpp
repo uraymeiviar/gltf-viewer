@@ -1439,6 +1439,15 @@ void GltfRenderLayer::updateScene(const gltf::Gltf& gltf, const gltf::Scene& sce
 void GltfRenderLayer::updateGltf(const gltf::Gltf& gltf)
 {
     ++m_gltfGeneration;
+
+    // A1.2: the asset-level convention applies to every normal map of the asset. Only a
+    // declared DirectX convention flips green; missing, OpenGL and unknown values do not.
+    const gltf::asobo::ExtensionSet assetExtensions = gltf::asobo::parseExtensions(gltf, gltf.getAsset(), gltf::asobo::Scope::Asset);
+    const gltf::asobo::ExtensionData* convention = assetExtensions.find("ASOBO_normal_map_convention");
+    const std::string* tangentSpaceConvention =
+        convention != nullptr ? convention->string("tangent_space_convention") : nullptr;
+    m_assetNormalMapConventionDirectX = tangentSpaceConvention != nullptr && *tangentSpaceConvention == "DirectX";
+
     // Textures: first create glTextures for all textures present in the gltf
     // We have to scan the material for used textures, as whether the texture is in
     // Linear or sRGB format is only determined by the textures usage in the material.
