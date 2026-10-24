@@ -90,6 +90,7 @@ serial_jobs = [
     ("asobo_support", ["scripts/validate_asobo_support.py"]),
     ("asobo_draworder", ["scripts/validate_asobo_draworder.py"]),
     ("texture_dds", ["scripts/validate_texture_dds.py"]),
+    ("texture_ktx2", ["scripts/validate_texture_ktx2.py"]),
 ]
 if args.tier == "full":
     jobs.append(("p5_1", ["scripts/validate_p5_1.py", "--pre-exe", str(baseline)]))

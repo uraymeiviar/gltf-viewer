@@ -51,7 +51,11 @@ NormalInfo getNormalInfo(vec3 v)
     NormalInfo info;
     info.ng = ng;
 #ifdef HAS_NORMAL_MAP
+#ifdef NORMAL_TEXTURE_RG_SNORM
+    info.ntex = sampleTangentSpaceNormalRG(u_NormalSampler, UV);
+#else
     info.ntex = sampleTangentSpaceNormal(u_NormalSampler, UV);
+#endif
     info.ntex *= vec3(u_NormalScale, u_NormalScale, 1.0);
     info.ntex = normalize(info.ntex);
     info.n = normalize(mat3(t, b, ng) * info.ntex);

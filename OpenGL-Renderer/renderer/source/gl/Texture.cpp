@@ -1,11 +1,60 @@
 // Copyright (c) 2019 UX3D GmbH. All rights reserved.
 
 #include "renderer/gl/Texture.h"
+#include "core/Logger.h"
+#include "imageformats/ktx2.h"
 #include "renderer/gl/GL.h"
 #include "renderer/gl/Util.h"
 
+#include <algorithm>
 #include <array>
+#include <limits>
 #include <stdexcept>
+
+namespace {
+
+bool usesBPTC(ux3d::gpu::Format _format)
+{
+    return _format == ux3d::gpu::Format::BC7_UNORM_BLOCK || _format == ux3d::gpu::Format::BC7_SRGB_BLOCK;
+}
+
+bool usesS3TC(ux3d::gpu::Format _format)
+{
+    switch (_format) {
+    case ux3d::gpu::Format::BC1_RGB_UNORM_BLOCK:
+    case ux3d::gpu::Format::BC1_RGB_SRGB_BLOCK:
+    case ux3d::gpu::Format::BC1_RGBA_UNORM_BLOCK:
+    case ux3d::gpu::Format::BC1_RGBA_SRGB_BLOCK:
+    case ux3d::gpu::Format::BC3_UNORM_BLOCK:
+    case ux3d::gpu::Format::BC3_SRGB_BLOCK:
+        return true;
+    default:
+        return false;
+    }
+}
+
+GLenum compressedInternalFormat(ux3d::gpu::Format _format, bool _isLinear)
+{
+    switch (_format) {
+    case ux3d::gpu::Format::BC1_RGB_UNORM_BLOCK:
+    case ux3d::gpu::Format::BC1_RGB_SRGB_BLOCK:
+    case ux3d::gpu::Format::BC1_RGBA_UNORM_BLOCK:
+    case ux3d::gpu::Format::BC1_RGBA_SRGB_BLOCK:
+        return _isLinear ? GL_COMPRESSED_RGBA_S3TC_DXT1_EXT : GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT;
+    case ux3d::gpu::Format::BC3_UNORM_BLOCK:
+    case ux3d::gpu::Format::BC3_SRGB_BLOCK:
+        return _isLinear ? GL_COMPRESSED_RGBA_S3TC_DXT5_EXT : GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT;
+    case ux3d::gpu::Format::BC5_SNORM_BLOCK:
+        return GL_COMPRESSED_SIGNED_RG_RGTC2;
+    case ux3d::gpu::Format::BC7_UNORM_BLOCK:
+    case ux3d::gpu::Format::BC7_SRGB_BLOCK:
+        return _isLinear ? GL_COMPRESSED_RGBA_BPTC_UNORM : GL_COMPRESSED_SRGB_ALPHA_BPTC_UNORM;
+    default:
+        return 0;
+    }
+}
+
+} // namespace
 
 ux3d::renderer::gl::Texture::Texture(GL* gl, TextureTarget target)
     : target(target)
@@ -75,6 +124,73 @@ void ux3d::renderer::gl::Texture::write(size_t width, size_t height, Format form
         pixels);
     m_gl->generateMipmap(static_cast<GLenum>(target));
     checkGLError(m_gl, "Cannot write texture");
+}
+
+bool ux3d::renderer::gl::Texture::writeCompressed(const image::Image& image, const imageformats::KTX2ImageInfo& info, bool isLinear)
+{
+    if (target != TextureTarget::Texture2d || info.faceCount != 1u || info.layerCount != 1u || info.depth != 1u) {
+        core::logWarning("KTX2 vkFormat %u: only single 2D images are supported for compressed upload", static_cast<uint32_t>(info.format));
+        return false;
+    }
+    if (!imageformats::isSupportedCompressedKTX2(info)) {
+        core::logWarning("KTX2 vkFormat %u: compressed upload is not supported", static_cast<uint32_t>(info.format));
+        return false;
+    }
+
+    const uint64_t expectedSize = imageformats::getKTX2CompressedDataSize(info);
+    if (expectedSize == 0u || expectedSize != image.getPixels().size()) {
+        core::logWarning("KTX2 vkFormat %u: compressed image data size does not match its header", static_cast<uint32_t>(info.format));
+        return false;
+    }
+
+    if (usesBPTC(info.format)
+        && !m_gl->hasExtension("GL_ARB_texture_compression_bptc")
+        && !m_gl->hasExtension("GL_EXT_texture_compression_bptc")) {
+        core::logWarning("KTX2 vkFormat %u: GL_ARB_texture_compression_bptc is unavailable", static_cast<uint32_t>(info.format));
+        return false;
+    }
+    if (usesS3TC(info.format) && !m_gl->hasExtension("GL_EXT_texture_compression_s3tc")) {
+        core::logWarning("KTX2 vkFormat %u: GL_EXT_texture_compression_s3tc is unavailable", static_cast<uint32_t>(info.format));
+        return false;
+    }
+
+    const GLenum internalFormat = compressedInternalFormat(info.format, isLinear);
+    if (internalFormat == 0 || handle == invalid) {
+        return false;
+    }
+
+    bind();
+    m_gl->pixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    m_gl->texParameteri(static_cast<GLenum>(target), GL_TEXTURE_BASE_LEVEL, 0);
+    m_gl->texParameteri(static_cast<GLenum>(target), GL_TEXTURE_MAX_LEVEL, static_cast<GLint>(info.levelCount - 1u));
+    const GLint swizzle[4] = { GL_RED, GL_GREEN, GL_BLUE, GL_ALPHA };
+    m_gl->texParameteriv(static_cast<GLenum>(target), GL_TEXTURE_SWIZZLE_RGBA, swizzle);
+
+    size_t offset = 0u;
+    for (uint32_t level = 0u; level < info.levelCount; ++level) {
+        const uint32_t width = std::max(info.width >> level, 1u);
+        const uint32_t height = std::max(info.height >> level, 1u);
+        const uint64_t levelSize = imageformats::getKTX2CompressedLevelSize(info, level);
+        if (levelSize == 0u
+            || levelSize > static_cast<uint64_t>(std::numeric_limits<GLsizei>::max())
+            || offset + levelSize > image.getPixels().size()) {
+            core::logWarning("KTX2 vkFormat %u: mip level %u exceeds the compressed image data", static_cast<uint32_t>(info.format), level);
+            return false;
+        }
+
+        m_gl->compressedTexImage2D(
+            static_cast<GLenum>(target),
+            static_cast<GLint>(level),
+            internalFormat,
+            static_cast<GLsizei>(width),
+            static_cast<GLsizei>(height),
+            0,
+            static_cast<GLsizei>(levelSize),
+            image.getPixels().data() + offset);
+        offset += static_cast<size_t>(levelSize);
+    }
+
+    return checkGLError(m_gl, "Cannot write compressed texture");
 }
 
 void ux3d::renderer::gl::Texture::write(const image::Image& image, bool isLinear)

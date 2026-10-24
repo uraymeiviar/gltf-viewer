@@ -59,6 +59,19 @@ vec3 sampleTangentSpaceNormal(sampler2D normalSampler, vec2 uv)
 }
 
 
+// BC5 SNORM normal maps (MSFS *_NORM.PNG.KTX2) store signed X and Y directly and leave Z
+// to be rebuilt. The A1.2 DirectX convention still applies, but the signed green flip is
+// an arithmetic negation instead of 1.0 - g.
+vec3 sampleTangentSpaceNormalRG(sampler2D normalSampler, vec2 uv)
+{
+    vec2 texel = texture(normalSampler, uv).rg;
+    if (u_AsoboNormalMapDirectX != 0) {
+        texel.g = -texel.g;
+    }
+    return vec3(texel, sqrt(max(0.0, 1.0 - dot(texel, texel))));
+}
+
+
 float clampedDot(vec3 x, vec3 y)
 {
     return clamp(dot(x, y), 0.0, 1.0);

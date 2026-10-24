@@ -3,6 +3,7 @@
 
 #include "imageformats/ktx2.h"
 #include "core/Platform.h"
+#include "image/ImageFormat.h"
 #include "image/ImageMetaData.h"
 #include "imageformats/imageformats.h"
 
@@ -12,11 +13,122 @@ UX3D_END_IGNORE_WARNINGS
 
 #include <algorithm>
 #include <cstring>
+#include <limits>
 #include <mutex>
 #include <thread>
 
 using namespace ux3d;
 using namespace ux3d::imageformats;
+
+namespace {
+
+constexpr uint8_t ktx2Identifier[12] = { 0xAB, 'K', 'T', 'X', ' ', '2', '0', 0xBB, 0x0D, 0x0A, 0x1A, 0x0A };
+
+uint32_t readU32LE(const core::Vector<uint8_t>& _buffer, size_t _offset)
+{
+    uint32_t value = 0;
+    if (_offset + sizeof(value) <= _buffer.size()) {
+        std::memcpy(&value, _buffer.data() + _offset, sizeof(value));
+    }
+    return value;
+}
+
+// The unsupported-format placeholder is opaque white, the same visual result as the
+// previous failed decode path, but it keeps the KTX2 bytes so the renderer can log the file.
+bool initializeWhitePlaceholder(image::Image& _image)
+{
+    const uint8_t white[4] = { 255, 255, 255, 255 };
+    if (!_image.initializeLayout(8, 8, 8, 8, image::Format::NORM, false, false, false, false, 0, 1, 2, 3)) {
+        return false;
+    }
+    return _image.initialize(white, sizeof(white), 1, 1, 1, 1, 1, 1);
+}
+
+} // namespace
+
+bool imageformats::getKTX2ImageInfo(const core::Vector<uint8_t>& _buffer, KTX2ImageInfo& _info)
+{
+    if (_buffer.size() < 80u || std::memcmp(_buffer.data(), ktx2Identifier, sizeof(ktx2Identifier)) != 0) {
+        return false;
+    }
+
+    _info = KTX2ImageInfo();
+    _info.format = static_cast<gpu::Format>(readU32LE(_buffer, 12));
+    _info.width = readU32LE(_buffer, 20);
+    _info.height = readU32LE(_buffer, 24);
+    _info.depth = std::max(readU32LE(_buffer, 28), 1u);
+    _info.layerCount = std::max(readU32LE(_buffer, 32), 1u);
+    _info.faceCount = std::max(readU32LE(_buffer, 36), 1u);
+    _info.levelCount = std::clamp(readU32LE(_buffer, 40), 1u, 32u);
+    _info.supercompressionScheme = readU32LE(_buffer, 44);
+    _info.blockCompressed = image::isCompressed(_info.format);
+    return true;
+}
+
+bool imageformats::isSupportedCompressedFormat(gpu::Format _format)
+{
+    switch (_format) {
+    case gpu::Format::BC1_RGB_UNORM_BLOCK:
+    case gpu::Format::BC1_RGB_SRGB_BLOCK:
+    case gpu::Format::BC1_RGBA_UNORM_BLOCK:
+    case gpu::Format::BC1_RGBA_SRGB_BLOCK:
+    case gpu::Format::BC3_UNORM_BLOCK:
+    case gpu::Format::BC3_SRGB_BLOCK:
+    case gpu::Format::BC5_SNORM_BLOCK:
+    case gpu::Format::BC7_UNORM_BLOCK:
+    case gpu::Format::BC7_SRGB_BLOCK:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool imageformats::isSupportedCompressedKTX2(const KTX2ImageInfo& _info)
+{
+    return _info.blockCompressed
+        && _info.supercompressionScheme == 0u
+        && _info.depth == 1u
+        && _info.layerCount == 1u
+        && _info.faceCount == 1u
+        && _info.width > 0u
+        && _info.height > 0u
+        && isSupportedCompressedFormat(_info.format);
+}
+
+uint64_t imageformats::getKTX2CompressedLevelSize(const KTX2ImageInfo& _info, uint32_t _level)
+{
+    if (!isSupportedCompressedFormat(_info.format)) {
+        return 0u;
+    }
+
+    uint32_t blockWidth = 1u;
+    uint32_t blockHeight = 1u;
+    if (!image::getBlockSize(_info.format, blockWidth, blockHeight)) {
+        return 0u;
+    }
+
+    // KTX2 mip dimensions are max(1, base >> level); image::getFaceSize truncates a
+    // non-square texture's last levels to 0, so compute the block counts here.
+    const uint32_t width = _level >= 32u ? 1u : std::max(_info.width >> _level, 1u);
+    const uint32_t height = _level >= 32u ? 1u : std::max(_info.height >> _level, 1u);
+    const uint32_t depth = _level >= 32u ? 1u : std::max(_info.depth >> _level, 1u);
+    const uint64_t blocksX = (static_cast<uint64_t>(width) + blockWidth - 1u) / blockWidth;
+    const uint64_t blocksY = (static_cast<uint64_t>(height) + blockHeight - 1u) / blockHeight;
+    return static_cast<uint64_t>(image::getFormatSize(_info.format)) * blocksX * blocksY * depth;
+}
+
+uint64_t imageformats::getKTX2CompressedDataSize(const KTX2ImageInfo& _info)
+{
+    if (!isSupportedCompressedFormat(_info.format)) {
+        return 0u;
+    }
+
+    uint64_t total = 0u;
+    for (uint32_t level = 0u; level < _info.levelCount; ++level) {
+        total += getKTX2CompressedLevelSize(_info, level);
+    }
+    return total * static_cast<uint64_t>(_info.faceCount) * static_cast<uint64_t>(_info.layerCount);
+}
 
 //START Copy from KTX-Software utils/scapp.h
 
@@ -129,6 +241,20 @@ void imageformats::fillKTXMetaData(const ktxTexture2* texture, image::Image& _im
 
 ImageDecodingResult imageformats::decodeKTX(const core::Vector<uint8_t>& _buffer, image::Image& _image)
 {
+    KTX2ImageInfo info;
+    const bool hasInfo = getKTX2ImageInfo(_buffer, info);
+
+    // BCn files with no supercompression stay compressed all the way to glCompressedTexImage2D.
+    // Anything else a compressed KTX2 can contain (other vkFormats, supercompression) keeps
+    // the previous white result; the renderer logs the file and format.
+    if (hasInfo && info.blockCompressed && !isSupportedCompressedKTX2(info)) {
+        if (!initializeWhitePlaceholder(_image)) {
+            core::debugLog(core::LogLevel::Error, "Failed to initialize KTX2 placeholder image");
+            return ImageDecodingError::InitializeFailure;
+        }
+        return ImageDecodingResult::Success;
+    }
+
     ktxTexture2* texture;
     KTX_error_code result;
     result = ktxTexture2_CreateFromMemory(_buffer.data(), _buffer.size(), KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &texture);
@@ -167,10 +293,88 @@ ImageDecodingResult imageformats::decodeKTX(const core::Vector<uint8_t>& _buffer
         }
     }
 
+    const gpu::Format vkFormat = static_cast<gpu::Format>(texture->vkFormat);
+
+    if (hasInfo && isSupportedCompressedKTX2(info)) {
+        if (vkFormat != info.format
+            || texture->baseWidth != info.width
+            || texture->baseHeight != info.height
+            || texture->numLevels != info.levelCount
+            || texture->numFaces != info.faceCount
+            || texture->numLayers != info.layerCount) {
+            core::debugLog(core::LogLevel::Error, "KTX2 layout changed while loading; refusing to upload compressed data");
+            ktxTexture_Destroy(ktxTexture(texture));
+            return ImageDecodingError::LoadFailure;
+        }
+
+        const uint64_t totalSize = getKTX2CompressedDataSize(info);
+        const uint8_t* textureData = ktxTexture_GetData(ktxTexture(texture));
+        if (totalSize == 0u || totalSize > std::numeric_limits<size_t>::max() || textureData == nullptr) {
+            ktxTexture_Destroy(ktxTexture(texture));
+            return ImageDecodingError::LoadFailure;
+        }
+
+        std::vector<uint8_t> imageData(static_cast<size_t>(totalSize));
+        size_t cursor = 0u;
+        for (ktx_uint32_t level = 0; level < texture->numLevels; ++level) {
+            for (ktx_uint32_t layer = 0; layer < texture->numLayers; ++layer) {
+                for (ktx_uint32_t face = 0; face < texture->numFaces; ++face) {
+                    ktx_size_t offset;
+                    result = ktxTexture_GetImageOffset(ktxTexture(texture), level, layer, face, &offset);
+                    if (result != KTX_SUCCESS) {
+                        core::debugLog(core::LogLevel::Error, "Could not get offset from ktx texture");
+                        ktxTexture_Destroy(ktxTexture(texture));
+                        return ImageDecodingError::LoadFailure;
+                    }
+
+                    const uint64_t subimageSize = getKTX2CompressedLevelSize(info, level);
+                    if (offset + subimageSize > texture->dataSize || cursor + subimageSize > imageData.size()) {
+                        core::debugLog(core::LogLevel::Error, "KTX2 compressed level exceeds its image data");
+                        ktxTexture_Destroy(ktxTexture(texture));
+                        return ImageDecodingError::LoadFailure;
+                    }
+
+                    std::memcpy(imageData.data() + cursor, textureData + offset, static_cast<size_t>(subimageSize));
+                    cursor += static_cast<size_t>(subimageSize);
+                }
+            }
+        }
+
+        ktxTexture_Destroy(ktxTexture(texture));
+
+        // Keep the block grid as the image dimensions when the mip chain halves that grid,
+        // which is the power-of-two case every MSFS texture uses. The pixel data itself is
+        // stored sequentially and Texture::writeCompressed walks it level by level.
+        const uint32_t blockBytes = image::getFormatSize(vkFormat);
+        const uint32_t blockWidth = std::max((info.width + 3u) / 4u, 1u);
+        const uint32_t blockHeight = std::max((info.height + 3u) / 4u, 1u);
+
+        _image.initializeLayout(info.width, info.height, info.depth, info.faceCount, info.layerCount, info.levelCount, vkFormat);
+        _image.initializeLayout(blockBytes * 8u, 0u, 0u, 0u, image::Format::INT, image::isSigned(vkFormat), false, false, true, 0u, 1u, 2u, 3u);
+        _image.setWidth(blockWidth);
+        _image.setHeight(blockHeight);
+        if (_image.initialize(std::move(imageData))) {
+            return ImageDecodingResult::Success;
+        }
+
+        // Non-power-of-two block grids do not halve exactly. Fall back to an opaque one-row
+        // layout; the compressed bytes and their level-by-level order are unchanged.
+        if (imageData.size() > std::numeric_limits<uint32_t>::max()) {
+            return ImageDecodingError::InitializeFailure;
+        }
+        image::Image opaque;
+        if (!opaque.initializeLayout(8u, 0u, 0u, 0u, image::Format::INT, image::isSigned(vkFormat), false, false, true, 0u, 1u, 2u, 3u)
+            || !opaque.initialize(imageData.data(), imageData.size(), static_cast<uint32_t>(imageData.size()), 1u, 1u, 1u, 1u, 1u)) {
+            core::debugLog(core::LogLevel::Error, "Failed to initialize compressed KTX2 image");
+            return ImageDecodingError::InitializeFailure;
+        }
+        _image = std::move(opaque);
+        return ImageDecodingResult::Success;
+    }
+
     std::vector<uint8_t> imageData;
     (void)imageData.resize(texture->dataSize);
 
-    gpu::Format vkFormat = static_cast<gpu::Format>(texture->vkFormat);
     _image.initializeLayout(texture->baseWidth, texture->baseHeight, texture->baseDepth, texture->numFaces, texture->numLayers, texture->numLevels, vkFormat);
 
     // faces of a cubemap

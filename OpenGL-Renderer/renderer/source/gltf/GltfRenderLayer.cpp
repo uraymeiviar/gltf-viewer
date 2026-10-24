@@ -62,6 +62,20 @@ int asoboDrawOrderOffset(const gltf::asobo::ExtensionSet& extensions)
     const double value = drawOrder->number("drawOrderOffset").value_or(0.0);
     return static_cast<int>(std::lround(std::clamp(value, -999.0, 999.0)));
 }
+
+// Keeps an unsupported compressed KTX2 texture visually the same as the previous failed
+// decode (opaque white) without leaving an incomplete GL texture behind.
+const image::Image& whiteTexturePlaceholder()
+{
+    static const image::Image image = []() {
+        image::Image placeholder;
+        const uint8_t white[4] = { 255, 255, 255, 255 };
+        placeholder.initializeLayout(8, 8, 8, 8, image::Format::NORM, false, false, false, false, 0, 1, 2, 3);
+        placeholder.initialize(white, sizeof(white), 1, 1, 1, 1, 1, 1);
+        return placeholder;
+    }();
+    return image;
+}
 }
 
 namespace ux3d::renderer {
@@ -333,6 +347,15 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
     gl->getIntegerv(GL_MAX_ARRAY_TEXTURE_LAYERS, &maxArraySize);
     m_maxTextureArrayLength = maxArraySize;
 
+    // KTX2 BCn upload support is extension-based on an OpenGL 4.1 context. RGTC (BC5) is
+    // core; S3TC (BC1/BC3) and BPTC (BC7) are checked here once and again before upload.
+    if (!gl->hasExtension("GL_ARB_texture_compression_bptc") && !gl->hasExtension("GL_EXT_texture_compression_bptc")) {
+        core::logWarning("[KTX2] BC7 compressed textures are unsupported: GL_ARB_texture_compression_bptc is missing");
+    }
+    if (!gl->hasExtension("GL_EXT_texture_compression_s3tc")) {
+        core::logWarning("[KTX2] BC1/BC3 compressed textures are unsupported: GL_EXT_texture_compression_s3tc is missing");
+    }
+
     // GlTextures
     m_textureMapping.createRendererObjectFromGltf = [this](std::tuple<const gltf::Image*, bool> imageAndIsLinear) -> renderer::gl::Texture* {
         auto& [gltfImage, isLinear] = imageAndIsLinear;
@@ -571,6 +594,28 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
             renderer::gl::Texture* glTexture = texIt->second;
             const gltf::Image* gltfImage = std::get<const gltf::Image*>(texIt->first);
 
+            // Packaged MSFS 2024 textures are BCn KTX2. Upload the block data and all mip
+            // levels as they are; only an unsupported vkFormat or supercompression falls back.
+            const core::Vector<uint8_t>* encodedBytes = gltfImage->getEncodedBytes();
+            imageformats::KTX2ImageInfo ktx2Info;
+            const bool ktx2Compressed = encodedBytes != nullptr
+                && imageformats::getKTX2ImageInfo(*encodedBytes, ktx2Info)
+                && ktx2Info.blockCompressed;
+            const bool ktx2Supported = ktx2Compressed && imageformats::isSupportedCompressedKTX2(ktx2Info);
+            if (ktx2Compressed) {
+                if (ktx2Supported && ktx2Info.format == gpu::Format::BC5_SNORM_BLOCK) {
+                    if (baseName == "Normal") {
+                        material->defines.define("NORMAL_TEXTURE_RG_SNORM");
+                    } else if (baseName == "ClearcoatNormal") {
+                        material->defines.define("CLEARCOAT_NORMAL_TEXTURE_RG_SNORM");
+                    }
+                }
+                if (!ktx2Supported) {
+                    core::logWarning("[KTX2] '%s': unsupported vkFormat %u (supercompression %u); using a white placeholder",
+                        gltfImage->getUri().c_str(), static_cast<uint32_t>(ktx2Info.format), ktx2Info.supercompressionScheme);
+                }
+            }
+
             const renderer::gl::SamplerState* samplerState = nullptr;
             auto samplerIt = m_samplerStateMapping.map.find(gltfTexture->getSampler());
             if (samplerIt != m_samplerStateMapping.map.end()) {
@@ -579,13 +624,19 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
 
             if (glTexture->currentMapID != gltfImage->encodedMapID) {
                 glTexture->currentMapID = gltfImage->encodedMapID;
-                glTexture->write(gltfImage->getData(), isLinear);
-                if (samplerState != nullptr) {
-                    if (samplerState->minFilter == gl::TextureMinFilter::NearestMipmapNearest
-                        || samplerState->minFilter == gl::TextureMinFilter::NearestMipmapLinear
-                        || samplerState->minFilter == gl::TextureMinFilter::LinearMipmapNearest
-                        || samplerState->minFilter == gl::TextureMinFilter::LinearMipmapLinear) {
-                        gl->generateMipmap(static_cast<GLenum>(glTexture->target));
+                if (ktx2Compressed) {
+                    if (!ktx2Supported || !glTexture->writeCompressed(gltfImage->getData(), ktx2Info, isLinear)) {
+                        glTexture->write(whiteTexturePlaceholder(), isLinear);
+                    }
+                } else {
+                    glTexture->write(gltfImage->getData(), isLinear);
+                    if (samplerState != nullptr) {
+                        if (samplerState->minFilter == gl::TextureMinFilter::NearestMipmapNearest
+                            || samplerState->minFilter == gl::TextureMinFilter::NearestMipmapLinear
+                            || samplerState->minFilter == gl::TextureMinFilter::LinearMipmapNearest
+                            || samplerState->minFilter == gl::TextureMinFilter::LinearMipmapLinear) {
+                            gl->generateMipmap(static_cast<GLenum>(glTexture->target));
+                        }
                     }
                 }
             }

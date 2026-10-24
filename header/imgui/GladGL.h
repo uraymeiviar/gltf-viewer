@@ -3,6 +3,7 @@
 #pragma once
 
 #include <glad/glad.h>
+#include "imgui/Profiling.h"
 #include "renderer/gl/GL.h"
 #include <optional>
 #include <string>
@@ -73,6 +74,15 @@ public:
     virtual void bindTexture(GLenum target, GLuint texture) override;
     virtual void pixelStorei(GLenum pname, GLint param) override;
     virtual void texImage2D(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const void* data) override;
+    virtual void compressedTexImage2D(GLenum target, GLint level, GLenum internalformat, GLsizei width, GLsizei height, GLint border, GLsizei imageSize, const void* data) override
+    {
+        ux3d::imgui::profiling::countGlCall();
+        if (imageSize > 0) {
+            ux3d::imgui::profiling::countTextureAllocation(static_cast<uint64_t>(imageSize));
+            ux3d::imgui::profiling::countTextureUpload(static_cast<uint64_t>(imageSize));
+        }
+        glCompressedTexImage2D(target, level, internalformat, width, height, border, imageSize, data);
+    }
     virtual void texParameteriv(GLenum target, GLenum pname, const GLint* params) override;
     virtual void texParameterfv(GLenum target, GLenum pname, const GLfloat* params) override;
     virtual void getTexLevelParameteriv(GLenum target, GLint level, GLenum pname, GLint* params) override;

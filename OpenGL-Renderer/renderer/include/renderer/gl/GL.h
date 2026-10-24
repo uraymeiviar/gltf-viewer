@@ -71,6 +71,7 @@ public:
     virtual void bindTexture(GLenum target, GLuint texture) = 0;
     virtual void pixelStorei(GLenum pname, GLint param) = 0;
     virtual void texImage2D(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const void* data) = 0;
+    virtual void compressedTexImage2D(GLenum target, GLint level, GLenum internalformat, GLsizei width, GLsizei height, GLint border, GLsizei imageSize, const void* data) = 0;
     virtual void texParameteriv(GLenum target, GLenum pname, const GLint* params) = 0;
     virtual void texParameterfv(GLenum target, GLenum pname, const GLfloat* params) = 0;
     virtual void getTexLevelParameteriv(GLenum target, GLint level, GLenum pname, GLint* params) = 0;

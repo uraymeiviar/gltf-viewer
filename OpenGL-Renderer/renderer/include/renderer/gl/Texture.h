@@ -8,6 +8,10 @@
 
 #include <vector>
 
+namespace ux3d::imageformats {
+struct KTX2ImageInfo;
+}
+
 namespace ux3d::renderer::gl {
 
 class GL;
@@ -26,6 +30,9 @@ public:
     void write(size_t width, size_t height, Format format, ComponentType pixelFormat, const void* pixels, InternalFormat internalFormat = InternalFormat::Identity);
 
     void write(const image::Image& image, bool isLinear);
+    // Uploads the block-compressed mip chain in image.getPixels() without a CPU decode.
+    // Returns false (and logs) when the GL context or the image data cannot support it.
+    bool writeCompressed(const image::Image& image, const imageformats::KTX2ImageInfo& info, bool isLinear);
 
     static Format extractFormat(const image::Image& image);
     static ComponentType extractComponentType(const image::Image& image);
