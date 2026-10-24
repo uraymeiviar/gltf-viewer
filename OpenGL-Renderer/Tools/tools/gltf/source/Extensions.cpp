@@ -25,6 +25,7 @@ ux3d::core::Vector<ux3d::gltf::Extension> ux3d::gltf::getAllExtensions()
         Extension::AnimationPointer,
         Extension::Audio,
         Extension::WebP,
+        Extension::TextureDDS,
     };
 }
 
@@ -51,6 +52,7 @@ ux3d::core::Vector<ux3d::core::string> ux3d::gltf::getAllExtensionNames()
         extensionToString(Extension::AnimationPointer),
         extensionToString(Extension::Audio),
         extensionToString(Extension::WebP),
+        extensionToString(Extension::TextureDDS),
     };
 }
 
@@ -69,6 +71,8 @@ ux3d::core::string ux3d::gltf::extensionToString(Extension _extension)
         return "KHR_texture_basisu";
     case Extension::WebP:
         return "EXT_texture_webp";
+    case Extension::TextureDDS:
+        return "MSFT_texture_dds";
     case Extension::TextureTransform:
         return "KHR_texture_transform";
     case Extension::Clearcoat:
@@ -122,6 +126,9 @@ ux3d::gltf::Extension ux3d::gltf::stringToExtension(core::string& _extensionStr)
     }
     if (_extensionStr == "EXT_texture_webp") {
         return Extension::WebP;
+    }
+    if (_extensionStr == "MSFT_texture_dds") {
+        return Extension::TextureDDS;
     }
     if (_extensionStr == "KHR_texture_transform") {
         return Extension::TextureTransform;
@@ -186,7 +193,7 @@ bool ux3d::gltf::extensionStringKnown(core::string& _extensionStr)
 
 bool ux3d::gltf::isExtensionRequired(Extension _extension)
 {
-    if (_extension == Extension::Audio || _extension == Extension::PunctualLights || _extension == Extension::MaterialsVariants || _extension == Extension::XMP || _extension == Extension::PbrSpecularGlossinessMaterial || _extension == Extension::UnlitMaterial || _extension == Extension::Clearcoat || _extension == Extension::Specular || _extension == Extension::Sheen || _extension == Extension::Ior || _extension == Extension::Transmission || _extension == Extension::Volume || _extension == Extension::EmissiveStrength) {
+    if (_extension == Extension::Audio || _extension == Extension::PunctualLights || _extension == Extension::MaterialsVariants || _extension == Extension::XMP || _extension == Extension::PbrSpecularGlossinessMaterial || _extension == Extension::UnlitMaterial || _extension == Extension::Clearcoat || _extension == Extension::Specular || _extension == Extension::Sheen || _extension == Extension::Ior || _extension == Extension::Transmission || _extension == Extension::Volume || _extension == Extension::EmissiveStrength || _extension == Extension::WebP || _extension == Extension::TextureDDS) {
         return false;
     }
 

@@ -556,21 +556,14 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
                 return false;
             }
 
-            auto texIt = m_textureMapping.map.end();
-
-            const auto& oBasisU = gltfTexture->getBasisU();
-            if (oBasisU.has_value()) {
-                texIt = m_textureMapping.map.find({ oBasisU.value().getSource(), isLinear });
-            }
-
-            const auto& oWebP = gltfTexture->getWebP();
-            if (oWebP.has_value()) {
-                texIt = m_textureMapping.map.find({ oWebP.value().getSource(), isLinear });
-            }
-
+            bool ddsDeclared = m_syncingGltf != nullptr && m_syncingGltf->isExtensionDeclared("MSFT_texture_dds");
+            const gltf::Image* chosenImage = pickImageForTexture(gltfTexture, ddsDeclared);
+            auto texIt = m_textureMapping.map.find({ chosenImage, isLinear });
             if (texIt == m_textureMapping.map.end() || texIt->second == nullptr) {
-                // fall back to standard texture source
-                texIt = m_textureMapping.map.find({ gltfTexture->getSource(), isLinear });
+                // fall back to standard texture source if chosen image was not found
+                if (chosenImage != gltfTexture->getSource()) {
+                    texIt = m_textureMapping.map.find({ gltfTexture->getSource(), isLinear });
+                }
                 if (texIt == m_textureMapping.map.end() || texIt->second == nullptr) {
                     return false;
                 }
@@ -1470,6 +1463,7 @@ void GltfRenderLayer::updateScene(const gltf::Gltf& gltf, const gltf::Scene& sce
 void GltfRenderLayer::updateGltf(const gltf::Gltf& gltf)
 {
     ++m_gltfGeneration;
+    m_syncingGltf = &gltf;
 
     // A1.2: the asset-level convention applies to every normal map of the asset. Only a
     // declared DirectX convention flips green; missing, OpenGL and unknown values do not.
@@ -1491,7 +1485,7 @@ void GltfRenderLayer::updateGltf(const gltf::Gltf& gltf)
     // where the second element of bool type is true if the texture has linear format.
     std::set<std::tuple<gltf::Image*, bool>> images; // use a set to avoid duplicates
     for (auto& material : gltf.getMaterials()) {
-        auto insertImage = [this, &images](const std::optional<gltf::TextureInfo>& textureInfo, bool isLinear) {
+        auto insertImage = [this, &images, &gltf](const std::optional<gltf::TextureInfo>& textureInfo, bool isLinear) {
             if (textureInfo.has_value() == false) {
                 return;
             }
@@ -1504,22 +1498,8 @@ void GltfRenderLayer::updateGltf(const gltf::Gltf& gltf)
                 return;
             }
 
-            gltf::Image* gltfImage = nullptr;
-
-            const auto& oBasisU = gltfTexture->getBasisU();
-            if (oBasisU.has_value()) {
-                gltfImage = oBasisU.value().getSource();
-            }
-
-            const auto& oWebP = gltfTexture->getWebP();
-            if (oWebP.has_value()) {
-                gltfImage = oWebP.value().getSource();
-            }
-
-            if (gltfImage == nullptr) {
-                // fall back to standard texture source
-                gltfImage = gltfTexture->getSource();
-            }
+            bool ddsDeclared = gltf.isExtensionDeclared("MSFT_texture_dds");
+            gltf::Image* gltfImage = pickImageForTexture(gltfTexture, ddsDeclared);
 
             if (gltfImage == nullptr) {
                 return;
@@ -1595,7 +1575,6 @@ void GltfRenderLayer::updateGltf(const gltf::Gltf& gltf)
     m_samplerStateMapping.update(gltf.getSamplers());
 
     // Materials: determine the fragment shader and which textures are used within that.
-    m_syncingGltf = &gltf;
     updateMaterials(gltf.getMaterials());
     m_syncingGltf = nullptr;
 }
@@ -2236,4 +2215,31 @@ float GltfRenderLayer::getAnimationDuration() const
 Camera* GltfRenderLayer::addCamera()
 {
     return m_resourceManager.createWithGLContext<renderer::Camera>();
+}
+
+
+gltf::Image* GltfRenderLayer::pickImageForTexture(const gltf::Texture* gltfTexture, bool ddsDeclared) const
+{
+    if (gltfTexture == nullptr) {
+        return nullptr;
+    }
+
+    if (ddsDeclared) {
+        const auto& oDds = gltfTexture->getTextureDds();
+        if (oDds.has_value() && oDds.value().getSource() != nullptr && oDds.value().getSource()->isLoaded()) {
+            return oDds.value().getSource();
+        }
+    }
+
+    const auto& oBasisU = gltfTexture->getBasisU();
+    if (oBasisU.has_value() && oBasisU.value().getSource() != nullptr && oBasisU.value().getSource()->isLoaded()) {
+        return oBasisU.value().getSource();
+    }
+
+    const auto& oWebP = gltfTexture->getWebP();
+    if (oWebP.has_value() && oWebP.value().getSource() != nullptr && oWebP.value().getSource()->isLoaded()) {
+        return oWebP.value().getSource();
+    }
+
+    return gltfTexture->getSource();
 }

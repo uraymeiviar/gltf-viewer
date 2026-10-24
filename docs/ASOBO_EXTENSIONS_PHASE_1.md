@@ -79,11 +79,12 @@ emissive and normals close to MSFS (user priority 1), and the explicit draw orde
     - the pattern is stable under TAA jitter;
     - coverage scales with alpha;
     - no sorting and no blending.
-- [ ] **A1.8 — `MSFT_texture_dds` (R2). Owner: GPT Astra.** Use the DDS image the extension points to, with the
+- [x] **A1.8 — `MSFT_texture_dds` (R2). Owner: Gemini 3.8 Flash (High).** Use the DDS image the extension points to, with the
   core `source` as fallback.
-  - **Tests:**
-    - a DDS next to a PNG with different content renders the DDS;
-    - a missing DDS falls back to the PNG.
+  - **Mechanism:** `gltf::Texture` parses `MSFT_texture_dds` extension pointing to a DDS image; `pickImageForTexture()` prefers the DDS image when `MSFT_texture_dds` is declared in `extensionsUsed` and the DDS is loaded, falling back to BasisU -> WebP -> core `source`. Fixed `Dds.cpp` pixel format header offset (offset 76 vs 80).
+  - **Harness:** `scripts/validate_texture_dds.py` (quick tier, `run_regression.py`): declared RGBA8 DDS renders DDS colour and differs from core fallback PNG; block-compressed BC1 (DXT1) DDS renders correctly; missing DDS falls back to core PNG without crashing; undeclared in `extensionsUsed` falls back to core PNG; plain model without extension matches reference PNG.
+  - **Results:** all harness checks pass. Gemini reached its 60-minute limit before finishing the regression and its report; Claude built it, ran the harness and the quick regression against `04a4b40` (pass, after excluding the status bar from the viewport-band comparison, where a hover tooltip differed), and reviewed the diff (2026-10-24). Gemini reported that `GndObj-Cone-LOD00.gltf` (`GROUND_OBJECTS_*.PNG.DDS`) renders correctly; not rechecked.
+  - **Gap found:** packaged MSFS 2024 assets (`Packages/.../E190-Exterior-LOD00.gltf`) have no core `source`; `MSFT_texture_dds` points to block-compressed **KTX2** files (`*.PNG.KTX2`, e.g. vkFormat 133 BC1, mipmapped, no supercompression) and is required. Glider's KTX2 path rejects them ("input byte size does not match layout"), so those models render untextured. Follow-up: BCn KTX2 support.
 
 **Exit gate:**
 - Each task passes its harness and `run_regression.py`.

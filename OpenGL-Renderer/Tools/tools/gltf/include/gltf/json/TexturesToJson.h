@@ -19,5 +19,6 @@ private:
 
     void convertExtensionBasisu(const Texture& _texture, nlohmann::json& _jsonTexture) const;
     void convertExtensionWebP(const Texture& _texture, nlohmann::json& _jsonTexture) const;
+    void convertExtensionTextureDds(const Texture& _texture, nlohmann::json& _jsonTexture) const;
 };
 }

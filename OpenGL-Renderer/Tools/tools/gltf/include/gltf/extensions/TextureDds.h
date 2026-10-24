@@ -1,0 +1,18 @@
+// Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
+
+#pragma once
+
+#include "gltf/GltfObject.h"
+
+namespace ux3d::gltf {
+class Image;
+
+class TextureDds : public GltfObject {
+public:
+    Image* getSource() const;
+    void setSource(Image* _pSource);
+
+private:
+    Image* m_pSource = nullptr;
+};
+}

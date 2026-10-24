@@ -85,6 +85,8 @@ public:
     GltfResult getInvalidProperties(core::Vector<core::string>& _invalidProperties) const override;
 
     void loadAsErrorImage();
+    bool isLoaded() const { return !m_isErrorImage && !m_data.getPixels().empty(); }
+    bool isErrorImage() const { return m_isErrorImage; }
 
     static bool isValidEncoding(imageformats::ImageEncoding _encoding);
 
@@ -121,6 +123,7 @@ private:
     StorageFormat m_storageFormat = StorageFormat::Undefined;
     static uint32_t m_uniqueIdCounter;
     bool m_imageChangedForRenderer = false;
+    bool m_isErrorImage = false;
     core::Vector<uint8_t> m_encodedData;
 };
 }

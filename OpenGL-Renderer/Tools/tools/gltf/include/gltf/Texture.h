@@ -5,6 +5,7 @@
 #include "ChildOfRoot.h"
 #include "gltf/extensions/BasisU.h"
 #include "gltf/extensions/WebP.h"
+#include "gltf/extensions/TextureDds.h"
 #include <optional>
 
 // See https://github.com/KhronosGroup/glTF/tree/master/specification/2.0#texture
@@ -20,6 +21,7 @@ private:
     // Image* m_pBasisU = nullptr;
     std::optional<BasisU> m_basisU;
     std::optional<WebP> m_webP;
+    std::optional<TextureDds> m_textureDds;
 
 public:
     Texture(uint32_t _id); // regular constructor
@@ -39,6 +41,11 @@ public:
     const std::optional<WebP>& getWebP() const;
     GltfResult createWebP();
     void destroyWebP();
+
+    std::optional<TextureDds>& getTextureDds();
+    const std::optional<TextureDds>& getTextureDds() const;
+    GltfResult createTextureDds();
+    void destroyTextureDds();
 
     GltfResult setSource(Image& _Source);
     GltfResult setSampler(Sampler& _Sampler);

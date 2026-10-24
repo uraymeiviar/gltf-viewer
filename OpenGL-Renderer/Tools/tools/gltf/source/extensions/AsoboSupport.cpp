@@ -47,7 +47,7 @@ const std::vector<SupportInfo>& supportTable()
         {"ASOBO_softbody_mesh", Support::Metadata, "A7", ""},
         {"ASOBO_tags", Support::Metadata, "A7", ""},
         {"ASOBO_unique_id", Support::Metadata, "A7", ""},
-        {"MSFT_texture_dds", Support::NotYetSupported, "A1", ""},
+        {"MSFT_texture_dds", Support::Rendered, "A1.8", "DDS image preferred over core source with automatic fallback"},
     };
     return table;
 }

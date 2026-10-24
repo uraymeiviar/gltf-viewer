@@ -68,7 +68,8 @@ def viewport_sha(path):
     from PIL import Image
     image = Image.open(path).convert("RGB")
     width, height = image.size
-    box = (int(width * 0.22) + 6, 0, int(width * (1 - 0.78 * 0.26)) - 6, height)
+    # The menu bar (top) and the status bar (bottom, where hover tooltips also appear) are left out too.
+    box = (int(width * 0.22) + 6, 30, int(width * (1 - 0.78 * 0.26)) - 6, height - 40)
     return hashlib.sha256(image.crop(box).tobytes()).hexdigest()
 
 

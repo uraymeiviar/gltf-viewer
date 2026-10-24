@@ -30,6 +30,7 @@ Image::Image(uint32_t _id, const Image& _source)
     , m_mimeType(_source.m_mimeType)
     , m_xmpPacket(_source.m_xmpPacket)
     , m_storageFormat(_source.m_storageFormat)
+    , m_isErrorImage(_source.m_isErrorImage)
     , m_encodedData(_source.m_encodedData)
 {
 }
@@ -61,7 +62,7 @@ GltfResult Image::setMimeType(imageformats::ImageEncoding _mimeType)
 
 bool Image::isValidEncoding(imageformats::ImageEncoding _encoding)
 {
-    return _encoding == imageformats::ImageEncoding::PNG || _encoding == imageformats::ImageEncoding::JPEG || _encoding == imageformats::ImageEncoding::KTX2 || _encoding == imageformats::ImageEncoding::WEBP;
+    return _encoding == imageformats::ImageEncoding::PNG || _encoding == imageformats::ImageEncoding::JPEG || _encoding == imageformats::ImageEncoding::KTX2 || _encoding == imageformats::ImageEncoding::WEBP || _encoding == imageformats::ImageEncoding::DDS;
 }
 
 GltfResult Image::loadDataToMemory(const std::optional<filesystem::Dir>& _gltfDir)
@@ -117,6 +118,7 @@ GltfResult Image::reloadDataToMemory(const filesystem::File& _imageFile)
     }
 
     m_data = decodedImage;
+    m_isErrorImage = false;
 
     if (!isValidEncoding(getMimeType())) {
         imageformats::ImageEncoding encoding = imageformats::getEncodingFromBuffer(rawData);
@@ -162,6 +164,7 @@ GltfResult Image::loadDataFromBufferView()
 
     if (!imageformats::decodeImage(rawData, m_data)) {
         core::logError("Cannot decode image from bufferView");
+        loadAsErrorImage();
         return GltfError::InvalidInput;
     }
 
@@ -171,6 +174,7 @@ GltfResult Image::loadDataFromBufferView()
 
 void Image::loadAsErrorImage()
 {
+    m_isErrorImage = true;
     m_Name = "Invalid image " + m_uri;
     m_uri = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAAXNSR0IA"
             "rs4c6QAAAFBlWElmTU0AKgAAAAgAAgESAAMAAAABAAEAAIdpAAQAAAABAAAAJgAAAAAAA6ABAAMAAAABAA"

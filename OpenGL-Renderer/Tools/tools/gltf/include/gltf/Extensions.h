@@ -30,6 +30,7 @@ enum class Extension : uint32_t {
     Audio = 1u << 17u,
     AnimationPointer = 1u << 18u,
     WebP = 1u << 19u,
+    TextureDDS = 1u << 20u,
 };
 
 using Extensions = core::Flag<Extension>;

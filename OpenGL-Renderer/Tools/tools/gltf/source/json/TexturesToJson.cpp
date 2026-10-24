@@ -5,6 +5,7 @@
 #include "gltf/Texture.h"
 #include "gltf/extensions/BasisU.h"
 #include "gltf/extensions/WebP.h"
+#include "gltf/extensions/TextureDds.h"
 #include "gltf/json/GltfObjectToJson.h"
 
 using namespace ux3d;
@@ -18,6 +19,7 @@ void TexturesToJson::convert(const Texture& _texture, nlohmann::json& _jsonTextu
 
     convertExtensionBasisu(_texture, _jsonTexture);
     convertExtensionWebP(_texture, _jsonTexture);
+    convertExtensionTextureDds(_texture, _jsonTexture);
 }
 
 void TexturesToJson::convertSampler(const Texture& _texture, nlohmann::json& _jsonTexture) const
@@ -75,4 +77,23 @@ void TexturesToJson::convertExtensionWebP(const Texture& _texture, nlohmann::jso
     gltfObjectToJson.convertUnknownExtensions(webP.value(), jsonWebP);
 
     _jsonTexture["extensions"]["EXT_texture_webp"] = jsonWebP;
+}
+
+void TexturesToJson::convertExtensionTextureDds(const Texture& _texture, nlohmann::json& _jsonTexture) const
+{
+    const std::optional<TextureDds> textureDds = _texture.getTextureDds();
+    if (!textureDds.has_value()) {
+        return;
+    }
+
+    nlohmann::json jsonDds = nlohmann::json::object();
+    if (textureDds->getSource() != nullptr) {
+        jsonDds["source"] = m_indices[textureDds->getSource()];
+    }
+
+    GltfObjectToJson gltfObjectToJson(m_exportOptions);
+    gltfObjectToJson.convertExtras(textureDds.value(), jsonDds);
+    gltfObjectToJson.convertUnknownExtensions(textureDds.value(), jsonDds);
+
+    _jsonTexture["extensions"]["MSFT_texture_dds"] = jsonDds;
 }

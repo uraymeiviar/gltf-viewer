@@ -1,9 +1,11 @@
+#include "imgui/GladGL.h"
 #include "imgui/ViewportSettingsPanel.h"
 #include "imgui/RenderQuality.h"
 #include "imgui/StdFileSystem.h"
 #include "imgui/IconsMaterialDesignIcons.h"
 #include "imgui/AntiAliasing.h"
 #include "imgui/ExtensionInspector.h"
+#include "gltf/extensions/AsoboExtensions.h"
 #include "gltf/extensions/AsoboSupport.h"
 #include "renderViewInput/CameraActor.h"
 #include <imgui.h>
@@ -107,6 +109,9 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
             ImGui::BeginDisabled(!state.asobo.enabled);
             ImGui::Indent();
             for (const ux3d::gltf::asobo::SupportInfo& info : ux3d::gltf::asobo::supportTable()) {
+                if (!ux3d::gltf::asobo::isAsoboExtension(info.name)) {
+                    continue;
+                }
                 if (info.status != ux3d::gltf::asobo::Support::Rendered && info.status != ux3d::gltf::asobo::Support::Partial) {
                     continue;
                 }

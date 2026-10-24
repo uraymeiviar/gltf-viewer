@@ -16,6 +16,7 @@ private:
     void resolveImage(const Texture& sourceTexture, Texture& texture);
     void resolveBasisU(const Texture& sourceTexture, Texture& texture);
     void resolveWebP(const Texture& sourceTexture, Texture& texture);
+    void resolveTextureDds(const Texture& sourceTexture, Texture& texture);
 
 public:
     TextureMerger(Gltf& _Destination, const IndexLookup& _IndexLookup)

@@ -159,6 +159,7 @@ private:
     void updateAudioEmitters(const core::Vector<gltf::Node*>& audioNodes);
     void updateTransformHierarchy(const core::LinkedList<gltf::Node>& nodes, const core::Vector<gltf::Node*>& rootNodes);
     void updateAnimationPointer(const core::LinkedList<gltf::Animation>& animations);
+    gltf::Image* pickImageForTexture(const gltf::Texture* gltfTexture, bool ddsDeclared) const;
 
     // The document updateGltf is synchronising; the material mapping reads its extensionsUsed.
     const gltf::Gltf* m_syncingGltf = nullptr;

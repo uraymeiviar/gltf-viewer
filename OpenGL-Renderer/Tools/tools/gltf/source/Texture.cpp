@@ -17,6 +17,8 @@ Texture::Texture(uint32_t _id, const Texture& _source)
     , m_pSource(_source.m_pSource)
     , m_pSampler(_source.m_pSampler)
     , m_basisU(_source.m_basisU)
+    , m_webP(_source.m_webP)
+    , m_textureDds(_source.m_textureDds)
 {
 }
 
@@ -78,6 +80,30 @@ void Texture::destroyWebP()
     m_webP.reset();
 }
 
+std::optional<TextureDds>& Texture::getTextureDds()
+{
+    return m_textureDds;
+}
+
+const std::optional<TextureDds>& Texture::getTextureDds() const
+{
+    return m_textureDds;
+}
+
+GltfResult Texture::createTextureDds()
+{
+    if (m_textureDds.has_value()) {
+        return GltfError::ObjectAlreadyExists;
+    }
+    m_textureDds.emplace();
+    return GltfResult::Success;
+}
+
+void Texture::destroyTextureDds()
+{
+    m_textureDds.reset();
+}
+
 GltfResult Texture::setSource(Image& _Source)
 {
     m_pSource = &_Source;
@@ -96,6 +122,12 @@ Extensions Texture::getUsedExtensions() const
 
     if (m_basisU.has_value()) {
         usedExtensions |= Extension::TextureBasisU;
+    }
+    if (m_webP.has_value()) {
+        usedExtensions |= Extension::WebP;
+    }
+    if (m_textureDds.has_value()) {
+        usedExtensions |= Extension::TextureDDS;
     }
 
     return usedExtensions;

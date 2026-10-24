@@ -16,7 +16,8 @@ CODE = "ASOBO_EXTENSIONS_NOT_RENDERED"
 METADATA = {"ASOBO_unique_id", "ASOBO_tags", "ASOBO_asset_optimized",
             "ASOBO_animation_retargeting", "ASOBO_softbody_mesh"}
 EXCLUDED = METADATA | {"ASOBO_material_invisible", "ASOBO_material_disable_motion_blur",
-                       "ASOBO_normal_map_convention", "ASOBO_material_draw_order"}
+                       "ASOBO_normal_map_convention", "ASOBO_material_draw_order",
+                       "MSFT_texture_dds"}
 failures = []
 
 
@@ -82,7 +83,7 @@ def main():
         check(set(support) == expected, "every spec plus MSFT_texture_dds has a status, with no extra entries")
         for name in sorted(expected):
             status = "Metadata" if name in METADATA else "Not yet supported"
-            if name in ("ASOBO_material_invisible", "ASOBO_normal_map_convention", "ASOBO_material_draw_order"):
+            if name in ("ASOBO_material_invisible", "ASOBO_normal_map_convention", "ASOBO_material_draw_order", "MSFT_texture_dds"):
                 status = "Rendered"
             elif name == "ASOBO_material_disable_motion_blur":
                 status = "Not applicable"
@@ -92,7 +93,7 @@ def main():
     check_validation(model, expected - EXCLUDED)
     check_validation(fixture("supported", sorted(EXCLUDED)), set())
     check_validation(fixture("unknown", ["KHR_materials_unlit", "ASOBO_future_test", "MSFT_texture_dds"]),
-                     {"ASOBO_future_test", "MSFT_texture_dds"})
+                     {"ASOBO_future_test"})
 
     print("[real cockpit]")
     if COCKPIT.exists():

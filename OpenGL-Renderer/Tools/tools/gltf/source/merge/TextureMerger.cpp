@@ -10,6 +10,7 @@ bool ux3d::gltf::TextureMerger::resolveDependencies(const Texture& _SourceTextur
     resolveImage(_SourceTexture, _Texture);
     resolveBasisU(_SourceTexture, _Texture);
     resolveWebP(_SourceTexture, _Texture);
+    resolveTextureDds(_SourceTexture, _Texture);
     return true;
 }
 
@@ -60,5 +61,20 @@ void ux3d::gltf::TextureMerger::resolveWebP(const Texture& sourceTexture, Textur
         Image& image = m_Destination.getImages().at(imageIndex);
         texture.createWebP();
         texture.getWebP()->setSource(&image);
+    }
+}
+
+void ux3d::gltf::TextureMerger::resolveTextureDds(const Texture& sourceTexture, Texture& texture)
+{
+    if (!sourceTexture.getTextureDds().has_value()) {
+        return;
+    }
+
+    const Image* sourceImage = sourceTexture.getTextureDds()->getSource();
+    if (sourceImage != nullptr) {
+        const size_t imageIndex = m_Indices[sourceImage];
+        Image& image = m_Destination.getImages().at(imageIndex);
+        texture.createTextureDds();
+        texture.getTextureDds()->setSource(&image);
     }
 }

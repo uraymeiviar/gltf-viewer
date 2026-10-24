@@ -34,6 +34,8 @@ ux3d::gltf::ConversionResult ux3d::gltf::TexturesFromJson::convert(const nlohman
                         // handled in resolve
                     } else if (extensionName == "EXT_texture_webp") {
                         // handled in resolve
+                    } else if (extensionName == "MSFT_texture_dds") {
+                        // handled in resolve
                     }
                 }
             }
@@ -103,6 +105,24 @@ ux3d::gltf::ConversionResult ux3d::gltf::TexturesFromJson::resolve(const nlohman
                                     if (checkIndex(subValue, m_pointerLookup.Images.size(), "texture.extensions.EXT_texture_webp.source")) {
                                         Image* pWebP = m_pointerLookup.Images[subValue];
                                         _texture.getWebP()->setSource(pWebP);
+                                    } else {
+                                        containsErrors = true;
+                                    }
+                                }
+                            }
+                        }
+                        if (extensionName == "MSFT_texture_dds") {
+                            _texture.createTextureDds();
+                            if (!GltfObjectFromJson::convertUnknownExtensions(extension, &_texture.getTextureDds().value(), "texture.extensions.MSFT_texture_dds")) {
+                                containsErrors = true;
+                            }
+                            GltfObjectFromJson::convertExtras(extension, &_texture.getTextureDds().value());
+
+                            for (const auto& [subKey, subValue] : extension.items()) {
+                                if (subKey == "source") {
+                                    if (checkIndex(subValue, m_pointerLookup.Images.size(), "texture.extensions.MSFT_texture_dds.source")) {
+                                        Image* pDds = m_pointerLookup.Images[subValue];
+                                        _texture.getTextureDds()->setSource(pDds);
                                     } else {
                                         containsErrors = true;
                                     }

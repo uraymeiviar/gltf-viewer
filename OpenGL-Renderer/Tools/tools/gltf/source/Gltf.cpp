@@ -499,6 +499,9 @@ GltfResult Gltf::deleteImage(Image& _Image)
         if (texture.getWebP().has_value() && texture.getWebP().value().getSource() == &_Image) {
             texture.destroyWebP();
         }
+        if (texture.getTextureDds().has_value() && texture.getTextureDds().value().getSource() == &_Image) {
+            texture.destroyTextureDds();
+        }
     }
     return core::remove(m_images, _Image) ? GltfResult::Success : GltfError::ObjectNotFound;
 }

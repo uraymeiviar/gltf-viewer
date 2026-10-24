@@ -196,6 +196,11 @@ void EditorResourceManager::initGizmo(gltf::Gltf& outGltf, const filesystem::Fil
                 texIt = textureMapping.find(oWebP.value().getSource());
             }
 
+            const auto& oDds = pTex->getTextureDds();
+            if (oDds.has_value()) {
+                texIt = textureMapping.find(oDds.value().getSource());
+            }
+
             if (texIt == textureMapping.end() || texIt->second == nullptr) {
                 // fall back to standard texture source
                 texIt = textureMapping.find(pTex->getSource());

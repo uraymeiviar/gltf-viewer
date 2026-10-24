@@ -68,14 +68,14 @@ ImageDecodingResult decodeDDS(const core::Vector<uint8_t>& _buffer, image::Image
         return ImageDecodingError::InvalidInput;
     }
 
-    // DDS_PIXELFORMAT (offset 4 + 76 = 80)
-    uint32_t pfFlags = readU32LE(data + 84);
-    uint32_t pfFourCC = readU32LE(data + 88);
-    uint32_t pfRGBBitCount = readU32LE(data + 92);
-    uint32_t pfRBitMask = readU32LE(data + 96);
-    uint32_t pfGBitMask = readU32LE(data + 100);
-    uint32_t pfBBitMask = readU32LE(data + 104);
-    uint32_t pfABitMask = readU32LE(data + 108);
+    // DDS_PIXELFORMAT starts at offset 4 (magic) + 72 = 76
+    uint32_t pfFlags = readU32LE(data + 80);
+    uint32_t pfFourCC = readU32LE(data + 84);
+    uint32_t pfRGBBitCount = readU32LE(data + 88);
+    uint32_t pfRBitMask = readU32LE(data + 92);
+    uint32_t pfGBitMask = readU32LE(data + 96);
+    uint32_t pfBBitMask = readU32LE(data + 100);
+    uint32_t pfABitMask = readU32LE(data + 104);
 
     size_t dataOffset = 128;
     DdsFormat format = DdsFormat::Unknown;

@@ -385,6 +385,9 @@ void ChildCollector::addTextureChildren(const Texture* texture)
     if (texture->getWebP().has_value()) {
         addToWorkList(texture->getWebP()->getSource());
     }
+    if (texture->getTextureDds().has_value()) {
+        addToWorkList(texture->getTextureDds()->getSource());
+    }
 }
 
 void ChildCollector::addImageChildren(const Image* image)
