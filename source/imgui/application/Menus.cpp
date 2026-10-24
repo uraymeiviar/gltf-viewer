@@ -131,6 +131,39 @@ ux3d::renderer::RenderMode Application::getRenderModeFromIndex(int idx)
     }
 }
 
+std::optional<ux3d::renderer::RenderMode> Application::getRenderModeFromName(const std::string& name)
+{
+    auto normalize = [](std::string text) {
+        std::string result;
+        for (char c : toLowerAscii(text)) {
+            if (c != ' ' && c != '_' && c != '-') {
+                result.push_back(c);
+            }
+        }
+        return result;
+    };
+    const std::string wanted = normalize(name);
+    if (wanted.empty()) {
+        return std::nullopt;
+    }
+    if (wanted == "default" || wanted == "shaded" || wanted == "none") {
+        return ux3d::renderer::RenderMode::None;
+    }
+    for (const ShadingModeInfo& info : s_shadingModes) {
+        if (info.isSeparator) {
+            continue;
+        }
+        std::string label = info.label;
+        while (!label.empty() && label.front() == ' ') {
+            label.erase(label.begin());
+        }
+        if (normalize(label) == wanted) {
+            return info.mode;
+        }
+    }
+    return std::nullopt;
+}
+
 int Application::getIndexFromRenderMode(ux3d::renderer::RenderMode mode)
 {
     using RM = ux3d::renderer::RenderMode;

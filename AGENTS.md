@@ -235,6 +235,9 @@ build/bin/Release/Glider.exe
 - `[model.gltf / model.glb]`: Path to glTF or GLB file to open on startup (defaults to embedded `HelloCube.glb`).
 - `--aa <none|msaa2|msaa4|msaa8|fxaa|taa>`: Set anti-aliasing mode on startup.
 - `--select-node <name>`: Automatically selects a node by name and frames camera on startup.
+- `--debug-view <name>`: Selects a viewport Render Mode at startup, using the View menu's names with spaces,
+  underscores and hyphens ignored (`occlusion`, `roughness`, `shadingnormal`, `geometrybitangent`,
+  `normaltexture`, ...). Unknown names log the value and leave the default shaded view.
 - `--select-viewport <id>`: Selects a viewport to inspect its settings.
 - `--dump-frame <output.jpg>`: Renders 8 warm-up frames and dumps the window framebuffer to disk as `.jpg` or `.png`.
 - `--exit-after-dump`: Exits the application immediately after dumping the frame.

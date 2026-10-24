@@ -86,7 +86,7 @@ jobs = [
 serial_jobs = [
     ("asobo_model", ["scripts/validate_asobo_model.py"]),
     ("asobo_normal", ["scripts/validate_asobo_normal.py"]),
-    ("asobo_common", ["scripts/validate_asobo_common.py"]),
+    ("asobo_common", ["scripts/validate_asobo_common.py", "--baseline-exe", str(baseline)]),
     ("asobo_support", ["scripts/validate_asobo_support.py"]),
     ("asobo_draworder", ["scripts/validate_asobo_draworder.py"]),
     ("asobo_packaged", ["scripts/validate_asobo_packaged.py"]),

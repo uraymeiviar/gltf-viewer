@@ -65,6 +65,10 @@ vec3 sampleTangentSpaceNormal(sampler2D normalSampler, vec2 uv)
 vec3 sampleTangentSpaceNormalRG(sampler2D normalSampler, vec2 uv)
 {
     vec2 texel = texture(normalSampler, uv).rg;
+#ifdef ASOBO_ASSET_OPTIMIZED
+    // A1.12: packaged normal maps store X/Y as sign(x) * sqrt(|x|).
+    texel = sign(texel) * texel * texel;
+#endif
     if (u_AsoboNormalMapDirectX != 0) {
         texel.g = -texel.g;
     }

@@ -221,6 +221,7 @@ std::optional<int> Application::configure(int argc, char** argv)
     float cameraTargetZ = 0.0f;
     float cameraFovArg = 0.0f;
     std::string cameraProjectionArg;
+    std::string debugViewArg;
     bool cliHdrProvided = false;
     std::string cliHdrPath;
     bool cliHdrRotationProvided = false;
@@ -376,6 +377,8 @@ std::optional<int> Application::configure(int argc, char** argv)
             cameraFovProvided = true;
         } else if (arg == "--camera-projection" && i + 1 < argc) {
             cameraProjectionArg = toLowerAscii(argv[++i]);
+        } else if (arg == "--debug-view" && i + 1 < argc) {
+            debugViewArg = argv[++i];
         } else if (arg == "--window-size" && i + 1 < argc) {
             ++i; // Value was applied by the pre-scan before window creation.
         } else if (arg == "--ui-script" && i + 1 < argc) {
@@ -1008,6 +1011,19 @@ std::optional<int> Application::configure(int argc, char** argv)
 
         viewport.antiAliasing.resetHistory();
         sceneRevisions.mark(ux3d::imgui::SceneChange::ViewCamera);
+    }
+
+    if (!debugViewArg.empty() && activeViewport != nullptr) {
+        const std::optional<ux3d::renderer::RenderMode> mode = getRenderModeFromName(debugViewArg);
+        if (mode.has_value()) {
+            activeViewport->settings.renderMode = mode.value();
+            activeViewport->settings.renderModeIdx = getIndexFromRenderMode(mode.value());
+            sceneRevisions.mark(ux3d::imgui::SceneChange::ViewportSettings);
+            std::printf("Debug view: %s\n", getRenderModeLabel(mode.value()));
+        } else {
+            logMessage("Unknown --debug-view '" + debugViewArg + "'", ImVec4(1.0f, 0.8f, 0.2f, 1.0f));
+            std::fprintf(stderr, "Unknown --debug-view '%s'\n", debugViewArg.c_str());
+        }
     }
 
     // UI state

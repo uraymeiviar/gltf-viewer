@@ -223,5 +223,11 @@ set_target_properties(${APP_NAME} PROPERTIES
 
 if (WIN32 AND MSVC)
 	target_link_options(${APP_NAME} PRIVATE "/ENTRY:mainCRTStartup")
+	# Agent sandboxes label the workspace Low integrity, and a linked exe inherits that label.
+	# Windows runs a Low-labelled exe as a Low-integrity process: a security prompt on every
+	# start, and no access to %APPDATA%/Glider (settings, recent files). Give the output the
+	# normal Medium label; inside such a sandbox this cannot be raised and is skipped.
+	add_custom_command(TARGET ${APP_NAME} POST_BUILD
+		COMMAND icacls "$<SHELL_PATH:$<TARGET_FILE:${APP_NAME}>>" /setintegritylevel M >nul 2>&1 || cd .)
 endif()
 

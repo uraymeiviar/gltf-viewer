@@ -43,6 +43,17 @@ uint64_t getKTX2CompressedLevelSize(const KTX2ImageInfo& _info, uint32_t _level)
 // Byte size of all mip levels (faces and layers included), matching decodeKTX's output order.
 uint64_t getKTX2CompressedDataSize(const KTX2ImageInfo& _info);
 
+// Human-readable Vulkan format name for the KTX2 header facts in the Inspector.
+const char* getKTX2FormatName(gpu::Format _format);
+
+// Decodes the mip level whose largest dimension is at most _maxDimension to RGBA8 for
+// the Inspector preview. BC5 SNORM is treated as a normal map: signed X/Y are rebuilt into
+// Z and remapped with x * 0.5 + 0.5. With _signedSquareNormal the packaged A1.12 encoding
+// x = sign(p) * p * p is applied first. Returns false for non-KTX2 or unsupported data.
+bool decodeKTX2Preview(const core::Vector<uint8_t>& _buffer, uint32_t _maxDimension,
+                       core::Vector<uint8_t>& _rgba, uint32_t& _width, uint32_t& _height,
+                       bool _signedSquareNormal);
+
 void fillKTXMetaData(const ktxTexture2* texture, image::Image& _image, const core::Vector<uint8_t>& _buffer);
 
 ImageDecodingResult decodeKTX(const core::Vector<uint8_t>& buffer, image::Image& image);

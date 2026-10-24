@@ -67,8 +67,11 @@ inline std::string getImageDisplayName(const ux3d::gltf::Image* img) {
  * Returns a primary display name for a glTF Texture, prioritizing texture/image file name,
  * with the glTF texture ID as a secondary reference.
  * e.g. "fuselage_albedo.png [Texture 2]" or "CockpitBaseColor [Texture 0]"
+ * `source` is the image the renderer picks for this texture (see
+ * GltfRenderLayer::pickImageForTexture); pass nullptr to use the core source.
  */
-inline std::string getTextureDisplayName(const ux3d::gltf::Texture* tex) {
+inline std::string getTextureDisplayName(const ux3d::gltf::Texture* tex,
+                                         const ux3d::gltf::Image* source) {
     if (!tex) {
         return "(None)";
     }
@@ -76,8 +79,8 @@ inline std::string getTextureDisplayName(const ux3d::gltf::Texture* tex) {
     // 1. Check if the underlying image has a URI / file name
     std::string filename;
     bool isDataUri = false;
-    if (tex->getSource() != nullptr && !tex->getSource()->getUri().empty()) {
-        std::string uriStr = tex->getSource()->getUri().c_str();
+    if (source != nullptr && !source->getUri().empty()) {
+        std::string uriStr = source->getUri().c_str();
         if (uriStr.rfind("data:", 0) == 0) {
             isDataUri = true;
         } else {
@@ -87,8 +90,8 @@ inline std::string getTextureDisplayName(const ux3d::gltf::Texture* tex) {
 
     // 2. Check if the underlying image has an explicit name
     std::string imageName;
-    if (tex->getSource() != nullptr && tex->getSource()->hasName() && !tex->getSource()->getName().empty()) {
-        imageName = tex->getSource()->getName().c_str();
+    if (source != nullptr && source->hasName() && !source->getName().empty()) {
+        imageName = source->getName().c_str();
     }
 
     // 3. Check if the texture has an explicit name
@@ -127,12 +130,16 @@ inline std::string getTextureDisplayName(const ux3d::gltf::Texture* tex) {
     }
 
     // If source image exists with bufferView but no name or URI:
-    if (tex->getSource() != nullptr) {
-        return "Image " + std::to_string(tex->getSource()->m_ID) + " [Texture " + std::to_string(tex->m_ID) + "]";
+    if (source != nullptr) {
+        return "Image " + std::to_string(source->m_ID) + " [Texture " + std::to_string(tex->m_ID) + "]";
     }
 
     // Ultimate fallback
     return "Texture " + std::to_string(tex->m_ID);
+}
+
+inline std::string getTextureDisplayName(const ux3d::gltf::Texture* tex) {
+    return getTextureDisplayName(tex, tex != nullptr ? tex->getSource() : nullptr);
 }
 
 } // namespace ux3d::imgui

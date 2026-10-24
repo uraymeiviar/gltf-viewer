@@ -171,6 +171,10 @@ void main()
     // Apply optional PBR terms for additional (optional) shading
 #ifdef HAS_OCCLUSION_MAP
     ao = texture(u_OcclusionSampler,  getOcclusionUV()).r;
+#ifdef ASOBO_ASSET_OPTIMIZED
+    // A1.12: the packaged COMP texture stores AO as sqrt(linear AO).
+    ao *= ao;
+#endif
     f_diffuse = mix(f_diffuse, f_diffuse * ao, u_OcclusionStrength);
     // apply ambient occlusion to all lighting that is not punctual
     f_specular = mix(f_specular, f_specular * ao, u_OcclusionStrength);

@@ -719,17 +719,20 @@ void ResourcesPanel::render(ux3d::gltf::Gltf& gltfModel,
     renderCategory(ICON_MDI_TEXTURE_BOX, "Textures", "Texture", textures,
                    SelectionType::Texture, selection.selectedTexture,
                    [&](auto& t) { selection.selectTexture(&t); },
-                   [](auto& t) -> std::string {
-                       if (t.hasName() && !t.getName().empty()) return t.getName().c_str();
-                       if (t.getSource() != nullptr) {
-                           if (!t.getSource()->getUri().empty()) {
-                               std::string fn = getFilenameFromUri(t.getSource()->getUri().c_str());
+                   [&](auto& t) -> std::string {
+                       // Same image the renderer uses: MSFT_texture_dds, then the core source.
+                       const ux3d::gltf::Image* src = ux3d::renderer::GltfRenderLayer::pickImageForTexture(
+                           &t, gltfModel.isExtensionDeclared("MSFT_texture_dds"));
+                       if (src != nullptr) {
+                           if (!src->getUri().empty()) {
+                               std::string fn = getFilenameFromUri(src->getUri().c_str());
                                if (!fn.empty()) return fn;
                            }
-                           if (t.getSource()->hasName() && !t.getSource()->getName().empty()) {
-                               return t.getSource()->getName().c_str();
+                           if (src->hasName() && !src->getName().empty()) {
+                               return src->getName().c_str();
                            }
                        }
+                       if (t.hasName() && !t.getName().empty()) return t.getName().c_str();
                        return "";
                    },
                    true, 300000);

@@ -7,11 +7,20 @@
 #include "image/ImageMetaData.h"
 #include "imageformats/imageformats.h"
 
+// The Inspector preview decodes the same BCn blocks the GPU uploads. Dds.cpp already
+// compiles bcdec for its own path; with BCDEC_STATIC this translation unit gets its own
+// copy, and BCDEC_BC4BC5_PRECISE exposes the signed BC5 decoder.
+#define BCDEC_STATIC
+#define BCDEC_IMPLEMENTATION
+#define BCDEC_BC4BC5_PRECISE
+#include "bcdec.h"
+
 UX3D_BEGIN_IGNORE_WARNINGS
 #include <ktx.h>
 UX3D_END_IGNORE_WARNINGS
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <limits>
 #include <mutex>
@@ -27,6 +36,15 @@ constexpr uint8_t ktx2Identifier[12] = { 0xAB, 'K', 'T', 'X', ' ', '2', '0', 0xB
 uint32_t readU32LE(const core::Vector<uint8_t>& _buffer, size_t _offset)
 {
     uint32_t value = 0;
+    if (_offset + sizeof(value) <= _buffer.size()) {
+        std::memcpy(&value, _buffer.data() + _offset, sizeof(value));
+    }
+    return value;
+}
+
+uint64_t readU64LE(const core::Vector<uint8_t>& _buffer, size_t _offset)
+{
+    uint64_t value = 0;
     if (_offset + sizeof(value) <= _buffer.size()) {
         std::memcpy(&value, _buffer.data() + _offset, sizeof(value));
     }
@@ -128,6 +146,149 @@ uint64_t imageformats::getKTX2CompressedDataSize(const KTX2ImageInfo& _info)
         total += getKTX2CompressedLevelSize(_info, level);
     }
     return total * static_cast<uint64_t>(_info.faceCount) * static_cast<uint64_t>(_info.layerCount);
+}
+
+const char* imageformats::getKTX2FormatName(gpu::Format _format)
+{
+    switch (_format) {
+    case gpu::Format::BC1_RGB_UNORM_BLOCK: return "BC1_RGB_UNORM";
+    case gpu::Format::BC1_RGB_SRGB_BLOCK: return "BC1_RGB_SRGB";
+    case gpu::Format::BC1_RGBA_UNORM_BLOCK: return "BC1_RGBA_UNORM";
+    case gpu::Format::BC1_RGBA_SRGB_BLOCK: return "BC1_RGBA_SRGB";
+    case gpu::Format::BC2_UNORM_BLOCK: return "BC2_UNORM";
+    case gpu::Format::BC2_SRGB_BLOCK: return "BC2_SRGB";
+    case gpu::Format::BC3_UNORM_BLOCK: return "BC3_UNORM";
+    case gpu::Format::BC3_SRGB_BLOCK: return "BC3_SRGB";
+    case gpu::Format::BC4_UNORM_BLOCK: return "BC4_UNORM";
+    case gpu::Format::BC4_SNORM_BLOCK: return "BC4_SNORM";
+    case gpu::Format::BC5_UNORM_BLOCK: return "BC5_UNORM";
+    case gpu::Format::BC5_SNORM_BLOCK: return "BC5_SNORM";
+    case gpu::Format::BC6H_UFLOAT_BLOCK: return "BC6H_UFLOAT";
+    case gpu::Format::BC6H_SFLOAT_BLOCK: return "BC6H_SFLOAT";
+    case gpu::Format::BC7_UNORM_BLOCK: return "BC7_UNORM";
+    case gpu::Format::BC7_SRGB_BLOCK: return "BC7_SRGB";
+    case gpu::Format::ETC2_R8G8B8_UNORM_BLOCK: return "ETC2_R8G8B8_UNORM";
+    case gpu::Format::ETC2_R8G8B8_SRGB_BLOCK: return "ETC2_R8G8B8_SRGB";
+    case gpu::Format::ETC2_R8G8B8A8_UNORM_BLOCK: return "ETC2_R8G8B8A8_UNORM";
+    case gpu::Format::ETC2_R8G8B8A8_SRGB_BLOCK: return "ETC2_R8G8B8A8_SRGB";
+    case gpu::Format::ASTC_4x4_UNORM_BLOCK: return "ASTC_4x4_UNORM";
+    case gpu::Format::ASTC_4x4_SRGB_BLOCK: return "ASTC_4x4_SRGB";
+    case gpu::Format::UNDEFINED: return "UNDEFINED";
+    default: return "UNKNOWN";
+    }
+}
+
+bool imageformats::decodeKTX2Preview(const core::Vector<uint8_t>& _buffer, uint32_t _maxDimension,
+                                     core::Vector<uint8_t>& _rgba, uint32_t& _width, uint32_t& _height,
+                                     bool _signedSquareNormal)
+{
+    KTX2ImageInfo info;
+    if (!getKTX2ImageInfo(_buffer, info)
+        || !info.blockCompressed
+        || info.supercompressionScheme != 0u
+        || info.depth != 1u
+        || info.layerCount != 1u
+        || info.faceCount != 1u
+        || !isSupportedCompressedFormat(info.format)) {
+        return false;
+    }
+
+    uint32_t level = 0u;
+    for (uint32_t candidate = 0u; candidate < info.levelCount; ++candidate) {
+        const uint32_t w = candidate >= 32u ? 1u : std::max(info.width >> candidate, 1u);
+        const uint32_t h = candidate >= 32u ? 1u : std::max(info.height >> candidate, 1u);
+        level = candidate;
+        if (std::max(w, h) <= std::max(_maxDimension, 1u)) {
+            break;
+        }
+    }
+
+    const uint32_t width = level >= 32u ? 1u : std::max(info.width >> level, 1u);
+    const uint32_t height = level >= 32u ? 1u : std::max(info.height >> level, 1u);
+    const uint32_t blocksX = (width + 3u) / 4u;
+    const uint32_t blocksY = (height + 3u) / 4u;
+    const uint64_t levelSize = getKTX2CompressedLevelSize(info, level);
+    const uint64_t levelOffset = readU64LE(_buffer, 80u + static_cast<size_t>(level) * 24u);
+    if (levelSize == 0u || levelOffset + levelSize > _buffer.size()) {
+        return false;
+    }
+
+    const uint32_t blockBytes = image::getFormatSize(info.format);
+    if (blockBytes == 0u || static_cast<uint64_t>(blocksX) * blocksY * blockBytes > levelSize) {
+        return false;
+    }
+
+    const bool signedFormat = info.format == gpu::Format::BC5_SNORM_BLOCK;
+    _rgba.resize(static_cast<size_t>(width) * height * 4u);
+    _width = width;
+    _height = height;
+
+    const uint8_t* levelData = _buffer.data() + static_cast<size_t>(levelOffset);
+    uint8_t block[4u * 4u * 4u];
+    float signedBlock[4u * 4u * 2u];
+    for (uint32_t blockY = 0u; blockY < blocksY; ++blockY) {
+        for (uint32_t blockX = 0u; blockX < blocksX; ++blockX) {
+            const uint8_t* source = levelData + (static_cast<size_t>(blockY) * blocksX + blockX) * blockBytes;
+            std::memset(block, 0, sizeof(block));
+            switch (info.format) {
+            case gpu::Format::BC1_RGB_UNORM_BLOCK:
+            case gpu::Format::BC1_RGB_SRGB_BLOCK:
+            case gpu::Format::BC1_RGBA_UNORM_BLOCK:
+            case gpu::Format::BC1_RGBA_SRGB_BLOCK:
+                bcdec_bc1(source, block, 4u * 4u);
+                break;
+            case gpu::Format::BC3_UNORM_BLOCK:
+            case gpu::Format::BC3_SRGB_BLOCK:
+                bcdec_bc3(source, block, 4u * 4u);
+                break;
+            case gpu::Format::BC5_SNORM_BLOCK:
+                bcdec_bc5_float(source, signedBlock, 4u * 2u, 1);
+                break;
+            case gpu::Format::BC7_UNORM_BLOCK:
+            case gpu::Format::BC7_SRGB_BLOCK:
+                bcdec_bc7(source, block, 4u * 4u);
+                break;
+            default:
+                return false;
+            }
+
+            for (uint32_t py = 0u; py < 4u; ++py) {
+                const uint32_t y = blockY * 4u + py;
+                if (y >= height) {
+                    break;
+                }
+                for (uint32_t px = 0u; px < 4u; ++px) {
+                    const uint32_t x = blockX * 4u + px;
+                    if (x >= width) {
+                        break;
+                    }
+                    uint8_t* target = _rgba.data() + (static_cast<size_t>(y) * width + x) * 4u;
+                    if (signedFormat) {
+                        const float* texel = signedBlock + (py * 4u + px) * 2u;
+                        float nx = texel[0];
+                        float ny = texel[1];
+                        if (_signedSquareNormal) {
+                            nx = std::copysign(nx * nx, nx);
+                            ny = std::copysign(ny * ny, ny);
+                        }
+                        const float nz = std::sqrt(std::max(0.0f, 1.0f - nx * nx - ny * ny));
+                        target[0] = static_cast<uint8_t>(std::clamp((nx * 0.5f + 0.5f) * 255.0f, 0.0f, 255.0f));
+                        target[1] = static_cast<uint8_t>(std::clamp((ny * 0.5f + 0.5f) * 255.0f, 0.0f, 255.0f));
+                        target[2] = static_cast<uint8_t>(std::clamp((nz * 0.5f + 0.5f) * 255.0f, 0.0f, 255.0f));
+                        target[3] = 255u;
+                    } else {
+                        const uint8_t* texel = block + (py * 4u + px) * 4u;
+                        target[0] = texel[0];
+                        target[1] = texel[1];
+                        target[2] = texel[2];
+                        target[3] = texel[3];
+                    }
+                }
+            }
+        }
+    }
+
+    return true;
 }
 
 //START Copy from KTX-Software utils/scapp.h

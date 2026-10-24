@@ -2,7 +2,8 @@
 
 Read-only investigation of (a) how the MSFS 2024 Blender exporter writes vertex
 colours and what each material does with them, and (b) what the MSFS package tool
-changes in a glTF. No source code was changed.
+changes in a glTF. The investigation itself changed no source code; the runtime
+rule derived from it is in §2.9.
 
 **Marking.** **[V]** = verified in code or measured from the files named here.
 **[I]** = inferred from those facts. Path prefixes used below:
@@ -385,6 +386,186 @@ clockwise front face. The viewer combines that with the glTF mirrored-node rule
 (a negative-determinant world matrix reverses the winding), so the two flips
 cancel for a mirrored packaged node. Files without the declaration keep the
 counter-clockwise convention byte for byte.
+
+## 2.8 Textures, ORM and tangents (A1.10/A1.11)
+
+**[V] ORM occlusion.** An audit over all 17 packaged/source glTF pairs under
+`msfs24-projects/Packages/**` found only one occlusion change: in 61 materials
+the source had `occlusionTexture` and `metallicRoughnessTexture` pointing at the
+same texture record (same index, UV set and transform), and the package dropped
+`occlusionTexture`. 92 materials had neither slot, and there was no material with
+a different occlusion slot, an added slot, or a dropped slot that did not also
+match the metallic-roughness record. Every one of the 17 files declares
+`ASOBO_asset_optimized`. The runtime rule is therefore: for a declared file, a
+material with `metallicRoughnessTexture` and no `occlusionTexture` reads occlusion
+from the metallic-roughness texture's R channel with strength 1. The audit script
+and log are `build/review/orm_audit.py` / `build/review/orm_audit.txt`.
+
+**[V] COMP channel layout and values.** `COCKPIT_STD_COMP` is a BC7_UNORM KTX2
+(vkFormat 145, 8192², 14 mips). Decoding mip 0 and comparing every eighth pixel
+with the source `Cockpit_STD_COMP.png` gives identical G and B (mean absolute
+difference 0.290 / 0.233 of 255; means 158.14 / 47.85 against 158.14 / 47.81), so
+roughness (G) and metallic (B) are unchanged. R differs: source mean 68.95,
+package mean 117.16, and the package is the square root of the source
+(`R_pkg = R_src^0.49994`; mean absolute residual 0.00175, i.e. below half an
+8-bit step). This is a package-side gamma transform of the AO channel, not a
+Glider read: the same KTX2 data decoded by DirectXTex and by Glider's own
+`decodeKTX2Preview` shows it. A1.12 decodes `R²` at sampling time; G/B are
+still identity.
+
+**[V] NORM data and mips.** `COCKPIT_STD_NORM.PNG.KTX2` is BC5_SNORM (vkFormat
+142, 8192², 14 mips). Its mip-0 R/G standard deviation is 22.23 / 21.98 against
+7.19 / 6.55 in the source PNG. Re-encoding the source PNG to BC5_SNORM with
+DirectXTex gives 7.43 / 6.79 (mean absolute error 0.70), so the raw package
+values are not the source values; the square-root encoding in §2.9 explains the
+larger stored standard deviation. All 14 mip levels are present and uploaded;
+lower levels average the variation down (R std 16.72, 12.49, 9.58, 7.59, 6.18,
+5.20 at levels 1..6). Before A1.12 the Shading Normal view was grainy at camera
+distance 0.75 and smooth at 2.0, the expected high-frequency content filtered by
+the mip chain rather than missing mips. After the signed-square decode the
+source and packaged Shading Normal views match (correlation 0.9954, high-pass
+detail ratio 0.96). Geometry Normal is smooth at both distances, so the 8-bit
+packaged vertex normals are not the cause.
+
+**[I] Sampler/mip setup.** `decodeKTX()` copies levels in level order and
+`Texture::writeCompressed()` uploads them with `glCompressedTexImage2D`, sets
+`GL_TEXTURE_MAX_LEVEL = levelCount - 1` and leaves the glTF sampler's
+`LINEAR_MIPMAP_LINEAR` (9987) in place; a primitive without a sampler gets the
+same default in `m_samplerStateMapping`. The far-view smoothing above is the
+runtime evidence that the mips are used.
+
+**[V] Packaged TANGENT.** The package adds `TANGENT` to every primitive
+(44.4% of the 705,053 checked vertices have w = -1). Running the vendored
+MikkTSpace code over the package's own decoded positions/normals/UVs and
+comparing the result with the stored tangent gives, over the 371 normal-mapped
+primitives: mean tangent dot 0.70, w sign agreement 69.3%, and only 149 of 371
+primitives above a 0.99 mean dot. The mismatch is not a winding error (both
+stored windings give the same tangent direction); on `Plane.103` (mesh 495) the
+stored tangents match the per-triangle `dP/du` with dot 1.0 on every checked
+triangle while MikkTSpace's smoothed per-vertex tangent points elsewhere
+**[I]**, i.e. the exporter appears to store a per-face rather than MikkTSpace
+tangent on these atlas/decal meshes. Glider therefore leaves stored tangents
+alone and uses MikkTSpace only for primitives that do not have them.
+
+## 2.9 Normal XY and COMP R square-root encoding (A1.12)
+
+**[V] Rule.** All 17 packaged/source glTF pairs declare
+`ASOBO_asset_optimized`. In a declared file the package tool also changes the
+texture storage:
+
+- BC5 SNORM normal maps store each signed tangent-space X/Y component as
+  `p = sign(x) * sqrt(|x|)`; Z is not stored and is rebuilt as
+  `sqrt(max(0, 1 - x*x - y*y))`.
+- COMP (ORM) textures store the linear AO channel as `R = sqrt(source R)`.
+  Roughness (G) and metallic (B) are unchanged.
+- Albedo, emissive and every other colour channel are unchanged.
+
+Files without the declaration keep the plain glTF values.
+
+**[V] Method.** `build/review/sqrt_audit.py` decodes mip 0 of every packaged
+KTX2, decodes the matching source PNG (same image list entry; all are 8-bit),
+and fits `p = s^a` by log-log regression per channel. It reports the exponent,
+the fixed candidate (`identity`, `sqrt`, `signed sqrt`, `square`, `constant`),
+and the RMSE of that candidate. The full per-channel table is
+`build/review/sqrt_audit.csv`; the summary is `build/review/sqrt_audit.txt`.
+Normal-map RMSE excludes source values below `0.02` in signed units: an 8-bit
+normal rounds a zero component to ±0.5 LSB and the square root amplifies that
+floor, so those texels cannot distinguish the transform from a different
+source rounding **[I]**.
+
+### Normal maps (BC5 SNORM)
+
+All 21 distinct normal-map textures fit `signed sqrt` in both X and Y (42
+channel pairs; 41 package/source occurrences per channel because some
+textures are shared by several glTFs). The fitted exponent range is `0.5013`
+to `0.5181`. No normal map is identity, square, or another transform.
+Low-amplitude maps whose near-zero source values made a raw fit ambiguous all
+still have a 0.50 exponent and fit `signed sqrt` once the quantisation floor
+is excluded.
+
+| Texture | Format | X/R | Y/G |
+|---|---|---|---|
+| `190-Fuselage_NORM.png` | BC5_SNORM | signed_sqrt (0.0325) | signed_sqrt (0.0267) |
+| `Bagage_NORM.png` | BC5_SNORM | signed_sqrt (0.0224) | signed_sqrt (0.0208) |
+| `Button_NORM.png` | BC5_SNORM | signed_sqrt (0.0343) | signed_sqrt (0.0337) |
+| `Cockpit_STD_NORM.png` | BC5_SNORM | signed_sqrt (0.0212) | signed_sqrt (0.0213) |
+| `DECAL_LIT_NORM.png` | BC5_SNORM | signed_sqrt (0.0322) | signed_sqrt (0.0335) |
+| `FSS-Belt_NORM.png` | BC5_SNORM | signed_sqrt (0.0540) | signed_sqrt (0.0459) |
+| `FSS-Pole_NORM.png` | BC5_SNORM | signed_sqrt (0.0278) | signed_sqrt (0.0277) |
+| `FSS_Stair_NORM.png` | BC5_SNORM | signed_sqrt (0.0255) | signed_sqrt (0.0188) |
+| `Frost_Detail_norm.png` | BC5_SNORM | signed_sqrt (0.0516) | signed_sqrt (0.0516) |
+| `Fuselage_NORM.png` | BC5_SNORM | signed_sqrt (0.0173) | signed_sqrt (0.0152) |
+| `Galley_NORM.png` | BC5_SNORM | signed_sqrt (0.0300) | signed_sqrt (0.0288) |
+| `LG_NORM.png` | BC5_SNORM | signed_sqrt (0.0136) | signed_sqrt (0.0137) |
+| `Lights_NORM.png` | BC5_SNORM | signed_sqrt (0.0133) | signed_sqrt (0.0140) |
+| `Rear_cockpit_NORM.png` | BC5_SNORM | signed_sqrt (0.0456) | signed_sqrt (0.0452) |
+| `SEAT_ECO_NORM.png` | BC5_SNORM | signed_sqrt (0.0250) | signed_sqrt (0.0248) |
+| `SeatNYoke_NORM.png` | BC5_SNORM | signed_sqrt (0.0243) | signed_sqrt (0.0248) |
+| `Skin_NORM.png` | BC5_SNORM | signed_sqrt (0.0168) | signed_sqrt (0.0201) |
+| `Wing_engine_NORM.png` | BC5_SNORM | signed_sqrt (0.0276) | signed_sqrt (0.0275) |
+| `decals_bolt_NORM.png` | BC5_SNORM | signed_sqrt (0.0208) | signed_sqrt (0.0206) |
+| `ground_objects_NORM.png` | BC5_SNORM | signed_sqrt (0.0235) | signed_sqrt (0.0262) |
+| `seat_vip_NORM.png` | BC5_SNORM | signed_sqrt (0.0169) | signed_sqrt (0.0178) |
+
+**[V]** There are no clearcoat normal textures in the audited packaged
+materials. If a declared file has one, it uses the same BC5 path in the shader.
+
+### COMP / ORM textures
+
+All COMP R channels with AO variation that are used in a material fit `sqrt`:
+19 distinct textures, 37 package/source occurrences (exponent `0.4916` to
+`0.5050`, RMSE `0.0008` to `0.0138`). G is roughness and B is metallic; both
+fit identity. The exceptions are not contradictions for rendered occlusion:
+
+- `GLASS_COMP.png` and `Frost_Detail_comp.png` are not referenced by any
+  material in the audited files and are stored as identity (`R` exponents
+  `1.0092` and `0.9692`). The packager therefore did not apply the AO
+  transform to unused COMP images.
+- `FSS-Belt_COMP.png` has only three R levels near 1.0 (`0.988` to `1.0`);
+  R, G and B are classified constant. Its AO is effectively 1 either way.
+
+| Texture | Format | R | G | B |
+|---|---|---|---|---|
+| `190-Fuselage_COMP.png` | BC7 | sqrt (0.0040) | identity (0.0043) | identity (0.0026) |
+| `Bagage_COMP.png` | BC1_RGBA | sqrt (0.0095) | identity (0.0093) | identity (0.0132) |
+| `Button_COMP.png` | BC7 | sqrt (0.0029) | identity (0.0019) | identity (0.0046) |
+| `Cockpit_STD_COMP.png` | BC7 | sqrt (0.0032) | identity (0.0031) | identity (0.0031) |
+| `FSS-Belt_COMP.png` | BC1_RGBA | constant (0.0000) | constant (0.0000) | constant (0.0000) |
+| `FSS-Pole_COMP.png` | BC1_RGBA | sqrt (0.0095) | identity (0.0130) | constant (0.0000) |
+| `FSS_Stair_COMP.png` | BC1_RGBA | sqrt (0.0138) | identity (0.0129) | identity (0.0113) |
+| `Frost_Detail_comp.png` | BC1_RGBA | identity (0.0461) | identity (0.0644) | constant (0.0000) |
+| `Fuselage_COMP.png` | BC7 | sqrt (0.0031) | identity (0.0037) | identity (0.0021) |
+| `GLASS_COMP.png` | BC7 | identity (0.0058) | identity (0.0072) | identity (0.0064) |
+| `Galley_COMP.png` | BC7 | sqrt (0.0027) | identity (0.0020) | identity (0.0025) |
+| `LG_COMP.png` | BC7 | sqrt (0.0076) | identity (0.0077) | identity (0.0151) |
+| `Lights_COMP.png` | BC1_RGBA | sqrt (0.0086) | identity (0.0029) | identity (0.0158) |
+| `Rear_cockpit_COMP.png` | BC7 | sqrt (0.0029) | identity (0.0022) | identity (0.0025) |
+| `SCREEN_GLASS_COMP.png` | BC7 | sqrt (0.0027) | identity (0.0032) | identity (0.0036) |
+| `SEAT_ECO_COMP.png` | BC7 | sqrt (0.0059) | identity (0.0065) | identity (0.0092) |
+| `SeatNYoke_COMP.png` | BC7 | sqrt (0.0034) | identity (0.0032) | identity (0.0042) |
+| `Skin_COMP.png` | BC7 | sqrt (0.0026) | identity (0.0019) | identity (0.0022) |
+| `Wing_engine_COMP.png` | BC7 | sqrt (0.0046) | identity (0.0052) | identity (0.0047) |
+| `decals_bolt_COMP.png` | BC7 | sqrt (0.0008) | identity (0.0013) | identity (0.0032) |
+| `ground_objects_COMP.png` | BC1_RGBA | sqrt (0.0111) | identity (0.0112) | identity (0.0119) |
+| `seat_vip_COMP.png` | BC7 | sqrt (0.0034) | identity (0.0031) | identity (0.0054) |
+
+**[V] Explicit occlusion.** The A1.10 audit found 61 source `occlusionTexture`
+records that were identical to `metallicRoughnessTexture` and were dropped by
+the package; 92 materials had neither. No packaged material has an explicit
+`occlusionTexture`, so the rendered path is always the fallback COMP. Decoding
+an explicit slot the same way in a declared file is **inferred** from the
+file-level convention, not exercised by these 17 pairs.
+
+### Albedo and emissive
+
+| Kind | Textures | Channels | Transform | Fit RMSE range |
+|---|---:|---|---|---|
+| Albedo | 26 | RGB | identity | 0.0007-0.0128 |
+| Emissive | 6 | RGB | identity | 0.0041-0.0168 |
+
+No albedo or emissive channel shows a square-root transform. The small
+residual is BC1/BC3/BC7 block compression and, for `Wing_engine_ALBD`/`NORM`,
+the source's RGBA/alpha layout.
 
 ---
 

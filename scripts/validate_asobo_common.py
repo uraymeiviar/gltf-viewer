@@ -9,8 +9,10 @@ Later phases import it (`from validate_asobo_common import ...`) for:
   * same() / check(): byte comparison and PASS/FAIL reporting in the regression format.
 
 Run on its own, it checks A0.4 (docs/ASOBO_EXTENSIONS_PHASE_0.md):
-  * everything off: with --asobo off, the E195 views are byte-identical to the build before ASOBO support
-    (167a5e0) run with --show-invisible-materials, which is that build with every ASOBO effect off;
+  * everything off: with --asobo off, the E195 views are byte-identical to the regression baseline's
+    --asobo off render (--baseline-exe; run_regression.py passes it). Up to 11681d8 this was checked against
+    the build before ASOBO support (167a5e0 with --show-invisible-materials; still selectable with
+    --pre-asobo-exe), which A1.11's generated tangents no longer match;
   * supported extensions off: --asobo-disable of all rendered extensions gives the same result;
   * defaults: an extension written as {} renders like the same extension with its defaults written out;
   * files without ASOBO extensions render identically with ASOBO on and off.
@@ -120,9 +122,19 @@ def fixture(name, material_extensions, base=PLAIN_FIXTURE, folder=OUT):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--pre-asobo-exe", default=str(PRE_ASOBO_EXE), help="build before ASOBO support")
+    parser.add_argument("--pre-asobo-exe", default=None, help="build before ASOBO support (old comparison)")
+    parser.add_argument("--baseline-exe", default=None, help="regression baseline, rendered with --asobo off")
     args = parser.parse_args()
-    pre = Path(args.pre_asobo_exe)
+    # Until A1.11 the reference was the build before ASOBO support (167a5e0) with
+    # --show-invisible-materials; MikkTSpace tangents for files without TANGENT (A1.11) changed
+    # every normal-mapped E195 view outside ASOBO, so "everything off" is now checked against
+    # the baseline's own --asobo off render. --pre-asobo-exe still selects the old comparison.
+    if args.pre_asobo_exe is not None:
+        pre, pre_flags = Path(args.pre_asobo_exe), ["--show-invisible-materials"]
+    elif args.baseline_exe is not None:
+        pre, pre_flags = Path(args.baseline_exe), ["--asobo", "off"]
+    else:
+        pre, pre_flags = PRE_ASOBO_EXE, ["--show-invisible-materials"]
 
     print("[reference views]")
     check(len(views()) >= 11, f"{len(views())} reference views parsed from docs/ASOBO_REFERENCE_VIEWS.md")
@@ -155,7 +167,7 @@ if __name__ == "__main__":
     else:
         for name in ("cockpit_main_displays", "exterior_fuselage_nose"):
             entry = view(name)
-            reference = render_view(pre, entry, f"{name}_pre", ["--show-invisible-materials"])
+            reference = render_view(pre, entry, f"{name}_pre", pre_flags)
             all_off = render_view(EXE, entry, f"{name}_off", ["--asobo", "off"])
             one_off = render_view(EXE, entry, f"{name}_supported_off",
                                   ["--asobo-disable", "ASOBO_material_invisible",

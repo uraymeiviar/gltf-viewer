@@ -42,6 +42,7 @@ struct std::hash<std::tuple<const ux3d::gltf::ChildOfRoot*, std::string>> {
 
 namespace ux3d::gltf {
 class MaterialVariant;
+class Primitive;
 }
 
 namespace ux3d::renderer {
@@ -147,6 +148,11 @@ public:
     void setMaterialVariant(std::optional<uint32_t> materialVariantID) { m_materialVariantID = materialVariantID; }
     const std::optional<uint32_t> getMaterialVariant() const { return m_materialVariantID; }
 
+    // The image a texture actually renders with: MSFT_texture_dds first, then
+    // KHR_texture_basisu, EXT_texture_webp, and finally the core source. Panels use
+    // this same choice so their labels and previews match the renderer.
+    static gltf::Image* pickImageForTexture(const gltf::Texture* gltfTexture, bool ddsDeclared);
+
     float viewportAspectRatio = 1;
 
 private:
@@ -159,7 +165,6 @@ private:
     void updateAudioEmitters(const core::Vector<gltf::Node*>& audioNodes);
     void updateTransformHierarchy(const core::LinkedList<gltf::Node>& nodes, const core::Vector<gltf::Node*>& rootNodes);
     void updateAnimationPointer(const core::LinkedList<gltf::Animation>& animations);
-    gltf::Image* pickImageForTexture(const gltf::Texture* gltfTexture, bool ddsDeclared) const;
 
     // The document updateGltf is synchronising; the material mapping reads its extensionsUsed.
     const gltf::Gltf* m_syncingGltf = nullptr;
@@ -293,6 +298,11 @@ private:
     // for the command cache (P4.6c).
     std::vector<std::unique_ptr<Material>> m_transmissionMaterialPool;
     std::vector<std::unique_ptr<RenderPass>> m_transmissionPassPool;
+
+    // A1.11: generated MikkTSpace tangents for primitives without TANGENT whose material
+    // uses a normal map. The buffers live as long as the renderer meshes that reference
+    // them and are rebuilt by every updateMeshes.
+    std::unordered_map<const gltf::Primitive*, std::unique_ptr<gl::Buffer>> m_generatedTangentBuffers;
 
     std::unordered_map<std::tuple<const gltf::ChildOfRoot*, std::string>, KHRAnimationPointerTarget> m_animationPointerTargets;
 

@@ -235,6 +235,7 @@ private:
                              bool environmentLoaded, const ux3d::imgui::AnimationPlayer& animationPlayer,
                              const ux3d::imgui::SelectionState& selection);
     ux3d::renderer::RenderMode getRenderModeFromIndex(int idx);
+    std::optional<ux3d::renderer::RenderMode> getRenderModeFromName(const std::string& name);
     int getIndexFromRenderMode(ux3d::renderer::RenderMode mode);
     const char* getRenderModeLabel(ux3d::renderer::RenderMode mode);
     std::vector<const ux3d::gltf::Node*> collectSceneCameraNodes(const ux3d::gltf::Scene* scene);

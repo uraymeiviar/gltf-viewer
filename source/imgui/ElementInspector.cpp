@@ -11,6 +11,7 @@
 #include "imgui/StdFileSystem.h"
 #include "imgui/UiProbe.h"
 #include "imageformats/imageformats.h"
+#include "imageformats/ktx2.h"
 #include "renderer/gltf/GltfRenderLayer.h"
 #include "renderer/gl/Texture.h"
 #include "gltf/GlTypes.h"
@@ -20,6 +21,8 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/quaternion.hpp>
 #include <glm/gtx/matrix_decompose.hpp>
+#include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <cmath>
 #include <string>
@@ -31,6 +34,7 @@ namespace ux3d::imgui {
 struct ImagePreviewEntry {
     GLuint textureId = 0;
     int encodedMapID = -1;
+    bool signedSquare = false;
 };
 
 static std::unordered_map<const ux3d::gltf::Image*, ImagePreviewEntry> s_previewCache;
@@ -53,7 +57,27 @@ struct ImageHeaderDetails {
     uint32_t bitsPerChannel = 0;
     uint32_t totalBitDepth = 0;
     std::string format;
+    bool isKtx2 = false;
+    uint32_t vkFormat = 0;
+    uint32_t ktx2LevelCount = 0;
+    uint64_t fileSize = 0;
+    std::string vkFormatName;
 };
+
+static ImageHeaderDetails makeKtx2HeaderDetails(const ux3d::imageformats::KTX2ImageInfo& info, size_t fileSize)
+{
+    ImageHeaderDetails d;
+    d.hasHeader = true;
+    d.format = "KTX2";
+    d.width = info.width;
+    d.height = info.height;
+    d.isKtx2 = true;
+    d.vkFormat = static_cast<uint32_t>(info.format);
+    d.ktx2LevelCount = info.levelCount;
+    d.fileSize = fileSize;
+    d.vkFormatName = ux3d::imageformats::getKTX2FormatName(info.format);
+    return d;
+}
 
 static ImageHeaderDetails parseImageHeader(const uint8_t* data, size_t size)
 {
@@ -118,6 +142,10 @@ static ImageHeaderDetails getImageHeaderDetails(const ux3d::gltf::Image* img)
 {
     if (!img) return {};
     if (img->getEncodedBytes() != nullptr && img->getEncodedBytes()->size() >= 26) {
+        ux3d::imageformats::KTX2ImageInfo ktx2Info;
+        if (ux3d::imageformats::getKTX2ImageInfo(*img->getEncodedBytes(), ktx2Info)) {
+            return makeKtx2HeaderDetails(ktx2Info, img->getEncodedBytes()->size());
+        }
         return parseImageHeader(img->getEncodedBytes()->data(), img->getEncodedBytes()->size());
     }
     if (!img->getUri().empty()) {
@@ -128,11 +156,58 @@ static ImageHeaderDetails getImageHeaderDetails(const ux3d::gltf::Image* img)
             ux3d::filesystem::File imgFile(imgPath);
             core::Vector<uint8_t> headerBytes;
             if (core::Succeeded(imgFile.load(headerBytes)) && headerBytes.size() >= 26) {
+                ux3d::imageformats::KTX2ImageInfo ktx2Info;
+                if (ux3d::imageformats::getKTX2ImageInfo(headerBytes, ktx2Info)) {
+                    return makeKtx2HeaderDetails(ktx2Info, headerBytes.size());
+                }
                 return parseImageHeader(headerBytes.data(), headerBytes.size());
             }
         }
     }
     return {};
+}
+
+// A1.12: a declared file's normal maps use the packaged signed-square storage convention.
+// The Inspector shows the decoded normal map only for images that actually serve as one;
+// an unused file named *_NORM is still treated as a normal map so its preview is useful.
+static bool isNormalMapTexture(const ux3d::gltf::Gltf& gltfModel, const ux3d::gltf::Texture* texture)
+{
+    if (texture == nullptr) return false;
+    for (const auto& material : gltfModel.getMaterials()) {
+        const auto& normal = material.getNormalTextureInfo();
+        if (normal.has_value() && normal->getTexture() == texture) {
+            return true;
+        }
+        const auto& clearcoat = material.getClearcoat();
+        if (clearcoat.has_value() && clearcoat->getClearcoatNormalTexture().has_value()
+            && clearcoat->getClearcoatNormalTexture()->getTexture() == texture) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool looksLikeNormalMapName(const ux3d::gltf::Image* img)
+{
+    if (img == nullptr) return false;
+    std::string name = img->hasName() ? std::string(img->getName().c_str()) : std::string();
+    name += " " + std::string(img->getUri().c_str());
+    std::transform(name.begin(), name.end(), name.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+    return name.find("_NORM") != std::string::npos || name.find("NORMAL") != std::string::npos;
+}
+
+static bool isPackagedNormalMap(const ux3d::gltf::Gltf& gltfModel, const ux3d::gltf::Image* img, bool ddsDeclared)
+{
+    for (const auto& texture : gltfModel.getTextures()) {
+        if (ux3d::renderer::GltfRenderLayer::pickImageForTexture(&texture, ddsDeclared) != img) {
+            continue;
+        }
+        if (isNormalMapTexture(gltfModel, &texture)) {
+            return true;
+        }
+    }
+    return looksLikeNormalMapName(img);
 }
 
 static void ensureImageDataDecoded(const ux3d::gltf::Image* img)
@@ -164,14 +239,36 @@ static void ensureImageDataDecoded(const ux3d::gltf::Image* img)
     }
 }
 
-static GLuint getOrCreateImagePreviewTexture(const ux3d::gltf::Image* img, ux3d::renderer::GltfRenderLayer* gltfLayer)
+static GLuint createPreviewTextureFromRgba(uint32_t width, uint32_t height, const core::Vector<uint8_t>& rgba)
+{
+    GLuint texId = 0;
+    glGenTextures(1, &texId);
+    if (texId == 0) {
+        return 0;
+    }
+    glBindTexture(GL_TEXTURE_2D, texId);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, static_cast<GLsizei>(width), static_cast<GLsizei>(height),
+                 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+    glGenerateMipmap(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    return texId;
+}
+
+static GLuint getOrCreateImagePreviewTexture(const ux3d::gltf::Image* img,
+                                             ux3d::renderer::GltfRenderLayer* gltfLayer,
+                                             bool signedSquareNormal)
 {
     if (!img) return 0;
 
     // 1. Check local cache
     auto cacheIt = s_previewCache.find(img);
     if (cacheIt != s_previewCache.end() && cacheIt->second.textureId != 0) {
-        if (cacheIt->second.encodedMapID == img->encodedMapID) {
+        if (cacheIt->second.encodedMapID == img->encodedMapID && cacheIt->second.signedSquare == signedSquareNormal) {
             return cacheIt->second.textureId;
         }
         // Stale texture, destroy it
@@ -179,7 +276,34 @@ static GLuint getOrCreateImagePreviewTexture(const ux3d::gltf::Image* img, ux3d:
         s_previewCache.erase(cacheIt);
     }
 
-    // 2. Check if gltfLayer already has an uploaded OpenGL texture for this image
+    // 2. Block-compressed KTX2 cannot be shown by uploading its bytes as pixels. Decode a
+    // small mip level on the CPU. BC5 SNORM is previewed as a normal map (reconstructed Z);
+    // a declared file's normal map is signed-square decoded first.
+    const core::Vector<uint8_t>* encoded = img->getEncodedBytes();
+    ux3d::imageformats::KTX2ImageInfo ktx2Info;
+    const bool blockCompressedKtx2 = encoded != nullptr
+        && ux3d::imageformats::getKTX2ImageInfo(*encoded, ktx2Info)
+        && ktx2Info.blockCompressed;
+    if (blockCompressedKtx2) {
+        core::Vector<uint8_t> previewRgba;
+        uint32_t previewWidth = 0;
+        uint32_t previewHeight = 0;
+        if (ux3d::imageformats::decodeKTX2Preview(*encoded, 1024u, previewRgba, previewWidth, previewHeight,
+                                                  signedSquareNormal)) {
+            GLuint texId = createPreviewTextureFromRgba(previewWidth, previewHeight, previewRgba);
+            if (texId != 0) {
+                ImagePreviewEntry entry;
+                entry.textureId = texId;
+                entry.encodedMapID = img->encodedMapID;
+                entry.signedSquare = signedSquareNormal;
+                s_previewCache[img] = entry;
+                return texId;
+            }
+        }
+        // If the blocks have no CPU preview, still prefer an already-uploaded GPU texture.
+    }
+
+    // 3. Check if gltfLayer already has an uploaded OpenGL texture for this image
     if (gltfLayer != nullptr) {
         // Check sRGB first
         auto it = gltfLayer->m_textureMapping.map.find({ img, false });
@@ -199,7 +323,13 @@ static GLuint getOrCreateImagePreviewTexture(const ux3d::gltf::Image* img, ux3d:
         }
     }
 
-    // 3. Create a dedicated preview OpenGL texture
+    // A compressed KTX2 image that neither decoded to a preview nor has a GPU upload has no
+    // pixel layout that glTexImage2D could upload.
+    if (blockCompressedKtx2) {
+        return 0;
+    }
+
+    // 4. Create a dedicated preview OpenGL texture
     ensureImageDataDecoded(img);
     const auto& data = img->getData();
     if (data.getPixels().empty() || data.getWidth() == 0 || data.getHeight() == 0) {
@@ -263,22 +393,29 @@ static GLuint getOrCreateImagePreviewTexture(const ux3d::gltf::Image* img, ux3d:
     ImagePreviewEntry entry;
     entry.textureId = texId;
     entry.encodedMapID = img->encodedMapID;
+    entry.signedSquare = signedSquareNormal;
     s_previewCache[img] = entry;
 
     return texId;
 }
 
-static void renderImagePreview(const ux3d::gltf::Image* img, ux3d::renderer::GltfRenderLayer* gltfLayer)
+static void renderImagePreview(const ux3d::gltf::Image* img, ux3d::renderer::GltfRenderLayer* gltfLayer,
+                               bool signedSquareNormal)
 {
     if (!img) return;
 
     ensureImageDataDecoded(img);
 
-    GLuint texId = getOrCreateImagePreviewTexture(img, gltfLayer);
+    GLuint texId = getOrCreateImagePreviewTexture(img, gltfLayer, signedSquareNormal);
 
     const auto& data = img->getData();
+    auto headerInfo = getImageHeaderDetails(img);
     uint32_t imgW = data.getWidth();
     uint32_t imgH = data.getHeight();
+    if (headerInfo.isKtx2 && headerInfo.width > 0 && headerInfo.height > 0) {
+        imgW = headerInfo.width;
+        imgH = headerInfo.height;
+    }
     auto res = img->getResolution();
     if ((imgW == 0 || imgH == 0) && res.size() >= 2) {
         imgW = res[0];
@@ -315,6 +452,10 @@ static void renderImagePreview(const ux3d::gltf::Image* img, ux3d::renderer::Glt
     ImGui::Spacing();
     ImGui::Separator();
     ImGui::TextDisabled("Image Preview (%u x %u):", imgW, imgH);
+    if (signedSquareNormal && headerInfo.isKtx2
+        && headerInfo.vkFormat == static_cast<uint32_t>(ux3d::gpu::Format::BC5_SNORM_BLOCK)) {
+        ImGui::TextDisabled("decoded: signed square");
+    }
     ImGui::Spacing();
 
     if (texId != 0) {
@@ -333,15 +474,20 @@ static void renderImagePreview(const ux3d::gltf::Image* img, ux3d::renderer::Glt
             ImGui::Separator();
             ImGui::Text("Dimensions: %u x %u px", imgW, imgH);
             ImGui::Text("Aspect Ratio: %.2f:1", aspect);
-            auto hInfo = getImageHeaderDetails(img);
-            uint32_t chs = (hInfo.hasHeader && hInfo.channels > 0) ? hInfo.channels : data.getChannelCount();
-            uint32_t bpc = (hInfo.hasHeader && hInfo.bitsPerChannel > 0) ? hInfo.bitsPerChannel : data.getChannelSize(ux3d::image::Channel::RED);
-            uint32_t totBits = (hInfo.hasHeader && hInfo.totalBitDepth > 0) ? hInfo.totalBitDepth : (bpc * (chs > 0 ? chs : 1));
-            if (chs > 0) {
-                ImGui::Text("Channels: %u (%s)", chs, (chs == 1) ? "Grayscale" : (chs == 2) ? "RG" : (chs == 3) ? "RGB" : (chs == 4) ? "RGBA" : "");
-            }
-            if (bpc > 0) {
-                ImGui::Text("Bit Depth: %u-bit per channel (%u-bit total)", bpc, totBits);
+            if (headerInfo.isKtx2) {
+                ImGui::Text("KTX2: %s (vkFormat %u), %u mips, %llu bytes",
+                            headerInfo.vkFormatName.c_str(), headerInfo.vkFormat,
+                            headerInfo.ktx2LevelCount, static_cast<unsigned long long>(headerInfo.fileSize));
+            } else {
+                uint32_t chs = (headerInfo.hasHeader && headerInfo.channels > 0) ? headerInfo.channels : data.getChannelCount();
+                uint32_t bpc = (headerInfo.hasHeader && headerInfo.bitsPerChannel > 0) ? headerInfo.bitsPerChannel : data.getChannelSize(ux3d::image::Channel::RED);
+                uint32_t totBits = (headerInfo.hasHeader && headerInfo.totalBitDepth > 0) ? headerInfo.totalBitDepth : (bpc * (chs > 0 ? chs : 1));
+                if (chs > 0) {
+                    ImGui::Text("Channels: %u (%s)", chs, (chs == 1) ? "Grayscale" : (chs == 2) ? "RG" : (chs == 3) ? "RGB" : (chs == 4) ? "RGBA" : "");
+                }
+                if (bpc > 0) {
+                    ImGui::Text("Bit Depth: %u-bit per channel (%u-bit total)", bpc, totBits);
+                }
             }
             ImGui::EndTooltip();
         }
@@ -362,6 +508,9 @@ void ElementInspector::render(SelectionState& selection,
         ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Select an element from the Hierarchy or Resources panel.");
         return;
     }
+
+    const bool packagedTextures = gltfModel.isExtensionDeclared("ASOBO_asset_optimized");
+    const bool ddsDeclared = gltfModel.isExtensionDeclared("MSFT_texture_dds");
 
     // -----------------------------------------------------------------
     // Node Inspector
@@ -830,14 +979,21 @@ void ElementInspector::render(SelectionState& selection,
     // -----------------------------------------------------------------
     else if (selection.type == SelectionType::Texture && selection.selectedTexture != nullptr) {
         auto* tex = selection.selectedTexture;
-        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", getTextureDisplayName(tex).c_str());
+        // Same image the renderer binds, including MSFT_texture_dds (packaged MSFS files
+        // have no core source at all).
+        ux3d::gltf::Image* texSrc = ux3d::renderer::GltfRenderLayer::pickImageForTexture(
+            tex, gltfModel.isExtensionDeclared("MSFT_texture_dds"));
+        if (texSrc == nullptr) {
+            texSrc = tex->getSource();
+        }
+        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", getTextureDisplayName(tex, texSrc).c_str());
         ImGui::Separator();
         ImGui::Text("glTF Texture ID: %u", tex->m_ID);
         if (tex->hasName()) {
             ImGui::Text("glTF Name: %s", tex->getName().c_str());
         }
-        if (tex->getSource() != nullptr) {
-            auto* src = tex->getSource();
+        if (texSrc != nullptr) {
+            auto* src = texSrc;
             std::string imgName = getImageDisplayName(src);
             ImGui::Text("Source Image: %s", imgName.c_str());
             if (!src->getUri().empty()) {
@@ -850,6 +1006,10 @@ void ElementInspector::render(SelectionState& selection,
 
             uint32_t width = srcData.getWidth();
             uint32_t height = srcData.getHeight();
+            if (headerInfo.isKtx2 && headerInfo.width > 0 && headerInfo.height > 0) {
+                width = headerInfo.width;
+                height = headerInfo.height;
+            }
             auto res = src->getResolution();
             if (width == 0 && height == 0) {
                 if (headerInfo.hasHeader && headerInfo.width > 0 && headerInfo.height > 0) {
@@ -864,37 +1024,43 @@ void ElementInspector::render(SelectionState& selection,
                 ImGui::Text("Resolution: %u x %u px", width, height);
             }
 
-            uint32_t channels = (headerInfo.hasHeader && headerInfo.channels > 0) ? headerInfo.channels : srcData.getChannelCount();
-            if (channels > 0) {
-                const char* chanDesc = (channels == 1) ? "1 (Grayscale)" :
-                                       (channels == 2) ? "2 (RG)" :
-                                       (channels == 3) ? "3 (RGB)" :
-                                       (channels == 4) ? "4 (RGBA)" : "Multi-channel";
-                ImGui::Text("Channels: %s", chanDesc);
-            }
+            if (headerInfo.isKtx2) {
+                ImGui::Text("KTX2: %s (vkFormat %u), %u mip levels",
+                            headerInfo.vkFormatName.c_str(), headerInfo.vkFormat, headerInfo.ktx2LevelCount);
+                ImGui::Text("File Size: %llu bytes", static_cast<unsigned long long>(headerInfo.fileSize));
+            } else {
+                uint32_t channels = (headerInfo.hasHeader && headerInfo.channels > 0) ? headerInfo.channels : srcData.getChannelCount();
+                if (channels > 0) {
+                    const char* chanDesc = (channels == 1) ? "1 (Grayscale)" :
+                                           (channels == 2) ? "2 (RG)" :
+                                           (channels == 3) ? "3 (RGB)" :
+                                           (channels == 4) ? "4 (RGBA)" : "Multi-channel";
+                    ImGui::Text("Channels: %s", chanDesc);
+                }
 
-            uint32_t bitsPerChannel = (headerInfo.hasHeader && headerInfo.bitsPerChannel > 0) ? headerInfo.bitsPerChannel : srcData.getChannelSize(ux3d::image::Channel::RED);
-            if (bitsPerChannel == 0 && channels > 0 && srcData.getPixelSize() > 0) {
-                bitsPerChannel = (srcData.getPixelSize() * 8) / channels;
-            }
-            if (bitsPerChannel == 0 && !srcData.getPixels().empty()) {
-                bitsPerChannel = (srcData.getFormat() == ux3d::image::Format::FLOAT) ? 32 : 8;
-            }
+                uint32_t bitsPerChannel = (headerInfo.hasHeader && headerInfo.bitsPerChannel > 0) ? headerInfo.bitsPerChannel : srcData.getChannelSize(ux3d::image::Channel::RED);
+                if (bitsPerChannel == 0 && channels > 0 && srcData.getPixelSize() > 0) {
+                    bitsPerChannel = (srcData.getPixelSize() * 8) / channels;
+                }
+                if (bitsPerChannel == 0 && !srcData.getPixels().empty()) {
+                    bitsPerChannel = (srcData.getFormat() == ux3d::image::Format::FLOAT) ? 32 : 8;
+                }
 
-            uint32_t totalBitDepth = (headerInfo.hasHeader && headerInfo.totalBitDepth > 0) ? 
-                                     headerInfo.totalBitDepth : (bitsPerChannel * (channels > 0 ? channels : 1));
+                uint32_t totalBitDepth = (headerInfo.hasHeader && headerInfo.totalBitDepth > 0) ?
+                                         headerInfo.totalBitDepth : (bitsPerChannel * (channels > 0 ? channels : 1));
 
-            if (bitsPerChannel > 0) {
-                std::string layout = srcData.getMemoryLayoutString();
-                if (!layout.empty()) {
-                    ImGui::Text("Bit Depth: %u-bit per channel (%u-bit total, %s)", bitsPerChannel, totalBitDepth, layout.c_str());
-                } else {
-                    ImGui::Text("Bit Depth: %u-bit per channel (%u-bit total)", bitsPerChannel, totalBitDepth);
+                if (bitsPerChannel > 0) {
+                    std::string layout = srcData.getMemoryLayoutString();
+                    if (!layout.empty()) {
+                        ImGui::Text("Bit Depth: %u-bit per channel (%u-bit total, %s)", bitsPerChannel, totalBitDepth, layout.c_str());
+                    } else {
+                        ImGui::Text("Bit Depth: %u-bit per channel (%u-bit total)", bitsPerChannel, totalBitDepth);
+                    }
                 }
             }
 
             if (ImGui::Button(ICON_MDI_FILE_IMAGE_OUTLINE " Inspect Source Image")) {
-                selection.selectImage(tex->getSource());
+                selection.selectImage(texSrc);
             }
         }
         if (tex->getSampler() != nullptr) {
@@ -905,8 +1071,9 @@ void ElementInspector::render(SelectionState& selection,
                 ImGui::Text("Sampler Name: %s", sampler->getName().c_str());
             }
         }
-        if (tex->getSource() != nullptr) {
-            renderImagePreview(tex->getSource(), gltfLayer);
+        if (texSrc != nullptr) {
+            renderImagePreview(texSrc, gltfLayer,
+                               packagedTextures && isPackagedNormalMap(gltfModel, texSrc, ddsDeclared));
         }
     } else if (selection.type == SelectionType::Image && selection.selectedImage != nullptr) {
         auto* img = selection.selectedImage;
@@ -927,16 +1094,25 @@ void ElementInspector::render(SelectionState& selection,
         if (byteSize == 0 && img->getEncodedBytes() != nullptr) {
             byteSize = img->getEncodedBytes()->size();
         }
-        if (byteSize > 0) {
+        auto headerInfo = getImageHeaderDetails(img);
+        if (headerInfo.isKtx2) {
+            // Header facts, not the block-grid dimensions the compressed image::Image carries.
+            ImGui::Text("KTX2: %s (vkFormat %u)", headerInfo.vkFormatName.c_str(), headerInfo.vkFormat);
+            ImGui::Text("Mip Levels: %u", headerInfo.ktx2LevelCount);
+            ImGui::Text("File Size: %llu bytes", static_cast<unsigned long long>(headerInfo.fileSize));
+        } else if (byteSize > 0) {
             ImGui::Text("Data Size: %zu bytes", byteSize);
         }
 
         ensureImageDataDecoded(img);
         const auto& data = img->getData();
-        auto headerInfo = getImageHeaderDetails(img);
 
         uint32_t width = data.getWidth();
         uint32_t height = data.getHeight();
+        if (headerInfo.isKtx2 && headerInfo.width > 0 && headerInfo.height > 0) {
+            width = headerInfo.width;
+            height = headerInfo.height;
+        }
         auto res = img->getResolution();
         if (width == 0 && height == 0) {
             if (headerInfo.hasHeader && headerInfo.width > 0 && headerInfo.height > 0) {
@@ -951,36 +1127,39 @@ void ElementInspector::render(SelectionState& selection,
             ImGui::Text("Resolution: %u x %u px", width, height);
         }
 
-        uint32_t channels = (headerInfo.hasHeader && headerInfo.channels > 0) ? headerInfo.channels : data.getChannelCount();
-        if (channels > 0) {
-            const char* chanDesc = (channels == 1) ? "1 (Grayscale)" :
-                                   (channels == 2) ? "2 (RG)" :
-                                   (channels == 3) ? "3 (RGB)" :
-                                   (channels == 4) ? "4 (RGBA)" : "Multi-channel";
-            ImGui::Text("Channels: %s", chanDesc);
-        }
+        if (!headerInfo.isKtx2) {
+            uint32_t channels = (headerInfo.hasHeader && headerInfo.channels > 0) ? headerInfo.channels : data.getChannelCount();
+            if (channels > 0) {
+                const char* chanDesc = (channels == 1) ? "1 (Grayscale)" :
+                                       (channels == 2) ? "2 (RG)" :
+                                       (channels == 3) ? "3 (RGB)" :
+                                       (channels == 4) ? "4 (RGBA)" : "Multi-channel";
+                ImGui::Text("Channels: %s", chanDesc);
+            }
 
-        uint32_t bitsPerChannel = (headerInfo.hasHeader && headerInfo.bitsPerChannel > 0) ? headerInfo.bitsPerChannel : data.getChannelSize(ux3d::image::Channel::RED);
-        if (bitsPerChannel == 0 && channels > 0 && data.getPixelSize() > 0) {
-            bitsPerChannel = (data.getPixelSize() * 8) / channels;
-        }
-        if (bitsPerChannel == 0 && !data.getPixels().empty()) {
-            bitsPerChannel = (data.getFormat() == ux3d::image::Format::FLOAT) ? 32 : 8;
-        }
+            uint32_t bitsPerChannel = (headerInfo.hasHeader && headerInfo.bitsPerChannel > 0) ? headerInfo.bitsPerChannel : data.getChannelSize(ux3d::image::Channel::RED);
+            if (bitsPerChannel == 0 && channels > 0 && data.getPixelSize() > 0) {
+                bitsPerChannel = (data.getPixelSize() * 8) / channels;
+            }
+            if (bitsPerChannel == 0 && !data.getPixels().empty()) {
+                bitsPerChannel = (data.getFormat() == ux3d::image::Format::FLOAT) ? 32 : 8;
+            }
 
-        uint32_t totalBitDepth = (headerInfo.hasHeader && headerInfo.totalBitDepth > 0) ? 
-                                 headerInfo.totalBitDepth : (bitsPerChannel * (channels > 0 ? channels : 1));
+            uint32_t totalBitDepth = (headerInfo.hasHeader && headerInfo.totalBitDepth > 0) ?
+                                     headerInfo.totalBitDepth : (bitsPerChannel * (channels > 0 ? channels : 1));
 
-        if (bitsPerChannel > 0) {
-            std::string layout = data.getMemoryLayoutString();
-            if (!layout.empty()) {
-                ImGui::Text("Bit Depth: %u-bit per channel (%u-bit total, %s)", bitsPerChannel, totalBitDepth, layout.c_str());
-            } else {
-                ImGui::Text("Bit Depth: %u-bit per channel (%u-bit total)", bitsPerChannel, totalBitDepth);
+            if (bitsPerChannel > 0) {
+                std::string layout = data.getMemoryLayoutString();
+                if (!layout.empty()) {
+                    ImGui::Text("Bit Depth: %u-bit per channel (%u-bit total, %s)", bitsPerChannel, totalBitDepth, layout.c_str());
+                } else {
+                    ImGui::Text("Bit Depth: %u-bit per channel (%u-bit total)", bitsPerChannel, totalBitDepth);
+                }
             }
         }
 
-        renderImagePreview(img, gltfLayer);
+        renderImagePreview(img, gltfLayer,
+                           packagedTextures && isPackagedNormalMap(gltfModel, img, ddsDeclared));
     }
 
     // -----------------------------------------------------------------

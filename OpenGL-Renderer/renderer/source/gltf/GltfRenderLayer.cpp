@@ -17,6 +17,9 @@
 #include "renderer/passes/TransparentPass.h"
 
 #include "gltf/extensions/AsoboExtensions.h"
+#include "gltf/GltfUtils.h"
+#include "gltf/mikktspace/mikktspace.h"
+#include "gltf/mesh/Primitive.h"
 
 #include <algorithm>
 #include <cmath>
@@ -24,6 +27,7 @@
 #include <chrono>
 #include <memory>
 #include <vector>
+#include <variant>
 
 using namespace ux3d;
 using namespace ux3d::renderer;
@@ -331,6 +335,133 @@ bool addChannelToAnimation(animation::IAnimationTarget<T>& animationTarget, cons
         return false;
     }
 }
+
+// A1.11: glTF primitives without TANGENT. The shader's screen-derivative frame keeps the
+// tangent but always builds a right-handed bitangent, which is wrong on mirrored UV
+// islands. Generate MikkTSpace tangents (with the face sign in w) at upload for the
+// primitives whose material actually samples a normal map. Primitives that already store
+// TANGENT, and files without normal maps, keep their vertex data unchanged.
+struct TangentSpaceData {
+    const gltf::Accessor* positions = nullptr;
+    const gltf::Accessor* normals = nullptr;
+    const gltf::Accessor* texcoords = nullptr;
+    const gltf::Accessor* indices = nullptr;
+    uint32_t faceCount = 0u;
+    std::vector<glm::vec4> tangents;
+};
+
+uint32_t tangentVertexIndex(const TangentSpaceData& data, int face, int vertex)
+{
+    const uint32_t index = static_cast<uint32_t>(face * 3 + vertex);
+    if (data.indices == nullptr) {
+        return index;
+    }
+    const auto value = gltf::GltfUtils::getElementAtIndex(data.indices, index, false);
+    const uint32_t* resolved = std::get_if<uint32_t>(&value);
+    return resolved != nullptr ? *resolved : 0u;
+}
+
+int tangentNumFaces(const SMikkTSpaceContext* context)
+{
+    return static_cast<int>(static_cast<const TangentSpaceData*>(context->m_pUserData)->faceCount);
+}
+
+int tangentVerticesPerFace(const SMikkTSpaceContext*, int)
+{
+    return 3;
+}
+
+void tangentPosition(const SMikkTSpaceContext* context, float out[3], int face, int vertex)
+{
+    const auto& data = *static_cast<const TangentSpaceData*>(context->m_pUserData);
+    const auto value = gltf::GltfUtils::getElementAtIndex(data.positions, tangentVertexIndex(data, face, vertex));
+    const glm::vec3* position = std::get_if<glm::vec3>(&value);
+    out[0] = position != nullptr ? position->x : 0.0f;
+    out[1] = position != nullptr ? position->y : 0.0f;
+    out[2] = position != nullptr ? position->z : 0.0f;
+}
+
+void tangentNormal(const SMikkTSpaceContext* context, float out[3], int face, int vertex)
+{
+    const auto& data = *static_cast<const TangentSpaceData*>(context->m_pUserData);
+    const auto value = gltf::GltfUtils::getElementAtIndex(data.normals, tangentVertexIndex(data, face, vertex));
+    const glm::vec3* normal = std::get_if<glm::vec3>(&value);
+    out[0] = normal != nullptr ? normal->x : 0.0f;
+    out[1] = normal != nullptr ? normal->y : 0.0f;
+    out[2] = normal != nullptr ? normal->z : 1.0f;
+}
+
+void tangentTexCoord(const SMikkTSpaceContext* context, float out[2], int face, int vertex)
+{
+    const auto& data = *static_cast<const TangentSpaceData*>(context->m_pUserData);
+    const auto value = gltf::GltfUtils::getElementAtIndex(data.texcoords, tangentVertexIndex(data, face, vertex));
+    const glm::vec2* uv = std::get_if<glm::vec2>(&value);
+    out[0] = uv != nullptr ? uv->x : 0.0f;
+    out[1] = uv != nullptr ? uv->y : 0.0f;
+}
+
+void tangentSetSpace(const SMikkTSpaceContext* context, const float tangent[3], float sign, int face, int vertex)
+{
+    auto& data = *static_cast<TangentSpaceData*>(context->m_pUserData);
+    glm::vec4& target = data.tangents[tangentVertexIndex(data, face, vertex)];
+    target = glm::vec4(tangent[0], tangent[1], tangent[2], sign);
+}
+
+std::vector<glm::vec4> generateMikkTangents(const gltf::Primitive& primitive)
+{
+    const gltf::Material* material = primitive.getMaterial();
+    if (material == nullptr || !material->getNormalTextureInfo().has_value()
+        || material->getNormalTextureInfo()->getTexture() == nullptr) {
+        return {};
+    }
+    if (primitive.getPrimitiveMode() != gltf::PrimitiveMode::Triangles) {
+        return {};
+    }
+    if (gltf::GltfUtils::getAttributeAccessor(primitive, "TANGENT") != nullptr) {
+        return {};
+    }
+
+    TangentSpaceData data;
+    data.positions = gltf::GltfUtils::getAttributeAccessor(primitive, "POSITION");
+    data.normals = gltf::GltfUtils::getAttributeAccessor(primitive, "NORMAL");
+    // MikkTSpace must use the UV set the normal map samples, not always TEXCOORD_0.
+    const std::string uvAttribute = "TEXCOORD_" + std::to_string(material->getNormalTextureInfo()->getEffectiveTexCoord());
+    data.texcoords = gltf::GltfUtils::getAttributeAccessor(primitive, uvAttribute);
+    data.indices = primitive.getIndicesAccessor();
+    if (data.positions == nullptr || data.normals == nullptr || data.texcoords == nullptr) {
+        return {};
+    }
+    // The accessor readers currently support float vec2/vec3 data. Skip anything else and
+    // let the shader's derivative frame handle it rather than generating wrong tangents.
+    if (data.positions->getComponentType() != gltf::ComponentType::Float
+        || data.normals->getComponentType() != gltf::ComponentType::Float
+        || data.texcoords->getComponentType() != gltf::ComponentType::Float) {
+        return {};
+    }
+    const uint32_t indexCount = data.indices != nullptr ? data.indices->getCount() : data.positions->getCount();
+    if (indexCount < 3u || indexCount % 3u != 0u) {
+        return {};
+    }
+    data.faceCount = indexCount / 3u;
+    data.tangents.assign(data.positions->getCount(), glm::vec4(0.0f));
+
+    SMikkTSpaceContext context {};
+    SMikkTSpaceInterface interface {};
+    context.m_pUserData = &data;
+    context.m_pInterface = &interface;
+    interface.m_getNumFaces = tangentNumFaces;
+    interface.m_getNumVerticesOfFace = tangentVerticesPerFace;
+    interface.m_getPosition = tangentPosition;
+    interface.m_getNormal = tangentNormal;
+    interface.m_getTexCoord = tangentTexCoord;
+    interface.m_setTSpaceBasic = tangentSetSpace;
+
+    if (!genTangSpaceDefault(&context)) {
+        core::logWarning("MikkTSpace failed to generate tangents for a normal-mapped primitive");
+        return {};
+    }
+    return data.tangents;
+}
 }
 
 GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
@@ -532,6 +663,13 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
         material->samplers.clear();
         material->defines.clear();
 
+        // A1.12: the same declaration selects the packaged texture convention: normal-map
+        // X/Y and the COMP R channel are square-root encoded. Decoding is per material so
+        // undeclared files keep the plain glTF sampling path.
+        if (m_assetOptimized) {
+            material->defines.define("ASOBO_ASSET_OPTIMIZED");
+        }
+
         // A4 (partial): on windshield v3 materials COLOR_0 holds masks, not a colour. The
         // material-side decision is a define; the viewport switch is a frame-block uniform
         // so the command cache does not depend on which viewport draws the material.
@@ -693,11 +831,26 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
 
         createSampler("Normal", gltfMaterial->getNormalTextureInfo(), "normalTexture");
         createSampler("Emissive", gltfMaterial->getEmissiveTextureInfo(), "emissiveTexture", false);
-        createSampler("Occlusion", gltfMaterial->getOcclusionTextureInfo(), "occlusionTexture");
+
+        // A1.10: the MSFS package tool drops occlusionTexture from ASOBO_asset_optimized files
+        // whose exporter wrote the ORM ("COMP") texture into both slots. Read occlusion from
+        // the R channel of metallicRoughnessTexture instead: same texture, UV set and transform,
+        // strength 1. Files without the declaration are unchanged.
+        std::optional<gltf::TextureInfo> occlusionTexture;
+        if (gltfMaterial->getOcclusionTextureInfo().has_value()) {
+            occlusionTexture.emplace(gltfMaterial->getOcclusionTextureInfo().value());
+        } else if (m_assetOptimized) {
+            const auto& metallicRoughnessInfo = gltfMaterial->getPbrMetallicRoughness();
+            if (metallicRoughnessInfo.has_value() && metallicRoughnessInfo->getMetallicRoughnessTextureInfo().has_value()) {
+                occlusionTexture.emplace(metallicRoughnessInfo->getMetallicRoughnessTextureInfo().value());
+                occlusionTexture->unsetScaleOrStrength(); // occlusion strength defaults to 1
+            }
+        }
+        createSampler("Occlusion", occlusionTexture, "occlusionTexture");
 
         material->setUniform<math::vec3>("u_EmissiveFactor", gltfMaterial->getEmissiveFactorOrDefault());
         material->setUniform<float>("u_NormalScale", gltfMaterial->getNormalTextureInfo().has_value() ? static_cast<float>(gltfMaterial->getNormalTextureInfo()->getScale()) : 1.f);
-        material->setUniform<float>("u_OcclusionStrength", gltfMaterial->getOcclusionTextureInfo().has_value() ? static_cast<float>(gltfMaterial->getOcclusionTextureInfo()->getScale()) : 1.f);
+        material->setUniform<float>("u_OcclusionStrength", occlusionTexture.has_value() ? static_cast<float>(occlusionTexture->getScale()) : 1.f);
 
         setUniformAsAnimationPointerTarget<float>(gltfMaterial, "alphaCutoff", material, "u_AlphaCutoff");
         setUniformAsAnimationPointerTarget<glm::vec3>(gltfMaterial, "emissiveFactor", material, "u_EmissiveFactor");
@@ -1100,6 +1253,31 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
         }
 
         mesh->vertexCount = vertexCount;
+
+        // A1.11: normal-mapped primitives without TANGENT get MikkTSpace tangents so the
+        // shader's bitangent carries the UV mirroring sign. Existing TANGENT attributes and
+        // materials without a normal map are left untouched.
+        if (vertexCount > 0u && mesh->attributes.size() < 16u) {
+            auto tangentIt = m_generatedTangentBuffers.find(gltfPrimitive);
+            if (tangentIt == m_generatedTangentBuffers.end()) {
+                std::vector<glm::vec4> generated = generateMikkTangents(*gltfPrimitive);
+                if (generated.size() == vertexCount) {
+                    auto tangentBuffer = std::make_unique<gl::Buffer>(m_resourceManager.m_gl);
+                    tangentBuffer->write(core::makeRange(
+                        reinterpret_cast<const uint8_t*>(generated.data()),
+                        generated.size() * sizeof(generated[0])));
+                    tangentIt = m_generatedTangentBuffers.emplace(gltfPrimitive, std::move(tangentBuffer)).first;
+                }
+            }
+            if (tangentIt != m_generatedTangentBuffers.end()) {
+                gl::Attribute tangentAttribute("a_tangent");
+                tangentAttribute.type = gl::ComponentType::Float;
+                tangentAttribute.dimension = 4;
+                tangentAttribute.buffer = tangentIt->second.get();
+                mesh->attributes.emplace_back(tangentAttribute);
+                mesh->defines.define("HAS_TANGENT_VEC4");
+            }
+        }
 
         if (gltfPrimitive->getTargets().size() > 0) {
             size_t attributeCount = 0;
@@ -1762,6 +1940,9 @@ void GltfRenderLayer::updateMeshes(const core::Vector<gltf::Node*>& rootNodes)
         gatherMeshRecursive(*gltfNode);
     }
 
+    // Every live renderer mesh is revisited by the update below, so the generated tangent
+    // buffers can be rebuilt against the current glTF data.
+    m_generatedTangentBuffers.clear();
     m_meshMapping.update(gltfTuples);
 }
 
@@ -2328,7 +2509,7 @@ Camera* GltfRenderLayer::addCamera()
 }
 
 
-gltf::Image* GltfRenderLayer::pickImageForTexture(const gltf::Texture* gltfTexture, bool ddsDeclared) const
+gltf::Image* GltfRenderLayer::pickImageForTexture(const gltf::Texture* gltfTexture, bool ddsDeclared)
 {
     if (gltfTexture == nullptr) {
         return nullptr;
