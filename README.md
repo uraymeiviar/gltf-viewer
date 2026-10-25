@@ -17,7 +17,9 @@
 
 ---
 
-![Glider Viewer](docs/images/screenshot.png)
+![Glider Viewer: E195 cockpit with HDR, bloom and auto-exposure](docs/images/e195_cockpit_hdr.jpg)
+
+![Glider Viewer: windshield screen-space reflections and glass](docs/images/e195_cockpit_windshield.jpg)
 
 ## Overview
 
@@ -34,10 +36,18 @@
 - **Comprehensive Image & Texture Inspection**:
   - Proportional image preview in the **Element Inspector** constrained to the inspector's width with a crisp 1px border.
   - Displays complete image metrics: dimensions, aspect ratio, exact channel count (Grayscale, RG, RGB, RGBA), and bit depth (e.g., 8-bit, 16-bit per channel / 48-bit, 64-bit total).
-- **Advanced Anti-Aliasing Suite**:
-  - **Temporal Anti-Aliasing (TAA)**: 8-phase Halton(2, 3) subpixel projection jitter with 3x3 color neighborhood clamping to eliminate ghosting while preserving sharp geometry edges.
-  - **FXAA 3.11**: Fast approximate anti-aliasing for smooth performance.
-  - **Hardware MSAA**: Native multi-sample anti-aliasing (2x, 4x, 8x).
+- **HDR Rendering Pipeline**:
+  - The scene renders linear into a 16-bit floating-point target; tone mapping (Khronos PBR Neutral, ACES Hill, ACES Narkowicz) is one final pass, so transparents and glass blend in linear light.
+  - **Physically based bloom** (Jimenez, *Call of Duty: Advanced Warfare*): bright and emissive surfaces glow (`KHR_materials_emissive_strength` up to 1000); resolution independent and stable under TAA.
+  - **Auto-exposure**: centre-weighted luminance metering with outlier rejection, smooth adaptation (separate up/down speeds), EV compensation and min/max limits; or manual EV.
+  - Settings live with the scene's environment (Scene Inspector → Environment). See [`docs/HDR_PIPELINE.md`](docs/HDR_PIPELINE.md).
+- **Anti-Aliasing**: geometry MSAA (Off, 2x, 4x, 8x) and post AA (None, FXAA 3.11, TAA) chosen independently per viewport. TAA runs in HDR with 8-phase Halton(2, 3) jitter, neighbourhood clamping and luminance weighting; overlays (grid, gizmos, bounds) stay steady under TAA. New viewports default to MSAA Off + TAA.
+- **Microsoft Flight Simulator (ASOBO) Extensions**: Glider renders the `ASOBO_*` glTF extensions a file declares (MSFS 2020/2024 exports), reading only the glTF itself:
+  - **Decals**: `ASOBO_material_geometry_decal` / `ASOBO_material_blend_gbuffer` through a decal buffer with per-channel blending and a configurable depth tolerance.
+  - **Glass**: `ASOBO_material_glass_v2` with reflections independent of opacity and refraction through a parallel slab (`glassWidth`), frosted by roughness.
+  - **Windshields**: `ASOBO_material_windshield_v3` with screen-space reflections (on by default; quality Low/Medium/High) that reflect the cockpit interior, with an interior sky-reflection strength.
+  - Draw order, invisible materials and environment occluders, normal-map convention, vertex encoding of optimized assets, and more; each extension can be switched off per viewport (Viewport Settings → MSFS Extensions).
+  - **Live tuning**: ASOBO extension parameters (e.g. glass width, SSR attenuation, decal factors) are editable in the Inspector in memory, without changing the file.
 - **Built-in In-Process glTF 2.0 Validator**:
   - High-performance, native C++20 validation engine running directly in-process with zero external subprocesses or tools needed.
   - **Tier 1 (JSON Schema Validation)**: Evaluates loaded assets against official Khronos glTF 2.0 and extension schemas embedded inside the executable.
@@ -81,11 +91,19 @@ Glider.exe [path_to_model.gltf / path_to_model.glb]
 
 `Glider.exe` supports CLI flags for batch testing and automated image verification:
 - `[model.gltf / model.glb]`: Path to glTF or GLB file to open on startup (defaults to embedded `HelloCube.glb`).
-- `--aa <none|msaa2|msaa4|msaa8|fxaa|taa>`: Set anti-aliasing mode on startup.
+- `--aa <none|msaa2|msaa4|msaa8|fxaa|taa>`: Legacy AA preset; `--msaa <0|2|4|8>` and `--post-aa <none|fxaa|taa>` set geometry and post AA independently.
+- `--exposure <ev>`, `--auto-exposure on|off`, `--exposure-compensation <ev>`, `--tone-mapping <neutral|hill|narkowicz>`: Exposure and tone mapping.
+- `--bloom on|off`, `--bloom-intensity <x>`: Bloom.
+- `--ssr on|off`, `--ssr-quality <low|medium|high>`: Windshield screen-space reflections.
+- `--asobo on|off`, `--asobo-disable <extension>`: MSFS (ASOBO) extensions applied by the viewport.
+- `--set-asobo-param <material> <extension> <param> <value>`: Edit an ASOBO extension parameter in memory after loading.
+- `--debug-view <name>`: Start in a render debug mode (e.g. `roughness`, `shadingnormal`, `ssr`).
 - `--select-node <name>`: Automatically selects a node by name and frames camera on startup.
 - `--select-viewport <id>`: Selects a viewport to inspect its settings.
 - `--dump-frame <output.jpg>`: Renders warm-up frames and dumps the window framebuffer to disk as `.jpg` or `.png`.
 - `--exit-after-dump`: Exits the application immediately after dumping the frame.
+
+The complete list is in [`AGENTS.md`](AGENTS.md) §4.2.
 
 ---
 
