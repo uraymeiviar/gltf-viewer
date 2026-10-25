@@ -181,8 +181,12 @@ Run one at a time; each lands, is reviewed and committed before the next. Owners
     - **Tolerant buffer test.** The accumulation pass disables `GL_DEPTH_TEST`; `decal_accum.frag`
       samples the prepass depth at `gl_FragCoord`, linearizes both depths through the z row of
       the frame's projection matrix (perspective, infinite perspective and orthographic) and
-      discards only when `decalDistance - surfaceDistance > max(t_abs, t_rel × decalDistance)`.
-      Constants: `t_abs = 0.003 m`, `t_rel = 0.003` (0.3 %). The accumulation framebuffer no
+      converts axial depth separation to ray distance for perspective, then projects it onto
+      the receiver geometric normal from G0: `gapNormal = gapAlongRay × max(abs(dot(viewDir, n)), 0.05)`.
+      Orthographic rays use the view axis. Discard when `gapNormal > t_abs + t_rel × distance`.
+      Defaults: `t_abs = 0.0012 m` (1.2 mm), `t_rel = 0.0002` (0.02 %, depth precision margin).
+      `t_abs` is per viewport in `EnvironmentBlock`, editable at 0–10 mm in Viewport Settings
+      or through `--decal-tolerance <mm>`; command caches remain independent of it. The accumulation framebuffer no
       longer attaches the depth texture (it is sampled instead), and it gets no polygon offset:
       an offset would corrupt `gl_FragCoord.z` before the comparison.
     - **Forward fallback.** The A1.4 path keeps a polygon offset (`factor -1`), but its units are
@@ -191,10 +195,10 @@ Run one at a time; each lands, is reviewed and committed before the next. Owners
       a few thousand at close cockpit distances. The old `(-1, -1)` is sub-micrometre at those
       distances. The bias is active when the viewport applies the decal extension or, in the
       fallback, when it applies `ASOBO_material_draw_order`; `--asobo off` keeps the old path.
-    - **Tests:** `scripts/validate_asobo_decal.py` adds a decal 1 mm behind its receiver (visible
-      in both paths) and an opaque box whose front face is 2 cm in front of the decal (hidden in
-      both paths); all A2.2 checks pass. E195 MCP close-ups at 0°, 30° and a ~70° grazing angle,
-      both paths: `build/review/a22fix_mcp_*.png`.
+    - **Tests:** `scripts/validate_asobo_decal.py` verifies 1 mm gaps visible and 2 mm gaps hidden
+      at 0�, 45� and 70� in both perspective and orthographic projection; `--decal-tolerance 3`
+      restores the 2 mm case at every angle. The 2 cm occluder and A1.4 fallback checks remain.
+      E195 MCP and left audio panel review captures: `build/review/tol_*.png`.
     - **Material edit cost.** `updateGltf` re-uploaded every accessor (58.8 MB/frame on the E195
       cockpit) and `updateScene` rebuilt the meshes and re-ran MikkTSpace. MikkTSpace tangents
       are now cached per primitive and normal-map UV set for the loaded model (cleared on model

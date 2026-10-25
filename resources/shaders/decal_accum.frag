@@ -39,14 +39,9 @@ uniform sampler2D u_DecalG0;
 // prepass depth z-fought: the legends are coplanar with their button faces.
 uniform sampler2D u_DecalDepth;
 
-// Decal depth tolerance: a decal fragment is discarded only when it is behind the stored
-// surface by more than max(kDecalDepthAbsTolerance, kDecalDepthRelTolerance * distance).
-// Absolute: 3 mm covers a decal authored up to 3 mm behind its receiver and absorbs the
-// depth interpolation error at the MCP buttons. Relative: 0.3 % of the view distance, so a
-// decal 1.5 mm behind a surface at 0.5 m and 15 mm behind at 5 m still lands. A real occluder
-// a few centimetres in front is far outside both and still hides the decal.
-const float kDecalDepthAbsTolerance = 0.003; // metres
-const float kDecalDepthRelTolerance = 0.003; // fraction of the view distance
+// The absolute tolerance is per viewport (metres). The relative term only covers depth
+// precision; authored gaps are measured along the receiver normal, not the view ray.
+const float kDecalDepthRelTolerance = 0.0002;
 
 // Positive view-space distance of a window-space depth, for both the perspective and the
 // orthographic projection (the frame's matrices). The derivation uses the z row of the
@@ -72,8 +67,18 @@ void main()
     float storedDepth = texelFetch(u_DecalDepth, ivec2(gl_FragCoord.xy), 0).r;
     float decalDistance = decalViewDistance(gl_FragCoord.z);
     float surfaceDistance = decalViewDistance(storedDepth);
-    float tolerance = max(kDecalDepthAbsTolerance, kDecalDepthRelTolerance * decalDistance);
-    if (decalDistance - surfaceDistance > tolerance)
+    vec3 receiverNormal = normalize(texelFetch(u_DecalG0, ivec2(gl_FragCoord.xy), 0).rgb * 2.0 - 1.0);
+    // The third view-matrix row points towards the camera in world space. Orthographic
+    // rays are parallel; perspective rays run from this fragment towards the eye.
+    vec3 viewAxis = vec3(u_ViewMatrix[0][2], u_ViewMatrix[1][2], u_ViewMatrix[2][2]);
+    bool orthographic = abs(u_ProjectionMatrix[2][3]) < 1e-6;
+    vec3 viewDir = orthographic ? viewAxis : normalize(u_Camera - v_Position);
+    // Linearized Z is axial distance, so first convert it to distance along the ray.
+    float rayScale = 1.0 / max(abs(dot(viewDir, viewAxis)), 1e-6);
+    float gapAlongRay = (decalDistance - surfaceDistance) * rayScale;
+    float gapNormal = gapAlongRay * max(abs(dot(viewDir, receiverNormal)), 0.05);
+    float tolerance = u_DecalDepthTolerance + kDecalDepthRelTolerance * decalDistance * rayScale;
+    if (gapNormal > tolerance)
     {
         discard;
     }
@@ -122,7 +127,6 @@ void main()
     // (prepass G0) with the decal mesh normal as the base, before the decal normal map.
     vec3 v = normalize(u_Camera - v_Position);
     NormalInfo normalInfo = getNormalInfo(v);
-    vec3 receiverNormal = texelFetch(u_DecalG0, ivec2(gl_FragCoord.xy), 0).rgb * 2.0 - 1.0;
     vec3 baseNormal = normalize(mix(receiverNormal, normalInfo.ng, clamp(u_DecalNormalOverride, 0.0, 1.0)));
     vec3 decalNormal = baseNormal;
 #ifdef HAS_NORMAL_MAP

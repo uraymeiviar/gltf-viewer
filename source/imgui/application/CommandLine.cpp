@@ -335,6 +335,20 @@ std::optional<int> Application::configure(int argc, char** argv)
         } else if (arg == "--show-invisible-materials") {
             activeViewport->settings.asobo.setApplied("ASOBO_material_invisible", false);
             activeViewport->settings.asobo.setApplied("ASOBO_material_environment_occluder", false);
+        } else if (arg == "--decal-tolerance" && i + 1 < argc) {
+            const std::string value = argv[++i];
+            float mm = 0.0f;
+            size_t parsed = 0;
+            try {
+                mm = std::stof(value, &parsed);
+            } catch (...) {
+                parsed = 0;
+            }
+            if (parsed != value.size() || !std::isfinite(mm) || mm < 0.0f || mm > 10.0f) {
+                std::fprintf(stderr, "--decal-tolerance must be a number from 0 to 10 mm\n");
+                return 1;
+            }
+            activeViewport->settings.decalDepthToleranceMm = mm;
         } else if (arg == "--asobo" && i + 1 < argc) {
             activeViewport->settings.asobo.enabled = toLowerAscii(argv[++i]) != "off";
         } else if (arg == "--asobo-disable" && i + 1 < argc) {

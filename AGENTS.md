@@ -243,6 +243,7 @@ build/bin/Release/Glider.exe
   default shaded view.
 - `--select-viewport <id>`: Selects a viewport to inspect its settings.
 - `--dump-frame <output.jpg>`: Renders 8 warm-up frames and dumps the window framebuffer to disk as `.jpg` or `.png`.
+- `--decal-tolerance <mm>`: Per-viewport decal depth tolerance along the receiver normal, 0–10 mm (default 1.2 mm); applies only to the decal buffer. Also editable in Viewport Settings → MSFS Extensions.
 - `--decal-prepass-check <out.json>`: A2.1 diagnostic. After the warm-up frames it reads the decal prepass
   depth/G0 and the forward depth/Geometry Normal, writes the maximum differences and viewport/buffer sizes,
   then exits. It forces a single-sample target and redraws every frame. Files without a decal material report

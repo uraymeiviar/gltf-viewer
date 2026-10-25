@@ -31,6 +31,7 @@ ux3d::renderer::CommandGenerator::CommandGenerator(gl::GL* gl, const filesystem:
     , m_asoboNormalMapDirectXUniform("u_AsoboNormalMapDirectX")
     , m_asoboWindshieldVertexColorMaskUniform("u_AsoboWindshieldVertexColorMask")
     , m_asoboDecalReceiverUniform("u_AsoboDecalReceiver")
+    , m_decalDepthToleranceUniform("u_DecalDepthTolerance")
     , m_lights(gl)
 {
     setEnvironmentMapRotation(0.0f);
@@ -40,6 +41,7 @@ ux3d::renderer::CommandGenerator::CommandGenerator(gl::GL* gl, const filesystem:
     setAsoboNormalMapConvention(false);
     setAsoboWindshieldVertexColorMask(false);
     setAsoboDecalReceiver(false);
+    setDecalDepthTolerance(0.0012f);
 
     // A2.2: stable borrowed wrappers for the six accumulation targets. Nearest filtering
     // keeps texelFetch exact; clamp-to-edge is irrelevant for texelFetch but explicit.
@@ -101,7 +103,7 @@ void ux3d::renderer::CommandGenerator::bindFrameBlocks()
     // EnvironmentBlock: mat3 u_EnvRotation as three 16-byte columns, then u_EnvIntensity
     // at 48, u_EnvBlurNormalized at 52, int u_MipCount at 56, u_Exposure at 60,
     // int u_AsoboNormalMapDirectX at 64, int u_AsoboWindshieldVertexColorMask at 68 and
-    // int u_AsoboDecalReceiver at 72 (the block is padded to 80 for std140).
+    // int u_AsoboDecalReceiver at 72 and float u_DecalDepthTolerance at 76 (80 bytes).
     uint8_t environment[80] = {};
     if (m_environmentMapRotationUniform.byteSize() == 36) {
         for (size_t column = 0; column < 3; ++column) {
@@ -117,6 +119,7 @@ void ux3d::renderer::CommandGenerator::bindFrameBlocks()
     place(environment, 64, 4, m_asoboNormalMapDirectXUniform);
     place(environment, 68, 4, m_asoboWindshieldVertexColorMaskUniform);
     place(environment, 72, 4, m_asoboDecalReceiverUniform);
+    place(environment, 76, 4, m_decalDepthToleranceUniform);
     uploadFrameBlock(m_environmentBlock, gl::kEnvironmentBlockBinding, environment, sizeof(environment));
 }
 
@@ -214,6 +217,11 @@ void ux3d::renderer::CommandGenerator::setAsoboWindshieldVertexColorMask(bool en
 void ux3d::renderer::CommandGenerator::setAsoboDecalReceiver(bool enabled)
 {
     m_asoboDecalReceiverUniform.write(static_cast<int>(enabled ? 1 : 0));
+}
+
+void ux3d::renderer::CommandGenerator::setDecalDepthTolerance(float metres)
+{
+    m_decalDepthToleranceUniform.write(std::clamp(metres, 0.0f, 0.01f));
 }
 
 void ux3d::renderer::CommandGenerator::setDecalTargets(GLuint a0, GLuint a1, GLuint a2, GLuint a3, GLuint a4,

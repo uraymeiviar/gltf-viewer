@@ -21,6 +21,7 @@ struct ViewportSettingsState {
     bool showGrid = true;
     bool forceDoubleSided = false; // Disable backface culling globally
     ux3d::renderer::AsoboOptions asobo; // MSFS (ASOBO) extensions this viewport applies (A0.4)
+    float decalDepthToleranceMm = 1.2f; // Receiver-normal tolerance for the decal buffer
     bool invertWinding = false;    // Invert front/back face winding order (CW vs CCW)
     int antiAliasingIdx = 2;       // 0=None, 1=MSAA 2x, 2=MSAA 4x (Default), 3=MSAA 8x, 4=FXAA, 5=TAA
 

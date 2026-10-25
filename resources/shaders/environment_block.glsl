@@ -18,4 +18,5 @@ layout(std140) uniform EnvironmentBlock
     // with ASOBO_DECAL_RECEIVER read A0-A5, and this per-viewport switch keeps the command
     // cache independent of which viewport draws them.
     int u_AsoboDecalReceiver;
+    float u_DecalDepthTolerance; // metres along the receiver geometric normal (A2.2)
 };

@@ -16,9 +16,9 @@ byte-exact where the design asks for it:
   untouched    a MASK receiver and a BLEND glass material do not read the decal buffer.
   switch       the decal switch off renders the A1.4 forward fallback (decal visible),
                while the draw-order switch off leaves the offset at 0.
-  depth        a decal 1 mm behind its receiver stays visible in both paths (the buffer path
-               uses the tolerant test, the fallback a polygon offset), and a decal behind an
-               opaque box whose front face is 2 cm in front of it stays hidden.
+  depth        normal gaps of 1 mm stay visible and 2 mm stay hidden at 0/45/70 degrees
+               in perspective and orthographic views; 3 mm tolerance restores 2 mm decals.
+               A 2 cm occluder hides decals; the forward fallback keeps its existing bias.
 
 Run: python scripts/validate_asobo_decal.py
 """
@@ -399,15 +399,26 @@ def main():
         b = capture(without, "basecolor", label + "_no_decal")
         check(same(a, b), f"{label} receiver: decal leaves the base-colour view byte-identical")
 
-    print("[depth: 1 mm behind the receiver is accepted, a 2 cm occluder is not]")
+    print("[depth: 1 mm accepted, 2 mm rejected at 0/45/70 degrees; 3 mm override and 2 cm occluder]")
     forward_only = ("--asobo-disable", "ASOBO_material_geometry_decal")
     behind = write_fixture("behind_1mm", decal_count=1,
                            factors=property_factors("baseColorBlendFactor"), decal_z=-0.001)
     decal_color = srgb3(DECAL_COLOR[:3])
-    sample = pixels(capture(behind, "basecolor", "behind_1mm"))
-    if sample:
-        check(close(sample["center"], decal_color),
-              f"1 mm behind (buffer): centre {sample['center']} is the decal {decal_color}")
+    behind_2mm = write_fixture("behind_2mm", decal_count=1,
+                               factors=property_factors("baseColorBlendFactor"), decal_z=-0.002)
+    receiver_color = srgb3((0.2, 0.4, 0.6))
+    for projection in ("ortho", "perspective"):
+        for angle in (0, 45, 70):
+            camera = ("--camera-projection", projection, "--camera-yaw", str(angle))
+            for model, gap, expected, tolerance in (
+                (behind, 1, decal_color, ()),
+                (behind_2mm, 2, receiver_color, ()),
+                (behind_2mm, 2, decal_color, ("--decal-tolerance", "3")),
+            ):
+                label = f"behind_{gap}mm_{projection}_{angle}" + ("_tol3" if tolerance else "")
+                sample = pixels(capture(model, "basecolor", label, (*camera, *tolerance)))
+                check(sample is not None and close(sample["center"], expected),
+                      f"{label}: centre {sample['center'] if sample else None} == {expected}")
     sample = pixels(capture(behind, "basecolor", "behind_1mm_forward", forward_only))
     if sample:
         check(close(sample["center"], decal_color),

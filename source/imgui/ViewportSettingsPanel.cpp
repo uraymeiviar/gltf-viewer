@@ -130,6 +130,16 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
                                       static_cast<int>(info.note.size()), info.note.data());
                 }
             }
+            const bool usesDecalBuffer = gltfLayer != nullptr && gltfLayer->getIsolationRoot() == nullptr
+                && state.renderMode != ux3d::renderer::RenderMode::Wireframe
+                && ((gltfLayer->hasGeometryDecalMaterials() && state.asobo.applies("ASOBO_material_geometry_decal"))
+                    || (gltfLayer->hasBlendGbufferMaterials() && state.asobo.applies("ASOBO_material_blend_gbuffer")));
+            if (usesDecalBuffer) {
+                if (ImGui::DragFloat("Decal depth tolerance (mm)", &state.decalDepthToleranceMm,
+                                     0.05f, 0.0f, 10.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp)) {
+                    revisions.mark(SceneChange::ViewportSettings);
+                }
+            }
             ImGui::Unindent();
             ImGui::EndDisabled();
             ImGui::TextDisabled("Off: this viewport renders the file as if it had no ASOBO extensions.");

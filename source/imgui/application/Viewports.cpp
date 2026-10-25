@@ -657,6 +657,7 @@ void Application::drawViewports(FrameContext& frame)
             // A2.2: the receiver define is asset-level; this per-viewport flag says whether
             // the active viewport has a filled decal buffer to read.
             commandGenerator->setAsoboDecalReceiver(decalActive);
+            commandGenerator->setDecalDepthTolerance(vp->settings.decalDepthToleranceMm * 0.001f);
 
             const auto commandGenerationStart = ux3d::imgui::profiling::Clock::now();
             const uint64_t programHitsBefore = commandGenerator->getCommandMapping().getProgramCacheHits();
