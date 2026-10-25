@@ -168,9 +168,11 @@ def check_ssr():
     OUT.mkdir(parents=True,exist_ok=True)
     model=ssr_fixture()
     zero=ssr_fixture("zero",0)
-    # SSR is off by default (experimental); these checks turn it on explicitly.
+    # SSR is on by default; these checks also pass --ssr on explicitly.
     flags=["--clear-color","0.015,0.02,0.025","--exposure","0","--interior-sky-reflection","0","--ssr","on"]
     metrics={}
+    default=render(model,"ssr3_default")
+    check(same(default,render(model,"ssr3_explicit_on",["--ssr","on"])),"SSR is on by default")
     aa_cases=[("none",[]),("msaa4",["--msaa","4"]),("taa",["--post-aa","taa"]),("msaa4_taa",["--msaa","4","--post-aa","taa"])]
     aa_cases += [(f"msaa{msaa}_{post}",["--msaa",str(msaa),"--post-aa",post])
                  for msaa in (0,2,4,8) for post in ("none","fxaa","taa")
@@ -186,6 +188,15 @@ def check_ssr():
         orange=(delta[:,:,0]>8)&(delta[:,:,0]>delta[:,:,1]*1.5)
         metrics[label]={"orange_reflection_pixels":int(orange.sum()),"max_red_delta":float(delta[:,:,0].max())}
         check(orange.sum()>30,label+": orange box appears in windshield reflection")
+        # Interior of the smooth reflected box top, excluding geometric silhouette.
+        cy,cx=a.shape[0]//2,a.shape[1]//2
+        plane=(a-b)[cy-22:cy-8,cx-25:cx+25,0]
+        lap=4*plane[1:-1,1:-1]-plane[:-2,1:-1]-plane[2:,1:-1]-plane[1:-1,:-2]-plane[1:-1,2:]
+        hf=float(np.abs(lap).mean()/max(1.0,plane.mean()))
+        metrics[label]["smooth_plane_high_frequency"]=hf
+        metrics[label]["smooth_plane_mean"]=float(plane.mean())
+        check(plane.mean()>1 and hf<0.65,label+f": smooth reflected plane has low pixel flicker ({hf:.3f})")
+
         check(same(off,z),label+": attenuation zero matches SSR off")
         check(a.max()>20 and a.mean()>1,label+": no black image; GL diagnostics passed")
         blocked_on=render(blocked,"ssr2_occluded_"+label+"_on",flags+aa)

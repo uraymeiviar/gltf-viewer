@@ -300,3 +300,82 @@ overhead panel, EFB and glareshield; the HUD combiner (glass v2) shows similar s
 soft confidence instead of a hard 1 mm cut, tolerance scaled to depth precision, smoothing of the SSR term, and a
 check of the glass v2 refraction near bright discontinuities.
 
+
+
+### Follow-up 3 — precision-aware SSR filtering (2026-10-26; partial result)
+
+One implementation/check pass, per maintainer budget. The fixed 1 mm residual switch
+is replaced with soft confidence scaled by D24/D32F depth quantization propagated
+through the projection. Hit colour is bilinear only across a depth-consistent 2×2
+footprint; nearest remains at discontinuities. A deterministic, normal-aware five-tap
+filter smooths premultiplied hit colour/confidence along the noisier screen direction.
+The previous first-obstruction, front-to-back, hit-side and pane-hemisphere guards stay.
+SSR remains **off by default**.
+
+**Verified:** Release build and the complete glass harness pass **128 checks** with zero
+GL errors. A smooth planar reflection's normalized high-frequency energy falls from
+2.905 on 4568db9 to 0.288 without AA and 0.020 with TAA. Default-off identity and all
+12 AA combinations pass, including the thin lip that blocks the emissive box reflection.
+
+**Visual acceptance remains incomplete:** E195 close-HUD white angular streaks and some
+real-cockpit comb/fragmented regions remain. Baseline material ablations keep the
+streaks when HUD emission/specular is removed, but SSR off removes them. The combiner's
+`glassWidth` is zero and its behind sampler is already linear: the evidence points to
+SSR over/through the combiner, not slab refraction. No glass-order/refraction changes
+were made. Before/after pairs, TAA/no-AA contact sheets and an explicit unresolved crop
+are `build/review/ssr3_*.png`; see `ssr3_hud_remaining.png`. Frames 64/96 differ locally,
+so complete temporal convergence is not claimed. The external report's **Follow-up 3**
+section records evidence, formulas, measurements and remaining work. No iteration
+beyond the requested implementation/check pass, no benchmark or regression runner,
+and no commit/push were performed.
+
+### Follow-up 4 — continuous hit refinement; SSR on by default (2026-10-26)
+
+SSR is now **on by default** (`--ssr off` / Viewport Settings to disable). The rays are traced about the geometric
+normal (the tiled detail normal map bent each pixel's ray), and only the Fresnel weight uses the shaded normal.
+
+The remaining concentric moiré on the E2 windshield came from the hit point, not depth precision. The hit was built
+from the plane of the texel that first detected the crossing. Which texel that is jumps between neighbouring
+windshield pixels, so the hit jumped with it. The crossing is now refined by bisection, then a linear zero crossing,
+against a **continuous** surface: `ssrContinuousZ` interpolates view depth bilinearly across the 2×2 footprint, and
+uses nearest depth across silhouettes and sky. The bracket is widened by one step, so the continuous crossing lies
+inside it whichever texel detected it.
+
+The per-pixel plane, hit-normal, incidence and residual terms are removed. Confidence is now the screen-edge fade,
+the travel and screen-travel fades, and a fade over the last 30 % of the obstruction-thickness limit (no hard
+stair-stepped cut at reflected silhouettes). Colour is sampled bilinearly.
+
+E2 side and forward views without AA and with TAA: `build/review/ssrfix8_*.png`, zoom against the previous version
+in `ssrfix8_zoom.png`. The glass harness passes 128 checks.
+
+**Comb stripes (same day):** close to the glareshield, neighbouring columns alternated between hit and miss on thin
+reflected surfaces. The `ssr` debug view, instrumented with reject reasons, showed that these rays marched past
+the surface without detecting it: a point sample per pixel misses a surface the ray only crosses between samples.
+Each step now tests the ray's depth interval across its pixel against the surface (McGuire & Mara 2014, "Efficient
+GPU Screen-Space Ray Tracing"). Occlusion is decided after refinement: on a continuous surface the refined bracket
+closes onto the crossing; across a silhouette it keeps the depth jump, and the ray passed under an occluder. This
+test does not depend on the surface's slope. The `ssrray` view confirms the windshield normals are smooth (no
+facets). Renders: `build/review/z_cmp_j.png`, `z_cmp_l.png` (old/new hit masks), `s_zoom_*.png`. A pixel-scale
+sawtooth remains along some reflected silhouettes.
+
+**Silhouette sawtooth:** the `ssr` reject-reason view showed long teeth where hits alternate with "passed under an
+occluder" along reflected silhouettes. Neighbouring windshield rays are nearly parallel and visit nearly the same
+pixels, so the decision flips slowly from ray to ray. The ray's start phase is now offset by interleaved gradient
+noise (Jimenez 2014). The noise varies with `u_SsrFrame` (the viewport's TAA accumulation count, 0 without TAA). TAA
+resolves it into a soft edge; without TAA it stays a fixed fine grain. Hits on continuous surfaces are refined
+independently of the phase: smooth-plane flicker 0.02 in every AA combination. Renders: `build/review/t_cmp.png`
+(before / no AA / TAA), `t_cmp_l.png`.
+
+**Magnified source staircase:** at grazing angles many windshield pixels reflect one source texel, so the yes/no
+hit decision enlarged the source image's pixel staircase into blocks several pixels wide along reflected
+silhouettes. That's a resolution limit of SSR. Hits are now weighted by a percentage-closer coverage
+(`ssrHitCoverage`, as PCF for shadow maps): the tent-weighted share of a 4×4 depth footprint lying on the hit
+surface, remapped so that it reaches zero where the nearest-texel decision flips. The reflection fades out over its
+last source texel instead of ending in a block. Renders: `build/review/u_cmp.png`, `u_cmp_l.png`.
+
+**Glossy blur (roughness and magnification):** `windshieldSample` sets one blur radius in source texels: the larger
+of half the reflection's magnification (windshield pixels per source texel, from the quad's hit-UV `fwidth`) and the
+GGX cone (`travel · roughness² · focal / depth`), clamped to 1.5–16. The radius widens the coverage tent (on a grid of
+radius/1.5 texels, so the weights stay continuous) and sets the colour level in the behind copy's mip chain
+(`log2(radius/1.5)`; the chain is regenerated after each capture). A smooth windshield is unchanged except where it
+is strongly magnified. Forced-roughness check: `build/review/w_rough.png` (0 / 0.3 / 0.6).

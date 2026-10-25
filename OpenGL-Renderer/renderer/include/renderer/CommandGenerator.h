@@ -95,7 +95,12 @@ public:
     void setSsrOptions(bool enabled, int quality, float sky) {
         m_ssrOptions.write(math::vec3(enabled ? 1.0f : 0.0f, quality == 0 ? 256.0f : quality == 2 ? 1024.0f : 512.0f, sky));
     }
-    void setSsrDepth(GLuint texture) { m_ssrDepth->handle = texture; }
+    void setSsrDepth(GLuint texture, bool floatingDepth) {
+        m_ssrDepth->handle = texture;
+        m_ssrDepthFloat.write(floatingDepth ? 1 : 0);
+    }
+    // Ray start-phase noise frame: advances while TAA accumulates, 0 otherwise.
+    void setSsrFrame(float frame) { m_ssrFrame.write(frame); }
     void setDecalDepthTolerance(float metres);
     // A2.2: the shared buffer's A0-A5 texture handles, owned by the application's DecalBuffer.
     // They are wrapped here so every receiver command can keep stable sampler pointers while
@@ -151,6 +156,8 @@ protected:
     std::array<std::unique_ptr<gl::Sampler>, 6> m_decalSamplers;
     std::unique_ptr<gl::SamplerState> m_decalSamplerState;
     gl::Uniform m_ssrOptions{"u_SsrOptions"};
+    gl::Uniform m_ssrDepthFloat{"u_SsrDepthFloat"};
+    gl::Uniform m_ssrFrame{"u_SsrFrame"};
     std::unique_ptr<gl::Texture> m_ssrDepth;
     std::unique_ptr<gl::Sampler> m_ssrDepthSampler;
     EnvironmentMap* m_activeEnvironmentMap = nullptr;

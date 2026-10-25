@@ -258,7 +258,7 @@ build/bin/Release/Glider.exe
 - `--hdr-rotation <deg>`, `--exposure <ev>`, `--tone-mapping <neutral|hill|narkowicz>`: Environment rotation,
   exposure and tone mapping for this run. Environment settings belong to the glTF scene (one set per scene, shared
   by every viewport) and are edited in the Inspector when the scene row is selected (`SceneInspector`).
-- `--ssr <on|off>`: per-viewport windshield-v3 screen-space reflections (default off: experimental, hit edges still streak on real cockpits).
+- `--ssr <on|off>`: per-viewport windshield-v3 screen-space reflections (default on).
 - `--ssr-quality <low|medium|high>`: 256/512/1024 screen-space sample budgets, maximum pixel stride 2/1/1, with five refinement steps (default medium).
 - `--interior-sky-reflection <0..1>`: windshield IBL fallback strength inside the combined environment-occluder bounds; without occluders it applies to every windshield (default 0.5). These three controls are in Viewport Settings → MSFS Extensions.
 - `--clear-color <r,g,b>`: scene clear colour for this run; disables the background skybox (capture/test hook).

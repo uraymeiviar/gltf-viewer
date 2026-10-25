@@ -193,7 +193,7 @@ int Application::run(int argc, char** argv)
                 if (ssrCaptureDepth) {
                     const bool depthValid = ssrUseDecalDepth || transmissionTarget.captureDepth(*transmissionSource);
                     commandGenerator->setSsrDepth(depthValid ? (ssrUseDecalDepth ? decalBuffer.getDepthTexture()
-                                                                                           : transmissionTarget.getDepthTexture()) : 0);
+                                                                                           : transmissionTarget.getDepthTexture()) : 0, ssrUseDecalDepth);
                     if (!depthValid) commandGenerator->setSsrOptions(false, 1, ssrInteriorSky);
                 }
                 const bool copied = transmissionTarget.capture(*transmissionSource, transmissionDestination != nullptr);

@@ -62,6 +62,8 @@ vec3 getAsoboGlassBehind(vec3 n, vec3 v, float ior)
 
 #ifdef ASOBO_WINDSHIELD_SSR
 uniform sampler2D u_SsrDepth;
+uniform int u_SsrDepthFloat; // 0: resolved D24; 1: decal prepass D32F
+uniform float u_SsrFrame; // ray phase noise frame (TAA accumulation), 0 without TAA
 uniform vec3 u_SsrOptions; // enabled, steps, interior sky strength
 uniform float u_SsrAttenuation;
 uniform int u_HasInteriorVolume;
@@ -77,22 +79,102 @@ float ssrViewZ(float depth)
            (z * u_ProjectionMatrix[2][3] - u_ProjectionMatrix[2][2]);
 }
 
+// Propagate one stored depth ULP through the actual projection. D32F spacing
+// depends on the exponent; copied D24 is uniformly quantized in window depth.
+float ssrDepthPrecision(float depth)
+{
+    float ulp = u_SsrDepthFloat != 0
+        ? max(uintBitsToFloat(floatBitsToUint(depth) + 1u) - depth, 1.0e-12)
+        : 1.0 / 16777215.0;
+    return max(abs(ssrViewZ(min(depth + ulp, 0.99999994)) -
+                   ssrViewZ(max(depth - ulp, 0.0))) * 0.5, 1.0e-7);
+}
+
+float ssrResidualTolerance(float depth)
+{
+    // Reconstruction/plane fitting combines several rounded depth samples.
+    // The small floor covers view-matrix float arithmetic, not scene thickness.
+    return max(0.0001, 16.0 * ssrDepthPrecision(depth));
+}
+
 vec3 ssrPosition(vec2 uv, float depth)
 {
     vec4 p = inverse(u_ProjectionMatrix) * vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
     return p.xyz / p.w;
 }
 
+// View-space depth of the opaque surface at uv, bilinear between the four texels when they
+// lie on one continuous surface; nearest across silhouettes and sky (no false bridging).
+float ssrContinuousZ(vec2 uv, vec2 size)
+{
+    vec2 coord = uv * size - 0.5;
+    ivec2 base = ivec2(floor(coord));
+    vec2 f = coord - vec2(base);
+    float z[4];
+    float lowest = 1.0e9, highest = -1.0e9;
+    bool sky = false;
+    for (int corner = 0; corner < 4; ++corner) {
+        ivec2 q = clamp(base + ivec2(corner & 1, corner >> 1), ivec2(0), ivec2(size) - 1);
+        float d = texelFetch(u_SsrDepth, q, 0).r;
+        sky = sky || d >= 0.999999;
+        z[corner] = d >= 0.999999 ? -1.0e9 : ssrViewZ(d);
+        lowest = min(lowest, z[corner]);
+        highest = max(highest, z[corner]);
+    }
+    if (sky || highest - lowest > max(0.02, 0.02 * abs(highest))) {
+        int nearest = (f.x >= 0.5 ? 1 : 0) + (f.y >= 0.5 ? 2 : 0);
+        return z[nearest];
+    }
+    return mix(mix(z[0], z[1], f.x), mix(z[2], z[3], f.x), f.y);
+}
+
+// Percentage-closer coverage of a hit (as PCF for shadow maps): the share of a smooth
+// 4x4 tent footprint whose depth texels lie on the hit surface. At grazing angles many
+// windshield pixels reflect one source texel, and the yes/no hit decision magnified the
+// source's pixel staircase along reflected silhouettes into large blocks. The coverage
+// varies within a texel, so the reflection fades out over its last texel instead.
+// The tent covers +-radius source texels on a grid of radius/1.5 texels: the weights still
+// vary continuously with uv, so a wider (blurred) footprint never brings the steps back.
+float ssrHitCoverage(vec2 uv, float rayZ, vec2 size, float radius)
+{
+    float spacing = max(radius / 1.5, 1.0);
+    vec2 grid = (uv * size - 0.5) / spacing;
+    vec2 base = floor(grid) - 1.0;
+    vec2 f = grid - floor(grid);
+    // Same-surface tolerance: generous enough for a grazing continuous surface across
+    // the footprint, far below a silhouette's depth jump.
+    float tolerance = max(0.03, 0.04 * abs(rayZ));
+    float covered = 0.0, total = 0.0;
+    for (int y = 0; y < 4; ++y) {
+        for (int x = 0; x < 4; ++x) {
+            vec2 offset = vec2(x - 1, y - 1) - f;
+            vec2 tent = max(vec2(0.0), 1.5 - abs(offset));
+            float weight = tent.x * tent.y;
+            ivec2 q = clamp(ivec2(round((base + vec2(x, y)) * spacing)), ivec2(0), ivec2(size) - 1);
+            float d = texelFetch(u_SsrDepth, q, 0).r;
+            float onSurface = d >= 0.999999 ? 0.0 :
+                1.0 - smoothstep(0.5, 1.0, abs(ssrViewZ(d) - rayZ) / tolerance);
+            covered += weight * onSurface;
+            total += weight;
+        }
+    }
+    // The nearest-texel decision flips where coverage is one half: fade to zero there.
+    return smoothstep(0.5, 0.9, covered / total);
+}
+
 // Returns hit UV and confidence, not colour. Opaque depth/colour exclude transparents.
 // An obstructed/discontinuous ray terminates: never search through it for another hit.
-vec4 traceWindshield(vec3 n, vec3 v, vec3 ng)
+vec4 traceWindshield(vec3 n, vec3 v, vec3 ng, vec3 worldPosition)
 {
     if (u_SsrOptions.x == 0.0 || u_SsrAttenuation <= 0.0 || u_AsoboGlassCopyValid == 0) return vec4(0);
     ng = dot(ng, v) >= 0.0 ? ng : -ng;
-    vec3 reflected = reflect(-v, n);
+    // Trace about the smooth geometric normal. The windshield's tiled detail/scratch normal
+    // map bent each pixel's ray differently, giving stippled, moire-rippled reflections;
+    // the shaded normal still drives the Fresnel/specular weight of the result.
+    vec3 reflected = reflect(-v, ng);
     if (dot(reflected, ng) <= 0.02) return vec4(0); // reject rays below the physical pane
     vec3 ray = normalize(mat3(u_ViewMatrix) * reflected);
-    vec3 origin = (u_ViewMatrix * vec4(v_Position + ng * 0.001, 1.0)).xyz + ray * 0.002;
+    vec3 origin = (u_ViewMatrix * vec4(worldPosition + ng * 0.001, 1.0)).xyz + ray * 0.002;
     float maxTravel = 2.0; // cockpit-scale trace, not a five-metre minimum
     if (ray.z > 0.0) maxTravel = min(maxTravel, (-0.01 - origin.z) / ray.z);
     if (maxTravel <= 0.003) return vec4(0);
@@ -107,81 +189,92 @@ vec4 traceWindshield(vec3 n, vec3 v, vec3 ng)
     if (pixels < 1.0) return vec4(0);
     float stride = u_SsrOptions.y < 512.0 ? 2.0 : 1.0;
     float increment = stride / pixels;
+    // Interleaved gradient noise (Jimenez 2014) on the ray's start phase. Neighbouring
+    // windshield rays are nearly parallel and visit nearly the same pixels, so near a
+    // reflected silhouette the hit/occluded decision flipped in long coherent teeth. The
+    // noise breaks them into fine grain that TAA resolves; hits on continuous surfaces
+    // are refined independently of the phase.
+    vec2 noisePixel = floor(startUV * size) + 5.588238 * u_SsrFrame;
+    float phase = fract(52.9829189 * fract(dot(noisePixel, vec2(0.06711056, 0.00583715))));
     vec3 qa = origin / a.w, qb = end / b.w;
     float ka = 1.0 / a.w, kb = 1.0 / b.w;
     float previousS = 0.0;
     float previousDepth = texelFetch(u_SsrDepth, ivec2(clamp(startUV * size, vec2(0), size - 1.0)), 0).r;
-    float previousZ = ssrViewZ(previousDepth);
+    float previousZ = previousDepth >= 0.999999 ? -1.0e9 : ssrViewZ(previousDepth);
     float previousDelta = previousZ - origin.z;
     for (int i = 1; i <= 1024; ++i) {
         if (i > int(u_SsrOptions.y) || float(i)*stride > 0.65*min(size.x,size.y)) break;
-        float t = min(float(i) * increment, 1.0);
+        float t = min((float(i) - phase) * increment, 1.0);
         vec2 uv = mix(startUV, endUV, t);
         if (any(lessThanEqual(uv, 1.0 / size)) || any(greaterThanEqual(uv, 1.0 - 1.0 / size))) break;
         vec3 point = mix(qa, qb, t) / mix(ka, kb, t);
         float depth = texelFetch(u_SsrDepth, ivec2(uv * size), 0).r;
-        float surfaceZ = ssrViewZ(depth);
+        // Sky is infinitely far: the ray is certainly in front of it. It is never a hit,
+        // and it is a valid "in front" sample before one (rays reach the glareshield by
+        // passing over the sky seen through the windshield).
+        float surfaceZ = depth >= 0.999999 ? -1.0e9 : ssrViewZ(depth);
+        // Test the ray's depth interval across this pixel's step, not the sample point
+        // (McGuire & Mara 2014). The ray's depth sweeps a range within one pixel; a point
+        // sample caught a thin reflected surface only for some step phases, so neighbouring
+        // columns alternated hit/miss (comb stripes).
+        vec3 nearEnd = mix(qa,qb,max(t - 0.5*increment, 0.0)) / mix(ka,kb,max(t - 0.5*increment, 0.0));
+        vec3 farEnd = mix(qa,qb,min(t + 0.5*increment, 1.0)) / mix(ka,kb,min(t + 0.5*increment, 1.0));
+        float rayNear = max(nearEnd.z, farEnd.z), rayFar = min(nearEnd.z, farEnd.z);
         float delta = surfaceZ - point.z;
-        if (depth < 0.999999 && delta >= 0.0) {
-            // Sky is unknown, not an in-front surface. A silhouette or an already-behind
-            // sample is an obstruction, not permission to jump to a more distant object.
-            if (previousDepth >= 0.999999 || previousDelta >= 0.0) return vec4(0);
-            ivec2 pixel = ivec2(uv * size);
-            float dx = texelFetch(u_SsrDepth, pixel + ivec2(1,0), 0).r;
-            float dy = texelFetch(u_SsrDepth, pixel + ivec2(0,1), 0).r;
-            float diagonal = texelFetch(u_SsrDepth, pixel + ivec2(1,1), 0).r;
-            if (max(depth, max(dx,max(dy,diagonal))) >= 0.999999) return vec4(0);
-            float slope = max(abs(ssrViewZ(dx) - surfaceZ), abs(ssrViewZ(dy) - surfaceZ));
-            if (abs(surfaceZ - previousZ) > max(0.005, slope * 3.0)) return vec4(0);
-            vec2 center = (vec2(pixel) + 0.5) / size;
-            vec3 hit = ssrPosition(center, depth);
-            vec3 hitNormal = normalize(cross(ssrPosition(center + vec2(1,0)/size, dx) - hit,
-                                             ssrPosition(center + vec2(0,1)/size, dy) - hit));
-            if (dot(hitNormal, -hit) < 0.0) hitNormal = -hitNormal;
-            float planeError = abs(dot(ssrPosition(center + vec2(1,1)/size, diagonal) - hit, hitNormal));
-            const float thickness = 0.001; // one millimetre; never grows with ray travel
-            if (planeError > thickness) return vec4(0); // silhouette/non-planar depth footprint
-            float incidence = -dot(ray, hitNormal);
-            if (incidence <= 0.05) return vec4(0); // cannot see the back of a front-depth surface
-            vec3 previousPoint = mix(qa,qb,previousS) / mix(ka,kb,previousS);
-            float front = dot(previousPoint - hit, hitNormal);
-            float behind = dot(point - hit, hitNormal);
-            if (front <= 0.0 || behind > 0.0) return vec4(0);
-            // Refine the continuous local depth plane, not a staircase of nearest depth
-            // texels (the latter smears silhouettes and loses foreshortened thin surfaces).
-            vec3 lo = previousPoint, hi = point;
-            for (int j = 0; j < 5; ++j) {
-                vec3 mid = (lo + hi) * 0.5;
-                if (dot(mid - hit,hitNormal) > 0.0) lo = mid;
-                else hi = mid;
+        // Assumed thickness of a depth-buffer surface. A ray further behind it passed
+        // under a foreground object (e.g. the glareshield lip) and is occluded: stop,
+        // never search on.
+        float thickness = max(0.01, 2.0 * ssrResidualTolerance(depth));
+        if (surfaceZ - rayFar >= 0.0) {
+            if (previousDelta >= 0.0) return vec4(0);
+            // Refine against the continuous (bilinear) depth surface, not per-pixel planes.
+            // Which texel first detects the crossing jumps between neighbouring windshield
+            // pixels; a hit built from that texel's plane jumped with it and drew concentric
+            // contour bands. The bracket spans this pixel's step and the previous one.
+            float lo = max(t - 1.5*increment, 0.0), hi = t;
+            float loDelta = ssrContinuousZ(mix(startUV,endUV,lo), size) -
+                            (mix(qa,qb,lo) / mix(ka,kb,lo)).z;
+            float hiDelta = ssrContinuousZ(mix(startUV,endUV,hi), size) - point.z;
+            if (hiDelta < 0.0) {
+                hi = min(t + 0.5*increment, 1.0);
+                hiDelta = ssrContinuousZ(mix(startUV,endUV,hi), size) - farEnd.z;
             }
-            float travel = dot(hit - origin,hitNormal) / dot(ray,hitNormal);
-            point = origin + ray * travel;
-            vec4 clip = u_ProjectionMatrix * vec4(point,1.0);
-            vec2 hitUV = clip.xy / clip.w * 0.5 + 0.5;
-            // An exact plane hit must remain in this depth footprint, never extrapolate
-            // a foreground plane across a depth discontinuity to the screen behind it.
-            if (any(greaterThan(abs(hitUV*size - (vec2(pixel)+0.5)), vec2(1.5)))) return vec4(0);
+            // Without a clean front/behind bracket (a surface thinner than the step), the
+            // sample itself is the hit, judged by the interval's depth behind the surface.
+            float behind = surfaceZ - rayNear;
+            bool bracketed = loDelta < 0.0 && hiDelta >= 0.0;
+            if (!bracketed) {
+                if (behind > thickness) return vec4(0);
+                lo = hi = t; loDelta = -1.0; hiDelta = 0.0;
+            }
+            for (int j = 0; j < 8; ++j) {
+                float mid = (lo + hi) * 0.5;
+                float midDelta = ssrContinuousZ(mix(startUV,endUV,mid), size) -
+                                 (mix(qa,qb,mid) / mix(ka,kb,mid)).z;
+                if (midDelta < 0.0) { lo = mid; loDelta = midDelta; }
+                else { hi = mid; hiDelta = midDelta; }
+            }
+            // On a continuous surface the refined bracket closes onto the crossing; across
+            // a silhouette it keeps the full depth jump: the ray went under an occluder.
+            // This is independent of the surface's slope, so grazing surfaces never stripe.
+            if (bracketed) behind = hiDelta - loDelta;
+            if (behind > thickness) return vec4(0);
+            // Linear zero crossing inside the final bracket keeps the hit continuous.
+            float s = loDelta < 0.0 && hiDelta >= 0.0 ? mix(lo, hi, -loDelta / max(hiDelta - loDelta, 1.0e-9)) : hi;
+            vec2 hitUV = mix(startUV, endUV, s);
+            point = mix(qa,qb,s) / mix(ka,kb,s);
+            float travel = length(point - origin);
             if (travel <= 0.003 || travel >= maxTravel) return vec4(0);
-            ivec2 hitPixel = ivec2(hitUV*size);
-            float hitDepth = texelFetch(u_SsrDepth,hitPixel,0).r;
-            if (hitDepth >= 0.999999) return vec4(0);
-            float depthError = abs(dot(ssrPosition((vec2(hitPixel)+0.5)/size,hitDepth)-hit,hitNormal));
-            if (depthError > thickness) return vec4(0); // colour texel must belong to this surface
+            if (texelFetch(u_SsrDepth, ivec2(clamp(hitUV*size, vec2(0), size-1.0)), 0).r >= 0.999999) return vec4(0);
 
-            // The analytic crossing must stay inside the refined bracket. Test the
-            // actual hit, not the behind endpoint: its quantization error otherwise
-            // creates striped holes on a perfectly continuous foreshortened plane.
-            float bracketError = max(dot(lo-point,ray),dot(point-hi,ray));
-            if (bracketError > 0.0001) return vec4(0);
-            float residual = max(abs(dot(point-hit,hitNormal)),max(0.0,bracketError));
-            if (residual > thickness) return vec4(0);
             float edge = min(min(hitUV.x,hitUV.y), min(1.0-hitUV.x,1.0-hitUV.y));
             float screenTravel = length((hitUV-startUV)*size) / min(size.x,size.y);
             float confidence = smoothstep(0.0,0.08,edge) * (1.0-travel/maxTravel);
             confidence *= 1.0-smoothstep(0.15,0.65,screenTravel);
-            confidence *= smoothstep(0.05,0.25,incidence) * (1.0-smoothstep(0.25,1.0,max(depthError,max(planeError,residual))/thickness));
-            return vec4(hitUV,0.0,confidence);
+            // Fade, not cut, where the ray approaches the obstruction limit: the hard
+            // reject drew stair-stepped edges along reflected silhouettes.
+            confidence *= 1.0-smoothstep(0.7,1.0,behind/thickness);
+            return vec4(hitUV, point.z, confidence); // coverage is applied by windshieldSample
         }
         previousS = t;
         previousDepth = depth;
@@ -192,17 +285,70 @@ vec4 traceWindshield(vec3 n, vec3 v, vec3 ng)
     return vec4(0);
 }
 
+vec4 windshieldSample(vec3 n, vec3 v, vec3 ng, vec3 position, float roughness)
+{
+    vec4 hit = traceWindshield(n, v, ng, position);
+    vec2 size = vec2(textureSize(u_TransmissionFramebufferSampler, 0));
+    // Source texels per windshield pixel, from the quad's hit UVs (taken before any
+    // per-pixel branch). A neighbour without a hit gives a meaningless jump: ignore it.
+    float footprint = length(fwidth(hit.xy * size));
+    if (hit.a <= 0.0) return vec4(0);
+    float magnification = footprint > 0.0 && footprint < 8.0 ? 1.0 / footprint : 1.0;
+    // Blur radius in source texels. Magnified: at least about half a windshield-pixel
+    // staircase step, so its edges blend over several pixels. Rough glass: the GGX
+    // lobe's cone (alpha = roughness^2) widened over the travelled distance.
+    vec4 depthClip = u_ProjectionMatrix * vec4(0.0, 0.0, hit.z, 1.0);
+    vec3 hitView = ssrPosition(hit.xy, depthClip.z / depthClip.w * 0.5 + 0.5);
+    float travel = length(hitView - (u_ViewMatrix * vec4(position, 1.0)).xyz);
+    float focal = 0.5 * size.y * u_ProjectionMatrix[1][1];
+    float cone = travel * roughness * roughness * focal / max(-hit.z, 1.0e-3);
+    float radius = clamp(max(0.5 * magnification, cone), 1.5, 16.0);
+    float coverage = ssrHitCoverage(hit.xy, hit.z, size, radius);
+    // The copy's mip chain is regenerated after every capture.
+    vec3 colour = textureLod(u_TransmissionFramebufferSampler, hit.xy, log2(radius / 1.5)).rgb;
+    float confidence = hit.a * coverage;
+    return vec4(colour * confidence, confidence);
+}
+
+vec4 smoothWindshield(vec3 n, vec3 v, vec3 ng, float roughness)
+{
+    vec3 px = dFdx(v_Position), py = dFdy(v_Position);
+    vec3 nx = dFdx(n), ny = dFdy(n);
+    vec4 center = windshieldSample(n,v,ng,v_Position,roughness);
+    vec4 taps[4];
+    float edge[4];
+    const vec2 offsets[4] = vec2[4](vec2(-1,0),vec2(1,0),vec2(0,-1),vec2(0,1));
+    for (int i = 0; i < 4; ++i) {
+        vec3 position = v_Position + px*offsets[i].x + py*offsets[i].y;
+        vec3 normal = normalize(n + nx*offsets[i].x + ny*offsets[i].y);
+        // No random rotations or frame-dependent offsets. A normal discontinuity
+        // cannot contribute across the filter, and every tap retains all hit guards.
+        edge[i] = smoothstep(0.7,0.98,dot(n,normal));
+        taps[i] = windshieldSample(normal,normalize(u_Camera-position),ng,position,roughness);
+    }
+    vec4 horizontal = (taps[0]*edge[0] + 2.0*center + taps[1]*edge[1]) / (2.0+edge[0]+edge[1]);
+    vec4 vertical = (taps[2]*edge[2] + 2.0*center + taps[3]*edge[3]) / (2.0+edge[2]+edge[3]);
+    // Select the direction with more pixel-scale curvature. This removes both
+    // row/column combs with five traces instead of repeating a full 2D kernel.
+    vec4 cx = abs(taps[0]+taps[1]-2.0*center);
+    vec4 cy = abs(taps[2]+taps[3]-2.0*center);
+    float ex = dot(cx,vec4(0.2126,0.7152,0.0722,1.0));
+    float ey = dot(cy,vec4(0.2126,0.7152,0.0722,1.0));
+    return mix(horizontal,vertical,ey/max(ex+ey,1.0e-6));
+}
+
 vec3 windshieldReflection(vec3 fallback, vec3 n, vec3 v, float roughness, vec3 f0, float weight, vec3 ng)
 {
     bool inside = u_HasInteriorVolume == 0 ||
         (all(greaterThanEqual(v_Position, u_InteriorMin)) && all(lessThanEqual(v_Position, u_InteriorMax)));
     fallback *= inside ? u_SsrOptions.z : 1.0;
-    vec4 hit = traceWindshield(n, v, ng);
+    if (u_SsrOptions.x == 0.0 || u_SsrAttenuation <= 0.0 || u_AsoboGlassCopyValid == 0) return fallback;
+    vec4 filtered = smoothWindshield(n,v,ng,roughness);
     vec2 ab = texture(u_GGXLUT, vec2(clampedDot(n, v), roughness)).rg;
     vec3 ks = f0 + (max(vec3(1.0 - roughness), f0) - f0) * pow(1.0 - clampedDot(n, v), 5.0);
-    vec3 radiance = hit.a > 0.0 ? texelFetch(u_TransmissionFramebufferSampler, ivec2(hit.xy * vec2(textureSize(u_TransmissionFramebufferSampler, 0))), 0).rgb : vec3(0);
-    vec3 reflected = radiance * weight * (ks * ab.x + ab.y);
-    return mix(fallback, reflected, hit.a * clamp(u_SsrAttenuation, 0.0, 1.0));
+    vec3 reflected = filtered.rgb * weight * (ks * ab.x + ab.y);
+    float attenuation = clamp(u_SsrAttenuation,0.0,1.0);
+    return fallback * (1.0-filtered.a*attenuation) + reflected*attenuation;
 }
 #endif
 
@@ -675,7 +821,7 @@ vec3 specularTexture = vec3(1.0);
 #endif
 #endif
 #if DEBUG == DEBUG_SSR && defined(ASOBO_WINDSHIELD_SSR)
-    vec4 ssrDebug = traceWindshield(n, v, normalInfo.ng);
+    vec4 ssrDebug = traceWindshield(n, v, normalInfo.ng, v_Position);
     g_finalColor = vec4(ssrDebug.xy, ssrDebug.a, 1.0); // R/G hit UV; B confidence; black miss
 #endif
 #if DEBUG == DEBUG_SSR_RAY && defined(ASOBO_WINDSHIELD_SSR)

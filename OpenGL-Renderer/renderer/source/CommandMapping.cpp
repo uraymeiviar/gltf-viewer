@@ -745,6 +745,8 @@ std::optional<CmdDesc> CommandMapping::makeCommand(MeshMaterialTuple meshMat)
     command->uniforms.push_back(&m_scene.m_asoboGlassCopyValidUniform);
     if (material->defines.isDefined("ASOBO_WINDSHIELD_SSR")) {
         command->uniforms.push_back(&m_scene.m_ssrOptions);
+        command->uniforms.push_back(&m_scene.m_ssrDepthFloat);
+        command->uniforms.push_back(&m_scene.m_ssrFrame);
         command->samplers.push_back(m_scene.m_ssrDepthSampler.get());
     }
 

@@ -697,6 +697,8 @@ void Application::drawViewports(FrameContext& frame)
             ssrInteriorSky = vp->settings.interiorSkyReflection;
             commandGenerator->setSsrOptions(vp->settings.screenSpaceReflections,
                                            vp->settings.ssrQuality, vp->settings.interiorSkyReflection);
+            // TAA resolves the per-frame ray phase noise into soft reflection silhouettes.
+            commandGenerator->setSsrFrame(isTaa ? static_cast<float>(vp->taaStableRenders % 64u) : 0.0f);
             if (scene.asoboGlassCopy) glassCopyFbo.resize(vpW, vpH, vp->sceneFbo.getSamples(), true);
             const bool floatCopy = scene.asoboGlassCopy && glassCopyFbo.isValid() && glassCopyFbo.isLinearFloat();
             transmissionDestination = floatCopy ? &vp->sceneFbo : nullptr;

@@ -63,6 +63,8 @@ ux3d::renderer::CommandGenerator::CommandGenerator(gl::GL* gl, const filesystem:
     m_ssrDepth = std::make_unique<gl::Texture>(gl, 0, gl::TextureTarget::Texture2d, false);
     m_ssrDepthSampler = std::make_unique<gl::Sampler>("u_SsrDepth", m_ssrDepth.get(), m_decalSamplerState.get());
     setSsrOptions(true, 1, 0.5f);
+    m_ssrDepthFloat.write(0);
+    m_ssrFrame.write(0.0f);
     m_gl = gl;
 }
 
