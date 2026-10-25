@@ -56,7 +56,11 @@ bool isAsoboEnvironmentOccluder(const gltf::asobo::ExtensionSet& extensions)
 DrawOrderClass asoboDrawOrderClass(const gltf::asobo::ExtensionSet& extensions)
 {
     const auto has = [&extensions](const char* name) { return extensions.find(name) != nullptr; };
-    if (has("ASOBO_material_geometry_decal") || has("ASOBO_material_blend_gbuffer")) {
+    const auto decalEnabled = [&extensions](const char* name) {
+        const gltf::asobo::ExtensionData* ext = extensions.find(name);
+        return ext != nullptr && ext->boolean("enabled").value_or(true);
+    };
+    if (decalEnabled("ASOBO_material_geometry_decal") || decalEnabled("ASOBO_material_blend_gbuffer")) {
         return DrawOrderClass::Decal;
     }
     if (has("ASOBO_material_glass_v2") || has("ASOBO_material_glass")
@@ -2072,6 +2076,15 @@ bool GltfRenderLayer::updateMaterialStates(const gltf::Gltf& gltf)
             break;
         }
     }
+    ++m_gltfGeneration;
+    m_traversal.frameToken = 0;
+    const gltf::asobo::ExtensionSet assetExtensions =
+        gltf::asobo::parseExtensions(gltf, gltf.getAsset(), gltf::asobo::Scope::Asset);
+    const gltf::asobo::ExtensionData* convention = assetExtensions.find("ASOBO_normal_map_convention");
+    const std::string* tangentSpaceConvention =
+        convention != nullptr ? convention->string("tangent_space_convention") : nullptr;
+    m_assetNormalMapConventionDirectX = tangentSpaceConvention != nullptr && *tangentSpaceConvention == "DirectX";
+
     m_syncingGltf = &gltf;
     updateMaterials(gltf.getMaterials());
     m_syncingGltf = nullptr;

@@ -82,6 +82,7 @@ struct UiScenarioFrame {
     std::function<bool(uint32_t, const std::string&, bool)> setViewportSetting;
     std::function<bool(bool)> setAnimationPlaying;
     std::function<bool(uint32_t)> splitViewport;
+    std::function<bool(const std::string&, const std::string&, const std::string&, const std::string&)> setAsoboParam;
 };
 
 // Drives real ImGui frames from a text script (--ui-script) by queueing mouse,
@@ -595,6 +596,11 @@ private:
             if (need(2)) {
                 const bool play = (args[1] == "on" || args[1] == "1" || args[1] == "true");
                 if (!frame.setAnimationPlaying || !frame.setAnimationPlaying(play)) fail("animplay failed: " + line);
+                m_waitFrames = 4;
+            }
+        } else if (cmd == "asoboparam") {
+            if (need(5)) {
+                if (!frame.setAsoboParam || !frame.setAsoboParam(args[1], args[2], args[3], args[4])) fail("asoboparam failed: " + line);
                 m_waitFrames = 4;
             }
         } else if (cmd == "vpsplit") {

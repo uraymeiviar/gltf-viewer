@@ -1,6 +1,7 @@
 // Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
 
 #include "Application.h"
+#include "imgui/ExtensionInspector.h"
 #include "imgui/stb_image_write.h"
 #include "imgui/SceneHierarchyPanel.h"
 #include "renderer/Skin.h"
@@ -1327,6 +1328,11 @@ void Application::finishFrame(FrameContext& frame, int displayW, int displayH)
             else
                 return false;
             return true;
+        };
+        uiFrame.setAsoboParam = [&](const std::string& matName, const std::string& extName,
+                                    const std::string& paramName, const std::string& value) {
+            return ux3d::imgui::ExtensionInspector::instance().setMaterialAsoboParameter(
+                gltfModel, matName, extName, paramName, value, sceneRevisions);
         };
         uiScenario.endFrame(window, uiFrame);
         if (uiScenario.failed()) {

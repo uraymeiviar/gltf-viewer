@@ -41,7 +41,7 @@ uniform int u_AsoboGlassCopyValid;
 #ifdef ASOBO_GLASS_REFRACTION
 uniform float u_AsoboGlassWidth;
 
-vec3 getAsoboGlassBehind(vec3 n, vec3 v, float ior)
+vec3 getAsoboGlassBehind(vec3 n, vec3 v, float ior, float perceptualRoughness)
 {
     // Parallel slab, width in scene units. Dividing by the normal component gives
     // the travel distance to the exit plane (not simply the length of the ray).
@@ -54,8 +54,11 @@ vec3 getAsoboGlassBehind(vec3 n, vec3 v, float ior)
     vec2 size = vec2(textureSize(u_TransmissionFramebufferSampler, 0));
     vec2 uv = gl_FragCoord.xy / size;
     uv += 0.5 * (clip.xy / clip.w - surfaceClip.xy / surfaceClip.w);
-    vec2 border = 0.5 / size;
-    return textureLod(u_TransmissionFramebufferSampler, clamp(uv, border, 1.0 - border), 0.0).rgb;
+    float maxLod = floor(log2(max(1.0, max(size.x, size.y))));
+    float roughBlur = max(0.0, perceptualRoughness - 0.08) / 0.92;
+    float lod = clamp(maxLod * applyIorToRoughness(roughBlur, ior), 0.0, maxLod);
+    vec2 border = 0.5 * exp2(lod) / size;
+    return textureLod(u_TransmissionFramebufferSampler, clamp(uv, border, 1.0 - border), lod).rgb;
 }
 #endif
 
@@ -664,7 +667,7 @@ void main()
 #endif
 #ifdef ASOBO_GLASS_REFRACTION
     if (u_AsoboGlassCopyValid != 0) {
-        color += getAsoboGlassBehind(n, v, materialInfo.ior) * (1.0 - coverage) * baseColor.rgb;
+        color += getAsoboGlassBehind(n, v, materialInfo.ior, materialInfo.perceptualRoughness) * (1.0 - coverage) * baseColor.rgb;
         // This is the complete scene colour, not a translucent layer. ImGui must
         // not multiply it by glass coverage again when it displays the viewport.
         baseColor.a = 1.0;

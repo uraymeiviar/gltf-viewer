@@ -7,6 +7,7 @@
 #include "imgui/ResourcesPanel.h"
 #include "imgui/ValidationPanel.h"
 #include "imgui/GltfValidator.h"
+#include "imgui/ExtensionInspector.h"
 #include "imgui/SamplerTest.h"
 #include "imgui/VaoTest.h"
 #include "imgui/PolygonModeTest.h"
@@ -165,6 +166,13 @@ std::optional<int> Application::configure(int argc, char** argv)
     modelToLoad = resolveSampleModelPath();
     std::string reloadModelArg;
     std::string asoboReportPath;
+    struct AsoboParamEditArg {
+        std::string material;
+        std::string extension;
+        std::string param;
+        std::string value;
+    };
+    std::vector<AsoboParamEditArg> setAsoboParamArgs;
     std::vector<std::string> searchPathArgs;
     std::string selectNodeArg;
     std::string isolateNodeArg;
@@ -371,6 +379,13 @@ std::optional<int> Application::configure(int argc, char** argv)
             activeViewport->settings.asobo.enabled = toLowerAscii(argv[++i]) != "off";
         } else if (arg == "--asobo-disable" && i + 1 < argc) {
             activeViewport->settings.asobo.setApplied(argv[++i], false);
+        } else if (arg == "--set-asobo-param" && i + 4 < argc) {
+            AsoboParamEditArg edit;
+            edit.material = argv[++i];
+            edit.extension = argv[++i];
+            edit.param = argv[++i];
+            edit.value = argv[++i];
+            setAsoboParamArgs.push_back(std::move(edit));
         } else if (arg == "--disable-instancing") {
             s_disableInstancing = true;
             commandGenerator->getCommandMapping().setInstancingEnabled(false);
@@ -1035,6 +1050,18 @@ std::optional<int> Application::configure(int argc, char** argv)
                                     gltfLayer.get(), animationPlayer, sceneRevisions, sceneEnvironments);
         updateWindowTitle(window, currentFilePath);
         std::printf("Reloaded model: %s\n", reloadModelArg.c_str());
+    }
+
+    for (const auto& edit : setAsoboParamArgs) {
+        if (!ux3d::imgui::ExtensionInspector::instance().setMaterialAsoboParameter(
+                gltfModel, edit.material, edit.extension, edit.param, edit.value, sceneRevisions)) {
+            std::fprintf(stderr, "Failed --set-asobo-param %s %s %s %s\n", edit.material.c_str(),
+                         edit.extension.c_str(), edit.param.c_str(), edit.value.c_str());
+            return 1;
+        }
+    }
+    if (!setAsoboParamArgs.empty() && gltfLayer != nullptr) {
+        gltfLayer->updateMaterialStates(gltfModel);
     }
 
     if (!asoboReportPath.empty()) {

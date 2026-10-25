@@ -90,9 +90,11 @@ bool DecalAccumulationLayer::appliesTo(const Material& material) const
     if (material.asobo == nullptr) {
         return false;
     }
-    const bool geometry = material.asobo->find("ASOBO_material_geometry_decal") != nullptr;
-    const bool blend = material.asobo->find("ASOBO_material_blend_gbuffer") != nullptr;
-    return (geometry && m_geometryDecalApplied) || (blend && m_blendGbufferApplied);
+    const gltf::asobo::ExtensionData* geometry = material.asobo->find("ASOBO_material_geometry_decal");
+    const gltf::asobo::ExtensionData* blend = material.asobo->find("ASOBO_material_blend_gbuffer");
+    const bool geometryActive = geometry != nullptr && geometry->boolean("enabled").value_or(true);
+    const bool blendActive = blend != nullptr && blend->boolean("enabled").value_or(true);
+    return (geometryActive && m_geometryDecalApplied) || (blendActive && m_blendGbufferApplied);
 }
 
 RendererScene DecalAccumulationLayer::applyLayer(RendererScene&& scene, const std::function<bool(const Mesh*)>& isSceneMesh)

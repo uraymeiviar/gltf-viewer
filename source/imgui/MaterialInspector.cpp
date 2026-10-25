@@ -330,7 +330,9 @@ bool MaterialInspector::render(ux3d::gltf::Material* material, ux3d::gltf::Gltf&
     std::string vendorHeader = "MSFS & Vendor Extensions (" + std::to_string(material->getUnknownExtensions().size()) + ")";
     if (ImGui::CollapsingHeader(vendorHeader.c_str(), hasVendorExts ? ImGuiTreeNodeFlags_DefaultOpen : 0)) {
         if (hasVendorExts) {
-            ExtensionInspector::instance().renderExtensions(material, gltfModel, revisions);
+            if (ExtensionInspector::instance().renderExtensions(material, gltfModel, revisions)) {
+                modified = true;
+            }
         } else {
             ImGui::TextDisabled("No vendor extensions defined on this material.");
         }

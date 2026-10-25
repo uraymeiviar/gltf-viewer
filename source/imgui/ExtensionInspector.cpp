@@ -4,7 +4,10 @@
 #include "imgui/EmbeddedVFS.h"
 #include "imgui/IconsMaterialDesignIcons.h"
 #include "imgui/TextureUtils.h"
+#include "imgui/Theme.h"
+#include "imgui/UiProbe.h"
 #include "imgui/ViewportInstance.h"
+#include "gltf/Material.h"
 #include "gltf/Texture.h"
 #include "gltf/Image.h"
 #include "gltf/extensions/AsoboExtensions.h"
@@ -12,7 +15,10 @@
 
 #include <imgui.h>
 #include <algorithm>
+#include <cfloat>
+#include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <sstream>
 #include <unordered_set>
 
@@ -258,6 +264,203 @@ void ExtensionInspector::helpMarker(const std::string& desc)
     }
 }
 
+namespace {
+const ux3d::gltf::asobo::PropertySpec* findAsoboPropertySpec(const ux3d::gltf::asobo::ExtensionSpec* extSpec,
+                                                             std::string_view propKey)
+{
+    if (extSpec == nullptr) {
+        return nullptr;
+    }
+    for (const auto& prop : extSpec->properties) {
+        if (prop.name == propKey) {
+            return &prop;
+        }
+    }
+    return nullptr;
+}
+
+nlohmann::json asoboDefaultToJson(const ux3d::gltf::asobo::PropertySpec& prop)
+{
+    using namespace ux3d::gltf::asobo;
+    return std::visit([](const auto& val) -> nlohmann::json {
+        using T = std::decay_t<decltype(val)>;
+        if constexpr (std::is_same_v<T, std::monostate>) {
+            return nullptr;
+        } else if constexpr (std::is_same_v<T, bool> || std::is_same_v<T, double> || std::is_same_v<T, std::string>) {
+            return val;
+        } else if constexpr (std::is_same_v<T, std::vector<double>>) {
+            nlohmann::json arr = nlohmann::json::array();
+            for (double d : val) {
+                arr.push_back(d);
+            }
+            return arr;
+        } else {
+            return nullptr;
+        }
+    }, prop.defaultValue);
+}
+
+bool isColorPropertyKey(std::string_view propKey, const ux3d::imgui::ExtensionSchemaProperty* propDef)
+{
+    if (propKey.find("Color") != std::string_view::npos || propKey.find("color") != std::string_view::npos) {
+        return true;
+    }
+    if (propDef != nullptr) {
+        if (propDef->description.find("color") != std::string::npos ||
+            propDef->description.find("Color") != std::string::npos ||
+            propDef->description.find("RGB") != std::string::npos) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool isIntegerProperty(std::string_view propKey, const ux3d::imgui::ExtensionSchemaProperty* propDef)
+{
+    if (propDef != nullptr && propDef->type == "integer") {
+        return true;
+    }
+    return propKey == "drawOrderOffset" || propKey == "index" || propKey == "texCoord";
+}
+} // namespace
+
+bool ExtensionInspector::setExtensionParameter(ux3d::gltf::GltfObject* object,
+                                               const std::string& extName,
+                                               const std::string& paramName,
+                                               const nlohmann::json& paramValue,
+                                               SceneRevisions& revisions)
+{
+    if (object == nullptr || extName.empty() || paramName.empty()) {
+        return false;
+    }
+
+    const auto& unknownExts = object->getUnknownExtensions();
+    auto it = unknownExts.find(extName.c_str());
+    if (it == unknownExts.end()) {
+        return false;
+    }
+
+    nlohmann::json extJson;
+    try {
+        extJson = nlohmann::json::parse(it->second.c_str());
+    } catch (...) {
+        return false;
+    }
+    if (!extJson.is_object()) {
+        return false;
+    }
+
+    extJson[paramName] = paramValue;
+    object->setUnknownExtension(extName.c_str(), extJson.dump().c_str());
+    revisions.mark(SceneChange::Material);
+    revisions.mark(SceneChange::Extension);
+    return true;
+}
+
+bool ExtensionInspector::setMaterialAsoboParameter(ux3d::gltf::Gltf& gltfModel,
+                                                   const std::string& materialName,
+                                                   const std::string& extName,
+                                                   const std::string& paramName,
+                                                   const std::string& rawValue,
+                                                   SceneRevisions& revisions)
+{
+    loadAllSchemas();
+
+    ux3d::gltf::GltfObject* targetObject = nullptr;
+    if (materialName == "$asset") {
+        targetObject = &gltfModel.getAsset();
+    } else {
+        for (auto& mat : gltfModel.getElements<ux3d::gltf::Material>()) {
+            if (mat.hasName() && mat.getName() == materialName.c_str()) {
+                targetObject = &mat;
+                break;
+            }
+        }
+        if (targetObject == nullptr) {
+            for (auto& mat : gltfModel.getElements<ux3d::gltf::Material>()) {
+                if (std::to_string(mat.m_ID) == materialName) {
+                    targetObject = &mat;
+                    break;
+                }
+            }
+        }
+    }
+    if (targetObject == nullptr || !ux3d::gltf::asobo::isAsoboExtension(extName)) {
+        return false;
+    }
+
+    const auto* extSpec = ux3d::gltf::asobo::findExtensionSpec(extName);
+    const auto* propSpec = findAsoboPropertySpec(extSpec, paramName);
+    const auto* schema = getSchema(extName);
+    const ExtensionSchemaProperty* propDef = nullptr;
+    if (schema != nullptr) {
+        auto it = schema->properties.find(paramName);
+        if (it != schema->properties.end()) {
+            propDef = &it->second;
+        }
+    }
+
+    nlohmann::json parsedValue;
+    if (propSpec != nullptr) {
+        using ux3d::gltf::asobo::ValueType;
+        switch (propSpec->type) {
+        case ValueType::Boolean:
+            if (rawValue == "true" || rawValue == "1" || rawValue == "on") {
+                parsedValue = true;
+            } else if (rawValue == "false" || rawValue == "0" || rawValue == "off") {
+                parsedValue = false;
+            } else {
+                return false;
+            }
+            break;
+        case ValueType::Number:
+            try {
+                if (isIntegerProperty(paramName, propDef)) {
+                    parsedValue = std::stoll(rawValue);
+                } else {
+                    parsedValue = std::stod(rawValue);
+                }
+            } catch (...) {
+                return false;
+            }
+            break;
+        case ValueType::String:
+            parsedValue = rawValue;
+            break;
+        case ValueType::NumberArray:
+            try {
+                if (!rawValue.empty() && rawValue.front() == '[') {
+                    parsedValue = nlohmann::json::parse(rawValue);
+                } else {
+                    nlohmann::json arr = nlohmann::json::array();
+                    std::stringstream ss(rawValue);
+                    std::string item;
+                    while (std::getline(ss, item, ',')) {
+                        arr.push_back(std::stod(item));
+                    }
+                    parsedValue = std::move(arr);
+                }
+                if (!parsedValue.is_array()) {
+                    return false;
+                }
+            } catch (...) {
+                return false;
+            }
+            break;
+        default:
+            return false;
+        }
+    } else {
+        try {
+            parsedValue = nlohmann::json::parse(rawValue);
+        } catch (...) {
+            parsedValue = rawValue;
+        }
+    }
+
+    return setExtensionParameter(targetObject, extName, paramName, parsedValue, revisions);
+}
+
 bool ExtensionInspector::renderExtensions(ux3d::gltf::GltfObject* object,
                                           ux3d::gltf::Gltf& gltfModel,
                                           SceneRevisions& revisions)
@@ -273,13 +476,16 @@ bool ExtensionInspector::renderExtensions(ux3d::gltf::GltfObject* object,
         return false;
     }
 
-    for (const auto& [extName, jsonStr] : unknownExts) {
+    bool anyModified = false;
+
+    for (const auto& [extNameStr, jsonStr] : unknownExts) {
+        const std::string extName = extNameStr.c_str();
         ImGui::PushID(extName.c_str());
 
         nlohmann::json extJson;
         bool parseOk = true;
         try {
-            extJson = nlohmann::json::parse(jsonStr);
+            extJson = nlohmann::json::parse(jsonStr.c_str());
         } catch (...) {
             parseOk = false;
         }
@@ -363,7 +569,9 @@ bool ExtensionInspector::renderExtensions(ux3d::gltf::GltfObject* object,
                 ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Malformed JSON syntax");
                 ImGui::TextWrapped("%s", jsonStr.c_str());
             } else {
-                renderSingleExtension(extName, extJson, schema, gltfModel);
+                if (renderSingleExtension(object, extName, extJson, schema, gltfModel, revisions)) {
+                    anyModified = true;
+                }
             }
 
             ImGui::TreePop();
@@ -372,49 +580,311 @@ bool ExtensionInspector::renderExtensions(ux3d::gltf::GltfObject* object,
         ImGui::PopID();
     }
 
-    return false;
+    return anyModified;
 }
 
-void ExtensionInspector::renderSingleExtension(const std::string& extName,
-                                               const nlohmann::json& extJson,
+bool ExtensionInspector::renderSingleExtension(ux3d::gltf::GltfObject* object,
+                                               const std::string& extName,
+                                               nlohmann::json& extJson,
                                                const ExtensionSchemaInfo* schema,
-                                               ux3d::gltf::Gltf& gltfModel)
+                                               ux3d::gltf::Gltf& gltfModel,
+                                               SceneRevisions& revisions)
 {
     if (!extJson.is_object()) {
         ImGui::TextDisabled("Value is not a JSON object: %s", extJson.dump().c_str());
-        return;
+        return false;
     }
 
-    if (extJson.empty()) {
-        ImGui::TextDisabled("(No parameters)");
-        return;
-    }
+    const bool isAsobo = ux3d::gltf::asobo::isAsoboExtension(extName);
+    const auto* extSpec = isAsobo ? ux3d::gltf::asobo::findExtensionSpec(extName) : nullptr;
 
-    std::unordered_set<std::string> renderedKeys;
+    if (!isAsobo) {
+        if (extJson.empty()) {
+            ImGui::TextDisabled("(No parameters)");
+            return false;
+        }
 
-    // 1. Render properties defined by the schema in order
-    if (schema != nullptr) {
-        for (const auto& propKey : schema->orderedPropertyKeys) {
-            auto itProp = schema->properties.find(propKey);
-            if (itProp == schema->properties.end()) continue;
-
-            if (!extJson.contains(propKey)) {
+        std::unordered_set<std::string> renderedKeys;
+        if (schema != nullptr) {
+            for (const auto& propKey : schema->orderedPropertyKeys) {
+                auto itProp = schema->properties.find(propKey);
+                if (itProp == schema->properties.end() || !extJson.contains(propKey)) {
+                    continue;
+                }
+                renderedKeys.insert(propKey);
+                renderPropertyReadOnly(propKey, extJson.at(propKey), &itProp->second, gltfModel);
+            }
+        }
+        for (const auto& [k, v] : extJson.items()) {
+            if (renderedKeys.count(k) != 0 || k == "extensions" || k == "extras") {
                 continue;
             }
-
-            renderedKeys.insert(propKey);
-            renderPropertyReadOnly(propKey, extJson.at(propKey), &itProp->second, gltfModel);
+            renderPropertyReadOnly(k, v, nullptr, gltfModel);
         }
+        return false;
     }
 
-    // 2. Render any remaining extra properties not described in the schema
-    for (const auto& [k, v] : extJson.items()) {
-        if (renderedKeys.count(k) != 0 || k == "extensions" || k == "extras") {
+    // ASOBO extension: make every typed parameter of the ASOBO model editable.
+    // Build the ordered list of property keys from the schema + AsoboExtensionSpecs + extJson.
+    std::vector<std::string> orderedKeys;
+    std::unordered_set<std::string> seenKeys;
+    auto addKey = [&](const std::string& key) {
+        if (key == "extensions" || key == "extras") {
+            return;
+        }
+        if (seenKeys.insert(key).second) {
+            orderedKeys.push_back(key);
+        }
+    };
+
+    if (schema != nullptr) {
+        for (const auto& k : schema->orderedPropertyKeys) {
+            addKey(k);
+        }
+    }
+    if (extSpec != nullptr) {
+        for (const auto& p : extSpec->properties) {
+            addKey(std::string(p.name));
+        }
+    }
+    for (const auto& [k, _] : extJson.items()) {
+        addKey(k);
+    }
+
+    bool anyRendered = false;
+    bool modified = false;
+
+    for (const auto& propKey : orderedKeys) {
+        const auto* propSpec = findAsoboPropertySpec(extSpec, propKey);
+        const ExtensionSchemaProperty* propDef = nullptr;
+        if (schema != nullptr) {
+            auto it = schema->properties.find(propKey);
+            if (it != schema->properties.end()) {
+                propDef = &it->second;
+            }
+        }
+
+        const bool isTex = (propSpec != nullptr && propSpec->type == ux3d::gltf::asobo::ValueType::Texture) ||
+                           (propDef != nullptr && propDef->isTexture) ||
+                           propKey.find("Texture") != std::string::npos ||
+                           (propKey.find("Mask") != std::string::npos &&
+                            (propSpec == nullptr || propSpec->type == ux3d::gltf::asobo::ValueType::Texture));
+
+        if (isTex) {
+            if (extJson.contains(propKey)) {
+                anyRendered = true;
+                renderTextureReadOnly(propKey, extJson.at(propKey), propDef ? propDef->description : "", gltfModel);
+            }
             continue;
         }
 
-        renderPropertyReadOnly(k, v, nullptr, gltfModel);
+        nlohmann::json currentVal;
+        if (extJson.contains(propKey)) {
+            currentVal = extJson.at(propKey);
+        } else if (propSpec != nullptr) {
+            currentVal = asoboDefaultToJson(*propSpec);
+            if (currentVal.is_null() && propDef != nullptr && !propDef->defaultValue.is_null()) {
+                currentVal = propDef->defaultValue;
+            }
+        } else if (propDef != nullptr && !propDef->defaultValue.is_null()) {
+            currentVal = propDef->defaultValue;
+        }
+
+        if (currentVal.is_null()) {
+            continue;
+        }
+
+        anyRendered = true;
+        if (renderAsoboPropertyWidget(extName, propKey, currentVal, propSpec, propDef)) {
+            if (setExtensionParameter(object, extName, propKey, currentVal, revisions)) {
+                extJson[propKey] = currentVal;
+                modified = true;
+            }
+        }
     }
+
+    if (!anyRendered) {
+        ImGui::TextDisabled("(No parameters)");
+    }
+
+    return modified;
+}
+
+bool ExtensionInspector::renderAsoboPropertyWidget(const std::string& extName,
+                                                   const std::string& propKey,
+                                                   nlohmann::json& propVal,
+                                                   const ux3d::gltf::asobo::PropertySpec* propSpec,
+                                                   const ExtensionSchemaProperty* propDef)
+{
+    ImGui::PushID(propKey.c_str());
+    bool changed = false;
+    const std::string desc = propDef ? propDef->description : "";
+    const std::string probeId = "asobo." + extName + "." + propKey;
+
+    using ux3d::gltf::asobo::ValueType;
+    const ValueType vtype = propSpec != nullptr ? propSpec->type : (
+        propVal.is_boolean() ? ValueType::Boolean :
+        propVal.is_number() ? ValueType::Number :
+        propVal.is_string() ? ValueType::String :
+        propVal.is_array() ? ValueType::NumberArray : ValueType::Texture);
+
+    if (vtype == ValueType::Boolean && propVal.is_boolean()) {
+        bool v = propVal.get<bool>();
+        if (ImGui::Checkbox(propKey.c_str(), &v)) {
+            propVal = v;
+            changed = true;
+        }
+        UiProbe::item(probeId.c_str(), 0);
+        helpMarker(desc);
+        ImGui::PopID();
+        return changed;
+    }
+
+    if (vtype == ValueType::Number && propVal.is_number()) {
+        const bool hasMin = (propSpec != nullptr && propSpec->minimum.has_value()) || (propDef != nullptr && propDef->hasMinimum);
+        const bool hasMax = (propSpec != nullptr && propSpec->maximum.has_value()) || (propDef != nullptr && propDef->hasMaximum);
+        const double minD = (propSpec != nullptr && propSpec->minimum.has_value()) ? *propSpec->minimum
+                          : (propDef != nullptr && propDef->hasMinimum) ? propDef->minimum : 0.0;
+        const double maxD = (propSpec != nullptr && propSpec->maximum.has_value()) ? *propSpec->maximum
+                          : (propDef != nullptr && propDef->hasMaximum) ? propDef->maximum : 0.0;
+
+        ImGui::PushFont(getMonoFont());
+        if (isIntegerProperty(propKey, propDef)) {
+            int v = static_cast<int>(std::lround(propVal.get<double>()));
+            int vMin = hasMin ? static_cast<int>(std::lround(minD)) : (propKey == "drawOrderOffset" ? -999 : 0);
+            int vMax = hasMax ? static_cast<int>(std::lround(maxD)) : (propKey == "drawOrderOffset" ? 999 : 0);
+            if (ImGui::DragInt(propKey.c_str(), &v, 1.0f, vMin, vMax)) {
+                if (vMin < vMax) {
+                    v = std::clamp(v, vMin, vMax);
+                }
+                propVal = v;
+                changed = true;
+            }
+        } else {
+            float v = static_cast<float>(propVal.get<double>());
+            float vMin = 0.0f;
+            float vMax = 0.0f;
+            if (hasMin && hasMax) {
+                vMin = static_cast<float>(minD);
+                vMax = static_cast<float>(maxD);
+            } else if (hasMin) {
+                vMin = static_cast<float>(minD);
+                vMax = FLT_MAX;
+            } else if (hasMax) {
+                vMin = -FLT_MAX;
+                vMax = static_cast<float>(maxD);
+            }
+            float speed = 0.01f;
+            if (hasMin && hasMax && vMax > vMin) {
+                speed = std::max(0.001f, (vMax - vMin) * 0.005f);
+            } else if (propKey == "glassWidth") {
+                speed = 0.002f;
+            }
+            const char* fmt = (propKey == "glassWidth") ? "%.4f" : "%.3f";
+            if (ImGui::DragFloat(propKey.c_str(), &v, speed, vMin, vMax, fmt)) {
+                if (hasMin && v < vMin) v = vMin;
+                if (hasMax && v > vMax) v = vMax;
+                propVal = static_cast<double>(v);
+                changed = true;
+            }
+        }
+        ImGui::PopFont();
+        UiProbe::item(probeId.c_str(), 0);
+        helpMarker(desc);
+        ImGui::PopID();
+        return changed;
+    }
+
+    if (vtype == ValueType::String && propVal.is_string()) {
+        std::string cur = propVal.get<std::string>();
+        std::vector<std::string> enums;
+        if (propDef != nullptr && !propDef->enumValues.empty()) {
+            enums = propDef->enumValues;
+        } else if (extName == "ASOBO_normal_map_convention" && propKey == "tangent_space_convention") {
+            enums = { "DirectX", "OpenGL" };
+        } else if (extName == "ASOBO_material_geometry_decal" && propKey == "mode") {
+            enums = { "default", "frosted", "blendMasked" };
+        }
+
+        if (!enums.empty()) {
+            if (ImGui::BeginCombo(propKey.c_str(), cur.c_str())) {
+                for (const auto& opt : enums) {
+                    bool selected = (cur == opt);
+                    if (ImGui::Selectable(opt.c_str(), selected)) {
+                        propVal = opt;
+                        changed = true;
+                    }
+                    if (selected) {
+                        ImGui::SetItemDefaultFocus();
+                    }
+                }
+                ImGui::EndCombo();
+            }
+        } else {
+            char buf[256] = {};
+            std::strncpy(buf, cur.c_str(), sizeof(buf) - 1);
+            if (ImGui::InputText(propKey.c_str(), buf, sizeof(buf))) {
+                propVal = std::string(buf);
+                changed = true;
+            }
+        }
+        UiProbe::item(probeId.c_str(), 0);
+        helpMarker(desc);
+        ImGui::PopID();
+        return changed;
+    }
+
+    if (vtype == ValueType::NumberArray && propVal.is_array()) {
+        const size_t n = propVal.size();
+        const bool isColor = isColorPropertyKey(propKey, propDef);
+        if (isColor && (n == 3 || n == 4)) {
+            float col[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+            for (size_t i = 0; i < n; ++i) {
+                if (propVal[i].is_number()) {
+                    col[i] = static_cast<float>(propVal[i].get<double>());
+                }
+            }
+            bool colChanged = (n == 3)
+                ? ImGui::ColorEdit3(propKey.c_str(), col)
+                : ImGui::ColorEdit4(propKey.c_str(), col);
+            if (colChanged) {
+                nlohmann::json arr = nlohmann::json::array();
+                for (size_t i = 0; i < n; ++i) {
+                    arr.push_back(static_cast<double>(col[i]));
+                }
+                propVal = std::move(arr);
+                changed = true;
+            }
+        } else if (n >= 2 && n <= 4) {
+            float vals[4] = {};
+            for (size_t i = 0; i < n; ++i) {
+                if (propVal[i].is_number()) {
+                    vals[i] = static_cast<float>(propVal[i].get<double>());
+                }
+            }
+            ImGui::PushFont(getMonoFont());
+            bool arrChanged = false;
+            if (n == 2) arrChanged = ImGui::DragFloat2(propKey.c_str(), vals, 0.01f, 0.0f, 0.0f, "%.3f");
+            else if (n == 3) arrChanged = ImGui::DragFloat3(propKey.c_str(), vals, 0.01f, 0.0f, 0.0f, "%.3f");
+            else if (n == 4) arrChanged = ImGui::DragFloat4(propKey.c_str(), vals, 0.01f, 0.0f, 0.0f, "%.3f");
+            ImGui::PopFont();
+            if (arrChanged) {
+                nlohmann::json arr = nlohmann::json::array();
+                for (size_t i = 0; i < n; ++i) {
+                    arr.push_back(static_cast<double>(vals[i]));
+                }
+                propVal = std::move(arr);
+                changed = true;
+            }
+        }
+        UiProbe::item(probeId.c_str(), 0);
+        helpMarker(desc);
+        ImGui::PopID();
+        return changed;
+    }
+
+    ImGui::PopID();
+    return false;
 }
 
 void ExtensionInspector::renderPropertyReadOnly(const std::string& propKey,

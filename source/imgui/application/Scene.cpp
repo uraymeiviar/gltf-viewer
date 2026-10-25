@@ -372,8 +372,11 @@ void Application::synchronizeScene(FrameContext& frame)
     // re-uploads every accessor (m_bufferMapping) and rebuilds the meshes, which is not
     // needed for an Inspector colour/factor change. --force-full-sync keeps the old path
     // as an A/B reference for the per-edit cost measurement.
+    const uint32_t materialSyncMask =
+        ux3d::imgui::sceneChangeBit(ux3d::imgui::SceneChange::Material) |
+        ux3d::imgui::sceneChangeBit(ux3d::imgui::SceneChange::Extension);
     const bool materialOnlySync = rendererSyncPending && !s_forceFullSync
-        && (rendererChanges & ~ux3d::imgui::sceneChangeBit(ux3d::imgui::SceneChange::Material)) == 0;
+        && (rendererChanges & ~materialSyncMask) == 0;
     const bool animationApplyPending =
         !rendererSyncPending &&
         (pendingChanges & ux3d::imgui::sceneChangeBit(ux3d::imgui::SceneChange::AnimationTime)) != 0;

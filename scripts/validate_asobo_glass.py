@@ -323,17 +323,42 @@ def main():
     tinted = render(fixture("tinted",normal=(0.7071,0,0.7071),tint=(0.3,1,0.3)),"tinted")
     check(pixels(tinted)[:,:,0].mean() < pixels(a)[:,:,0].mean()-2,
           "base colour tints the copied background")
+    # Rough glass_v2 blurs the refracted background (lower high-frequency energy than smooth).
+    smooth_glass = fixture("rough_005", width=0.5, normal=(0.7071,0,0.7071))
+    s_doc = json.loads(smooth_glass.read_text())
+    s_doc["materials"][0]["pbrMetallicRoughness"]["roughnessFactor"] = 0.05
+    smooth_glass.write_text(json.dumps(s_doc), encoding="utf-8")
+    frosted_glass = fixture("rough_090", width=0.5, normal=(0.7071,0,0.7071))
+    r_doc = json.loads(frosted_glass.read_text())
+    r_doc["materials"][0]["pbrMetallicRoughness"]["roughnessFactor"] = 0.90
+    frosted_glass.write_text(json.dumps(r_doc), encoding="utf-8")
+    ps = pixels(render(smooth_glass, "rough_005"))
+    pr = pixels(render(frosted_glass, "rough_090"))
+    hf_smooth = float(np.abs(np.diff(ps, axis=0)).mean() + np.abs(np.diff(ps, axis=1)).mean())
+    hf_rough = float(np.abs(np.diff(pr, axis=0)).mean() + np.abs(np.diff(pr, axis=1)).mean())
+    metrics["refraction_hf_smooth"] = hf_smooth
+    metrics["refraction_hf_rough"] = hf_rough
+    check(hf_rough < hf_smooth * 0.75,
+          f"rough glass_v2 blurs refraction: HF {hf_rough:.3f} < {hf_smooth:.3f}")
+    # Live ASOBO parameter edit via --set-asobo-param matches authored fixture byte-for-byte.
+    param_thick = render(thin, "param_width_large", ["--set-asobo-param", "0", GLASS, "glassWidth", "3.0"])
+    check(same(param_thick, b), "--set-asobo-param glassWidth=3.0 matches width_large fixture byte-for-byte")
     # Exercise the pre-existing KHR transmission copy path with no ASOBO declaration.
     khr = fixture("khr",None)
     doc = json.loads(khr.read_text())
     doc["materials"][0]["extensions"] = {"KHR_materials_transmission": {"transmissionFactor":0.8}}
     doc["extensionsUsed"].append("KHR_materials_transmission")
     khr.write_text(json.dumps(doc),encoding="utf-8")
+    BASELINE_399 = REPO / "build/baselines/399c88b.exe"
     for label, model, flags in (("khr",khr,[]),
                                 ("plain",fixture("plain",None),[]),
                                 ("asobo_off",thick,["--asobo","off"])):
-        check(same(render(model,label,flags),render(model,label+"_baseline",flags,BASELINE)),
+        cur = render(model,label,flags)
+        check(same(cur,render(model,label+"_baseline",flags,BASELINE)),
               label+" is byte-identical to ed36dd8")
+        if BASELINE_399.exists():
+            check(same(cur,render(model,label+"_baseline399",flags,BASELINE_399)),
+                  label+" is byte-identical to 399c88b")
     (OUT/"glass_metrics.json").write_text(json.dumps(metrics,indent=2),encoding="utf-8")
     print(json.dumps(metrics,indent=2))
     if failures:
