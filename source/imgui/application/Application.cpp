@@ -202,6 +202,8 @@ int Application::run(int argc, char** argv)
     pickingLayer = std::make_unique<ux3d::renderer::PickingRenderLayer>(gladGL.get());
     // A2.1: the decal prepass adds its own program and pass to the scene built below.
     decalPrepassLayer = std::make_unique<ux3d::renderer::DecalPrepassLayer>(gladGL.get());
+    // A2.2: the accumulation pass draws the decals the prepass excluded.
+    decalAccumulationLayer = std::make_unique<ux3d::renderer::DecalAccumulationLayer>(gladGL.get());
     // P5.2: the one picking target shared by all viewports, a single pixel.
     pickingTarget.resize(1, 1, 1);
 

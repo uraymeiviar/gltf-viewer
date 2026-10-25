@@ -314,6 +314,10 @@ std::optional<int> Application::configure(int argc, char** argv)
             s_fixedFrameTime = std::stof(argv[++i]);
         } else if (arg == "--force-full-sync") {
             s_forceFullSync = true;
+        } else if (arg == "--material-edit-emissive" && i + 1 < argc) {
+            // A2.2: edits this material's emissive factor every frame (a material-only
+            // SceneChange::Material edit) for the per-edit cost measurement.
+            s_materialEditEmissiveMaterial = argv[++i];
         } else if (arg == "--disable-transform-reuse") {
             // P4.7 A/B reference: every traversal recomputes and pushes every node.
             ux3d::renderer::TransformHierarchyNode::setReuseEnabled(false);

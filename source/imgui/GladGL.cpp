@@ -260,6 +260,21 @@ void GladGL::blendFunc(GLenum sfactor, GLenum dfactor)
     glBlendFunc(sfactor, dfactor);
 }
 
+void GladGL::blendFunci(GLuint buffer, GLenum sfactor, GLenum dfactor)
+{
+    ux3d::imgui::profiling::countGlCall();
+    ux3d::imgui::profiling::countBlendFunc();
+    glBlendFunci(buffer, sfactor, dfactor);
+}
+
+void GladGL::blendFuncSeparatei(GLuint buffer, GLenum sfactorRGB, GLenum dfactorRGB, GLenum sfactorAlpha,
+                                GLenum dfactorAlpha)
+{
+    ux3d::imgui::profiling::countGlCall();
+    ux3d::imgui::profiling::countBlendFunc();
+    glBlendFuncSeparatei(buffer, sfactorRGB, dfactorRGB, sfactorAlpha, dfactorAlpha);
+}
+
 void GladGL::blendEquation(GLenum mode)
 {
     ux3d::imgui::profiling::countGlCall();
@@ -267,11 +282,24 @@ void GladGL::blendEquation(GLenum mode)
     glBlendEquation(mode);
 }
 
+void GladGL::blendEquationi(GLuint buffer, GLenum mode)
+{
+    ux3d::imgui::profiling::countGlCall();
+    ux3d::imgui::profiling::countBlendEquation();
+    glBlendEquationi(buffer, mode);
+}
+
 void GladGL::depthFunc(GLenum func)
 {
     ux3d::imgui::profiling::countGlCall();
     ux3d::imgui::profiling::countDepthFunc();
     glDepthFunc(func);
+}
+
+void GladGL::polygonOffset(GLfloat factor, GLfloat units)
+{
+    ux3d::imgui::profiling::countGlCall();
+    glPolygonOffset(factor, units);
 }
 
 void GladGL::colorMask(GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha)

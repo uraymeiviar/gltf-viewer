@@ -78,8 +78,9 @@ private:
 // section 2). It is created on first use, grows to the largest render-scale resolution a
 // viewport needs, and is released when no viewport needs it or the model is unloaded.
 // Layout: DEPTH_COMPONENT32F depth, RGB10_A2 G0 (world-space geometric normal, n*0.5+0.5)
-// and the six accumulation targets A0-A5. Prepass = depth + G0; accumulation = depth +
-// A0-A5 with depth read-only. Reports 33 bytes per pixel.
+// and the six accumulation targets A0-A5. Prepass = depth + G0; accumulation = A0-A5 only,
+// sampling the depth texture for the decal shader's tolerant depth test. Reports 33 bytes
+// per pixel.
 class DecalBuffer {
 public:
     static constexpr int kAccumulationTargetCount = 6;
@@ -123,8 +124,8 @@ public:
     // than the current viewport, so the viewport is set to the caller's render size and
     // only that sub-rectangle is drawn.
     void bindPrepass(int viewportWidth, int viewportHeight);
-    // Binds the accumulation FBO and its viewport (depth + A0-A5). The depth attachment is
-    // read-only while this FBO is bound.
+    // Binds the accumulation FBO and its viewport (A0-A5). It has no depth attachment; the
+    // prepass depth texture is sampled by the decal shader instead.
     void bindAccumulation(int viewportWidth, int viewportHeight);
 
 private:

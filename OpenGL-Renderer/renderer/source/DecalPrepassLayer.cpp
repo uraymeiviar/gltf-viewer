@@ -132,6 +132,9 @@ RendererScene DecalPrepassLayer::applyLayer(RendererScene&& scene, const std::fu
         }
         pooled->fragmentShader = "decal_prepass.frag";
         pooled->renderPass = m_pass.get();
+        // A2.2: the prepass never reads the accumulation targets; the receiver define would
+        // only pull the decal-reader declarations into a shader that does not bind them.
+        pooled->defines.undefine("ASOBO_DECAL_RECEIVER");
         prepassDraws.emplace_back(mesh, pooled);
     }
 

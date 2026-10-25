@@ -59,8 +59,13 @@ public:
     virtual void scissor(GLint x, GLint y, GLsizei width, GLsizei height) override;
     virtual void frontFace(GLenum mode) override;
     virtual void blendFunc(GLenum sfactor, GLenum dfactor) override;
+    virtual void blendFunci(GLuint buffer, GLenum sfactor, GLenum dfactor) override;
+    virtual void blendFuncSeparatei(GLuint buffer, GLenum sfactorRGB, GLenum dfactorRGB, GLenum sfactorAlpha,
+                                    GLenum dfactorAlpha) override;
     virtual void blendEquation(GLenum mode) override;
+    virtual void blendEquationi(GLuint buffer, GLenum mode) override;
     virtual void depthFunc(GLenum func) override;
+    virtual void polygonOffset(GLfloat factor, GLfloat units) override;
     virtual void depthMask(GLboolean flag) override { glDepthMask(flag); }
     virtual void colorMask(GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha) override;
     virtual void clearColor(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha) override;

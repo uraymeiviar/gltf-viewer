@@ -30,6 +30,7 @@ ux3d::renderer::CommandGenerator::CommandGenerator(gl::GL* gl, const filesystem:
     , m_exposureUniform("u_Exposure")
     , m_asoboNormalMapDirectXUniform("u_AsoboNormalMapDirectX")
     , m_asoboWindshieldVertexColorMaskUniform("u_AsoboWindshieldVertexColorMask")
+    , m_asoboDecalReceiverUniform("u_AsoboDecalReceiver")
     , m_lights(gl)
 {
     setEnvironmentMapRotation(0.0f);
@@ -38,6 +39,24 @@ ux3d::renderer::CommandGenerator::CommandGenerator(gl::GL* gl, const filesystem:
     setExposure(1.0f);
     setAsoboNormalMapConvention(false);
     setAsoboWindshieldVertexColorMask(false);
+    setAsoboDecalReceiver(false);
+
+    // A2.2: stable borrowed wrappers for the six accumulation targets. Nearest filtering
+    // keeps texelFetch exact; clamp-to-edge is irrelevant for texelFetch but explicit.
+    m_decalSamplerState = std::make_unique<gl::SamplerState>();
+    m_decalSamplerState->minFilter = gl::TextureMinFilter::Nearest;
+    m_decalSamplerState->magFilter = gl::TextureMagFilter::Nearest;
+    m_decalSamplerState->wrapS = gl::TextureWrap::ClampToEdge;
+    m_decalSamplerState->wrapT = gl::TextureWrap::ClampToEdge;
+    m_decalSamplerState->wrapR = gl::TextureWrap::ClampToEdge;
+    const char* decalSamplerNames[6] = {
+        "u_DecalA0", "u_DecalA1", "u_DecalA2", "u_DecalA3", "u_DecalA4", "u_DecalA5",
+    };
+    for (size_t i = 0; i < m_decalTextures.size(); ++i) {
+        m_decalTextures[i] = std::make_unique<gl::Texture>(gl, 0, gl::TextureTarget::Texture2d, false);
+        m_decalSamplers[i] = std::make_unique<gl::Sampler>(decalSamplerNames[i], m_decalTextures[i].get(),
+                                                           m_decalSamplerState.get());
+    }
     m_gl = gl;
 }
 
@@ -81,8 +100,8 @@ void ux3d::renderer::CommandGenerator::bindFrameBlocks()
     }
     // EnvironmentBlock: mat3 u_EnvRotation as three 16-byte columns, then u_EnvIntensity
     // at 48, u_EnvBlurNormalized at 52, int u_MipCount at 56, u_Exposure at 60,
-    // int u_AsoboNormalMapDirectX at 64 and int u_AsoboWindshieldVertexColorMask at 68
-    // (the block is padded to 80 for std140).
+    // int u_AsoboNormalMapDirectX at 64, int u_AsoboWindshieldVertexColorMask at 68 and
+    // int u_AsoboDecalReceiver at 72 (the block is padded to 80 for std140).
     uint8_t environment[80] = {};
     if (m_environmentMapRotationUniform.byteSize() == 36) {
         for (size_t column = 0; column < 3; ++column) {
@@ -97,6 +116,7 @@ void ux3d::renderer::CommandGenerator::bindFrameBlocks()
     place(environment, 60, 4, m_exposureUniform);
     place(environment, 64, 4, m_asoboNormalMapDirectXUniform);
     place(environment, 68, 4, m_asoboWindshieldVertexColorMaskUniform);
+    place(environment, 72, 4, m_asoboDecalReceiverUniform);
     uploadFrameBlock(m_environmentBlock, gl::kEnvironmentBlockBinding, environment, sizeof(environment));
 }
 
@@ -120,11 +140,14 @@ void ux3d::renderer::CommandGenerator::emitCommands()
         // sort into passes
         auto& pass = m_passCommands[desc->pass->getId()];
         const Material* material = desc->material;
-        const bool covered = material != nullptr && isTransparentPass(*material) && material->drawOrderActive
+        // A2.2: the decal accumulation pass owns the decal draws; those never write depth.
+        const bool decalPass = material != nullptr && desc->pass->getId() == RenderPassType::DecalAccumulation;
+        const bool covered = material != nullptr
+            && ((isTransparentPass(*material) && material->drawOrderActive)
+                || decalPass)
             && material->drawOrderClass != DrawOrderClass::None;
         // A1.4: covered transparent draws keep depth testing against opaque geometry but stop
-        // writing depth, so their explicit order decides what is on top (a deferred decal path
-        // will replace this in A2).
+        // writing depth, so their explicit order decides what is on top.
         desc->command.depthWriteEnabled = !covered;
         float sortKey = desc->distanceSortKey;
         if (covered && material->drawOrderClass == DrawOrderClass::Glass) {
@@ -133,9 +156,12 @@ void ux3d::renderer::CommandGenerator::emitCommands()
             // key = distance + offset, and TransparentPass draws larger keys first.
             sortKey += static_cast<float>(material->drawOrderOffset);
         }
+        // A2.2: the accumulation pass sorts by the A1.4 decal key. The offset is an exact
+        // integer draw control; it only applies while ASOBO_material_draw_order is on.
+        const int drawOrderOffset = covered && material->drawOrderActive ? material->drawOrderOffset : 0;
         pass[desc->pass].emplace_back(&desc->command, sortKey,
                                       covered ? material->drawOrderClass : DrawOrderClass::None,
-                                      covered ? material->drawOrderOffset : 0);
+                                      drawOrderOffset);
     }
 }
 
@@ -183,4 +209,18 @@ void ux3d::renderer::CommandGenerator::setAsoboNormalMapConvention(bool directX)
 void ux3d::renderer::CommandGenerator::setAsoboWindshieldVertexColorMask(bool enabled)
 {
     m_asoboWindshieldVertexColorMaskUniform.write(static_cast<int>(enabled ? 1 : 0));
+}
+
+void ux3d::renderer::CommandGenerator::setAsoboDecalReceiver(bool enabled)
+{
+    m_asoboDecalReceiverUniform.write(static_cast<int>(enabled ? 1 : 0));
+}
+
+void ux3d::renderer::CommandGenerator::setDecalTargets(GLuint a0, GLuint a1, GLuint a2, GLuint a3, GLuint a4,
+                                                       GLuint a5)
+{
+    const GLuint targets[6] = { a0, a1, a2, a3, a4, a5 };
+    for (size_t i = 0; i < m_decalTextures.size(); ++i) {
+        m_decalTextures[i]->handle = targets[i];
+    }
 }

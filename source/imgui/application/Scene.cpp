@@ -59,6 +59,11 @@ bool Application::loadGltfModel(const std::string& filePath, ux3d::gltf::Gltf& g
         gltfLayer->setIsolation(nullptr, false); // the isolated node pointer is about to dangle
     }
     gltfModel.reset();
+    // A2.2: the cached MikkTSpace tangents belong to the previous model's primitives.
+    if (gltfLayer != nullptr) {
+        gltfLayer->clearGeneratedTangents();
+    }
+    s_materialEditTarget = nullptr;
     ux3d::imageformats::resetDecodeBudgetStats();
     auto result = ux3d::gltf::GltfParsing::fromFile(gltfModel, file, importOptions);
     startupProfile.loadDecodeMs = ux3d::imgui::profiling::elapsedMs(loadStart);
@@ -194,6 +199,10 @@ void Application::newEmptyGltf(ux3d::gltf::Gltf& gltfModel, ux3d::gltf::Scene*& 
         gltfLayer->setIsolation(nullptr, false);
     }
     gltfModel.reset();
+    if (gltfLayer != nullptr) {
+        gltfLayer->clearGeneratedTangents();
+    }
+    s_materialEditTarget = nullptr;
     ux3d::imgui::StatisticsPanel::invalidate();
     releaseDecalBuffer();
     auto* scene = gltfModel.create<ux3d::gltf::Scene>();
@@ -355,9 +364,16 @@ void Application::synchronizeScene(FrameContext& frame)
     // A model load synchronizes the renderer itself and notes its Topology
     // revision as synced, so that revision alone does not rebuild again.
     const uint32_t pendingChanges = sceneRevisions.pendingMask();
-    const bool rendererSyncPending =
-        s_forceFullSync ? pendingChanges != 0
-                        : (sceneRevisions.unsyncedPendingMask() & ux3d::imgui::kRendererSyncChanges) != 0;
+    const uint32_t rendererChanges = s_forceFullSync
+        ? pendingChanges
+        : (sceneRevisions.unsyncedPendingMask() & ux3d::imgui::kRendererSyncChanges);
+    const bool rendererSyncPending = rendererChanges != 0;
+    // A2.2: a material-only edit refreshes material state and uniforms. The full sync path
+    // re-uploads every accessor (m_bufferMapping) and rebuilds the meshes, which is not
+    // needed for an Inspector colour/factor change. --force-full-sync keeps the old path
+    // as an A/B reference for the per-edit cost measurement.
+    const bool materialOnlySync = rendererSyncPending && !s_forceFullSync
+        && (rendererChanges & ~ux3d::imgui::sceneChangeBit(ux3d::imgui::SceneChange::Material)) == 0;
     const bool animationApplyPending =
         !rendererSyncPending &&
         (pendingChanges & ux3d::imgui::sceneChangeBit(ux3d::imgui::SceneChange::AnimationTime)) != 0;
@@ -381,21 +397,37 @@ void Application::synchronizeScene(FrameContext& frame)
         ux3d::imgui::profiling::countDirtySync();
         ++sceneSyncCount;
         auto stageStart = ux3d::imgui::profiling::Clock::now();
-        gltfLayer->updateGltf(gltfModel);
-        if (s_profilingEnabled) {
-            ++ux3d::imgui::profiling::frameCounters().updateGltfCalls;
-            ++ux3d::imgui::profiling::frameCounters().cacheRebuilds;
-        }
-        frame.markStage("scene.updateGltf", stageStart);
-
-        if (activeScene != nullptr) {
-            stageStart = ux3d::imgui::profiling::Clock::now();
-            gltfLayer->updateScene(gltfModel, *activeScene);
+        if (materialOnlySync) {
+            const bool meshUpdateNeeded = gltfLayer->updateMaterialStates(gltfModel);
+            frame.markStage("scene.updateMaterials", stageStart);
+            if (meshUpdateNeeded && activeScene != nullptr) {
+                // A normal-map UV set changed: the tangent buffer for the new set is
+                // generated (cache key miss) and the meshes must be re-bound to it.
+                stageStart = ux3d::imgui::profiling::Clock::now();
+                gltfLayer->updateScene(gltfModel, *activeScene);
+                if (s_profilingEnabled) {
+                    ++ux3d::imgui::profiling::frameCounters().updateSceneCalls;
+                    ++ux3d::imgui::profiling::frameCounters().cacheRebuilds;
+                }
+                frame.markStage("scene.updateScene", stageStart);
+            }
+        } else {
+            gltfLayer->updateGltf(gltfModel);
             if (s_profilingEnabled) {
-                ++ux3d::imgui::profiling::frameCounters().updateSceneCalls;
+                ++ux3d::imgui::profiling::frameCounters().updateGltfCalls;
                 ++ux3d::imgui::profiling::frameCounters().cacheRebuilds;
             }
-            frame.markStage("scene.updateScene", stageStart);
+            frame.markStage("scene.updateGltf", stageStart);
+
+            if (activeScene != nullptr) {
+                stageStart = ux3d::imgui::profiling::Clock::now();
+                gltfLayer->updateScene(gltfModel, *activeScene);
+                if (s_profilingEnabled) {
+                    ++ux3d::imgui::profiling::frameCounters().updateSceneCalls;
+                    ++ux3d::imgui::profiling::frameCounters().cacheRebuilds;
+                }
+                frame.markStage("scene.updateScene", stageStart);
+            }
         }
 
         stageStart = ux3d::imgui::profiling::Clock::now();

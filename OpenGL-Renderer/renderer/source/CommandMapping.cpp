@@ -22,6 +22,31 @@ using namespace ux3d::renderer;
 
 namespace {
 uint32_t renderSettingsBits(const RenderSettings& rs);
+
+// A2.2: the forward fallback's depth bias is a physical distance, not a fixed number of
+// depth units. Polygon offset units are multiples of the smallest resolvable window depth,
+// whose metres-per-unit changes with the near/far planes, the projection and the fragment
+// distance (it grows with z^2 under perspective). 2 mm is chosen from the E195 DECAL_LIT
+// measurement: the local decal insets are at most ~0.9 mm, so this has margin, while a
+// 2 cm occluder in front stays far outside it. The forward depth buffer is 24-bit.
+float decalDepthBiasUnits(const Camera& camera, float distance)
+{
+    constexpr float kTargetBiasMeters = 0.002f;
+    constexpr float kDepthUnits = 16777216.0f; // 2^24
+    const float zNear = camera.getZNearPlane();
+    const float zFar = camera.getZFarPlane();
+    if (zNear <= 0.0f || zFar <= zNear) {
+        return 32.0f;
+    }
+    float metersPerUnit;
+    if (camera.getType() == Camera::Type::Orthographic) {
+        metersPerUnit = (zFar - zNear) / kDepthUnits;
+    } else {
+        const float z = (std::max)(distance, zNear);
+        metersPerUnit = (zFar - zNear) / (zFar * zNear) * z * z / kDepthUnits;
+    }
+    return (std::clamp)(kTargetBiasMeters / metersPerUnit, 1.0f, 100000.0f);
+}
 }
 
 float CommandMapping::computeDistanceSortKey(const Mesh& mesh, const Material& material) const
@@ -31,7 +56,8 @@ float CommandMapping::computeDistanceSortKey(const Mesh& mesh, const Material& m
     }
     const uint32_t passId = material.renderPass != nullptr ? material.renderPass->getId() : RenderPassType::MaxRenderPasses;
     const bool coveredTransparent = material.drawOrderActive && material.drawOrderClass != DrawOrderClass::None
-        && (passId == RenderPassType::Transparent || passId == RenderPassType::Transparent2);
+        && (passId == RenderPassType::Transparent || passId == RenderPassType::Transparent2
+            || passId == RenderPassType::DecalAccumulation);
     return m_scene.m_activeCamera->getDistance(coveredTransparent ? mesh.getBoundingCenter() : mesh.getPosition());
 }
 
@@ -92,6 +118,9 @@ CommandMapping::CommandSignature CommandMapping::makeSignature(const Mesh& mesh,
     sig.winding = static_cast<uint32_t>(mesh.effectiveFrontFace());
     sig.polygonMode = static_cast<uint32_t>(mesh.polygonMode);
     sig.topology = static_cast<uint32_t>(mesh.primitiveTopology);
+    sig.drawOrderClass = static_cast<uint32_t>(material.drawOrderClass)
+        | (material.decalBiasActive ? 0x100u : 0u)
+        | (material.drawOrderActive ? 0x200u : 0u);
     return sig;
 }
 
@@ -103,6 +132,16 @@ void CommandMapping::update(const core::LinkedList<MeshMaterialTuple>& drawables
         commands.reserve(drawables.size());
     }
     const Camera* camera = m_scene.m_activeCamera;
+    // A2.2: refresh the physical depth bias of every decal command, cached or new. The
+    // command itself is reused while its signature is unchanged, but the units depend on
+    // the current near/far planes and view distance.
+    const auto applyDecalDepthBias = [camera](CmdDesc& desc, const Mesh& mesh) {
+        if (!desc.command.polygonOffsetEnabled || camera == nullptr) {
+            return;
+        }
+        desc.command.polygonOffsetUnits =
+            -decalDepthBiasUnits(*camera, camera->getDistance(mesh.getPosition()));
+    };
     for (const auto& meshMat : drawables) {
         const auto [mesh, material] = meshMat;
         if (mesh == nullptr || material == nullptr) {
@@ -118,6 +157,7 @@ void CommandMapping::update(const core::LinkedList<MeshMaterialTuple>& drawables
             desc.mesh = mesh;
             desc.material = material;
             desc.distanceSortKey = computeDistanceSortKey(*mesh, *material);
+            applyDecalDepthBias(desc, *mesh);
             desc.command.vertexLayout = m_scene.getVertexLayoutCache().getOrCreate(mesh, desc.command.program);
             it->second.lastUse = m_updateSerial;
             commands.push_back(&desc);
@@ -136,6 +176,7 @@ void CommandMapping::update(const core::LinkedList<MeshMaterialTuple>& drawables
         entry.desc->mesh = mesh;
         entry.desc->material = material;
         entry.desc->revision = ++m_nextRevision;
+        applyDecalDepthBias(*entry.desc, *mesh);
         prepareInstancing(*entry.desc);
         entry.lastUse = m_updateSerial;
         commands.push_back(entry.desc.get());
@@ -610,6 +651,24 @@ std::optional<CmdDesc> CommandMapping::makeCommand(MeshMaterialTuple meshMat)
     command->winding = mesh->effectiveFrontFace();
     command->polygonMode = mesh->polygonMode;
     command->primitiveTopology = mesh->primitiveTopology;
+    // A2.2: decals are coplanar (or nearly) with the surface they modify, so pull their
+    // depth towards the camera. This is the forward fallback (A1.4) only: the accumulation
+    // pass has no depth buffer and performs its own tolerant test, where a polygon offset
+    // would corrupt the gl_FragCoord.z that is compared with the prepass depth. The bias
+    // follows the viewport's decal switch (decalBiasActive) and, in the fallback, its
+    // draw-order switch (drawOrderActive). ASOBO off keeps the A1.4 baseline unchanged.
+    const bool accumulationPass = material->renderPass != nullptr
+        && material->renderPass->getId() == RenderPassType::DecalAccumulation;
+    command->polygonOffsetEnabled = material->drawOrderClass == DrawOrderClass::Decal
+        && (material->decalBiasActive || material->drawOrderActive) && !accumulationPass;
+    if (command->polygonOffsetEnabled) {
+        // A2.2 measured gap (E195 cockpit DECAL_LIT): the MCP text decals sit up to ~0.6 mm
+        // behind their button faces and the button meshes up to ~0.3 mm in front. The bias
+        // units are derived per frame from the projection and view distance (2 mm target);
+        // the slope factor keeps the bias growing with the surface angle.
+        command->polygonOffsetFactor = -1.0f;
+        command->polygonOffsetUnits = -32.0f; // refreshed by update() before use
+    }
 
     if (mesh->indexBuffer != nullptr) {
         command->indexBuffer = mesh->indexBuffer;
@@ -681,6 +740,16 @@ std::optional<CmdDesc> CommandMapping::makeCommand(MeshMaterialTuple meshMat)
     }
 
     command->uniforms.push_back(&m_scene.m_exposureUniform);
+
+    // A2.2: a receiver program samples the six shared accumulation targets. The wrappers
+    // and their sampler pointers are stable for the generator's lifetime; only the texture
+    // handles change when the buffer is created, resized or released (zero when inactive).
+    // They go last so a tight texture-unit limit drops the decal reads, not the IBL ones.
+    if (material->defines.isDefined("ASOBO_DECAL_RECEIVER")) {
+        for (const auto& sampler : m_scene.m_decalSamplers) {
+            command->samplers.push_back(sampler.get());
+        }
+    }
 
     // P8.1a: resolve the program's bindings once instead of by name on every draw, and
     // keep only the uniforms the program uses (the others were never committed). Sampler

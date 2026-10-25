@@ -77,6 +77,50 @@ int asoboDrawOrderOffset(const gltf::asobo::ExtensionSet& extensions)
     return static_cast<int>(std::lround(std::clamp(value, -999.0, 999.0)));
 }
 
+// A2.2: the material-type extensions the MSFS exporter writes (docs/ASOBO_EXTENSIONS_REFERENCE
+// section 3). Options such as UV_options, draw_order or emissive are not types; a standard
+// material with only those is still a receiver.
+constexpr std::string_view kAsoboMaterialTypeExtensions[] = {
+    "ASOBO_material_geometry_decal", "ASOBO_material_blend_gbuffer", "ASOBO_material_clear_coat",
+    "ASOBO_material_clear_coat_v2", "ASOBO_material_iridescent", "ASOBO_material_pearlescent",
+    "ASOBO_material_anisotropic", "ASOBO_material_anisotropic_v2", "ASOBO_material_detail_map",
+    "ASOBO_material_glass_v2", "ASOBO_material_windshield", "ASOBO_material_windshield_v3",
+    "ASOBO_material_fresnel_fade", "ASOBO_material_ghost_effect", "ASOBO_material_SSS",
+    "ASOBO_material_sail", "ASOBO_material_parallax_window", "ASOBO_material_wind_flex",
+    "ASOBO_material_fake_terrain",
+};
+
+// The five receiver classes of the SDK (Standard has no type extension). Everything else
+// ignores the decal buffer, including glass, windshields, MASK and BLEND materials.
+bool isAsoboDecalReceiver(const gltf::Material& gltfMaterial, const gltf::asobo::ExtensionSet* extensions,
+                          DrawOrderClass drawOrderClass)
+{
+    if (drawOrderClass == DrawOrderClass::Decal) {
+        return false;
+    }
+    if (gltfMaterial.getAlphaModeOrDefault() != gltf::AlphaMode::Opaque) {
+        return false;
+    }
+    if (gltfMaterial.getTransmission().has_value()) {
+        return false;
+    }
+    if (extensions == nullptr) {
+        return true;
+    }
+    for (const std::string_view type : kAsoboMaterialTypeExtensions) {
+        if (extensions->find(type) == nullptr) {
+            continue;
+        }
+        if (type == "ASOBO_material_clear_coat" || type == "ASOBO_material_clear_coat_v2"
+            || type == "ASOBO_material_anisotropic" || type == "ASOBO_material_anisotropic_v2"
+            || type == "ASOBO_material_fake_terrain" || type == "ASOBO_material_SSS") {
+            return true;
+        }
+        return false;
+    }
+    return true;
+}
+
 // Keeps an unsupported compressed KTX2 texture visually the same as the previous failed
 // decode (opaque white) without leaving an incomplete GL texture behind.
 const image::Image& whiteTexturePlaceholder()
@@ -472,6 +516,27 @@ std::vector<glm::vec4> generateMikkTangents(const gltf::Primitive& primitive)
     }
     return data.tangents;
 }
+
+// A2.2: the UV set is part of the tangent cache key. A material's normal map may sample
+// TEXCOORD_1 instead of TEXCOORD_0, and switching it must regenerate (not reuse) the tangents.
+constexpr uint32_t kNoNormalMapUvSet = 0xFFFFFFFFu;
+
+uint32_t generatedTangentUvSet(const gltf::Primitive& primitive)
+{
+    const gltf::Material* material = primitive.getMaterial();
+    if (material == nullptr || !material->getNormalTextureInfo().has_value()) {
+        return 0u;
+    }
+    return material->getNormalTextureInfo()->getEffectiveTexCoord();
+}
+
+uint32_t materialNormalUvSet(const gltf::Material& material)
+{
+    if (!material.getNormalTextureInfo().has_value()) {
+        return kNoNormalMapUvSet;
+    }
+    return material.getNormalTextureInfo()->getEffectiveTexCoord();
+}
 }
 
 GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
@@ -671,8 +736,17 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
         material->drawOrderClass = material->asobo != nullptr ? asoboDrawOrderClass(*material->asobo) : DrawOrderClass::None;
         material->drawOrderOffset = material->asobo != nullptr ? asoboDrawOrderOffset(*material->asobo) : 0;
         material->drawOrderActive = false;
+        material->decalBiasActive = false;
         material->samplers.clear();
         material->defines.clear();
+
+        // A2.2: only OPAQUE materials of a file that carries decals, and only the five
+        // receiver classes, compile the decal-reader variant. The per-viewport uniform
+        // guards the actual reads, so the define itself is asset-level and cache-stable.
+        if (m_assetHasDecalMaterials && isAsoboDecalReceiver(*gltfMaterial, material->asobo.get(),
+                                                            material->drawOrderClass)) {
+            material->defines.define("ASOBO_DECAL_RECEIVER");
+        }
 
         // A1.12: the same declaration selects the packaged texture convention: normal-map
         // X/Y and the COMP R channel are square-root encoded. Decoding is per material so
@@ -1267,9 +1341,12 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
 
         // A1.11: normal-mapped primitives without TANGENT get MikkTSpace tangents so the
         // shader's bitangent carries the UV mirroring sign. Existing TANGENT attributes and
-        // materials without a normal map are left untouched.
+        // materials without a normal map are left untouched. A2.2: the buffer is generated
+        // once per loaded model and reused by later mesh updates; the key includes the
+        // normal map's UV set.
         if (vertexCount > 0u && mesh->attributes.size() < 16u) {
-            auto tangentIt = m_generatedTangentBuffers.find(gltfPrimitive);
+            const GeneratedTangentKey tangentKey { gltfPrimitive, generatedTangentUvSet(*gltfPrimitive) };
+            auto tangentIt = m_generatedTangentBuffers.find(tangentKey);
             if (tangentIt == m_generatedTangentBuffers.end()) {
                 std::vector<glm::vec4> generated = generateMikkTangents(*gltfPrimitive);
                 if (generated.size() == vertexCount) {
@@ -1277,7 +1354,7 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
                     tangentBuffer->write(core::makeRange(
                         reinterpret_cast<const uint8_t*>(generated.data()),
                         generated.size() * sizeof(generated[0])));
-                    tangentIt = m_generatedTangentBuffers.emplace(gltfPrimitive, std::move(tangentBuffer)).first;
+                    tangentIt = m_generatedTangentBuffers.emplace(tangentKey, std::move(tangentBuffer)).first;
                 }
             }
             if (tangentIt != m_generatedTangentBuffers.end()) {
@@ -1773,17 +1850,23 @@ void GltfRenderLayer::updateGltf(const gltf::Gltf& gltf)
 
     // A2.1: the shared decal buffer exists only for a file that actually carries a decal
     // material. The declaration alone is not enough: both extensions may be declared by an
-    // exporter and left unused.
+    // exporter and left unused. A2.2 tracks the two extensions separately for their switches.
     m_assetHasDecalMaterials = false;
+    m_assetHasGeometryDecalMaterials = false;
+    m_assetHasBlendGbufferMaterials = false;
     if (gltf.isExtensionDeclared("ASOBO_material_geometry_decal")
         || gltf.isExtensionDeclared("ASOBO_material_blend_gbuffer")) {
         for (const auto& material : gltf.getMaterials()) {
             const gltf::asobo::ExtensionSet extensions =
                 gltf::asobo::parseExtensions(gltf, material, gltf::asobo::Scope::Material);
-            if (extensions.find("ASOBO_material_geometry_decal") != nullptr
-                || extensions.find("ASOBO_material_blend_gbuffer") != nullptr) {
+            if (extensions.find("ASOBO_material_geometry_decal") != nullptr) {
+                m_assetHasGeometryDecalMaterials = true;
+            }
+            if (extensions.find("ASOBO_material_blend_gbuffer") != nullptr) {
+                m_assetHasBlendGbufferMaterials = true;
+            }
+            if (m_assetHasGeometryDecalMaterials || m_assetHasBlendGbufferMaterials) {
                 m_assetHasDecalMaterials = true;
-                break;
             }
         }
     }
@@ -1968,10 +2051,37 @@ void GltfRenderLayer::updateMeshes(const core::Vector<gltf::Node*>& rootNodes)
         gatherMeshRecursive(*gltfNode);
     }
 
-    // Every live renderer mesh is revisited by the update below, so the generated tangent
-    // buffers can be rebuilt against the current glTF data.
-    m_generatedTangentBuffers.clear();
+    // A2.2: the generated tangents are cached for the loaded model (see
+    // m_generatedTangentBuffers); updateMeshes only re-binds the mesh attributes. A model
+    // load calls clearGeneratedTangents, and a normal-map UV-set change makes the cache key
+    // miss. Rebuilding them here made every material edit regenerate all of them.
     m_meshMapping.update(gltfTuples);
+}
+
+bool GltfRenderLayer::updateMaterialStates(const gltf::Gltf& gltf)
+{
+    // A2.2: a material-only edit. updateGltf re-uploads every accessor through
+    // m_bufferMapping and updateScene rebuilds the meshes; neither is needed when only
+    // material values changed. This is the same material sync updateGltf uses, so defines,
+    // sampler bindings and uniforms (including ASOBO factors) are refreshed.
+    bool meshUpdateNeeded = false;
+    for (const gltf::Material& material : gltf.getMaterials()) {
+        const auto known = m_materialNormalUvSets.find(&material);
+        if (known != m_materialNormalUvSets.end() && known->second != materialNormalUvSet(material)) {
+            meshUpdateNeeded = true;
+            break;
+        }
+    }
+    m_syncingGltf = &gltf;
+    updateMaterials(gltf.getMaterials());
+    m_syncingGltf = nullptr;
+    return meshUpdateNeeded;
+}
+
+void GltfRenderLayer::clearGeneratedTangents()
+{
+    m_generatedTangentBuffers.clear();
+    m_materialNormalUvSets.clear();
 }
 
 void GltfRenderLayer::updateMaterials(const core::LinkedList<gltf::Material>& materials)
@@ -1985,6 +2095,13 @@ void GltfRenderLayer::updateMaterials(const core::LinkedList<gltf::Material>& ma
     gltfMaterials.emplace_back(nullptr);
 
     m_materialMapping.update(gltfMaterials);
+
+    // A2.2: remember the normal-map UV set each material was synced with, so a later
+    // material-only sync can detect a UV-set change that requires rebuilding the tangents.
+    m_materialNormalUvSets.clear();
+    for (const gltf::Material& gltfMaterial : materials) {
+        m_materialNormalUvSets.emplace(&gltfMaterial, materialNormalUvSet(gltfMaterial));
+    }
 }
 void GltfRenderLayer::updateSkins(const core::Vector<gltf::Node*>& rootNodes)
 {
@@ -2245,6 +2362,7 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
             && asoboOptions.applies("ASOBO_material_draw_order");
         if (entry.material != nullptr) {
             entry.material->drawOrderActive = drawOrderActive;
+            entry.material->decalBiasActive = asoboOptions.applies("ASOBO_material_geometry_decal");
             if (drawOrderActive && entry.material->drawOrderClass != DrawOrderClass::None) {
                 if (entry.bounded) {
                     const math::vec3 localCenter = (entry.lo + entry.hi) * 0.5f;

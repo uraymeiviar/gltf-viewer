@@ -29,6 +29,10 @@ void ux3d::renderer::CommandExecutor::init()
     m_blendSrcFactor.reset();
     m_blendDstFactor.reset();
     m_blendEquation.reset();
+    m_polygonOffsetEnabled.reset();
+    m_polygonOffsetFactor.reset();
+    m_polygonOffsetUnits.reset();
+    m_gl->disable(GL_POLYGON_OFFSET_FILL);
 }
 
 void ux3d::renderer::CommandExecutor::resetState()
@@ -46,9 +50,14 @@ void ux3d::renderer::CommandExecutor::resetState()
     m_blendSrcFactor.reset();
     m_blendDstFactor.reset();
     m_blendEquation.reset();
+    m_polygonOffsetEnabled.reset();
+    m_polygonOffsetFactor.reset();
+    m_polygonOffsetUnits.reset();
     // A1.4 covered draws may have left depth writes disabled; never leak that into the UI
     // or the next frame. The per-draw cache starts from the restored state.
     m_gl->depthMask(GL_TRUE);
+    // A2.2 decals may have left a polygon offset enabled; the UI must not inherit it.
+    m_gl->disable(GL_POLYGON_OFFSET_FILL);
 }
 
 void ux3d::renderer::CommandExecutor::unbindSamplers()
@@ -99,6 +108,9 @@ void ux3d::renderer::CommandExecutor::execute(const Command& command)
         m_blendSrcFactor.reset();
         m_blendDstFactor.reset();
         m_blendEquation.reset();
+        m_polygonOffsetEnabled.reset();
+        m_polygonOffsetFactor.reset();
+        m_polygonOffsetUnits.reset();
         command.externalFunction();
         break;
     default:
@@ -178,6 +190,7 @@ void ux3d::renderer::CommandExecutor::draw(const Command& command)
     setupPolygonMode(command);
     setupFrontFace(command);
     setupDepthWrite(command);
+    setupPolygonOffset(command);
 
     GLIDER_HOT_GL_CHECK(m_gl, "before draw failed");
 
@@ -328,6 +341,25 @@ void ux3d::renderer::CommandExecutor::setupDepthWrite(const Command& command)
     if (!m_depthWriteEnabled.has_value() || m_depthWriteEnabled.value() != command.depthWriteEnabled) {
         m_depthWriteEnabled = command.depthWriteEnabled;
         m_gl->depthMask(command.depthWriteEnabled ? GL_TRUE : GL_FALSE);
+    }
+}
+
+void ux3d::renderer::CommandExecutor::setupPolygonOffset(const Command& command)
+{
+    if (command.polygonOffsetEnabled) {
+        if (!m_polygonOffsetEnabled.has_value() || !m_polygonOffsetEnabled.value()) {
+            m_polygonOffsetEnabled = true;
+            m_gl->enable(GL_POLYGON_OFFSET_FILL);
+        }
+        if (!m_polygonOffsetFactor.has_value() || m_polygonOffsetFactor.value() != command.polygonOffsetFactor
+            || !m_polygonOffsetUnits.has_value() || m_polygonOffsetUnits.value() != command.polygonOffsetUnits) {
+            m_polygonOffsetFactor = command.polygonOffsetFactor;
+            m_polygonOffsetUnits = command.polygonOffsetUnits;
+            m_gl->polygonOffset(command.polygonOffsetFactor, command.polygonOffsetUnits);
+        }
+    } else if (!m_polygonOffsetEnabled.has_value() || m_polygonOffsetEnabled.value()) {
+        m_polygonOffsetEnabled = false;
+        m_gl->disable(GL_POLYGON_OFFSET_FILL);
     }
 }
 

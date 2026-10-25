@@ -14,4 +14,8 @@ layout(std140) uniform EnvironmentBlock
     // Non-zero when the viewport applies ASOBO_material_windshield_v3. Materials that
     // declare it then use COLOR_0 as masks, not as a base-colour multiplier (A4 partial).
     int u_AsoboWindshieldVertexColorMask;
+    // Non-zero when this viewport has a filled decal buffer (A2.2). Only materials compiled
+    // with ASOBO_DECAL_RECEIVER read A0-A5, and this per-viewport switch keeps the command
+    // cache independent of which viewport draws them.
+    int u_AsoboDecalReceiver;
 };

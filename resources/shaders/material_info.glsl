@@ -237,6 +237,17 @@ MaterialInfo getMetallicRoughnessInfo(MaterialInfo info)
     info.metallic *= mrSample.b;
 #endif
 
+    // A2.2: the decal changes metallic and roughness before c_diff/f0 are derived here,
+    // so every later lighting term (including specular) sees the composited values.
+#ifdef ASOBO_DECAL_RECEIVER
+    if (u_AsoboDecalReceiver != 0) {
+        ivec2 decalPixel = ivec2(gl_FragCoord.xy);
+        info.metallic = applyDecalScalar(info.metallic, texelFetch(u_DecalA3, decalPixel, 0).rg);
+        info.perceptualRoughness = applyDecalScalar(info.perceptualRoughness,
+                                                   texelFetch(u_DecalA4, decalPixel, 0).rg);
+    }
+#endif
+
     // Achromatic f0 based on IOR.
     info.c_diff = mix(info.baseColor.rgb,  vec3(0), info.metallic);
     info.f0 = mix(info.f0, info.baseColor.rgb, info.metallic);

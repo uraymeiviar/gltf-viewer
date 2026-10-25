@@ -12,8 +12,11 @@ enum RenderPassType : uint32_t {
     Transparent2,
     TransmissiveBlit,
     // A2.1: the decal prepass runs before the forward opaque pass so the forward shader
-    // can read the receiver depth and normal (A2.2). Nothing is drawn into it yet.
+    // can read the receiver depth and normal (A2.2).
     DecalPrepass,
+    // A2.2: decals accumulate into the shared buffer after the prepass and before the
+    // forward opaque pass, which then reads the result.
+    DecalAccumulation,
     Opaque, //2
     Grid, //2
     Transmissive,
@@ -25,6 +28,6 @@ enum RenderPassType : uint32_t {
     Postprocessing,
     FullscreenCopy,
 
-    MaxRenderPasses = 16
+    MaxRenderPasses = 17
 };
 }

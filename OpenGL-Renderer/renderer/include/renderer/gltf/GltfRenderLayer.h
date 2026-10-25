@@ -97,6 +97,15 @@ public:
 
     void updateGltf(const gltf::Gltf& gltf);
     void updateScene(const gltf::Gltf& gltf, const gltf::Scene& scene);
+    // A2.2: refreshes only renderer material state, uniforms and sampler bindings from the
+    // model. It never touches geometry, buffer mappings or generated tangents, so an
+    // Inspector material edit (for example dragging an emissive colour) is cheap. Returns
+    // true when a material's normal-map UV set changed and the meshes must be rebuilt to
+    // pick up the tangent buffer generated for that UV set.
+    bool updateMaterialStates(const gltf::Gltf& gltf);
+    // A2.2: drops the cached MikkTSpace tangent buffers. Call when the model is replaced;
+    // the cache is otherwise kept for the lifetime of the loaded model.
+    void clearGeneratedTangents();
     void applyAnimationTime(const std::optional<float>& animationTime);
     void updateCameras(const core::Vector<gltf::Node*>& cameraNodes);
 
@@ -177,6 +186,10 @@ private:
     // ASOBO_material_geometry_decal or ASOBO_material_blend_gbuffer. Files without them
     // never allocate the shared decal buffer.
     bool m_assetHasDecalMaterials = false;
+    // A2.2: which decal extension the file actually uses, so the viewport switches can
+    // gate the buffer and the accumulation pass independently.
+    bool m_assetHasGeometryDecalMaterials = false;
+    bool m_assetHasBlendGbufferMaterials = false;
     // Set by updateGltf when extensionsUsed declares ASOBO_asset_optimized (A1.9). The package
     // tool stores TEXCOORD_n/COLOR_0 as half-floats in SHORT/USHORT and NORMAL/TANGENT as
     // signed bytes; the vertex attributes are fed to GL with the matching type.
@@ -227,6 +240,9 @@ public:
 
     // A2.1: the loaded file contains at least one decal material.
     bool hasDecalMaterials() const { return m_assetHasDecalMaterials; }
+    // A2.2: the file's decal materials by extension, for the per-viewport switches.
+    bool hasGeometryDecalMaterials() const { return m_assetHasGeometryDecalMaterials; }
+    bool hasBlendGbufferMaterials() const { return m_assetHasBlendGbufferMaterials; }
 
     // Isolation (local view): when root is not null, only that node is drawn, plus its
     // descendants when includeChildren is set. Nodes already hidden by their own visible
@@ -307,9 +323,25 @@ private:
     std::vector<std::unique_ptr<RenderPass>> m_transmissionPassPool;
 
     // A1.11: generated MikkTSpace tangents for primitives without TANGENT whose material
-    // uses a normal map. The buffers live as long as the renderer meshes that reference
-    // them and are rebuilt by every updateMeshes.
-    std::unordered_map<const gltf::Primitive*, std::unique_ptr<gl::Buffer>> m_generatedTangentBuffers;
+    // uses a normal map. A2.2: cached once per loaded model and keyed by the primitive and
+    // the normal map's UV set, so a material edit does not regenerate vertex data.
+    struct GeneratedTangentKey {
+        const gltf::Primitive* primitive = nullptr;
+        uint32_t uvSet = 0;
+        bool operator==(const GeneratedTangentKey&) const = default;
+    };
+    struct GeneratedTangentKeyHash {
+        size_t operator()(const GeneratedTangentKey& key) const noexcept
+        {
+            const size_t primitive = std::hash<const void*> {}(key.primitive);
+            return primitive ^ (static_cast<size_t>(key.uvSet) * 0x9E3779B97F4A7C15ULL);
+        }
+    };
+    std::unordered_map<GeneratedTangentKey, std::unique_ptr<gl::Buffer>, GeneratedTangentKeyHash>
+        m_generatedTangentBuffers;
+    // A2.2: the normal-map UV set the tangents were last synced for, per glTF material. A
+    // material-only sync compares it to decide whether the meshes need a rebuild.
+    std::unordered_map<const gltf::Material*, uint32_t> m_materialNormalUvSets;
 
     std::unordered_map<std::tuple<const gltf::ChildOfRoot*, std::string>, KHRAnimationPointerTarget> m_animationPointerTargets;
 

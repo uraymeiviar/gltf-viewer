@@ -519,6 +519,17 @@ void Application::drawViewports(FrameContext& frame)
                     // stable texture wrappers refreshed here.
                     decalPrepassLayer->setDebugTargets(decalBuffer.getDepthTexture(), decalBuffer.getNormalTexture(),
                                                        decalBuffer.getWidth(), decalBuffer.getHeight());
+                    // A2.2: the receiver programs and the decal pass read the same buffer
+                    // through stable samplers; only the handles move on create/resize.
+                    commandGenerator->setDecalTargets(decalBuffer.getAccumulationTexture(0),
+                                                      decalBuffer.getAccumulationTexture(1),
+                                                      decalBuffer.getAccumulationTexture(2),
+                                                      decalBuffer.getAccumulationTexture(3),
+                                                      decalBuffer.getAccumulationTexture(4),
+                                                      decalBuffer.getAccumulationTexture(5));
+                    decalAccumulationLayer->setG0Target(decalBuffer.getNormalTexture());
+                    // A2.2: the prepass depth for the shader's tolerant decal depth test.
+                    decalAccumulationLayer->setDepthTarget(decalBuffer.getDepthTexture());
                 }
                 // Depth, G0 and every accumulation target are cleared in the frame the
                 // buffer is used, whether or not the prepass ends up drawing anything.
@@ -559,6 +570,25 @@ void Application::drawViewports(FrameContext& frame)
                         material->isDoubleSided = true;
                     }
                 }
+            }
+
+            // A2.2: the decal draws leave the forward transparent list and accumulate into
+            // the shared buffer instead. Run before the prepass copies are appended; the
+            // pass order (prepass, accumulation, opaque) comes from RenderPassType.
+            if (decalActive) {
+                decalAccumulationLayer->setAppliedDecals(
+                    gltfLayer->hasGeometryDecalMaterials()
+                        && vp->settings.asobo.applies("ASOBO_material_geometry_decal"),
+                    gltfLayer->hasBlendGbufferMaterials()
+                        && vp->settings.asobo.applies("ASOBO_material_blend_gbuffer"));
+                decalAccumulationLayer->setPassCallbacks(
+                    [this, vpW, vpH] { decalBuffer.bindAccumulation(vpW, vpH); },
+                    [&vp] { vp->sceneFbo.bind(); });
+                scene = decalAccumulationLayer->applyLayer(
+                    std::move(scene), [this](const ux3d::renderer::Mesh* mesh) {
+                        return currentReverseMapping.find(const_cast<ux3d::renderer::Mesh*>(mesh)) !=
+                               currentReverseMapping.end();
+                    });
             }
 
             // A2.1: append the decal prepass copies of the opaque drawables. Their pass
@@ -609,6 +639,9 @@ void Application::drawViewports(FrameContext& frame)
                 vp->settings.asobo.applies("ASOBO_normal_map_convention"));
             commandGenerator->setAsoboWindshieldVertexColorMask(
                 vp->settings.asobo.applies("ASOBO_material_windshield_v3"));
+            // A2.2: the receiver define is asset-level; this per-viewport flag says whether
+            // the active viewport has a filled decal buffer to read.
+            commandGenerator->setAsoboDecalReceiver(decalActive);
 
             const auto commandGenerationStart = ux3d::imgui::profiling::Clock::now();
             const uint64_t programHitsBefore = commandGenerator->getCommandMapping().getProgramCacheHits();
@@ -1066,12 +1099,19 @@ void Application::drawViewports(FrameContext& frame)
 
 bool Application::viewportNeedsDecalBuffer(const ux3d::imgui::ViewportInstance& viewport) const
 {
-    if (gltfLayer == nullptr || !gltfLayer->hasDecalMaterials()) {
+    if (gltfLayer == nullptr) {
         return false;
     }
-    // AsoboOptions::applies already includes the master switch; checking it explicitly
-    // keeps the requirement readable and guards a future change to applies().
-    return viewport.settings.asobo.enabled && viewport.settings.asobo.applies("ASOBO_material_geometry_decal");
+    // A2.1/A2.2: the buffer exists only when the file has decals of an extension the
+    // viewport applies. AsoboOptions::applies already includes the master switch; checking
+    // it explicitly keeps the requirement readable and guards a future change to applies().
+    if (!viewport.settings.asobo.enabled) {
+        return false;
+    }
+    return (gltfLayer->hasGeometryDecalMaterials()
+               && viewport.settings.asobo.applies("ASOBO_material_geometry_decal"))
+        || (gltfLayer->hasBlendGbufferMaterials()
+            && viewport.settings.asobo.applies("ASOBO_material_blend_gbuffer"));
 }
 
 void Application::releaseDecalBuffer()
@@ -1079,6 +1119,13 @@ void Application::releaseDecalBuffer()
     decalBuffer.release();
     if (decalPrepassLayer != nullptr) {
         decalPrepassLayer->setDebugTargets(0, 0, 0, 0);
+    }
+    if (decalAccumulationLayer != nullptr) {
+        decalAccumulationLayer->setG0Target(0);
+        decalAccumulationLayer->setDepthTarget(0);
+    }
+    if (commandGenerator != nullptr) {
+        commandGenerator->setDecalTargets(0, 0, 0, 0, 0, 0);
     }
 }
 

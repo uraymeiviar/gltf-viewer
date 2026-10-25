@@ -71,6 +71,13 @@ emissive and normals close to MSFS (user priority 1), and the explicit draw orde
     *Time of day: Day / Night* exists from this task on.
   - MSFS emissive intensity convention: confirm how the exporter folds emissive strength into `emissiveFactor`
     (`asobo_material_common.py::_extract_emissive_values`).
+  - **A2.2 fix (2026-10-25):** MSFS exporters write `emissiveFactor = colour × emissiveScale`; 20 materials in
+    the E195 cockpit are `[3000, 3000, 3000]`. The loader rejected any component > 1, silently dropping the
+    whole factor to `(0, 0, 0)` (black screens). `Material::setEmissiveFactor` now clamps each component to the
+    core glTF `[0, 1]` range (negatives to 0), and `MaterialsFromJson` logs one warning per material with the
+    original value. `KHR_materials_emissive_strength` is unchanged. The clamp is loader-only;
+    the built-in validator sees the original JSON. No MSFS cd/m² unit mapping is added here
+    (that is the later A6 environment setting).
 
   Glow (bloom) is A4.3.
 - [ ] **A1.7 — `ASOBO_material_alphamode_dither` (R3). Owner: GPT Astra.** Dithered (screen-door) transparency in

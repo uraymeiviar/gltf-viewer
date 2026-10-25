@@ -6,6 +6,8 @@
 #include "gltf/Texture.h"
 #include "gltf/XMP.h"
 
+#include <algorithm>
+
 using namespace ux3d;
 using namespace ux3d::gltf;
 
@@ -204,12 +206,15 @@ GltfResult Material::setDoubleSided(bool _doubleSided)
 
 GltfResult Material::setEmissiveFactor(const math::dvec3& _emissiveFactor)
 {
+    // A2.2: clamp to the glTF core range instead of dropping the value. MSFS exporters write
+    // emissiveFactor = colour * emissiveScale (e.g. [3000,3000,3000]); rejecting it lost the
+    // emissive entirely. KHR_materials_emissive_strength keeps its own factor. The loader
+    // logs the original value once per material (MaterialsFromJson); negatives clamp to 0.
+    math::dvec3 clamped;
     for (int i = 0; i < _emissiveFactor.length(); ++i) {
-        if (_emissiveFactor[i] < 0 || _emissiveFactor[i] > 1) {
-            return GltfError::InvalidInput;
-        }
+        clamped[i] = std::clamp(_emissiveFactor[i], 0.0, 1.0);
     }
-    m_emissiveFactor.emplace(_emissiveFactor);
+    m_emissiveFactor.emplace(clamped);
     return GltfResult::Success;
 }
 

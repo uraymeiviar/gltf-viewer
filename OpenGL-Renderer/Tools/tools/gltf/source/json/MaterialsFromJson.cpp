@@ -246,7 +246,24 @@ ConversionResult MaterialsFromJson::convert(const nlohmann::json& _jsonMaterial)
             }
         } else if (key == "emissiveFactor") {
             if (core::Succeeded(checkVector(value, 3, "material.emissiveFactor"))) {
-                pMaterial->setEmissiveFactor(doublesToVector<3>(value.get<std::vector<double>>()));
+                // A2.2: > 1 is written by MSFS exporters (colour * emissiveScale). The
+                // material setter clamps to [0, 1]; keep the original value in one warning
+                // per material. The validator still reports the out-of-range JSON value.
+                const math::dvec3 emissiveFactor = doublesToVector<3>(value.get<std::vector<double>>());
+                const bool outOfRange = emissiveFactor.x < 0.0 || emissiveFactor.x > 1.0
+                    || emissiveFactor.y < 0.0 || emissiveFactor.y > 1.0
+                    || emissiveFactor.z < 0.0 || emissiveFactor.z > 1.0;
+                if (outOfRange) {
+                    const std::string materialName = _jsonMaterial.contains("name")
+                            && _jsonMaterial["name"].is_string()
+                        ? _jsonMaterial["name"].get<std::string>()
+                        : std::string();
+                    core::logWarning("material '%s' emissiveFactor [%g, %g, %g] is outside [0, 1]; "
+                                     "clamping to the glTF core range",
+                                     materialName.c_str(), emissiveFactor.x, emissiveFactor.y,
+                                     emissiveFactor.z);
+                }
+                pMaterial->setEmissiveFactor(emissiveFactor);
             } else {
                 containsErrors = true;
             }

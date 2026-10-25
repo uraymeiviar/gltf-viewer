@@ -36,6 +36,7 @@ public:
     std::optional<GLenum> getBlendSrcFactor() const { return m_blendSrcFactor; }
     std::optional<GLenum> getBlendDstFactor() const { return m_blendDstFactor; }
     std::optional<GLenum> getBlendEquation() const { return m_blendEquation; }
+    std::optional<bool> getPolygonOffsetEnabled() const { return m_polygonOffsetEnabled; }
 
 private:
     void draw(const Command& command);
@@ -50,6 +51,7 @@ private:
     void setupFrontFace(const Command& command);
     void setupDepthTest(const Command& command);
     void setupDepthWrite(const Command& command);
+    void setupPolygonOffset(const Command& command);
     void setupScissorTest(const Command& command) const;
     void readPixel(const Command& command) const;
 
@@ -68,6 +70,9 @@ private:
     std::optional<GLenum> m_blendSrcFactor = std::nullopt;
     std::optional<GLenum> m_blendDstFactor = std::nullopt;
     std::optional<GLenum> m_blendEquation = std::nullopt;
+    std::optional<bool> m_polygonOffsetEnabled = std::nullopt;
+    std::optional<GLfloat> m_polygonOffsetFactor = std::nullopt;
+    std::optional<GLfloat> m_polygonOffsetUnits = std::nullopt;
     GLint m_maxBoundTextureUnit = -1;
     // What each texture unit holds since the last reset (P8 follow-up): a draw whose
     // sampler matches skips the activeTexture/bindTexture/bindSampler calls. Cleared

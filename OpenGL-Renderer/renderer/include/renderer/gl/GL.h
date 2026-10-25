@@ -54,8 +54,14 @@ public:
     virtual void scissor(GLint x, GLint y, GLsizei width, GLsizei height) = 0;
     virtual void frontFace(GLenum mode) = 0;
     virtual void blendFunc(GLenum sfactor, GLenum dfactor) = 0;
+    virtual void blendFunci(GLuint buffer, GLenum sfactor, GLenum dfactor) = 0;
+    virtual void blendFuncSeparatei(GLuint buffer, GLenum sfactorRGB, GLenum dfactorRGB, GLenum sfactorAlpha,
+                                    GLenum dfactorAlpha) = 0;
     virtual void blendEquation(GLenum mode) = 0;
+    virtual void blendEquationi(GLuint buffer, GLenum mode) = 0;
     virtual void depthFunc(GLenum func) = 0;
+    // A2.2: decal draws bias their depth towards the camera.
+    virtual void polygonOffset(GLfloat factor, GLfloat units) = 0;
     // A1.4: transparent decals and glass stop writing depth while draw order is active. The
     // default keeps the interface source-compatible for implementations that do not need it.
     virtual void depthMask(GLboolean /*flag*/) { }

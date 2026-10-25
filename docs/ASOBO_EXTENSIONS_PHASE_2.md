@@ -2,7 +2,7 @@
 
 [Journal index](ASOBO_EXTENSIONS_JOURNAL.md) · [Extension reference](ASOBO_EXTENSIONS_REFERENCE.md) · [Surface-data study](ASOBO_GBUFFER_STUDY.md) · [Validation rules](RENDERER_OPTIMIZATION_VALIDATION.md)
 
-**Status:** Design approved 2026-10-25; A2.1 (buffer and prepass) done, A2.2 next.
+**Status:** Design approved 2026-10-25; A2.1 (buffer and prepass) and A2.2 (decal pass and receiver application) done, A2.3 next.
 
 **Entry:** A1.2, A1.4, the A0.6 notes and the [surface-data study](ASOBO_GBUFFER_STUDY.md). **Goal:** decals
 composite the way MSFS composites them. `ASOBO_material_geometry_decal` is used by 144 of 207 project files: 7 cockpit materials and 4 exterior materials.
@@ -143,7 +143,7 @@ Run one at a time; each lands, is reviewed and committed before the next. Owners
     dumps are byte-identical to `build/baselines/8d58094.exe`. E195 `DecalPrepass` GPU time: median 0.085 ms
     (min 0.084, max 0.566) over 53 samples at 734x696 render resolution. New diagnostics:
     `--decal-prepass-check` and the "Decal prepass depth"/"Decal prepass normal" Render Modes.
-- [ ] **A2.2 — Decal pass and receiver application. Owner: DeepSeek.**
+- [x] **A2.2 — Decal pass and receiver application. Done 2026-10-25. Owner: DeepSeek.**
   - Decal shader variant, blend states, A1.4 ordering, decal draws removed from that viewport's transparent list.
   - `pbr.frag` receiver variant and the per-viewport uniform; receiver classes.
   - **Tests (synthetic fixtures, `scripts/validate_asobo_decal.py`):**
@@ -154,8 +154,61 @@ Run one at a time; each lands, is reviewed and committed before the next. Owners
     - non-receivers (MASK, glass, a material with an unsupported type) are untouched;
     - decal switch off renders byte-identical to the A1.4 baseline;
     - pixels outside decal coverage are byte-identical between switch on and off.
+  - **Results:** new `DecalAccumulationLayer` + `DecalAccumulationPass` run between `DecalPrepass` and `Opaque`;
+    decals use `decal_accum.frag` (same `material_info.glsl` sampling, per-property `w = factor × base-colour
+    alpha`) with per-target `glBlendFunci`/`glBlendFuncSeparatei` over blending (A0-A4, `T' = T·(1-w)`) and
+    multiply (A5). `pbr.frag` gains `ASOBO_DECAL_RECEIVER` for OPAQUE standard/clear-coat/anisotropic/fake-terrain/
+    SSS materials of files with decals; a per-viewport `u_AsoboDecalReceiver` guards A0-A5 reads at `gl_FragCoord`.
+    Decals also get a `(-1, -1)` polygon offset in the A1.4 forward fallback. Synthetic fixture: all six factor-0
+    views byte-identical to no decal; every factor-1 property changes only its own view; metallic 1.0, roughness
+    0.1, normal (0.6,0,0.8), emissive (0.8,0.4,0.1) and occlusion 128×128 land exactly (occlusion `0.25`, no-map
+    decal AO `0.5`); overlapping 0.5 decals give 0.25 (1 then 0) and 0.5 reversed; MASK and glass base-colour
+    views are byte-identical with and without the decal; normalOverrideFactor 0 uses G0. E195 cockpit: the MCP
+    "YD"/"APP" legends are clean in both paths (accumulation and A1.4 fallback); the screenshots are
+    `build/review/a22_eicas_side_by_side.png` and `build/review/a22_mcp_side_by_side.png`. Accumulation respects
+    the authored per-property factors, so A1.4 fallback and A2.2 differ where a decal declares only some properties
+    (for example `LCD_DETAIL`, which leaves metallic/roughness/emissive to the receiver).
+  - **A2.2 fixes (2026-10-25, decal depth / edit cost).**
+    - **Measured depth gap.** Python over the E195 cockpit glTF, world space, every `DECAL_LIT`
+      vertex (33,703) against the nearest OPAQUE/MASK non-decal receiver (BVH, ray along
+      `±normal`, facing-filtered closest-point fallback): min `-0.2419 m`, median `+0.000498 m`,
+      max `+0.1987 m`, mean `-0.00004 m`; 3,359 vertices (9.97 %) lie behind the receiver.
+      The extremes are decal vertices whose normal ray leaves its panel and reaches unrelated
+      geometry (compass / yoke); at the MCP the relevant text decals (`DECAL_AFCS_*`,
+      `DECAL_SPEEDM_*`, `DECAL_VERTG_*`, DCP) sit 0.03–0.9 mm **behind** their button faces,
+      while the button meshes (`B_GS_*_LIGHT`) sit +0.27 mm in front. The old LEQUAL test
+      rejected the text decals, which is the partly missing "A/T / VNAV / APP / BANK".
+    - **Tolerant buffer test.** The accumulation pass disables `GL_DEPTH_TEST`; `decal_accum.frag`
+      samples the prepass depth at `gl_FragCoord`, linearizes both depths through the z row of
+      the frame's projection matrix (perspective, infinite perspective and orthographic) and
+      discards only when `decalDistance - surfaceDistance > max(t_abs, t_rel × decalDistance)`.
+      Constants: `t_abs = 0.003 m`, `t_rel = 0.003` (0.3 %). The accumulation framebuffer no
+      longer attaches the depth texture (it is sampled instead), and it gets no polygon offset:
+      an offset would corrupt `gl_FragCoord.z` before the comparison.
+    - **Forward fallback.** The A1.4 path keeps a polygon offset (`factor -1`), but its units are
+      now a physical 2 mm bias converted per draw from the frame's near/far, projection and
+      view distance (24-bit forward depth): ~30 units on the synthetic orthographic fixture and
+      a few thousand at close cockpit distances. The old `(-1, -1)` is sub-micrometre at those
+      distances. The bias is active when the viewport applies the decal extension or, in the
+      fallback, when it applies `ASOBO_material_draw_order`; `--asobo off` keeps the old path.
+    - **Tests:** `scripts/validate_asobo_decal.py` adds a decal 1 mm behind its receiver (visible
+      in both paths) and an opaque box whose front face is 2 cm in front of the decal (hidden in
+      both paths); all A2.2 checks pass. E195 MCP close-ups at 0°, 30° and a ~70° grazing angle,
+      both paths: `build/review/a22fix_mcp_*.png`.
+    - **Material edit cost.** `updateGltf` re-uploaded every accessor (58.8 MB/frame on the E195
+      cockpit) and `updateScene` rebuilt the meshes and re-ran MikkTSpace. MikkTSpace tangents
+      are now cached per primitive and normal-map UV set for the loaded model (cleared on model
+      load, regenerated only on a UV-set change), and a material-only `SceneChange::Material`
+      sync calls `updateMaterialStates` (materials/uniforms/samplers) instead of
+      updateGltf+updateScene. E195, emissive of `DECAL_LIT` changed every frame, 111 measured
+      frames: CPU frame median 20.40 ms → 1.70 ms; dirty sync 17.68 ms → 0.64 ms; buffer uploads
+      6945 / 58.82 MB per frame → 1 / 288 B (skin joints); textures 0 in both. The two final
+      frames are byte-identical (`build/review/a22fix_edit_before.png` /
+      `a22fix_edit_after.png`). Repro: `--material-edit-emissive DECAL_LIT --profile-report ...`,
+      with `--force-full-sync` as the before reference.
 - [ ] **A2.3 — Modes and legacy decals. Owner: GPT Sol.** `blendMasked` ramp, `frosted` coverage,
-  `ASOBO_material_blend_gbuffer`, `decalChan0–2`, `normalOverrideFactor`, support-table entries and notes.
+  `decalChan0–2`, support-table notes. `ASOBO_material_blend_gbuffer` and `normalOverrideFactor` already use the
+  A2.2 default path; A2.3 verifies their equivalence.
   **Tests:** fixtures per mode; ramp endpoints; blend_gbuffer renders like the equivalent default decal.
 - [x] **A2.4 — Environment occluder and fake terrain. Done 2026-10-25 (occluder hidden; fake terrain not yet recorded).** Was: Owner: GPT Astra (small).** Per study §4a, neither has
   anything to render in a viewer:

@@ -4,6 +4,7 @@
 
 #include <array>
 #include <list>
+#include <memory>
 #include <unordered_map>
 
 #include "animation/Animation.h"
@@ -86,6 +87,14 @@ public:
     // A4 (partial): this viewport applies ASOBO_material_windshield_v3. Windshield v3
     // materials then keep COLOR_0 out of the base colour; it holds masks instead.
     void setAsoboWindshieldVertexColorMask(bool enabled);
+    // A2.2: this viewport reads the shared decal accumulation targets. The material define
+    // is asset-level, so the viewport switch is a frame-block uniform (like A1.2's
+    // normal-map convention) and the command cache is not split per viewport.
+    void setAsoboDecalReceiver(bool enabled);
+    // A2.2: the shared buffer's A0-A5 texture handles, owned by the application's DecalBuffer.
+    // They are wrapped here so every receiver command can keep stable sampler pointers while
+    // the buffer is created, resized and released. Zero handles are valid (no buffer).
+    void setDecalTargets(GLuint a0, GLuint a1, GLuint a2, GLuint a3, GLuint a4, GLuint a5);
 
     // Generate the commands and sort them to renderpasses
     void emitCommands();
@@ -126,6 +135,12 @@ protected:
     gl::Uniform m_exposureUniform;
     gl::Uniform m_asoboNormalMapDirectXUniform;
     gl::Uniform m_asoboWindshieldVertexColorMaskUniform;
+    gl::Uniform m_asoboDecalReceiverUniform;
+    // A2.2: six borrowed views of the shared accumulation targets and their samplers. The
+    // wrappers live as long as the generator; setDecalTargets refreshes only the handles.
+    std::array<std::unique_ptr<gl::Texture>, 6> m_decalTextures;
+    std::array<std::unique_ptr<gl::Sampler>, 6> m_decalSamplers;
+    std::unique_ptr<gl::SamplerState> m_decalSamplerState;
     EnvironmentMap* m_activeEnvironmentMap = nullptr;
     const renderer::Camera* m_activeCamera = nullptr;
     LightData m_lights;

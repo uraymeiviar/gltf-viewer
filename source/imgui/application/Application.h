@@ -25,6 +25,7 @@
 #include "renderer/Renderer.h"
 #include "renderer/CommandGenerator.h"
 #include "renderer/DecalPrepassLayer.h"
+#include "renderer/DecalAccumulationLayer.h"
 #include "renderer/PickingRenderLayer.h"
 #include "renderer/gltf/GltfRenderLayer.h"
 #include "renderer/TransformHierarchyNode.h"
@@ -246,6 +247,10 @@ private:
     std::optional<int> configure(int argc, char** argv);
     void runFrame();
     void processInput(float deltaTime);
+    // A2.2: --material-edit-emissive <material> edits that material's emissive factor every
+    // frame and marks SceneChange::Material, so the per-edit cost can be measured with
+    // --profile-report (and compared against --force-full-sync).
+    void driveMaterialEditCheck();
     void synchronizeScene(FrameContext& frame);
     void createViewport(const ux3d::gltf::Node* cameraNode);
     void drawViewportMenuBody();
@@ -299,6 +304,8 @@ private:
     ux3d::imgui::Framebuffer pickingTarget;
     // A2.1: one decal buffer and its prepass layer for all viewports.
     std::unique_ptr<ux3d::renderer::DecalPrepassLayer> decalPrepassLayer;
+    // A2.2: the decal accumulation pass; it removes the decal draws from the forward scene.
+    std::unique_ptr<ux3d::renderer::DecalAccumulationLayer> decalAccumulationLayer;
     ux3d::imgui::DecalBuffer decalBuffer;
     ux3d::renderer::ReverseMapping currentReverseMapping;
     std::vector<std::unique_ptr<ux3d::imgui::ViewportInstance>> viewports;
@@ -373,6 +380,10 @@ private:
     // (any pending change runs the full renderer sync) as an A/B reference.
     float s_fixedFrameTime = -1.0f;
     bool s_forceFullSync = false;
+    // A2.2 material-edit cost check: the material whose emissive factor is changed every
+    // frame, and the resolved glTF material (null until the model is loaded).
+    std::string s_materialEditEmissiveMaterial;
+    ux3d::gltf::Material* s_materialEditTarget = nullptr;
     // P4.6: --disable-command-caches turns off the command-generation caches so the
     // same binary can serve as its own uncached A/B reference.
     bool s_disableCommandCaches = false;

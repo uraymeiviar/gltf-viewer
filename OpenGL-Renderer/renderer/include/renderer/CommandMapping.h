@@ -145,6 +145,9 @@ protected:
         uint32_t winding = 0;
         uint32_t polygonMode = 0;
         uint32_t topology = 0;
+        // A2.2: decal-class commands carry the polygon offset; the class is part of the
+        // signature because it is not otherwise visible in the material's uniform storage.
+        uint32_t drawOrderClass = 0;
         bool useIBL = false;
         bool usePunctualLights = false;
         bool operator==(const CommandSignature&) const = default;

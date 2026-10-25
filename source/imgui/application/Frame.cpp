@@ -57,6 +57,7 @@ void Application::runFrame()
     frame.markStage("ui.newFrame", uiNewFrameStart);
 
     drawMenus(frame);
+    driveMaterialEditCheck();
     synchronizeScene(frame);
     drawViewports(frame);
     drawPanels(frame);
@@ -99,6 +100,33 @@ void Application::runFrame()
                              io.WantTextInput || ImGui::IsAnyMouseDown();
     idleQuietFrames = frameActive ? 0 : idleQuietFrames + 1;
     frameInProgress = false;
+}
+
+void Application::driveMaterialEditCheck()
+{
+    if (s_materialEditEmissiveMaterial.empty() || gltfLayer == nullptr) {
+        return;
+    }
+    if (s_materialEditTarget == nullptr) {
+        for (ux3d::gltf::Material& material : gltfModel.getMaterials()) {
+            if (material.getName() == s_materialEditEmissiveMaterial) {
+                s_materialEditTarget = &material;
+                break;
+            }
+        }
+        if (s_materialEditTarget == nullptr) {
+            std::fprintf(stderr, "--material-edit-emissive: material '%s' not found\n",
+                         s_materialEditEmissiveMaterial.c_str());
+            s_materialEditEmissiveMaterial.clear();
+            return;
+        }
+    }
+
+    // One material-only edit per frame, like dragging the emissive colour in the Inspector.
+    const float phase = static_cast<float>(frameCount % 64u) / 63.0f;
+    const float value = 0.1f + 0.9f * phase;
+    s_materialEditTarget->setEmissiveFactor(ux3d::math::dvec3(value, value * 0.5, 1.0 - value));
+    sceneRevisions.mark(ux3d::imgui::SceneChange::Material);
 }
 
 void Application::processInput(float deltaTime)

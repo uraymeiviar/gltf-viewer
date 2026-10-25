@@ -60,6 +60,11 @@ public:
     // A1.4: covered transparent draws (decals, glass, windshield) do not write depth while
     // ASOBO_material_draw_order is active, so their order decides what is on top.
     bool depthWriteEnabled = true;
+    // A2.2: decal draws get a polygon offset so a decal coplanar with its receiver wins the
+    // LEQUAL depth test instead of z-fighting (forward fallback and accumulation pass).
+    bool polygonOffsetEnabled = false;
+    GLfloat polygonOffsetFactor = 0.0f;
+    GLfloat polygonOffsetUnits = 0.0f;
 
     gl::PrimitiveTopology primitiveTopology = gl::PrimitiveTopology::TriangleList;
     GLsizei primitiveCount = 0u;

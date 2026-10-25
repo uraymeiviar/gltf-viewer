@@ -392,10 +392,11 @@ void DecalBuffer::create(int width, int height)
         std::fprintf(stderr, "Decal prepass framebuffer is not complete! Status: 0x%X\n", status);
     }
 
-    // Accumulation: the same depth texture + A0-A5. Depth is never written here.
+    // Accumulation: A0-A5 only. No depth attachment: the depth texture is sampled by the
+    // decal shader for its tolerant depth test, and a texture must not be both attached to
+    // the current framebuffer and sampled. Depth writes are off for this pass anyway.
     glGenFramebuffers(1, &m_accumulationFbo);
     glBindFramebuffer(GL_FRAMEBUFFER, m_accumulationFbo);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, m_depthTexture, 0);
     GLenum accumulationDrawBuffers[DecalBuffer::kAccumulationTargetCount];
     for (int i = 0; i < DecalBuffer::kAccumulationTargetCount; ++i) {
         const GLenum attachment = static_cast<GLenum>(GL_COLOR_ATTACHMENT0 + i);

@@ -86,7 +86,8 @@ def main():
                         "ASOBO_normal_map_convention",
                         "ASOBO_material_draw_order", "MSFT_texture_dds"):
                 status = "Rendered"
-            elif name == "ASOBO_material_windshield_v3":
+            elif name in ("ASOBO_material_geometry_decal", "ASOBO_material_blend_gbuffer",
+                          "ASOBO_material_windshield_v3"):
                 status = "Partial"
             elif name == "ASOBO_material_disable_motion_blur":
                 status = "Not applicable"

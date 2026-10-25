@@ -60,6 +60,9 @@ public:
     DrawOrderClass drawOrderClass = DrawOrderClass::None;
     int drawOrderOffset = 0;
     bool drawOrderActive = false;
+    // A2.2: the viewport applies ASOBO_material_geometry_decal, so decal-class draws get their
+    // depth bias. Set per viewport next to drawOrderActive; off renders the file as without ASOBO.
+    bool decalBiasActive = false;
     RenderPass* renderPass = nullptr;
     RenderSettings renderSettings;
     std::string fragmentShader;

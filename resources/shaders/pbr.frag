@@ -25,6 +25,7 @@ precision highp float;
 #include <brdf.glsl>
 #include <punctual.glsl>
 #include <ibl.glsl>
+#include <decal_receiver.glsl>
 #include <material_info.glsl>
 
 #ifdef MATERIAL_IRIDESCENCE
@@ -37,7 +38,14 @@ out vec4 g_finalColor;
 
 void main()
 {
+#ifdef ASOBO_DECAL_RECEIVER
+    DecalReceiverInfo decalReceiver = getDecalReceiverInfo();
+#endif
+
     vec4 baseColor = getBaseColor();
+#ifdef ASOBO_DECAL_RECEIVER
+    baseColor.rgb = applyDecalColor(baseColor.rgb, decalReceiver.baseColor);
+#endif
 
 #if ALPHAMODE == ALPHAMODE_OPAQUE
     baseColor.a = 1.0;
@@ -45,6 +53,14 @@ void main()
 
     vec3 v = normalize(u_Camera - v_Position);
     NormalInfo normalInfo = getNormalInfo(v);
+#ifdef ASOBO_DECAL_RECEIVER
+    // A2.2: the decal normal is world space; mix it with the receiver's shading normal
+    // and renormalize before any NdotV term is derived. The explicit branch keeps a
+    // receiver with T == 1 bit-for-bit unchanged.
+    if (decalReceiver.normal.a < 1.0) {
+        normalInfo.n = normalize(decalReceiver.normal.rgb + decalReceiver.normal.a * normalInfo.n);
+    }
+#endif
     vec3 n = normalInfo.n;
     vec3 t = normalInfo.t;
     vec3 b = normalInfo.b;
@@ -181,6 +197,17 @@ void main()
     f_sheen = mix(f_sheen, f_sheen * ao, u_OcclusionStrength);
     f_clearcoat = mix(f_clearcoat, f_clearcoat * ao, u_OcclusionStrength);
 #endif
+#ifdef ASOBO_DECAL_RECEIVER
+    // A2.2: the decal AO multiplies the IBL terms with strength 1, also when the receiver
+    // has no occlusion map. The debug Occlusion view shows the combined product.
+    if (decalReceiver.occlusion < 1.0) {
+        ao *= decalReceiver.occlusion;
+        f_diffuse *= decalReceiver.occlusion;
+        f_specular *= decalReceiver.occlusion;
+        f_sheen *= decalReceiver.occlusion;
+        f_clearcoat *= decalReceiver.occlusion;
+    }
+#endif
 
 #ifdef USE_PUNCTUAL
     for (int i = 0; i < LIGHT_COUNT; ++i)
@@ -256,6 +283,11 @@ void main()
 #endif
 #ifdef HAS_EMISSIVE_MAP
     f_emissive *= texture(u_EmissiveSampler, getEmissiveUV()).rgb;
+#endif
+#ifdef ASOBO_DECAL_RECEIVER
+    if (decalReceiver.emissive.a < 1.0) {
+        f_emissive = decalReceiver.emissive.rgb + decalReceiver.emissive.a * f_emissive;
+    }
 #endif
 
     // Layer blending
@@ -343,6 +375,11 @@ void main()
 #endif
 #if DEBUG == DEBUG_OCCLUSION && defined(HAS_OCCLUSION_MAP)
     g_finalColor.rgb = linearTosRGB(vec3(ao));
+#elif DEBUG == DEBUG_OCCLUSION && defined(ASOBO_DECAL_RECEIVER)
+    // A2.2: show the decal AO product even when the receiver has no occlusion map.
+    if (u_AsoboDecalReceiver != 0) {
+        g_finalColor.rgb = linearTosRGB(vec3(ao));
+    }
 #endif
 #if DEBUG == DEBUG_EMISSIVE
     g_finalColor.rgb = linearTosRGB(f_emissive);

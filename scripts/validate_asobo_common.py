@@ -173,7 +173,10 @@ if __name__ == "__main__":
                                   ["--asobo-disable", "ASOBO_material_invisible",
                                    "--asobo-disable", "ASOBO_normal_map_convention",
                                    "--asobo-disable", "ASOBO_material_draw_order",
-                                   "--asobo-disable", "ASOBO_material_windshield_v3"])
+                                   "--asobo-disable", "ASOBO_material_windshield_v3",
+                                   "--asobo-disable", "ASOBO_material_environment_occluder",
+                                   "--asobo-disable", "ASOBO_material_geometry_decal",
+                                   "--asobo-disable", "ASOBO_material_blend_gbuffer"])
             share = magenta(reference)
             check(share < 0.001, f"{name}: the {pre.stem} reference is fully textured ({share:.2%} magenta)")
             check(reference is not None and same(all_off, reference), f"{name}: --asobo off is byte-identical to {pre.stem}")
