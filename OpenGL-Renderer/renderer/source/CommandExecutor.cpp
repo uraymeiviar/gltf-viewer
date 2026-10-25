@@ -80,6 +80,9 @@ void ux3d::renderer::CommandExecutor::execute(const Command& command)
         clear(command);
         break;
     case CommandTag::Draw:
+        if (command.overrideBlend) {
+            setupBlendFunc(command);
+        }
         draw(command);
         break;
     case CommandTag::Viewport:
@@ -256,11 +259,12 @@ void ux3d::renderer::CommandExecutor::setupBlendFunc(const Command& command)
             m_blendEnabled = true;
             m_gl->enable(GL_BLEND);
         }
+        const GLenum sourceFactor = command.premultipliedAlpha ? GL_ONE : GL_SRC_ALPHA;
         if (!m_blendSrcFactor.has_value() || !m_blendDstFactor.has_value() ||
-            m_blendSrcFactor.value() != GL_SRC_ALPHA || m_blendDstFactor.value() != GL_ONE_MINUS_SRC_ALPHA) {
-            m_blendSrcFactor = GL_SRC_ALPHA;
+            m_blendSrcFactor.value() != sourceFactor || m_blendDstFactor.value() != GL_ONE_MINUS_SRC_ALPHA) {
+            m_blendSrcFactor = sourceFactor;
             m_blendDstFactor = GL_ONE_MINUS_SRC_ALPHA;
-            m_gl->blendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            m_gl->blendFunc(sourceFactor, GL_ONE_MINUS_SRC_ALPHA);
         }
         if (!m_blendEquation.has_value() || m_blendEquation.value() != GL_FUNC_ADD) {
             m_blendEquation = GL_FUNC_ADD;

@@ -35,6 +35,28 @@ precision highp float;
 
 out vec4 g_finalColor;
 
+#ifdef ASOBO_GLASS_REFRACTION
+uniform float u_AsoboGlassWidth;
+uniform int u_AsoboGlassCopyValid;
+
+vec3 getAsoboGlassBehind(vec3 n, vec3 v, float ior)
+{
+    // Parallel slab, width in scene units. Dividing by the normal component gives
+    // the travel distance to the exit plane (not simply the length of the ray).
+    vec3 ray = refract(-v, n, 1.0 / ior);
+    vec3 exitPosition = v_Position + ray * (u_AsoboGlassWidth / max(0.001, abs(dot(ray, n))));
+    vec4 clip = u_ViewProjectionMatrix * vec4(exitPosition, 1.0);
+    vec4 surfaceClip = u_ViewProjectionMatrix * vec4(v_Position, 1.0);
+    // Anchor to the raster pixel, then add only the thickness-dependent displacement.
+    // The full-resolution copy shares this viewport's origin, dimensions and Y direction.
+    vec2 size = vec2(textureSize(u_TransmissionFramebufferSampler, 0));
+    vec2 uv = gl_FragCoord.xy / size;
+    uv += 0.5 * (clip.xy / clip.w - surfaceClip.xy / surfaceClip.w);
+    vec2 border = 0.5 / size;
+    return textureLod(u_TransmissionFramebufferSampler, clamp(uv, border, 1.0 - border), 0.0).rgb;
+}
+#endif
+
 
 void main()
 {
@@ -325,6 +347,27 @@ void main()
         discard;
     }
     baseColor.a = 1.0;
+#endif
+
+#ifdef ASOBO_GLASS_REFLECTION
+    // Existing GGX IBL and punctual terms already include Fresnel. Coverage applies
+    // only to the base layer, never to the reflection. Keep debug views unchanged.
+    float coverage = clamp(baseColor.a, 0.0, 1.0);
+#ifdef MATERIAL_UNLIT
+    color = baseColor.rgb * coverage;
+#else
+    color = (f_emissive + diffuse) * coverage + f_specular;
+    color = f_sheen + color * albedoSheenScaling;
+    color = color * (1.0 - clearcoatFactor * clearcoatFresnel) + f_clearcoat;
+#endif
+#ifdef ASOBO_GLASS_REFRACTION
+    if (u_AsoboGlassCopyValid != 0) {
+        color += getAsoboGlassBehind(n, v, materialInfo.ior) * (1.0 - coverage) * baseColor.rgb;
+        // This is the complete scene colour, not a translucent layer. ImGui must
+        // not multiply it by glass coverage again when it displays the viewport.
+        baseColor.a = 1.0;
+    }
+#endif
 #endif
 
 #ifdef LINEAR_OUTPUT

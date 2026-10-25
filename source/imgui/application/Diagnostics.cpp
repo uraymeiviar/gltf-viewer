@@ -923,7 +923,7 @@ void Application::finishFrame(FrameContext& frame, int displayW, int displayH)
     }
 
     // Automation runs read GL errors instead of letting them go unnoticed.
-    if (uiScenario.active() || !s_decalPrepassCheckPath.empty()) {
+    if (uiScenario.active() || !s_decalPrepassCheckPath.empty() || !s_profileReportPath.empty()) {
         drainGLErrors("frame");
     }
     const bool profileReportReady = !s_profileReportPath.empty() && !s_profileReportAttempted &&
@@ -938,6 +938,7 @@ void Application::finishFrame(FrameContext& frame, int displayW, int displayH)
     }
 
     if (profileReportReady) {
+        std::printf("GL automation errors: %llu\n", static_cast<unsigned long long>(s_glErrorTotal));
         s_profileReportAttempted = true;
         ux3d::imgui::profiling::ProfileReport report;
         report.scenarioName = scenarioName;

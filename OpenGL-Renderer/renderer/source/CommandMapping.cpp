@@ -740,6 +740,7 @@ std::optional<CmdDesc> CommandMapping::makeCommand(MeshMaterialTuple meshMat)
     }
 
     command->uniforms.push_back(&m_scene.m_exposureUniform);
+    command->uniforms.push_back(&m_scene.m_asoboGlassCopyValidUniform);
 
     // A2.2: a receiver program samples the six shared accumulation targets. The wrappers
     // and their sampler pointers are stable for the generator's lifetime; only the texture

@@ -4,9 +4,39 @@
 #include "imgui/Profiling.h"
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <utility>
+#include <string_view>
 
 namespace ux3d::imgui {
+namespace {
+void glassCopyWarning(const char* stage, GLenum detail = 0)
+{
+    static bool warned = false;
+    if (!warned) {
+        std::fprintf(stderr, "Glass copy fallback: %s (0x%X); using a safe glass fallback\n", stage, detail);
+        warned = true;
+    }
+}
+
+bool glassCopyErrors(const char* stage)
+{
+    bool ok = true;
+    for (GLenum error = glGetError(); error != GL_NO_ERROR; error = glGetError()) {
+        glassCopyWarning(stage, error);
+        ok = false;
+    }
+    return ok;
+}
+
+bool glassCopyFault(const char* stage)
+{
+    // Test-only failure injection, before issuing a GL operation (no fabricated GL errors).
+    const char* fault = std::getenv("GLIDER_TEST_GLASS_COPY_FAILURE");
+    return fault != nullptr && std::string_view(fault) == stage;
+}
+}
+
 
 Framebuffer::Framebuffer() = default;
 
@@ -16,7 +46,11 @@ Framebuffer::~Framebuffer()
 }
 
 Framebuffer::Framebuffer(Framebuffer&& other) noexcept
-    : m_fbo(other.m_fbo)
+    : m_valid(other.m_valid)
+    , m_floatSamplesUnsupported(other.m_floatSamplesUnsupported)
+    , m_floatUnavailable(other.m_floatUnavailable)
+    , m_linearFloat(other.m_linearFloat)
+    , m_fbo(other.m_fbo)
     , m_colorTexture(other.m_colorTexture)
     , m_depthRbo(other.m_depthRbo)
     , m_msaaFbo(other.m_msaaFbo)
@@ -26,6 +60,7 @@ Framebuffer::Framebuffer(Framebuffer&& other) noexcept
     , m_height(other.m_height)
     , m_samples(other.m_samples)
 {
+    other.m_valid = false;
     other.m_fbo = 0;
     other.m_colorTexture = 0;
     other.m_depthRbo = 0;
@@ -47,10 +82,15 @@ Framebuffer& Framebuffer::operator=(Framebuffer&& other) noexcept
         m_msaaFbo = other.m_msaaFbo;
         m_msaaColorRbo = other.m_msaaColorRbo;
         m_msaaDepthRbo = other.m_msaaDepthRbo;
+        m_valid = other.m_valid;
+        m_floatSamplesUnsupported = other.m_floatSamplesUnsupported;
+        m_floatUnavailable = other.m_floatUnavailable;
+        m_linearFloat = other.m_linearFloat;
         m_width = other.m_width;
         m_height = other.m_height;
         m_samples = other.m_samples;
 
+        other.m_valid = false;
         other.m_fbo = 0;
         other.m_colorTexture = 0;
         other.m_depthRbo = 0;
@@ -66,6 +106,7 @@ Framebuffer& Framebuffer::operator=(Framebuffer&& other) noexcept
 
 void Framebuffer::cleanup()
 {
+    m_valid = false;
     if (m_fbo) {
         glDeleteFramebuffers(1, &m_fbo);
         m_fbo = 0;
@@ -95,18 +136,34 @@ void Framebuffer::cleanup()
     m_samples = 1;
 }
 
-void Framebuffer::resize(int width, int height, int samples)
+void Framebuffer::resize(int width, int height, int samples, bool linearFloat)
 {
     if (width < 1) width = 1;
     if (height < 1) height = 1;
     if (samples < 1) samples = 1;
+
+    if (linearFloat && glassCopyFault("allocation")) {
+        glassCopyWarning("injected allocation failure");
+        m_floatUnavailable = true;
+    }
+    if (linearFloat && m_floatUnavailable) {
+        // The application already has a valid RGBA8 viewport for the old path.
+        // Do not spend more GPU memory allocating an unused fallback framebuffer.
+        cleanup();
+        return;
+    }
+    if (linearFloat && samples > 1 && glassCopyFault("multisample")) {
+        glassCopyWarning("injected multisample allocation failure");
+        m_floatSamplesUnsupported = true;
+    }
+    if (linearFloat && m_floatSamplesUnsupported) samples = 1;
 
     // Clamp samples to GPU capability
     GLint maxSamples = 1;
     glGetIntegerv(GL_MAX_SAMPLES, &maxSamples);
     if (samples > maxSamples) samples = maxSamples;
 
-    if (m_width == width && m_height == height && m_samples == samples && m_fbo != 0) {
+    if (m_width == width && m_height == height && m_samples == samples && m_linearFloat == linearFloat && m_valid) {
         return;
     }
 
@@ -115,11 +172,12 @@ void Framebuffer::resize(int width, int height, int samples)
     m_width = width;
     m_height = height;
     m_samples = samples;
+    m_linearFloat = linearFloat;
 
     // 1. Always create the resolve / single-sampled texture & FBO
     glGenTextures(1, &m_colorTexture);
     glBindTexture(GL_TEXTURE_2D, m_colorTexture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, m_width, m_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glTexImage2D(GL_TEXTURE_2D, 0, linearFloat ? GL_RGBA16F : GL_RGBA8, m_width, m_height, 0, GL_RGBA, GL_FLOAT, nullptr);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -130,6 +188,9 @@ void Framebuffer::resize(int width, int height, int samples)
     glBindFramebuffer(GL_FRAMEBUFFER, m_fbo);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_colorTexture, 0);
 
+    const GLenum resolveStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    GLint colorSamples = 0;
+    GLint depthSamples = 0;
     if (m_samples <= 1) {
         // Single-sample depth/stencil renderbuffer
         glGenRenderbuffers(1, &m_depthRbo);
@@ -144,40 +205,51 @@ void Framebuffer::resize(int width, int height, int samples)
 
         glGenRenderbuffers(1, &m_msaaColorRbo);
         glBindRenderbuffer(GL_RENDERBUFFER, m_msaaColorRbo);
-        glRenderbufferStorageMultisample(GL_RENDERBUFFER, m_samples, GL_RGBA8, m_width, m_height);
+        glRenderbufferStorageMultisample(GL_RENDERBUFFER, m_samples, linearFloat ? GL_RGBA16F : GL_RGBA8, m_width, m_height);
+        glGetRenderbufferParameteriv(GL_RENDERBUFFER, GL_RENDERBUFFER_SAMPLES, &colorSamples);
         glBindRenderbuffer(GL_RENDERBUFFER, 0);
         glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, m_msaaColorRbo);
 
         glGenRenderbuffers(1, &m_msaaDepthRbo);
         glBindRenderbuffer(GL_RENDERBUFFER, m_msaaDepthRbo);
         glRenderbufferStorageMultisample(GL_RENDERBUFFER, m_samples, GL_DEPTH24_STENCIL8, m_width, m_height);
+        glGetRenderbufferParameteriv(GL_RENDERBUFFER, GL_RENDERBUFFER_SAMPLES, &depthSamples);
         glBindRenderbuffer(GL_RENDERBUFFER, 0);
         glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, m_msaaDepthRbo);
-
-        GLenum msaaStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-        if (msaaStatus != GL_FRAMEBUFFER_COMPLETE) {
-            std::fprintf(stderr, "MSAA Framebuffer is not complete! Status: 0x%X\n", msaaStatus);
-        }
     }
 
-    GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-    if (status != GL_FRAMEBUFFER_COMPLETE) {
-        std::fprintf(stderr, "Framebuffer is not complete! Status: 0x%X\n", status);
-    }
-
+    const GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    m_valid = resolveStatus == GL_FRAMEBUFFER_COMPLETE && status == GL_FRAMEBUFFER_COMPLETE;
+    if (m_samples > 1 && colorSamples != depthSamples) m_valid = false;
+    if (linearFloat && !glassCopyErrors("floating-point allocation GL error")) m_valid = false;
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    if (!m_valid) {
+        if (linearFloat) {
+            glassCopyWarning("incomplete floating-point framebuffer/sample mismatch", status);
+            if (m_samples > 1) {
+                m_floatSamplesUnsupported = true;
+                resize(width, height, 1, true);
+            } else {
+                m_floatUnavailable = true;
+                cleanup(); // The application reuses its ordinary RGBA8 viewport.
+            }
+        } else {
+            std::fprintf(stderr, "Framebuffer is not complete! Status: 0x%X\n", status);
+        }
+        return;
+    }
 
     const uint64_t pixels = static_cast<uint64_t>(m_width) * static_cast<uint64_t>(m_height);
     ux3d::imgui::profiling::countTextureCreation();
-    // Resolve/single-sample RGBA8 color texture.
-    ux3d::imgui::profiling::countTextureAllocation(pixels * 4ull);
+    // Resolve/single-sample colour texture (float for the linear glass copy).
+    ux3d::imgui::profiling::countTextureAllocation(pixels * (linearFloat ? 8ull : 4ull));
     ux3d::imgui::profiling::countFramebufferCreation(m_samples > 1 ? 2u : 1u);
     ux3d::imgui::profiling::countRenderbufferCreation(m_samples > 1 ? 2u : 1u);
     if (m_samples > 1) {
-        // Multisampled RGBA8 color + D24S8 depth/stencil renderbuffers. The
+        // Multisampled colour + D24S8 depth/stencil renderbuffers. The
         // sample count multiplies renderbuffer storage, not texel count.
         ux3d::imgui::profiling::countRenderbufferAllocation(
-            pixels * 4ull * static_cast<uint64_t>(m_samples) * 2ull);
+            pixels * static_cast<uint64_t>(m_samples) * (linearFloat ? 12ull : 8ull));
     } else {
         // Single-sample D24S8 depth/stencil renderbuffer.
         ux3d::imgui::profiling::countRenderbufferAllocation(pixels * 4ull);
@@ -200,14 +272,29 @@ void Framebuffer::unbind()
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
-void Framebuffer::resolve()
+bool Framebuffer::resolve()
 {
+    if (!m_valid) return false;
+    if (m_linearFloat && glassCopyFault("resolve")) {
+        glassCopyWarning("injected resolve failure");
+        return false;
+    }
     if (m_samples > 1 && m_msaaFbo && m_fbo) {
-        // Hardware multisample resolve via blit to single-sample FBO
+        // Identical colour formats, dimensions, and explicit attachment selection.
+        // Only the sample count changes; never combine this resolve with a resize.
         glBindFramebuffer(GL_READ_FRAMEBUFFER, m_msaaFbo);
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_fbo);
+        if (m_linearFloat && (glCheckFramebufferStatus(GL_READ_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE
+                || glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)) {
+            glassCopyWarning("incomplete resolve framebuffer");
+            return false;
+        }
+        glReadBuffer(GL_COLOR_ATTACHMENT0);
+        glDrawBuffer(GL_COLOR_ATTACHMENT0);
         glBlitFramebuffer(0, 0, m_width, m_height, 0, 0, m_width, m_height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        if (m_linearFloat && !glassCopyErrors("resolve GL error")) return false;
     }
+    return true;
 }
 
 TransmissionTarget::~TransmissionTarget()
@@ -252,16 +339,39 @@ void TransmissionTarget::create()
     glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(previousFbo));
 }
 
-void TransmissionTarget::capture(Framebuffer& source)
+bool TransmissionTarget::capture(Framebuffer& source, bool fullResolution)
 {
     if (!m_texture || !source.isValid()) {
-        return;
+        glassCopyWarning("invalid capture source");
+        return false;
     }
+    if (fullResolution && glassCopyFault("capture")) {
+        glassCopyWarning("injected capture failure");
+        return false;
+    }
+    const int width = fullResolution ? source.getWidth() : kSize;
+    const int height = fullResolution ? source.getHeight() : kSize;
+    if (width != m_width || height != m_height || fullResolution != m_fullResolution) {
+        glBindTexture(GL_TEXTURE_2D, m_texture);
+        glTexImage2D(GL_TEXTURE_2D, 0, fullResolution ? GL_RGBA16F : GL_RGBA8,
+                     width, height, 0, GL_RGBA, GL_FLOAT, nullptr);
+        m_width = width;
+        m_height = height;
+        m_fullResolution = fullResolution;
+    }
+    if (!glassCopyErrors("capture allocation GL error")) return false;
     // A multisampled image cannot be blitted with scaling, so resolve it first.
-    source.resolve();
+    if (!source.resolve()) return false;
     glBindFramebuffer(GL_READ_FRAMEBUFFER, source.getResolveFbo());
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_fbo);
-    glBlitFramebuffer(0, 0, source.getWidth(), source.getHeight(), 0, 0, kSize, kSize, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+    if (glCheckFramebufferStatus(GL_READ_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE
+            || glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+        glassCopyWarning("incomplete capture framebuffer");
+        return false;
+    }
+    glReadBuffer(GL_COLOR_ATTACHMENT0);
+    glDrawBuffer(GL_COLOR_ATTACHMENT0);
+    glBlitFramebuffer(0, 0, source.getWidth(), source.getHeight(), 0, 0, width, height, GL_COLOR_BUFFER_BIT, fullResolution ? GL_NEAREST : GL_LINEAR);
 
     GLint previousTexture = 0;
     glGetIntegerv(GL_TEXTURE_BINDING_2D, &previousTexture);
@@ -269,7 +379,9 @@ void TransmissionTarget::capture(Framebuffer& source)
     glGenerateMipmap(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(previousTexture));
 
+    const bool ok = glassCopyErrors("capture GL error");
     source.bind();
+    return ok;
 }
 
 DecalBuffer::~DecalBuffer()

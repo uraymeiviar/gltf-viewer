@@ -17,12 +17,12 @@ public:
     Framebuffer(Framebuffer&& other) noexcept;
     Framebuffer& operator=(Framebuffer&& other) noexcept;
 
-    void resize(int width, int height, int samples = 1);
+    void resize(int width, int height, int samples = 1, bool linearFloat = false);
     void bind();
     void unbind();
     // Resolves the multisampled image into the color texture; no-op when single-sampled.
     // Leaves the read/draw framebuffer bindings changed.
-    void resolve();
+    bool resolve();
 
     GLuint getColorTexture() const { return m_colorTexture; }
     GLuint getFbo() const { return m_samples > 1 ? m_msaaFbo : m_fbo; }
@@ -30,10 +30,15 @@ public:
     int getWidth() const { return m_width; }
     int getHeight() const { return m_height; }
     int getSamples() const { return m_samples; }
-    bool isValid() const { return m_fbo != 0 && m_colorTexture != 0; }
+    bool isValid() const { return m_valid; }
+    bool isLinearFloat() const { return m_linearFloat; }
 
 private:
     void cleanup();
+    bool m_valid = false;
+    bool m_floatSamplesUnsupported = false;
+    bool m_floatUnavailable = false;
+    bool m_linearFloat = false;
 
     GLuint m_fbo = 0;              // Resolve / Single-sample FBO
     GLuint m_colorTexture = 0;      // Resolved color texture (for ImGui::Image)
@@ -48,9 +53,9 @@ private:
     int m_samples = 1;
 };
 
-// Mipmapped copy of the opaque scene that KHR_materials_transmission samples. It has a
-// fixed size (the shader samples it in normalized screen coordinates) and exists before
-// any material is built, so transmissive materials always reference a valid texture.
+// Mipmapped behind-scene copy. KHR transmission retains its fixed RGBA8 target; active
+// ASOBO glass uses viewport-sized floating point storage. The texture handle exists
+// before materials are built and remains stable when its storage changes.
 class TransmissionTarget {
 public:
     static constexpr int kSize = 1024;
@@ -64,14 +69,17 @@ public:
     void create();
     void destroy();
     // Copies source's current image into the texture and rebuilds its mipmaps, then
-    // binds source again for drawing.
-    void capture(Framebuffer& source);
+    // binds source again for drawing. Full resolution preserves linear HDR values.
+    bool capture(Framebuffer& source, bool fullResolution = false);
 
     GLuint getTexture() const { return m_texture; }
 
 private:
     GLuint m_texture = 0;
     GLuint m_fbo = 0;
+    int m_width = kSize;
+    int m_height = kSize;
+    bool m_fullResolution = false;
 };
 
 // A2.1: the one decal buffer shared by every viewport (docs/ASOBO_EXTENSIONS_PHASE_2.md

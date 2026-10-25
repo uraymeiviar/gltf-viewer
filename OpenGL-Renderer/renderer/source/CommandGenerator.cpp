@@ -31,6 +31,7 @@ ux3d::renderer::CommandGenerator::CommandGenerator(gl::GL* gl, const filesystem:
     , m_asoboNormalMapDirectXUniform("u_AsoboNormalMapDirectX")
     , m_asoboWindshieldVertexColorMaskUniform("u_AsoboWindshieldVertexColorMask")
     , m_asoboDecalReceiverUniform("u_AsoboDecalReceiver")
+    , m_asoboGlassCopyValidUniform("u_AsoboGlassCopyValid")
     , m_decalDepthToleranceUniform("u_DecalDepthTolerance")
     , m_lights(gl)
 {
@@ -125,6 +126,7 @@ void ux3d::renderer::CommandGenerator::bindFrameBlocks()
 
 void ux3d::renderer::CommandGenerator::update(const RendererScene& scene)
 {
+    m_asoboGlassCopy = scene.asoboGlassCopy;
     m_lights.update(scene.lights);
     m_activeCamera = scene.camera;
     m_activeEnvironmentMap = scene.environmentMap;
@@ -141,7 +143,15 @@ void ux3d::renderer::CommandGenerator::emitCommands()
     for (CmdDesc* desc : m_commands) {
 
         // sort into passes
-        auto& pass = m_passCommands[desc->pass->getId()];
+        uint32_t bucket = desc->pass->getId();
+        if (m_asoboGlassCopy) {
+            // The legacy KHR copy precedes decals. ASOBO glass needs the accumulated
+            // labels on its receivers in the behind copy as well as the forward pass.
+            if (bucket == RenderPassType::DecalPrepass) bucket = RenderPassType::Opaque2;
+            else if (bucket == RenderPassType::DecalAccumulation) bucket = RenderPassType::Grid2;
+            else if (bucket >= RenderPassType::Opaque2 && bucket <= RenderPassType::TransmissiveBlit) bucket += 2;
+        }
+        auto& pass = m_passCommands[bucket];
         const Material* material = desc->material;
         // A2.2: the decal accumulation pass owns the decal draws; those never write depth.
         const bool decalPass = material != nullptr && desc->pass->getId() == RenderPassType::DecalAccumulation;
@@ -152,6 +162,19 @@ void ux3d::renderer::CommandGenerator::emitCommands()
         // A1.4: covered transparent draws keep depth testing against opaque geometry but stop
         // writing depth, so their explicit order decides what is on top.
         desc->command.depthWriteEnabled = !covered;
+        // A4: glass v2 replaces the behind colour from the linear scene copy; windshield
+        // keeps the destination and adds reflection independently of base coverage.
+        const bool reflection = material != nullptr && material->defines.isDefined("ASOBO_GLASS_REFLECTION");
+        desc->command.overrideBlend = material != nullptr && isTransparentPass(*material);
+        desc->command.blendingEnabled = desc->command.overrideBlend;
+        desc->command.premultipliedAlpha = reflection;
+        if (reflection && isTransparentPass(*material)) {
+            // A complete copy emits alpha 1 (replacement); a failed copy emits
+            // coverage alpha and safely falls back to premultiplied transparency.
+            desc->command.blendingEnabled = true;
+            desc->command.depthWriteEnabled = false;
+        }
+
         float sortKey = desc->distanceSortKey;
         if (covered && material->drawOrderClass == DrawOrderClass::Glass) {
             // MSFS SDK: for glass and windshield the value is added to the distance used for

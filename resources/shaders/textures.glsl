@@ -270,8 +270,7 @@ vec2 getSpecularColorUV()
 uniform sampler2D u_TransmissionSampler;
 uniform int u_TransmissionUVSet;
 uniform mat3 u_TransmissionUVTransform;
-uniform sampler2D u_TransmissionFramebufferSampler;
-uniform ivec2 u_TransmissionFramebufferSize;
+
 
 
 vec2 getTransmissionUV()
@@ -340,4 +339,9 @@ vec2 getIridescenceThicknessUV()
     return uv.xy;
 }
 
+#endif
+
+#if defined(MATERIAL_TRANSMISSION) || defined(ASOBO_GLASS_REFRACTION)
+uniform sampler2D u_TransmissionFramebufferSampler;
+uniform ivec2 u_TransmissionFramebufferSize;
 #endif

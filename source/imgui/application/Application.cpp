@@ -183,13 +183,17 @@ int Application::run(int argc, char** argv)
 
     // Transmissive materials sample a mipmapped copy of the opaque scene. The texture
     // must exist before any model loads: materials attach it only when they are built.
-    // The TransmissiveBlit pass copies the viewport being drawn (transmissionSource).
+    // The TransmissiveBlit pass copies transmissionSource. For ASOBO glass this is
+    // the floating point behind target; the callback restores the forward target.
     transmissionTarget.create();
     gltfLayer->getResourceManager().createFramebufferTexture(transmissionTarget.getTexture());
     gltfLayer->getResourceManager().setBlitFramebufferFunction(
         [this] {
             if (transmissionSource != nullptr) {
-                transmissionTarget.capture(*transmissionSource);
+                const bool copied = transmissionTarget.capture(*transmissionSource, transmissionDestination != nullptr);
+                commandGenerator->setAsoboGlassCopyValid(copied && transmissionDestination != nullptr);
+                if (transmissionDestination != nullptr) transmissionDestination->bind();
+                else transmissionSource->bind();
             }
         },
         ux3d::math::vec4(0.12f, 0.12f, 0.14f, 1.0f));
@@ -360,6 +364,7 @@ int Application::run(int argc, char** argv)
         gltfLayer.reset();
     }
     transmissionTarget.destroy();
+    glassCopyFbo = ux3d::imgui::Framebuffer();
 
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();

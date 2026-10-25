@@ -56,6 +56,8 @@ public:
     gl::Winding winding = gl::Winding::CounterClockwise;
     gl::PolygonMode polygonMode = gl::PolygonMode::Fill;
     bool blendingEnabled = false;
+    bool premultipliedAlpha = false;
+    bool overrideBlend = false;
     bool depthTestEnabled = false;
     // A1.4: covered transparent draws (decals, glass, windshield) do not write depth while
     // ASOBO_material_draw_order is active, so their order decides what is on top.

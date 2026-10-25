@@ -2361,6 +2361,24 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
         const bool drawOrderActive = m_assetDrawOrderDeclared
             && asoboOptions.applies("ASOBO_material_draw_order");
         if (entry.material != nullptr) {
+            const auto* extensions = entry.material->asobo.get();
+            const auto* glass = extensions != nullptr ? extensions->find("ASOBO_material_glass_v2") : nullptr;
+            const bool refract = glass != nullptr && asoboOptions.applies("ASOBO_material_glass_v2");
+            const bool reflect = refract || (extensions != nullptr
+                && extensions->find("ASOBO_material_windshield_v3") != nullptr
+                && asoboOptions.applies("ASOBO_material_windshield_v3"));
+            const bool blend = entry.material->renderPass->getId() == Transparent;
+            entry.material->defines.defineIf(blend && reflect, "ASOBO_GLASS_REFLECTION");
+            entry.material->defines.defineIf(blend && refract, "ASOBO_GLASS_REFRACTION");
+            if (blend && refract) {
+                containsTransmissiveMaterial = true;
+                scene.asoboGlassCopy = true;
+                // The exporter's UI value is in millimetres and is written divided by 100
+                // (E2 screen glass: UI 2 mm -> 0.02), so metres = stored value / 10. A 2 mm
+                // slab matches the subtle refraction in MSFS; reading 0.02 as metres smears it.
+                entry.material->setUniform<float>("u_AsoboGlassWidth",
+                    static_cast<float>(std::max(0.0, glass->number("glassWidth").value_or(0.0)) * 0.1));
+            }
             entry.material->drawOrderActive = drawOrderActive;
             entry.material->decalBiasActive = asoboOptions.applies("ASOBO_material_geometry_decal");
             if (drawOrderActive && entry.material->drawOrderClass != DrawOrderClass::None) {
@@ -2404,6 +2422,11 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
     // Duplicate drawables for transmission path
     if (containsTransmissiveMaterial) {
         for (const auto [mesh, material] : scene.drawables) {
+            // Never put ASOBO glass in the behind copy: avoids sampling the texture while
+            // writing it and deliberately leaves glass-behind-glass refraction unsupported.
+            if (material->defines.isDefined("ASOBO_GLASS_REFLECTION")) {
+                continue;
+            }
             if (material->renderPass->getId() != Opaque
                 && material->renderPass->getId() != Transparent
                 && material->renderPass->getId() != Grid) {

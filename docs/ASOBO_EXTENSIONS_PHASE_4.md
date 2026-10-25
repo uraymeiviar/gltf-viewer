@@ -2,7 +2,7 @@
 
 [Journal index](ASOBO_EXTENSIONS_JOURNAL.md) · [Extension reference](ASOBO_EXTENSIONS_REFERENCE.md) · [Validation rules](RENDERER_OPTIMIZATION_VALIDATION.md)
 
-**Status:** Planned; not started.
+**Status:** A4 first part implemented: glass v2 slab refraction and opacity-independent reflection; windshield v3 reflection. Remaining A4 work is planned.
 
 **Entry:** A1.2 and A0.6 notes. A4 can start before A2/A3 because glass stays forward, but its final review
 follows A3 (shadows) and A6 (sky). **Goal:** glass with refraction, reflection and blending (user priority 3), and
@@ -35,3 +35,170 @@ emissive glow.
 - Glass and windshield are reviewed against the reference screenshots.
 - Bloom on/off is verified, with files without ASOBO extensions byte-identical.
 - Cost is measured.
+
+
+## A4 first part — glass reflection and slab refraction (2026-10-25)
+
+Implemented for forward BLEND materials with declared `ASOBO_material_glass_v2` or
+`ASOBO_material_windshield_v3`, only while the corresponding viewport extension switch
+applies. Both support-table entries are **Partial**. Legacy glass/windshield versions
+are unchanged. A1.4 distance/offset sorting remains in place, with depth testing enabled
+and depth writes disabled for the active glass draws.
+
+Let `a = clamp(baseColor.a, 0, 1)`, `D` be the base/diffuse and emissive radiance,
+`S` be the existing Fresnel-weighted GGX radiance (IBL plus punctual lights), and `T`
+be base-colour RGB. In the basic metallic/roughness case:
+
+- Windshield v3 emits `a*D + S`, alpha `a`, and uses `ONE, ONE_MINUS_SRC_ALPHA`.
+  Thus the framebuffer receives the base layer at its coverage and reflection independently
+  of that coverage. Existing optional sheen/clearcoat layers retain their layer composition.
+- Glass v2 emits `B(uv_refract)*(1-a)*T + a*D + S`, alpha **1** for the completed scene colour.
+  `B` is the existing **linear**, mipmapped transmission scene copy (LOD 0 for this clear
+  slab approximation). The complete result is tone mapped once by the existing shader.
+  Premultiplied `ONE, ONE_MINUS_SRC_ALPHA` blending replaces the destination when this
+  completed output has alpha 1. A failed copy falls back to `a*D + S` and alpha `a`.
+  Windshield composition retains the renderer's existing display-space blend convention (tone mapping occurs before framebuffer blending).
+- For a unit surface-to-eye vector `v`, shading normal `n`, and IOR `eta` (default 1.5),
+  `r = refract(-v, n, 1/eta)`, `exit = worldPosition + r*w/max(0.001, abs(dot(r,n)))`,
+  and `uv_refract = project(projection*view*vec4(exit,1)).xy*0.5+0.5`.
+  The divisor intersects the slab exit plane at normal thickness `w`. UVs clamp to half a
+  scene-copy texel at each edge. Zero width samples at the original projected fragment.
+
+`GltfRenderLayer::createScene` sets the active per-viewport material defines and width,
+requests the existing transmission copy when needed, and excludes active ASOBO glass and
+windshields from that copy. This avoids read/write feedback and deliberately does **not**
+refract glass behind glass. With several glass surfaces, the nearer replacement draw can
+replace farther glass; multilayer transmission is outside this part. Other transparent
+objects continue using standard glTF blending, including immediately after a glass draw.
+No new runtime disk assets were introduced. The follow-up below adds a floating-point
+behind target for active glass v2.
+
+**Verified:** `scripts/validate_asobo_glass.py` produces `build/review/glass_*.png` and
+`glass_metrics.json`; checks alpha 0.02 reflection at head-on/grazing shading normals,
+physical width 0 versus 0.3 m, base-colour tint, and byte-identical captures against
+`build/baselines/ed36dd8.exe` for individual switches off, ASOBO off, plain glTF, and
+KHR transmission without ASOBO. Exposure -3 keeps the small normal-incidence reflection
+measurable without saturating the grazing reflection. Normals are varied with fixed
+geometry/camera so both measurements use identical checkerboard pixels.
+The support-matrix harness also passes. Aircraft captures and labelled side-by-side
+MSFS comparisons are in `build/review/glass_e195_*` and `glass_e2_*`; exact commands are
+in `glass_aircraft_commands.json`. The session report records visual observations.
+
+**Width conversion (maintainer review):** the exporter UI is in mm and stores UI/100;
+metres therefore equal stored/10. E2 stored 0.02 is a 2 mm slab; do not apply node scaling.
+IOR 1.5 and this parallel-slab model remain an
+approximation, not a recovered MSFS shader. Reflection uses the HDR environment and
+punctual lights: there are no scene/interior reflections or SSR. The screen copy cannot
+supply off-screen geometry; edge clamping can stretch border pixels. Windshield v3 has
+no new refraction, masks, wipers, icing, scratch layers or rain. No MSFS environment,
+airport geometry or avionics state is reproduced by these comparisons.
+
+
+### Follow-up: E2 guard copy alignment and missing labels
+
+The initial A4 copy was incomplete: the legacy transmission duplicates ran before the
+decal prepass/accumulation, so the copied receivers sampled cleared accumulation targets.
+The labels were absent from the behind image and the replacement glass draw erased them.
+For scenes with active glass v2 only, command generation now schedules decal prepass and
+accumulation before the behind duplicates and their capture. Ordinary transparent draws
+are still copied; active ASOBO glass/windshields remain excluded. A1.4 sorting is unchanged.
+
+The ASOBO behind image now renders into a viewport-sized `RGBA32F` framebuffer, with the
+same render scale and MSAA count as the forward target. MSAA resolves at that size before
+capture into a matching floating-point transmission texture. This avoids the old 1024-square
+resample and RGBA8 linear-radiance clipping/quantization. The KHR-only/off paths retain their
+original target, order and format. The extra floating-point target is reused between viewports.
+Decal pass callbacks restore the appropriate behind target, and the capture callback restores
+the ordinary forward target before clearing and shading it. Both copies read the populated
+decal buffer. The transmission texture handle remains stable across storage changes.
+
+Glass lookup is anchored to the actual render pixel, with a thickness-dependent offset:
+
+```text
+size = textureSize(sceneCopy, 0)
+uv0 = gl_FragCoord.xy / size
+surfaceClip = viewProjection * vec4(worldPosition, 1)
+exitClip = viewProjection * vec4(exitPosition, 1)
+uv = uv0 + 0.5 * (exitClip.xy/exitClip.w - surfaceClip.xy/surfaceClip.w)
+```
+
+Viewport origin is (0,0) in both targets, with OpenGL bottom-up Y; there is no extra Y flip.
+At width zero the projected difference vanishes exactly. The reviewer's conversion remains
+`w = max(0, storedGlassWidth) * 0.1`: E2 stored 0.02 means 0.002 metres (2 mm).
+
+**Verified:** the synthetic fixture now includes an accumulated E-shaped decal and an ordinary
+transparent strip behind neutral glass (white tint, alpha zero, unlit to suppress reflection).
+The zero-width RGB comparison is exact with no AA and half render scale; MSAA4 has mean
+absolute difference 0.144/255, maximum 5/255 at edges, and zero translation, consistent with
+resolving linear radiance before tone mapping versus resolving already tone-mapped samples.
+The real E2 neutral-glass probe also matches glass-off exactly inside the guard area.
+Actual lit glass intentionally differs at width zero due to coverage and specular; see the
+report for both raw lit and neutral metrics. `scripts/validate_asobo_glass.py` retains its
+reflection, refraction, tint and ed36dd8 byte-identity checks; its large-width test uses stored
+3.0, corresponding to a 0.3 m diagnostic slab after the conversion.
+
+**Visual review:** STOP/RUN/START labels and knobs now remain readable through the E2
+2 mm guards, with slight distortion. Residual lightening is not a tint lookup error: the
+asset has white RGB tint, alpha 0.01 and an emissive factor of [1000,1000,1000] clamped by
+the existing loader. Specular contributes most of the extra veil; the small covered
+base/emissive layer also contributes. The HDR and MSFS lighting differ, so no exact strength
+calibration is claimed. New comparisons are `build/review/glass_followup_e2_guards_comparison.png`
+and `glass_followup_e195_hud_comparison.png`; metrics and diagnostic images share the prefix.
+The Follow-up section of `a4-glass.report.md` supersedes the initial report's copy-size,
+width-unit and visual-alignment observations.
+
+
+### Follow-up 2: black MSAA glass and opaque viewport composition
+
+**Verified cause:** the framebuffer and 8x RGBA32F resolve/capture were complete and
+error-free on the test GPU, and their RGB radiance was nonzero. The shader wrote a fully
+composed background-plus-glass RGB value with coverage alpha. ImGui blended that viewport
+texture by alpha again, making the combiners look black. TAA and FXAA output opaque alpha
+and hid the problem. The previous RGB-only viewport checks missed it; the early dark
+window dumps were not just warm-up state.
+
+A valid glass-v2 copy now emits the complete colour with alpha **1**; the material coverage
+still weights the base and background terms internally. All active glass uses premultiplied
+blending: alpha 1 replaces the destination, while a failed copy emits the existing
+reflection-only `a*D + S`, alpha `a`, and blends safely over the forward scene. A per-draw
+`u_AsoboGlassCopyValid` uniform starts false and is set by the capture callback only after
+success. Failed/unavailable copies are never sampled. Windshield behaviour and inactive
+extension paths are unchanged.
+
+The floating-point behind target, resolve texture and transmission copy now use **RGBA16F**.
+Both resolve and draw FBOs are validated; colour/depth RBO sample counts are compared;
+the resolve changes only sample count, using identical formats/dimensions and NEAREST.
+Capture reads the resolved attachment explicitly. Allocation, resolve, storage/mipmap and
+capture errors are checked. Unsupported floating-point multisampling retries single-sample
+HDR; unavailable HDR uses the legacy source and reflection-only transparent glass. Failure
+logs once. Test-only `GLIDER_TEST_GLASS_COPY_FAILURE=allocation|multisample|resolve|capture`
+injects failures before the corresponding GL work; each path is checked by the fixture.
+Profile/capture runs now drain and report GL errors every frame.
+
+**Verified:** E195 HUD and E2 guards were rendered with none, msaa2, msaa4, msaa8, taa and
+fxaa, with zero GL errors and no unexpected fallback. Mean absolute RGB differences inside
+eroded glass masks versus none, on a 0..255 scale:
+
+| AA | E195 HUD | E2 guards |
+|---|---:|---:|
+| none | 0.000 | 0.000 |
+| msaa2 | 0.131 | 0.222 |
+| msaa4 | 0.143 | 0.246 |
+| msaa8 | 0.147 | 0.242 |
+| taa | 0.498 | 1.257 |
+| fxaa | 0.400 | 1.383 |
+
+Review images: `build/review/glass_f2_black_fix_comparison.png` compares actual window
+presentation before/after; `glass_f2_e195_hud_aa_comparison.png` and
+`glass_f2_e2_guards_aa_comparison.png` show all six modes. Exact commands, logs and mask
+metrics share `glass_f2_` names. Synthetic tests assert alpha 255 in first and steady
+complete-glass captures at none/2x/4x/8x, compare RGB against none, check MSAA alignment
+and exercise the four safe fallbacks. All checks pass, including retained off-path byte
+identity against ed36dd8. No regression suite or benchmarks were run.
+
+**Nominal glass-copy storage at 1920x1080:** RGBA16F behind/depth/resolve plus the full
+mipmapped transmission texture uses 44.82 MiB at one sample, 84.37 MiB at 2x, 131.83 MiB
+at 4x and 226.76 MiB at 8x. The previous RGBA32F 8x storage was 390.23 MiB. These figures
+exclude the ordinary viewport framebuffer, AA history, decal buffers and driver overhead.
+RGBA16F versus the previous RGBA32F none captures differs by mean RGB 0.021/255 for the
+HUD and 0.023/255 for the guards, with maximum 1/255 in the measured masks.

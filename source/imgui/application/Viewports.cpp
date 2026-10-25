@@ -598,7 +598,10 @@ void Application::drawViewports(FrameContext& frame)
                         && vp->settings.asobo.applies("ASOBO_material_blend_gbuffer"));
                 decalAccumulationLayer->setPassCallbacks(
                     [this, vpW, vpH] { decalBuffer.bindAccumulation(vpW, vpH); },
-                    [&vp] { vp->sceneFbo.bind(); });
+                    [this, &vp] {
+                        if (transmissionSource != nullptr) transmissionSource->bind();
+                        else vp->sceneFbo.bind();
+                    });
                 scene = decalAccumulationLayer->applyLayer(
                     std::move(scene), [this](const ux3d::renderer::Mesh* mesh) {
                         return currentReverseMapping.find(const_cast<ux3d::renderer::Mesh*>(mesh)) !=
@@ -617,7 +620,10 @@ void Application::drawViewports(FrameContext& frame)
                               ? ux3d::renderer::DecalPrepassLayer::DebugView::Normal
                               : ux3d::renderer::DecalPrepassLayer::DebugView::None);
                 decalPrepassLayer->prePass = [this, vpW, vpH] { decalBuffer.bindPrepass(vpW, vpH); };
-                decalPrepassLayer->postPass = [&vp] { vp->sceneFbo.bind(); };
+                decalPrepassLayer->postPass = [this, &vp] {
+                    if (transmissionSource != nullptr) transmissionSource->bind();
+                    else vp->sceneFbo.bind();
+                };
                 decalPrepassLayer->setDebugViewport(vpW, vpH);
                 scene = decalPrepassLayer->applyLayer(
                     std::move(scene), [this](const ux3d::renderer::Mesh* mesh) {
@@ -674,9 +680,23 @@ void Application::drawViewports(FrameContext& frame)
             }
             const auto drawSubmissionStart = ux3d::imgui::profiling::Clock::now();
             glRenderer->setGpuFrameContext(frame.number, vp->id, "main");
-            transmissionSource = &vp->sceneFbo;
+            // A4: the behind pass needs HDR radiance and the exact render-scale/MSAA
+            // pixel grid. The blit callback switches back to the ordinary scene target.
+            commandGenerator->setAsoboGlassCopyValid(false);
+            if (scene.asoboGlassCopy) glassCopyFbo.resize(vpW, vpH, vp->sceneFbo.getSamples(), true);
+            const bool floatCopy = scene.asoboGlassCopy && glassCopyFbo.isValid() && glassCopyFbo.isLinearFloat();
+            transmissionDestination = floatCopy ? &vp->sceneFbo : nullptr;
+            transmissionSource = floatCopy ? &glassCopyFbo : &vp->sceneFbo;
+            if (floatCopy) {
+                glassCopyFbo.bind();
+                glViewport(0, 0, vpW, vpH);
+                glClearColor(activeEnvironment.clearColor.r, activeEnvironment.clearColor.g,
+                             activeEnvironment.clearColor.b, activeEnvironment.clearColor.a);
+                glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            }
             glRenderer->draw({commandGenerator.get()});
             transmissionSource = nullptr;
+            transmissionDestination = nullptr;
             vp->lastExecutedPasses = glRenderer->getLastExecutedPasses();
             ++vp->renderCount;
             frame.markStage("draw.submit", drawSubmissionStart);

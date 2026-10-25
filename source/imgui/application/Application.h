@@ -298,6 +298,8 @@ private:
     std::unique_ptr<ux3d::renderer::GltfRenderLayer> gltfLayer;
     ux3d::imgui::TransmissionTarget transmissionTarget;
     ux3d::imgui::Framebuffer* transmissionSource = nullptr;
+    ux3d::imgui::Framebuffer* transmissionDestination = nullptr;
+    ux3d::imgui::Framebuffer glassCopyFbo;
     std::unique_ptr<ux3d::renderer::CommandGenerator> commandGenerator;
     std::unique_ptr<ux3d::renderer::Renderer> glRenderer;
     std::unique_ptr<ux3d::renderer::PickingRenderLayer> pickingLayer;

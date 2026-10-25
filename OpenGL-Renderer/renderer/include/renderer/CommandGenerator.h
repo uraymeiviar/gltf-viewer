@@ -91,6 +91,7 @@ public:
     // is asset-level, so the viewport switch is a frame-block uniform (like A1.2's
     // normal-map convention) and the command cache is not split per viewport.
     void setAsoboDecalReceiver(bool enabled);
+    void setAsoboGlassCopyValid(bool valid) { m_asoboGlassCopyValidUniform.write(valid ? 1 : 0); }
     void setDecalDepthTolerance(float metres);
     // A2.2: the shared buffer's A0-A5 texture handles, owned by the application's DecalBuffer.
     // They are wrapped here so every receiver command can keep stable sampler pointers while
@@ -128,6 +129,7 @@ protected:
     // TODO: remove these, they should be configured by the renderpass
     ToneMappingsEnum m_toneMapping = ToneMappingsEnum::None;
     bool m_useIBL = true;
+    bool m_asoboGlassCopy = false;
     bool m_usePunctualLights = true;
     glm::mat3x3 m_environmentMapRotation = glm::mat3x3(1.0f);
     gl::Uniform m_environmentMapRotationUniform;
@@ -137,6 +139,7 @@ protected:
     gl::Uniform m_asoboNormalMapDirectXUniform;
     gl::Uniform m_asoboWindshieldVertexColorMaskUniform;
     gl::Uniform m_asoboDecalReceiverUniform;
+    gl::Uniform m_asoboGlassCopyValidUniform;
     gl::Uniform m_decalDepthToleranceUniform;
     // A2.2: six borrowed views of the shared accumulation targets and their samplers. The
     // wrappers live as long as the generator; setDecalTargets refreshes only the handles.

@@ -19,6 +19,8 @@ class EnvironmentMap;
 struct RendererScene {
     std::vector<Light*> lights;
     core::LinkedList<std::tuple<Mesh*, Material*>> drawables;
+    // A4: schedule the behind copy after decal accumulation, before forward shading.
+    bool asoboGlassCopy = false;
     Camera* camera = nullptr;
     EnvironmentMap* environmentMap = nullptr;
 };
