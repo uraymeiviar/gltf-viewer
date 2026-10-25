@@ -223,6 +223,8 @@ std::optional<int> Application::configure(int argc, char** argv)
     float cameraFovArg = 0.0f;
     std::string cameraProjectionArg;
     std::string debugViewArg;
+    bool cliClearProvided = false;
+    glm::vec4 cliClearColor(1.0f);
     bool cliHdrProvided = false;
     std::string cliHdrPath;
     bool cliHdrRotationProvided = false;
@@ -351,6 +353,20 @@ std::optional<int> Application::configure(int argc, char** argv)
                 return 1;
             }
             activeViewport->settings.decalDepthToleranceMm = mm;
+        } else if (arg == "--hide-grid") {
+            activeViewport->settings.showGrid = false;
+        } else if (arg == "--ssr" && i + 1 < argc) {
+            const std::string value = toLowerAscii(argv[++i]);
+            if (value != "on" && value != "off") return 1;
+            activeViewport->settings.screenSpaceReflections = value == "on";
+        } else if (arg == "--ssr-quality" && i + 1 < argc) {
+            const std::string value = toLowerAscii(argv[++i]);
+            if (value != "low" && value != "medium" && value != "high") return 1;
+            activeViewport->settings.ssrQuality = value == "low" ? 0 : value == "high" ? 2 : 1;
+        } else if (arg == "--interior-sky-reflection" && i + 1 < argc) {
+            const float value = std::stof(argv[++i]);
+            if (!std::isfinite(value) || value < 0.0f || value > 1.0f) return 1;
+            activeViewport->settings.interiorSkyReflection = value;
         } else if (arg == "--asobo" && i + 1 < argc) {
             activeViewport->settings.asobo.enabled = toLowerAscii(argv[++i]) != "off";
         } else if (arg == "--asobo-disable" && i + 1 < argc) {
@@ -561,6 +577,13 @@ std::optional<int> Application::configure(int argc, char** argv)
                 activeViewport->settings.setLegacyAA(5);
         } else if ((arg == "--msaa" || arg == "--post-aa") && i + 1 < argc) {
             ++i; // Applied in a second pass, after every legacy --aa argument.
+        } else if (arg == "--clear-color" && i + 1 < argc) {
+            float r, g, b;
+            if (std::sscanf(argv[++i], "%f,%f,%f", &r, &g, &b) != 3) return 1;
+            auto& env = getSceneEnvironment(sceneEnvironments, gltfModel, activeScene);
+            cliClearProvided = true;
+            cliClearColor = env.clearColor = glm::vec4(r, g, b, 1.0f);
+            env.showBackground = false;
         } else if (arg == "--hdr-rotation" && i + 1 < argc) {
             cliHdrRotation = std::stof(argv[++i]);
             cliHdrRotationProvided = true;
@@ -1018,8 +1041,9 @@ std::optional<int> Application::configure(int argc, char** argv)
         return writeAsoboReport(gltfModel, asoboReportPath) ? 0 : 1;
     }
 
-    if (cliHdrProvided || cliHdrRotationProvided || cliExposureProvided || cliToneMappingProvided) {
+    if (cliClearProvided || cliHdrProvided || cliHdrRotationProvided || cliExposureProvided || cliToneMappingProvided) {
         for (auto& env : sceneEnvironments) {
+            if (cliClearProvided) { env.showBackground = false; env.clearColor = cliClearColor; }
             if (cliHdrProvided) env.currentHdrPath = cliHdrPath;
             if (cliHdrRotationProvided) env.hdrRotation = cliHdrRotation;
             if (cliExposureProvided) env.exposureEV = cliExposureEV;

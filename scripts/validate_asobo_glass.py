@@ -1,5 +1,5 @@
 # Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
-"""A4 first part: glass reflection, slab refraction and exact disabled-path checks.
+"""A4: glass reflection/refraction, windshield SSR, clear colours and disabled paths.
 
 Run with Anaconda Python. Artifacts and measurements go to build/review/glass_*.
 Uses synthetic geometry only; aircraft comparisons are recorded in the A4 report.
@@ -9,6 +9,7 @@ import json
 import os
 import re
 import struct
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -126,6 +127,116 @@ def same(a,b):
     return a.read_bytes() == b.read_bytes()
 
 
+def ssr_fixture(name="ssr", attenuation=1.0, windshield=True, occluded=False):
+    """Tilted physical pane and an orange emissive box on the camera side below it."""
+    data, views, accessors, meshes = bytearray(), [], [], []
+    def face(points, normal, material):
+        first = len(accessors)
+        for values in (points, [normal]*4):
+            offset = len(data)
+            data.extend(b"".join(struct.pack("<3f", *v) for v in values))
+            views.append(dict(buffer=0, byteOffset=offset, byteLength=48))
+            a = dict(bufferView=len(views)-1, componentType=5126, count=4, type="VEC3")
+            if values is points:
+                a.update(min=np.min(points,axis=0).tolist(), max=np.max(points,axis=0).tolist())
+            accessors.append(a)
+        meshes.append({"primitives":[{"attributes":{"POSITION":first,"NORMAL":first+1},"mode":6,"material":material}]})
+    face([(-1.3,-.65,-.375),(1.3,-.65,-.375),(1.3,.65,.375),(-1.3,.65,.375)],(0,-.5,.8660254),0)
+    lo,hi = (-.5,-1.2,.4),(.5,-.8,.85)
+    corners=[(x,y,z) for z in (lo[2],hi[2]) for y in (lo[1],hi[1]) for x in (lo[0],hi[0])]
+    for indices,n in [([4,5,7,6],(0,0,1)),([0,2,3,1],(0,0,-1)),([2,6,7,3],(0,1,0)),
+                      ([0,1,5,4],(0,-1,0)),([1,3,7,5],(1,0,0)),([0,4,6,2],(-1,0,0))]:
+        face([corners[i] for i in indices],n,1)
+    if occluded:
+        # A thin overhanging lip lies along the reflected ray, but does not hide the
+        # emissive box from the camera. The reflection must stop at the lip.
+        face([(-.8,-.4,.1),(-.8,-.4,.9),(.8,-.4,.9),(.8,-.4,.1)],(0,1,0),2)
+    pane={"pbrMetallicRoughness":{"baseColorFactor":[1,1,1,0],"metallicFactor":0,"roughnessFactor":.05},"alphaMode":"BLEND","doubleSided":True}
+    if windshield: pane["extensions"]={WINDSHIELD:{"ssrAttenuation":attenuation}}
+    doc={"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":list(range(len(meshes)))}],
+         "nodes":[{"mesh":i} for i in range(len(meshes))],"meshes":meshes,
+         "materials":[pane,{"pbrMetallicRoughness":{"baseColorFactor":[0,0,0,1],"metallicFactor":0},"emissiveFactor":[1,.12,.005],"doubleSided":True},
+                      {"pbrMetallicRoughness":{"baseColorFactor":[0,0,0,1],"metallicFactor":0,"roughnessFactor":1},"doubleSided":True}],
+         "buffers":[{"byteLength":len(data),"uri":"data:application/octet-stream;base64,"+base64.b64encode(data).decode()}],
+         "bufferViews":views,"accessors":accessors,"extensionsUsed":[WINDSHIELD] if windshield else []}
+    path=OUT/("ssr_"+name+".gltf")
+    path.write_text(json.dumps(doc),encoding="utf-8")
+    return path
+
+
+def check_ssr():
+    OUT.mkdir(parents=True,exist_ok=True)
+    model=ssr_fixture()
+    zero=ssr_fixture("zero",0)
+    # SSR is off by default (experimental); these checks turn it on explicitly.
+    flags=["--clear-color","0.015,0.02,0.025","--exposure","0","--interior-sky-reflection","0","--ssr","on"]
+    metrics={}
+    aa_cases=[("none",[]),("msaa4",["--msaa","4"]),("taa",["--post-aa","taa"]),("msaa4_taa",["--msaa","4","--post-aa","taa"])]
+    aa_cases += [(f"msaa{msaa}_{post}",["--msaa",str(msaa),"--post-aa",post])
+                 for msaa in (0,2,4,8) for post in ("none","fxaa","taa")
+                 if (msaa,post) not in [(0,"none"),(4,"none"),(0,"taa"),(4,"taa")]]
+    blocked=ssr_fixture("ssr2_occluded",occluded=True)
+    for label,aa in aa_cases:
+        on=render(model,"ssr_"+label+"_on",flags+aa)
+        off=render(model,"ssr_"+label+"_off",flags+aa+["--ssr","off"])
+        z=render(zero,"ssr_"+label+"_zero",flags+aa)
+        a,b=np.asarray(Image.open(on).convert("RGB"),dtype=float),np.asarray(Image.open(off).convert("RGB"),dtype=float)
+        # Only the top two thirds: the box itself is below the pane.
+        delta=(a-b)[:int(a.shape[0]*.65)]
+        orange=(delta[:,:,0]>8)&(delta[:,:,0]>delta[:,:,1]*1.5)
+        metrics[label]={"orange_reflection_pixels":int(orange.sum()),"max_red_delta":float(delta[:,:,0].max())}
+        check(orange.sum()>30,label+": orange box appears in windshield reflection")
+        check(same(off,z),label+": attenuation zero matches SSR off")
+        check(a.max()>20 and a.mean()>1,label+": no black image; GL diagnostics passed")
+        blocked_on=render(blocked,"ssr2_occluded_"+label+"_on",flags+aa)
+        blocked_off=render(blocked,"ssr2_occluded_"+label+"_off",flags+aa+["--ssr","off"])
+        ba=np.asarray(Image.open(blocked_on).convert("RGB"),dtype=float)
+        bb=np.asarray(Image.open(blocked_off).convert("RGB"),dtype=float)
+        bd=(ba-bb)[:int(ba.shape[0]*.65)]
+        check(not np.any((bd[:,:,0]>8)&(bd[:,:,0]>bd[:,:,1]*1.5)),label+": thin lip prevents box reflection")
+
+    # Non-windshield fixtures retain exact captures against the current AA baseline.
+    for label,m in [("plain",fixture("ssr_plain",None)),("glass",fixture("ssr_glass")),("khr",OUT/"glass_khr.gltf")]:
+        if not m.exists(): continue
+        check(same(render(m,"ssr_baseline_"+label),render(m,"ssr_baseline_"+label+"_ref",exe=REPO/"build/baselines/c68a9ae.exe")),label+": byte identical to c68a9ae")
+    for quality in ("low","high"):
+        path=render(model,"ssr_quality_"+quality,flags+["--ssr-quality",quality])
+        check(not same(path,render(model,"ssr_quality_"+quality+"_off",flags+["--ssr","off"])),quality+": SSR reflects the box")
+    import copy
+    for location,translation in [("inside",[0,0,0]),("outside",[10,0,0])]:
+        doc=json.loads(model.read_text())
+        volume=copy.deepcopy(doc["meshes"][0])
+        volume["primitives"][0]["material"]=len(doc["materials"])
+        doc["materials"].append({"extensions":{"ASOBO_material_environment_occluder":{}}})
+        doc["extensionsUsed"].append("ASOBO_material_environment_occluder")
+        doc["meshes"].append(volume)
+        doc["scenes"][0]["nodes"].append(len(doc["nodes"]))
+        doc["nodes"].append({"mesh":len(doc["meshes"])-1,"scale":[3,3,3],"translation":translation})
+        path=OUT/("ssr_occluder_"+location+".gltf")
+        path.write_text(json.dumps(doc),encoding="utf-8")
+        a=render(path,"ssr_occluder_"+location+"_dark",["--ssr","off","--exposure","0","--interior-sky-reflection","0"])
+        b=render(path,"ssr_occluder_"+location+"_light",["--ssr","off","--exposure","0","--interior-sky-reflection","1"])
+        check(same(a,b)==(location=="outside"),location+": occluder bounds gate interior fallback")
+    # A clear scene through neutral refraction must respond to the same scene setting.
+    clear_glass=fixture("ssr_clear_glass",alignment=True)
+    doc=json.loads(clear_glass.read_text());doc["scenes"][0]["nodes"]=[0]
+    clear_glass.write_text(json.dumps(doc),encoding="utf-8")
+    a=pixels(render(clear_glass,"ssr_behind_red",["--clear-color","0.4,0.02,0.01"]))
+    b=pixels(render(clear_glass,"ssr_behind_blue",["--clear-color","0.01,0.02,0.4"]))
+    check(a[:,:,0].mean()>b[:,:,0].mean()+10 and b[:,:,2].mean()>a[:,:,2].mean()+10,"behind copy follows the two clear colours")
+    for samples in (0,2,4,8):
+        for post in ("none","fxaa","taa"):
+            label=f"msaa{samples}_{post}"
+            aa=["--msaa",str(samples),"--post-aa",post]
+            for name,c in [("red","0.4,0.02,0.01"),("blue","0.01,0.02,0.4")]:
+                path=render(model,"ssr_clear_"+label+"_"+name,aa+["--clear-color",c,"--ssr","off"])
+                a=np.asarray(Image.open(path).convert("RGB"))
+                expected=np.round(np.array([float(v) for v in c.split(',')])*255)
+                check(np.abs(a[20,20].astype(float)-expected).max()<=1,label+": "+name+" clear colour")
+    (OUT/"ssr_metrics.json").write_text(json.dumps(metrics,indent=2))
+    if failures: raise SystemExit(1)
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     metrics = {}
@@ -219,4 +330,6 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if "--ssr" not in sys.argv:
+        main()
+    check_ssr()

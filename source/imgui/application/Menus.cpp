@@ -28,6 +28,8 @@ constexpr ShadingModeInfo s_shadingModes[] = {
     {"Geometry Bitangent", ux3d::renderer::RenderMode::Bitangent, nullptr, false},
     {"Decal Prepass Depth", ux3d::renderer::RenderMode::DecalPrepassDepth, nullptr, false},
     {"Decal Prepass Normal", ux3d::renderer::RenderMode::DecalPrepassNormal, nullptr, false},
+    {"SSR", ux3d::renderer::RenderMode::SSR, nullptr, false},
+    {"SSR Ray", ux3d::renderer::RenderMode::SSRRay, nullptr, false},
     {"Shading Normal", ux3d::renderer::RenderMode::ShadingNormal, nullptr, false},
     {"Alpha", ux3d::renderer::RenderMode::Alpha, nullptr, false},
     {"", ux3d::renderer::RenderMode::None, nullptr, true},
@@ -128,6 +130,10 @@ ux3d::renderer::RenderMode Application::getRenderModeFromIndex(int idx)
         return ux3d::renderer::RenderMode::IridescenceFactor;
     case 31:
         return ux3d::renderer::RenderMode::IridescenceThickness;
+    case 32:
+        return ux3d::renderer::RenderMode::SSR;
+    case 33:
+        return ux3d::renderer::RenderMode::SSRRay;
     default:
         return ux3d::renderer::RenderMode::None;
     }
@@ -232,6 +238,10 @@ int Application::getIndexFromRenderMode(ux3d::renderer::RenderMode mode)
         return 30;
     case RM::IridescenceThickness:
         return 31;
+    case RM::SSR:
+        return 32;
+    case RM::SSRRay:
+        return 33;
     default:
         return 0;
     }
@@ -261,6 +271,10 @@ const char* Application::getRenderModeLabel(ux3d::renderer::RenderMode mode)
         return "Decal Prepass Depth";
     case RM::DecalPrepassNormal:
         return "Decal Prepass Normal";
+    case RM::SSR:
+        return "SSR";
+    case RM::SSRRay:
+        return "SSR Ray";
     case RM::Alpha:
         return "Alpha";
     case RM::Occlusion:

@@ -92,6 +92,10 @@ public:
     // normal-map convention) and the command cache is not split per viewport.
     void setAsoboDecalReceiver(bool enabled);
     void setAsoboGlassCopyValid(bool valid) { m_asoboGlassCopyValidUniform.write(valid ? 1 : 0); }
+    void setSsrOptions(bool enabled, int quality, float sky) {
+        m_ssrOptions.write(math::vec3(enabled ? 1.0f : 0.0f, quality == 0 ? 256.0f : quality == 2 ? 1024.0f : 512.0f, sky));
+    }
+    void setSsrDepth(GLuint texture) { m_ssrDepth->handle = texture; }
     void setDecalDepthTolerance(float metres);
     // A2.2: the shared buffer's A0-A5 texture handles, owned by the application's DecalBuffer.
     // They are wrapped here so every receiver command can keep stable sampler pointers while
@@ -146,6 +150,9 @@ protected:
     std::array<std::unique_ptr<gl::Texture>, 6> m_decalTextures;
     std::array<std::unique_ptr<gl::Sampler>, 6> m_decalSamplers;
     std::unique_ptr<gl::SamplerState> m_decalSamplerState;
+    gl::Uniform m_ssrOptions{"u_SsrOptions"};
+    std::unique_ptr<gl::Texture> m_ssrDepth;
+    std::unique_ptr<gl::Sampler> m_ssrDepthSampler;
     EnvironmentMap* m_activeEnvironmentMap = nullptr;
     const renderer::Camera* m_activeCamera = nullptr;
     LightData m_lights;

@@ -481,6 +481,8 @@ void Application::drawViewports(FrameContext& frame)
         if (redrawScene && gltfLayer != nullptr && glRenderer != nullptr && commandGenerator != nullptr) {
             const auto sceneBuildStart = ux3d::imgui::profiling::Clock::now();
             gltfLayer->enableCubeMap(activeEnvironment.showBackground);
+            glRenderer->setClearColor(activeEnvironment.clearColor);
+            gltfLayer->getResourceManager().setClearColor(activeEnvironment.clearColor);
 
             auto mode = vp->settings.renderMode;
 
@@ -690,6 +692,11 @@ void Application::drawViewports(FrameContext& frame)
             // A4: the behind pass needs HDR radiance and the exact render-scale/MSAA
             // pixel grid. The blit callback switches back to the ordinary scene target.
             commandGenerator->setAsoboGlassCopyValid(false);
+            ssrCaptureDepth = scene.windshieldSsr && vp->settings.screenSpaceReflections;
+            ssrUseDecalDepth = decalActive;
+            ssrInteriorSky = vp->settings.interiorSkyReflection;
+            commandGenerator->setSsrOptions(vp->settings.screenSpaceReflections,
+                                           vp->settings.ssrQuality, vp->settings.interiorSkyReflection);
             if (scene.asoboGlassCopy) glassCopyFbo.resize(vpW, vpH, vp->sceneFbo.getSamples(), true);
             const bool floatCopy = scene.asoboGlassCopy && glassCopyFbo.isValid() && glassCopyFbo.isLinearFloat();
             transmissionDestination = floatCopy ? &vp->sceneFbo : nullptr;

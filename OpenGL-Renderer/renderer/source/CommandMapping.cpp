@@ -527,6 +527,8 @@ gl::Program* CommandMapping::buildProgram(const Mesh& meshRef, const Material& m
     fragmentDefines.define("DEBUG_IRIDESCENCE_FACTOR", static_cast<int>(RenderMode::IridescenceFactor));
     fragmentDefines.define("DEBUG_IRIDESCENCE_THICKNESS", static_cast<int>(RenderMode::IridescenceThickness));
 
+    fragmentDefines.define("DEBUG_SSR", static_cast<int>(RenderMode::SSR));
+    fragmentDefines.define("DEBUG_SSR_RAY", static_cast<int>(RenderMode::SSRRay));
     fragmentDefines.defineAllOf(mesh->defines);
     fragmentDefines.defineAllOf(material->defines);
 
@@ -741,6 +743,10 @@ std::optional<CmdDesc> CommandMapping::makeCommand(MeshMaterialTuple meshMat)
 
     command->uniforms.push_back(&m_scene.m_exposureUniform);
     command->uniforms.push_back(&m_scene.m_asoboGlassCopyValidUniform);
+    if (material->defines.isDefined("ASOBO_WINDSHIELD_SSR")) {
+        command->uniforms.push_back(&m_scene.m_ssrOptions);
+        command->samplers.push_back(m_scene.m_ssrDepthSampler.get());
+    }
 
     // A2.2: a receiver program samples the six shared accumulation targets. The wrappers
     // and their sampler pointers are stable for the generator's lifetime; only the texture

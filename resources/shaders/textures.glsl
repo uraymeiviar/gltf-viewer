@@ -341,7 +341,7 @@ vec2 getIridescenceThicknessUV()
 
 #endif
 
-#if defined(MATERIAL_TRANSMISSION) || defined(ASOBO_GLASS_REFRACTION)
+#if defined(MATERIAL_TRANSMISSION) || defined(ASOBO_GLASS_REFRACTION) || defined(ASOBO_WINDSHIELD_SSR)
 uniform sampler2D u_TransmissionFramebufferSampler;
 uniform ivec2 u_TransmissionFramebufferSize;
 #endif

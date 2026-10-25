@@ -21,6 +21,9 @@ struct ViewportSettingsState {
     bool showGrid = true;
     bool forceDoubleSided = false; // Disable backface culling globally
     ux3d::renderer::AsoboOptions asobo; // MSFS (ASOBO) extensions this viewport applies (A0.4)
+    bool screenSpaceReflections = false; // experimental: hit edges still streak (see A4 notes)
+    int ssrQuality = 1; // Low/Medium/High: 256/512/1024 pixel-step budgets
+    float interiorSkyReflection = 0.5f;
     float decalDepthToleranceMm = 1.2f; // Receiver-normal tolerance for the decal buffer
     bool invertWinding = false;    // Invert front/back face winding order (CW vs CCW)
     // Legacy mode remains the fallback for saved state and existing automation.

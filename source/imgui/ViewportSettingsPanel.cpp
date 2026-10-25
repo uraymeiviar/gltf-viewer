@@ -67,10 +67,14 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
                 "Sheen",
                 "Specular",
                 "Transmission / Volume",
-                "Iridescence"
+                "Iridescence",
+                "Clearcoat Factor", "Clearcoat Roughness", "Clearcoat Normal",
+                "Sheen Color", "Sheen Roughness", "Specular Factor", "Specular Color",
+                "Transmission Factor", "Volume Thickness", "Iridescence Factor", "Iridescence Thickness",
+                "SSR", "SSR Ray"
             };
 
-            if (ImGui::Combo("Debug Mode", &state.renderModeIdx, renderModes, 21)) {
+            if (ImGui::Combo("Debug Mode", &state.renderModeIdx, renderModes, 34)) {
                 revisions.mark(SceneChange::ViewportSettings);
             }
 
@@ -112,6 +116,15 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
             }
             // One switch per extension Glider renders, from the A0.2 support table.
             ImGui::BeginDisabled(!state.asobo.enabled);
+            if (ImGui::Checkbox("Screen-space reflections", &state.screenSpaceReflections)) {
+                revisions.mark(SceneChange::ViewportSettings);
+            }
+            if (ImGui::Combo("SSR quality", &state.ssrQuality, "Low\0Medium\0High\0")) {
+                revisions.mark(SceneChange::ViewportSettings);
+            }
+            if (ImGui::SliderFloat("Interior sky reflection", &state.interiorSkyReflection, 0.0f, 1.0f)) {
+                revisions.mark(SceneChange::ViewportSettings);
+            }
             ImGui::Indent();
             for (const ux3d::gltf::asobo::SupportInfo& info : ux3d::gltf::asobo::supportTable()) {
                 if (!ux3d::gltf::asobo::isAsoboExtension(info.name)) {

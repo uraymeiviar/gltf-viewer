@@ -300,6 +300,9 @@ private:
     ux3d::imgui::Framebuffer* transmissionSource = nullptr;
     ux3d::imgui::Framebuffer* transmissionDestination = nullptr;
     ux3d::imgui::Framebuffer glassCopyFbo;
+    bool ssrCaptureDepth = false;
+    bool ssrUseDecalDepth = false;
+    float ssrInteriorSky = 0.5f;
     std::unique_ptr<ux3d::renderer::CommandGenerator> commandGenerator;
     std::unique_ptr<ux3d::renderer::Renderer> glRenderer;
     std::unique_ptr<ux3d::renderer::PickingRenderLayer> pickingLayer;

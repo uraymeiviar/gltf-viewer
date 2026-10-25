@@ -73,8 +73,14 @@ public:
     bool capture(Framebuffer& source, bool fullResolution = false);
 
     GLuint getTexture() const { return m_texture; }
+    bool captureDepth(Framebuffer& source);
+    GLuint getDepthTexture() const { return m_depthTexture; }
 
 private:
+    GLuint m_depthTexture = 0;
+    GLuint m_depthFbo = 0;
+    int m_depthWidth = 0;
+    int m_depthHeight = 0;
     GLuint m_texture = 0;
     GLuint m_fbo = 0;
     int m_width = kSize;

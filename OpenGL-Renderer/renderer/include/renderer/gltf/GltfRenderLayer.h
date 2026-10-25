@@ -278,6 +278,9 @@ private:
         std::vector<Light*> lights;
         uint64_t nodesVisited = 0;
         uint64_t primitivesVisited = 0;
+        bool hasInteriorVolume = false;
+        math::vec3 interiorMin = math::vec3(0.0f);
+        math::vec3 interiorMax = math::vec3(0.0f);
         bool containsTransmissiveMaterial = false;
         const gltf::Scene* scene = nullptr;
         AsoboOptions asoboOptions;

@@ -44,6 +44,7 @@ public:
     FullscreenCopyPass* getFullscreenCopyPass() const { return m_fullscreenCopyPass; }
 
     void createFramebufferTexture(GLuint textureID);
+    void setClearColor(math::vec4 color);
     void setBlitFramebufferFunction(std::function<void()> _blitFramebuffer, math::vec4 _clearColor);
     void setTransmissiveTextureFunction(std::function<void()> _transmissiveTexture);
     gl::Texture* getFramebufferTexture() { return m_framebufferTexture; };

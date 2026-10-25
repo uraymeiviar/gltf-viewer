@@ -241,7 +241,9 @@ build/bin/Release/Glider.exe
 - `--select-node <name>`: Automatically selects a node by name and frames camera on startup.
 - `--debug-view <name>`: Selects a viewport Render Mode at startup, using the View menu's names with spaces,
   underscores and hyphens ignored (`occlusion`, `roughness`, `shadingnormal`, `geometrybitangent`,
-  `normaltexture`, `decalprepassdepth`, `decalprepassnormal`, ...). Unknown names log the value and leave the
+  `normaltexture`, `decalprepassdepth`, `decalprepassnormal`, `ssr`, `ssrray`, ...).
+  SSR shows hit U/V in red/green and confidence in blue (black = miss); SSR Ray shows the view-space
+  reflected direction mapped to RGB (magenta = rejected physical-pane hemisphere). Unknown names log the value and leave the
   default shaded view.
 - `--select-viewport <id>`: Selects a viewport to inspect its settings.
 - `--dump-frame <output.jpg>`: Renders 8 warm-up frames and dumps the window framebuffer to disk as `.jpg` or `.png`.
@@ -256,6 +258,11 @@ build/bin/Release/Glider.exe
 - `--hdr-rotation <deg>`, `--exposure <ev>`, `--tone-mapping <neutral|hill|narkowicz>`: Environment rotation,
   exposure and tone mapping for this run. Environment settings belong to the glTF scene (one set per scene, shared
   by every viewport) and are edited in the Inspector when the scene row is selected (`SceneInspector`).
+- `--ssr <on|off>`: per-viewport windshield-v3 screen-space reflections (default off: experimental, hit edges still streak on real cockpits).
+- `--ssr-quality <low|medium|high>`: 256/512/1024 screen-space sample budgets, maximum pixel stride 2/1/1, with five refinement steps (default medium).
+- `--interior-sky-reflection <0..1>`: windshield IBL fallback strength inside the combined environment-occluder bounds; without occluders it applies to every windshield (default 0.5). These three controls are in Viewport Settings → MSFS Extensions.
+- `--clear-color <r,g,b>`: scene clear colour for this run; disables the background skybox (capture/test hook).
+- `--hide-grid`: hide the active viewport's ground grid for review captures.
 - `--show-invisible-materials`: Also draw materials marked invisible by `ASOBO_material_invisible` and environment occluders (`ASOBO_material_environment_occluder`); both are hidden by default.
 - `--asobo off|on`, `--asobo-disable <extension>` (repeatable): MSFS (ASOBO) extensions the active viewport applies (Viewport Settings → MSFS Extensions; all on by default; off renders the file as if it had none).
 - `--search-path <dir>` (repeatable): extra texture folder for this run, relative to the model; works with `--isolated`, which ignores `settings.ini`.

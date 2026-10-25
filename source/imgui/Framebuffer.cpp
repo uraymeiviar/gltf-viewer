@@ -304,6 +304,10 @@ TransmissionTarget::~TransmissionTarget()
 
 void TransmissionTarget::destroy()
 {
+    if (m_depthTexture) glDeleteTextures(1, &m_depthTexture);
+    if (m_depthFbo) glDeleteFramebuffers(1, &m_depthFbo);
+    m_depthTexture = m_depthFbo = 0;
+    m_depthWidth = m_depthHeight = 0;
     if (m_fbo) {
         glDeleteFramebuffers(1, &m_fbo);
         m_fbo = 0;
@@ -337,6 +341,36 @@ void TransmissionTarget::create()
     glBindFramebuffer(GL_FRAMEBUFFER, m_fbo);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_texture, 0);
     glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(previousFbo));
+}
+
+bool TransmissionTarget::captureDepth(Framebuffer& source)
+{
+    if (!m_depthTexture) glGenTextures(1, &m_depthTexture);
+    if (!m_depthFbo) glGenFramebuffers(1, &m_depthFbo);
+    glBindTexture(GL_TEXTURE_2D, m_depthTexture);
+    if (m_depthWidth != source.getWidth() || m_depthHeight != source.getHeight()) {
+        m_depthWidth = source.getWidth();
+        m_depthHeight = source.getHeight();
+        // Match the source's depth/stencil format, including for multisample resolves.
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH24_STENCIL8, m_depthWidth, m_depthHeight,
+                     0, GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    }
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_depthFbo);
+    glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, m_depthTexture, 0);
+    glDrawBuffer(GL_NONE);
+    const bool complete = glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+    if (complete) {
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, source.getFbo());
+        glBlitFramebuffer(0, 0, m_depthWidth, m_depthHeight, 0, 0, m_depthWidth, m_depthHeight,
+                          GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+    }
+    const bool ok = glassCopyErrors("SSR depth resolve") && complete;
+    source.bind();
+    return ok;
 }
 
 bool TransmissionTarget::capture(Framebuffer& source, bool fullResolution)

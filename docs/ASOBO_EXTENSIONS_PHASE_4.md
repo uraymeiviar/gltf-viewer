@@ -202,3 +202,101 @@ at 4x and 226.76 MiB at 8x. The previous RGBA32F 8x storage was 390.23 MiB. Thes
 exclude the ordinary viewport framebuffer, AA history, decal buffers and driver overhead.
 RGBA16F versus the previous RGBA32F none captures differs by mean RGB 0.021/255 for the
 HUD and 0.023/255 for the guards, with maximum 1/255 in the measured masks.
+
+
+## A4 part 2 — windshield screen-space reflections and scene clear colour (2026-10-25)
+
+Windshield-v3 materials now read the viewport-sized RGBA16F scene copy before
+transparencies. The opaque pass already incorporates decal receivers. Their shader
+marches the reflected view-space ray for 24/48/96 steps (Low/Medium/High), refines a
+front-to-back depth crossing five times, rejects sky and out-of-screen samples, and
+checks a distance-dependent depth thickness. Confidence fades at screen borders and
+with ray travel. The hit uses the existing GGX LUT/Fresnel weight and blends with the
+IBL fallback according to confidence times `ssrAttenuation` (default 1; zero disables
+SSR). Punctual specular and opacity-independent glass blending remain in place.
+The decal prepass depth is reused when present; other windshield views resolve the
+opaque depth to a same-sized, single-sample DEPTH24_STENCIL8 texture. Glass-only and
+KHR-only views retain their existing copy paths and do not allocate SSR depth.
+
+Viewport Settings → MSFS Extensions adds **Screen-space reflections** (on), **SSR
+quality** (Medium), and **Interior sky reflection** (0.5). CLI equivalents are `--ssr`,
+`--ssr-quality`, and `--interior-sky-reflection`; see AGENTS.md §4.2. The sky strength
+applies per fragment inside the combined world AABB of environment-occluder geometry,
+collected before those meshes are hidden. Without a bounded occluder it applies to
+all windshields. The reflection shader is compiled only for applied windshield-v3
+materials. SSR remains limited to visible, opaque screen information; offscreen,
+occluded and transparent objects use the fallback.
+
+The clear-colour bug was two stale clear commands: Renderer and TransmissiveBlit
+retained the startup grey after the application selected the scene colour. Both now
+receive the active scene colour for each rendered viewport, so the forward clear and
+HDR behind source track Environment → Clear Color together. `--clear-color r,g,b`
+disables the skybox for reproducible captures; `--hide-grid` is a review hook.
+
+**Verified checks:** `python scripts/validate_asobo_glass.py` includes the retained
+part-1 checks and new SSR checks (`--ssr` runs the new subset). The tilted pane reflects
+an orange emissive box under none, MSAA4, TAA and MSAA4+TAA; attenuation zero matches
+SSR off byte for byte, with zero GL errors. Low and High both reflect the box. Inside
+and outside occluder fixtures exercise fallback bounds. Plain, glass-v2 and KHR
+transmission captures match `build/baselines/c68a9ae.exe` byte for byte. Two clear
+colours pass all twelve combinations of MSAA Off/2/4/8 and Post AA None/FXAA/TAA;
+neutral refracting glass follows the same two scene colours.
+
+**Visual review:** `build/review/ssr_e195_on.png` and `ssr_e195_off.png` use a pilot-eye
+view of the left windshield and panel; the comparison places them next to MSFS
+`30.webp`. SSR adds reflected cockpit surfaces and orange panel markings. The source
+asset's blank instrument displays also reflect as bright patches; Glider does not
+provide the simulator's live gauge textures. Finite-step silhouette/disocclusion
+artifacts remain visible in the unfiltered High capture. This establishes interior
+reflection, not a calibrated match to MSFS lighting or its temporal filtering.
+The external `a4-ssr.report.md` records exact commands, file/line references, image
+names, GL checks, and measured E195 GPU costs. No regression runner was used.
+
+**Verified final E195 cost:** RTX 5080, 1610×896, High/96 steps, AA none, sequential
+on/off runs, 78 completed GPU samples (frames 20–97): median renderer pass sum
+0.790512 → 0.947552 ms (**+0.157040 ms/frame**); transparent pass
+0.018256 → 0.175504 ms. CPU draw submission 0.9568 → 0.9727 ms. Both variants retain
+the HDR copy and reuse decal depth. Reports: `ssr_e195_off.json`, `ssr_e195_on.json`,
+`ssr_e195_cost.json`. The final complete glass harness exited 0 with **79 PASS** checks.
+
+
+### A4 part 2 follow-up — reject false SSR hits and depth streaks
+
+This entry supersedes the earlier coarse marcher and its interpretation of the broad
+white screen reflections as merely an asset limitation. The old 3 cm + 1% travel
+thickness, sky-as-front sample and growing world steps admitted silhouette crossings
+and hidden/back-side screen hits. The new marcher uses perspective-correct projected
+steps (Low/Medium/High budgets 256/512/1024; maximum stride 2/1/1 pixels), a two-metre
+maximum range, and terminates at the first obstruction. It requires a real opaque
+previous sample in front, a continuous local depth plane agreeing within 1 mm, a
+front-to-back plane crossing, and a camera-facing hit surface approached from the
+front. Five refinements bracket an analytic plane hit. The final colour texel must
+belong to that same small plane footprint. Edge, world/screen travel, incidence and
+plane/depth error reduce confidence. Unknown silhouettes/back sides use IBL fallback.
+
+`--debug-view ssr` / Render Mode → SSR shows hit U/V in R/G and confidence in B,
+black for no hit. `ssrray` / SSR Ray shows the view-space ray encoded as RGB, magenta
+for a rejected pane hemisphere. Existing back-face TBN and DirectX normal handling
+remain unchanged. Normal diagnostics found no wrong-hemisphere rays in the three
+review views; hit/occlusion validation was the substantive fix.
+
+**Verified:** final incremental Release build and the complete glass harness pass
+115 checks. The original emissive box reflects under every one of the twelve
+MSAA Off/2/4/8 × Post AA None/FXAA/TAA combinations; a thin overhanging lip blocks
+that reflection while the box remains camera-visible. All GL diagnostics are zero.
+The existing clear-colour, glass and c68a9ae identity checks pass. The hangar-HDR E195
+pilot/left/oblique captures show no debug hits in display interiors and remove the
+broad display silhouettes and streaky bands. Nonzero accepted hits and subtle
+interior glints remain. `build/review/ssr2_comparison.png` shows before/after/off;
+`ssr2_fixture_comparison.png` shows box/lip behaviour. Diagnostics, masks and exact
+commands share `ssr2_` names. The external `a4-ssr.report.md` Follow-up section records
+formulas, evidence, limitations and the revised measured cost; the previous coarse
+marcher's cost does not describe this version. No regression runner or commit was used.
+
+**Status 2026-10-25:** SSR is committed **off by default** (Viewport Settings / `--ssr on`). The strict hit test
+removed the false screen reflections and the large smears, but on the E195 the accepted hits flip pixel by pixel
+(1 mm plane agreement at depth-buffer precision, nearest sampling), giving comb/dotted edges on reflections of the
+overhead panel, EFB and glareshield; the HUD combiner (glass v2) shows similar streaks near bright edges. Next round:
+soft confidence instead of a hard 1 mm cut, tolerance scaled to depth precision, smoothing of the SSR term, and a
+check of the glass v2 refraction near bright discontinuities.
+

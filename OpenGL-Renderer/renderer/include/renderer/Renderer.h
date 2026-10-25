@@ -21,6 +21,7 @@ public:
     Renderer(Renderer&&) = default;
 
     bool init(math::vec4 clearColor);
+    void setClearColor(math::vec4 color) { clearCommands[0].clearColor = {color.r, color.g, color.b, color.a}; }
     bool draw(const core::Vector<CommandGenerator*>& scenes);
     void uninit();
 

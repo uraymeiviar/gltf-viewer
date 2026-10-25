@@ -21,6 +21,7 @@ struct RendererScene {
     core::LinkedList<std::tuple<Mesh*, Material*>> drawables;
     // A4: schedule the behind copy after decal accumulation, before forward shading.
     bool asoboGlassCopy = false;
+    bool windshieldSsr = false;
     Camera* camera = nullptr;
     EnvironmentMap* environmentMap = nullptr;
 };

@@ -190,6 +190,12 @@ int Application::run(int argc, char** argv)
     gltfLayer->getResourceManager().setBlitFramebufferFunction(
         [this] {
             if (transmissionSource != nullptr) {
+                if (ssrCaptureDepth) {
+                    const bool depthValid = ssrUseDecalDepth || transmissionTarget.captureDepth(*transmissionSource);
+                    commandGenerator->setSsrDepth(depthValid ? (ssrUseDecalDepth ? decalBuffer.getDepthTexture()
+                                                                                           : transmissionTarget.getDepthTexture()) : 0);
+                    if (!depthValid) commandGenerator->setSsrOptions(false, 1, ssrInteriorSky);
+                }
                 const bool copied = transmissionTarget.capture(*transmissionSource, transmissionDestination != nullptr);
                 commandGenerator->setAsoboGlassCopyValid(copied && transmissionDestination != nullptr);
                 if (transmissionDestination != nullptr) transmissionDestination->bind();

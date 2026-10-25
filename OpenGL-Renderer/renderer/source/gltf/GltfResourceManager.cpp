@@ -222,6 +222,11 @@ void GltfResourceManager::createFramebufferTexture(GLuint textureID)
     m_framebufferTexture = createWithGLContext<renderer::gl::Texture>(textureID, gl::TextureTarget::Texture2d, false);
 }
 
+void GltfResourceManager::setClearColor(math::vec4 color)
+{
+    m_transmissiveBlitPass->setClearColor(color);
+}
+
 void GltfResourceManager::setBlitFramebufferFunction(std::function<void()> _blitFramebuffer, math::vec4 _clearColor)
 {
     m_transmissiveBlitPass->setBlitFramebufferFunction(_blitFramebuffer, _clearColor);

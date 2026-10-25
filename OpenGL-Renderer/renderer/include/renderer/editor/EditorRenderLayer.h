@@ -62,6 +62,8 @@ enum class RenderMode : uint32_t {
     // A2.1: inspect the decal prepass targets (shown only while the buffer is active).
     DecalPrepassDepth,
     DecalPrepassNormal,
+    SSR,
+    SSRRay,
 
 };
 

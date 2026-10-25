@@ -2228,6 +2228,7 @@ const GltfRenderLayer::SceneTraversal& GltfRenderLayer::traverseScene(const gltf
     t.nodesVisited = 0;
     t.primitivesVisited = 0;
     t.containsTransmissiveMaterial = false;
+    t.hasInteriorVolume = false;
     t.scene = gltfScene;
     t.asoboOptions = asoboOptions;
     t.materialVariantID = m_materialVariantID;
@@ -2307,6 +2308,23 @@ const GltfRenderLayer::SceneTraversal& GltfRenderLayer::traverseScene(const gltf
 
             auto* mesh = meshIt->second;
             auto* material = matIt->second;
+            if (material != nullptr && material->environmentOccluder) {
+                math::vec3 lo, hi;
+                if (getStaticPositionBounds(gltfPrimitive, *mesh, lo, hi)) {
+                    for (int corner = 0; corner < 8; ++corner) {
+                        const math::vec3 point(mesh->getTransform() * math::vec4(
+                            (corner & 1) ? hi.x : lo.x, (corner & 2) ? hi.y : lo.y,
+                            (corner & 4) ? hi.z : lo.z, 1.0f));
+                        if (!t.hasInteriorVolume) {
+                            t.interiorMin = t.interiorMax = point;
+                        } else {
+                            t.interiorMin = glm::min(t.interiorMin, point);
+                            t.interiorMax = glm::max(t.interiorMax, point);
+                        }
+                        t.hasInteriorVolume = true;
+                    }
+                }
+            }
             if (material != nullptr && ((material->invisible && hideInvisible)
                     || (material->environmentOccluder && hideOccluders))) {
                 continue;
@@ -2367,6 +2385,18 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
             const bool reflect = refract || (extensions != nullptr
                 && extensions->find("ASOBO_material_windshield_v3") != nullptr
                 && asoboOptions.applies("ASOBO_material_windshield_v3"));
+            const bool windshield = reflect && !refract;
+            entry.material->defines.defineIf(windshield, "ASOBO_WINDSHIELD_SSR");
+            if (windshield) {
+                scene.windshieldSsr = true;
+                containsTransmissiveMaterial = true;
+                scene.asoboGlassCopy = true;
+                const auto* ext = extensions->find("ASOBO_material_windshield_v3");
+                entry.material->setUniform<float>("u_SsrAttenuation", static_cast<float>(ext->number("ssrAttenuation").value_or(1.0)));
+                entry.material->setUniform<int>("u_HasInteriorVolume", traversal.hasInteriorVolume ? 1 : 0);
+                entry.material->setUniform<math::vec3>("u_InteriorMin", traversal.interiorMin);
+                entry.material->setUniform<math::vec3>("u_InteriorMax", traversal.interiorMax);
+            }
             const bool blend = entry.material->renderPass->getId() == Transparent;
             entry.material->defines.defineIf(blend && reflect, "ASOBO_GLASS_REFLECTION");
             entry.material->defines.defineIf(blend && refract, "ASOBO_GLASS_REFRACTION");
@@ -2424,7 +2454,9 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
         for (const auto [mesh, material] : scene.drawables) {
             // Never put ASOBO glass in the behind copy: avoids sampling the texture while
             // writing it and deliberately leaves glass-behind-glass refraction unsupported.
-            if (material->defines.isDefined("ASOBO_GLASS_REFLECTION")) {
+            // Windshield SSR reads opaque colour only; ordinary transparents draw after it.
+            if (material->defines.isDefined("ASOBO_GLASS_REFLECTION")
+                || (scene.windshieldSsr && material->renderPass->getId() == Transparent)) {
                 continue;
             }
             if (material->renderPass->getId() != Opaque
