@@ -105,6 +105,8 @@ public:
     float getLastTaaBlendFactor() const { return m_lastTaaBlendFactor; }
     uint64_t getLastTaaTargetGeneration() const { return m_lastTaaTargetGeneration; }
     float getAdaptedExposureEv() const { return m_adaptedEv; }
+    // Restart auto-exposure (model load, camera jump); independent of the TAA history.
+    void resetExposure();
     bool isExposureAdapting() const { return m_exposureAdapting; }
 
     static SelfCheckResult runTargetAllocationSelfCheck(bool forceFailure = false);
@@ -184,6 +186,7 @@ private:
     float m_adaptedEv = 0.0f;
     bool m_exposureValid = false;
     bool m_exposureAdapting = false;
+    bool m_snapExposureNext = false;
 
     GLuint m_taaFbo[2] = { 0, 0 };
     GLuint m_taaTexture[2] = { 0, 0 };

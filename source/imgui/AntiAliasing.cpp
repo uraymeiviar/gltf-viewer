@@ -707,9 +707,19 @@ glm::vec2 AntiAliasing::getJitter(AntiAliasingMode mode, int width, int height)
 
 void AntiAliasing::resetHistory()
 {
+    // TAA history only. Animation frames, timeline scrubs and parameter edits reset it,
+    // and restarting the exposure there re-adapted the whole image on every small change.
     m_historyValid = false;
     m_frameIndex = 0;
+}
+
+void AntiAliasing::resetExposure()
+{
+    // The next metered frame sets the exposure directly. "Start from manual EV" only
+    // smooths the switch from Manual to Auto, never a load or a camera jump.
     m_exposureValid = false;
+    m_exposureAdapting = false;
+    m_snapExposureNext = true;
 }
 
 void AntiAliasing::ensureFxaaBuffers(int width, int height)
@@ -1198,7 +1208,9 @@ float AntiAliasing::updateAutoExposure(GLuint inputHdrTexture, int width, int he
     const float maxEv = std::max(params.autoExposureMinEv, params.autoExposureMaxEv);
     const float targetEv = std::clamp(params.exposureCompensationEv - std::log2(std::max(avgLuma, 1e-4f) / 0.18f), minEv, maxEv);
 
-    if (params.snapExposure || (!m_exposureValid && !params.startFromManualEv)) {
+    const bool snap = params.snapExposure || m_snapExposureNext || (!m_exposureValid && !params.startFromManualEv);
+    m_snapExposureNext = false;
+    if (snap) {
         m_adaptedEv = targetEv;
         m_exposureValid = true;
         m_exposureAdapting = false;

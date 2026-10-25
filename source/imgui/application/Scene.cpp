@@ -115,6 +115,11 @@ bool Application::loadGltfModel(const std::string& filePath, ux3d::gltf::Gltf& g
         std::snprintf(infoBuf, sizeof(infoBuf), "Model Stats: %zu nodes, %zu meshes, %zu materials", nodeCount,
                       meshCount, matCount);
         logMessage(infoBuf, ImVec4(0.4f, 0.8f, 1.0f, 1.0f));
+        // A newly loaded model snaps auto-exposure to its own metered level. The first load
+        // keeps the startup behaviour (--exposure with --auto-exposure adapts from that EV).
+        for (auto& vp : viewports) {
+            if (vp->hasCachedImage) vp->antiAliasing.resetExposure();
+        }
 
         if (activeScene != nullptr && !activeScene->getNodes().empty()) {
             for (auto& vp : viewports) {
