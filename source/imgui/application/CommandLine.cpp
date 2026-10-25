@@ -167,6 +167,7 @@ std::optional<int> Application::configure(int argc, char** argv)
     std::string asoboReportPath;
     std::vector<std::string> searchPathArgs;
     std::string selectNodeArg;
+    std::string isolateNodeArg;
     std::string hideNodeArg;
     std::string renameNodeArg;
     std::string renameMeshArg;
@@ -398,6 +399,8 @@ std::optional<int> Application::configure(int argc, char** argv)
             uiReportPath = argv[++i];
         } else if (arg == "--isolated" || arg == "--no-persist") {
             s_isolatedState = true; // Also applied by the pre-scan.
+        } else if (arg == "--isolate-node" && i + 1 < argc) {
+            isolateNodeArg = argv[++i];
         } else if (arg == "--select-node" && i + 1 < argc) {
             selectNodeArg = argv[++i];
         } else if (arg == "--hide-node" && i + 1 < argc) {
@@ -851,6 +854,16 @@ std::optional<int> Application::configure(int argc, char** argv)
             renameNamedElement(gltfModel.getElements<ux3d::gltf::Material>(), renameMaterialArg, "material");
         }
 
+        if (!isolateNodeArg.empty()) {
+            for (auto& node : gltfModel.getNodes()) {
+                if (node.hasName() && node.getName() == isolateNodeArg.c_str()) {
+                    gltfLayer->setIsolation(&node, false);
+                    sceneRevisions.mark(ux3d::imgui::SceneChange::Visibility);
+                    selectNodeArg = isolateNodeArg;
+                    break;
+                }
+            }
+        }
         if (!selectNodeArg.empty()) {
             for (auto& node : gltfModel.getNodes()) {
                 if (node.hasName() && node.getName() == selectNodeArg.c_str()) {

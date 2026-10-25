@@ -235,6 +235,7 @@ build/bin/Release/Glider.exe
 `Glider.exe` supports several CLI flags useful for testing and headless image verification:
 - `[model.gltf / model.glb]`: Path to glTF or GLB file to open on startup (defaults to embedded `HelloCube.glb`).
 - `--aa <none|msaa2|msaa4|msaa8|fxaa|taa>`: Set anti-aliasing mode on startup.
+- `--isolate-node <name>`: Isolate a node (without descendants), select it and frame the camera on startup.
 - `--select-node <name>`: Automatically selects a node by name and frames camera on startup.
 - `--debug-view <name>`: Selects a viewport Render Mode at startup, using the View menu's names with spaces,
   underscores and hyphens ignored (`occlusion`, `roughness`, `shadingnormal`, `geometrybitangent`,

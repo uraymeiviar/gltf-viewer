@@ -554,6 +554,18 @@ void Application::drawViewports(FrameContext& frame)
             // Moved, not copied: reverseMapping is not used after this point (P4.4).
             currentReverseMapping = std::move(reverseMapping);
 
+            // Keep source materials intact for shaded views and other viewports. The
+            // dedicated line shader neither samples alpha nor discards MASK fragments,
+            // and emits alpha 1 even for a transparent forward pass.
+            std::vector<std::unique_ptr<ux3d::renderer::Material>> wireMaterials;
+            const auto wireMaterial = [&wireMaterials](ux3d::renderer::Material* material) {
+                auto copy = std::make_unique<ux3d::renderer::Material>(*material);
+                copy->fragmentShader = "wireframe_material.frag";
+                auto* result = copy.get();
+                wireMaterials.push_back(std::move(copy));
+                return result;
+            };
+
             auto cubeTuple = gltfLayer->getResourceManager().getCubeMapTuple();
             auto* cubeMesh = std::get<0>(cubeTuple);
             auto* cubeMaterial = std::get<1>(cubeTuple);
@@ -568,6 +580,9 @@ void Application::drawViewports(FrameContext& frame)
                     material->defines.define("DEBUG", static_cast<int>(shadingMode));
                     if (vp->settings.forceDoubleSided) {
                         material->isDoubleSided = true;
+                    }
+                    if (shadingMode == ux3d::renderer::RenderMode::Wireframe) {
+                        material = wireMaterial(material);
                     }
                 }
             }
@@ -755,6 +770,9 @@ void Application::drawViewports(FrameContext& frame)
                     }
                     if (mesh != nullptr && mesh != cubeMesh) {
                         mesh->polygonMode = ux3d::renderer::gl::PolygonMode::Line;
+                        if (material != nullptr) {
+                            material = wireMaterial(material);
+                        }
                     }
                     ++it;
                 }
@@ -1099,7 +1117,10 @@ void Application::drawViewports(FrameContext& frame)
 
 bool Application::viewportNeedsDecalBuffer(const ux3d::imgui::ViewportInstance& viewport) const
 {
-    if (gltfLayer == nullptr) {
+    // Inspection needs the decal geometry itself, even without a receiver beneath it.
+    // Keeping forward draws also makes isolated decals eligible for the picking pass.
+    if (gltfLayer == nullptr || gltfLayer->getIsolationRoot() != nullptr
+        || viewport.settings.renderMode == ux3d::renderer::RenderMode::Wireframe) {
         return false;
     }
     // A2.1/A2.2: the buffer exists only when the file has decals of an extension the

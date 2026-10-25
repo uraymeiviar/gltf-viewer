@@ -9,6 +9,7 @@ when the binary is older than the newest tracked source change, unless --force i
 """
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
@@ -41,4 +42,10 @@ if EXE.stat().st_mtime < commit_time - 3600 and not args.force:
 BASELINES.mkdir(parents=True, exist_ok=True)
 target = BASELINES / f"{sha}.exe"
 shutil.copy2(EXE, target)
+if os.name == "nt":
+    # The copy inherits build/'s Low integrity label (agent sandboxes label the workspace), and Windows
+    # runs a Low-labelled exe as a Low-integrity process that prompts on start. Give it the normal
+    # Medium label, as CMake's post-build step does for Glider.exe.
+    subprocess.run(["icacls", str(target), "/setintegritylevel", "M"], stdout=subprocess.DEVNULL,
+                   stderr=subprocess.DEVNULL, check=False)
 print(f"saved {target.relative_to(REPO)}")
