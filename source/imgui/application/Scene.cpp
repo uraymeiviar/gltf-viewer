@@ -46,6 +46,8 @@ bool Application::loadGltfModel(const std::string& filePath, ux3d::gltf::Gltf& g
 {
     logMessage("Opening file: " + filePath);
     ux3d::imgui::StatisticsPanel::invalidate();
+    // A2.1: the buffer belongs to the loaded file's decal materials.
+    releaseDecalBuffer();
     ux3d::imgui::AppSettings::instance().setCurrentModelPath(filePath);
     ux3d::gltf::ImportOptions importOptions;
     auto& startupProfile = ux3d::imgui::profiling::startupProfile();
@@ -193,6 +195,7 @@ void Application::newEmptyGltf(ux3d::gltf::Gltf& gltfModel, ux3d::gltf::Scene*& 
     }
     gltfModel.reset();
     ux3d::imgui::StatisticsPanel::invalidate();
+    releaseDecalBuffer();
     auto* scene = gltfModel.create<ux3d::gltf::Scene>();
     if (scene != nullptr) {
         scene->setName("Scene");

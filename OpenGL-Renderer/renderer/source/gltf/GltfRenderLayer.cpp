@@ -1771,6 +1771,23 @@ void GltfRenderLayer::updateGltf(const gltf::Gltf& gltf)
     // do not use it keep the previous transparent order byte for byte.
     m_assetDrawOrderDeclared = gltf.isExtensionDeclared("ASOBO_material_draw_order");
 
+    // A2.1: the shared decal buffer exists only for a file that actually carries a decal
+    // material. The declaration alone is not enough: both extensions may be declared by an
+    // exporter and left unused.
+    m_assetHasDecalMaterials = false;
+    if (gltf.isExtensionDeclared("ASOBO_material_geometry_decal")
+        || gltf.isExtensionDeclared("ASOBO_material_blend_gbuffer")) {
+        for (const auto& material : gltf.getMaterials()) {
+            const gltf::asobo::ExtensionSet extensions =
+                gltf::asobo::parseExtensions(gltf, material, gltf::asobo::Scope::Material);
+            if (extensions.find("ASOBO_material_geometry_decal") != nullptr
+                || extensions.find("ASOBO_material_blend_gbuffer") != nullptr) {
+                m_assetHasDecalMaterials = true;
+                break;
+            }
+        }
+    }
+
     // A1.9: ASOBO_asset_optimized describes how the packaged file stores the vertex data,
     // not an effect the viewport can switch. Its types are decoded whenever the file
     // declares it; every other file keeps the accessor's own component type and

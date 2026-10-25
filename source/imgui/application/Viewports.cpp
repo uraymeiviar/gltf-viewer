@@ -477,6 +477,13 @@ void Application::drawViewports(FrameContext& frame)
 
             auto mode = vp->settings.renderMode;
 
+            // A2.1: the two decal debug views show the prepass targets instead of a PBR
+            // debug channel, so the forward draws stay normally shaded underneath.
+            const bool decalDebugView =
+                mode == ux3d::renderer::RenderMode::DecalPrepassDepth ||
+                mode == ux3d::renderer::RenderMode::DecalPrepassNormal;
+            const auto shadingMode = decalDebugView ? ux3d::renderer::RenderMode::None : mode;
+
             // Persistent overrides (double-sidedness, winding) are rewritten only when
             // this viewport's overrides or the layer changed (P4.5). The DEBUG define
             // and polygon mode are reset by createScene and applied per drawable below.
@@ -489,6 +496,35 @@ void Application::drawViewports(FrameContext& frame)
             } else {
                 ++s_overrideSkipTotal;
                 if (s_profilingEnabled) ++ux3d::imgui::profiling::frameCounters().overrideSkips;
+            }
+
+            // A2.1: only a file with decal materials, in a viewport where ASOBO is on and
+            // ASOBO_material_geometry_decal is applied, allocates the shared buffer.
+            const bool decalActive = viewportNeedsDecalBuffer(*vp);
+            if (decalActive) {
+                // One buffer for every viewport, sized to the largest render-scale
+                // resolution that needs it. Other open viewports contribute their latest
+                // scene target size; this one contributes the size being rendered now.
+                int bufferWidth = vpW;
+                int bufferHeight = vpH;
+                for (const auto& other : viewports) {
+                    if (!other || !other->isOpen || other.get() == vp.get() || !viewportNeedsDecalBuffer(*other)) {
+                        continue;
+                    }
+                    bufferWidth = std::max(bufferWidth, other->sceneFbo.getWidth());
+                    bufferHeight = std::max(bufferHeight, other->sceneFbo.getHeight());
+                }
+                if (decalBuffer.ensure(bufferWidth, bufferHeight)) {
+                    // The prepass target changed; the debug material reads it through
+                    // stable texture wrappers refreshed here.
+                    decalPrepassLayer->setDebugTargets(decalBuffer.getDepthTexture(), decalBuffer.getNormalTexture(),
+                                                       decalBuffer.getWidth(), decalBuffer.getHeight());
+                }
+                // Depth, G0 and every accumulation target are cleared in the frame the
+                // buffer is used, whether or not the prepass ends up drawing anything.
+                decalBuffer.clearTargets();
+                vp->sceneFbo.bind();
+                glViewport(0, 0, vpW, vpH);
             }
 
             const auto createSceneStart = ux3d::imgui::profiling::Clock::now();
@@ -512,17 +548,37 @@ void Application::drawViewports(FrameContext& frame)
             auto* cubeMaterial = std::get<1>(cubeTuple);
             for (auto& [mesh, material] : scene.drawables) {
                 if (mesh != nullptr && mesh != cubeMesh) {
-                    mesh->polygonMode = (mode == ux3d::renderer::RenderMode::Wireframe)
+                    mesh->polygonMode = (shadingMode == ux3d::renderer::RenderMode::Wireframe)
                                             ? ux3d::renderer::gl::PolygonMode::Line
                                             : ux3d::renderer::gl::PolygonMode::Fill;
-                    mesh->defines.define("DEBUG", static_cast<int>(mode));
+                    mesh->defines.define("DEBUG", static_cast<int>(shadingMode));
                 }
                 if (material != nullptr && material != cubeMaterial) {
-                    material->defines.define("DEBUG", static_cast<int>(mode));
+                    material->defines.define("DEBUG", static_cast<int>(shadingMode));
                     if (vp->settings.forceDoubleSided) {
                         material->isDoubleSided = true;
                     }
                 }
+            }
+
+            // A2.1: append the decal prepass copies of the opaque drawables. Their pass
+            // has a lower id than Opaque, so the prepass targets are filled before the
+            // forward opaque pass of this viewport. The pass restores sceneFbo afterwards.
+            if (decalActive) {
+                decalPrepassLayer->setDebugView(
+                    mode == ux3d::renderer::RenderMode::DecalPrepassDepth
+                        ? ux3d::renderer::DecalPrepassLayer::DebugView::Depth
+                        : mode == ux3d::renderer::RenderMode::DecalPrepassNormal
+                              ? ux3d::renderer::DecalPrepassLayer::DebugView::Normal
+                              : ux3d::renderer::DecalPrepassLayer::DebugView::None);
+                decalPrepassLayer->prePass = [this, vpW, vpH] { decalBuffer.bindPrepass(vpW, vpH); };
+                decalPrepassLayer->postPass = [&vp] { vp->sceneFbo.bind(); };
+                decalPrepassLayer->setDebugViewport(vpW, vpH);
+                scene = decalPrepassLayer->applyLayer(
+                    std::move(scene), [this](const ux3d::renderer::Mesh* mesh) {
+                        return currentReverseMapping.find(const_cast<ux3d::renderer::Mesh*>(mesh)) !=
+                               currentReverseMapping.end();
+                    });
             }
 
             // Apply GPU picking layer (full-size reference path only; see P5.2 below)
@@ -577,6 +633,28 @@ void Application::drawViewports(FrameContext& frame)
             frame.markStage("draw.submit", drawSubmissionStart);
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
+            // A2.1 check: sample the forward depth and Geometry Normal colour before the
+            // grid, bounding boxes and picking overlays touch the same framebuffer.
+            if (!s_decalPrepassCheckPath.empty() && !s_decalCheckCaptured
+                && frame.number >= SCENARIO_REPORT_FRAME && vp.get() == activeViewport
+                && vp->sceneFbo.getSamples() == 1 && vp->sceneFbo.getFbo() != 0) {
+                s_decalCheckWidth = vpW;
+                s_decalCheckHeight = vpH;
+                const size_t pixelCount = static_cast<size_t>(vpW) * static_cast<size_t>(vpH);
+                s_decalCheckForwardColor.resize(pixelCount * 4u);
+                s_decalCheckForwardDepth.resize(pixelCount);
+                GLint previousPackAlignment = 4;
+                glGetIntegerv(GL_PACK_ALIGNMENT, &previousPackAlignment);
+                glPixelStorei(GL_PACK_ALIGNMENT, 1);
+                glBindFramebuffer(GL_READ_FRAMEBUFFER, vp->sceneFbo.getFbo());
+                glReadBuffer(GL_COLOR_ATTACHMENT0);
+                glReadPixels(0, 0, vpW, vpH, GL_RGBA, GL_UNSIGNED_BYTE, s_decalCheckForwardColor.data());
+                glReadPixels(0, 0, vpW, vpH, GL_DEPTH_COMPONENT, GL_FLOAT, s_decalCheckForwardDepth.data());
+                glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+                glPixelStorei(GL_PACK_ALIGNMENT, previousPackAlignment);
+                s_decalCheckCaptured = true;
+            }
+
             // P5.2: picking draws only the clicked pixel, into the shared 1x1 target,
             // through a pixel-window projection W * P. W scales clip x/y by the viewport
             // size and translates by an exact integer, so the clicked pixel's centre maps
@@ -615,7 +693,7 @@ void Application::drawViewports(FrameContext& frame)
                 gltfLayer->getActiveCamera()->setProjection(ux3d::math::mat4x4(proj));
             }
 
-            if (vp->settings.wireframeOverlay && mode != ux3d::renderer::RenderMode::Wireframe) {
+            if (vp->settings.wireframeOverlay && shadingMode != ux3d::renderer::RenderMode::Wireframe) {
                 const auto wireframeStart = ux3d::imgui::profiling::Clock::now();
                 glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
                 glEnable(GL_POLYGON_OFFSET_LINE);
@@ -964,6 +1042,18 @@ void Application::drawViewports(FrameContext& frame)
     }
     gltfLayer->endSceneFrame();
 
+    // A2.1: the buffer is shared and lives only while some open viewport needs it.
+    bool anyViewportNeedsDecalBuffer = false;
+    for (const auto& vp : viewports) {
+        if (vp && vp->isOpen && viewportNeedsDecalBuffer(*vp)) {
+            anyViewportNeedsDecalBuffer = true;
+            break;
+        }
+    }
+    if (!anyViewportNeedsDecalBuffer && decalBuffer.isValid()) {
+        releaseDecalBuffer();
+    }
+
     // Deferred viewport creation: the Viewport menu body can run inside the viewport
     // loop (right-click context menu), where changing the viewports vector would
     // invalidate the iteration.
@@ -971,6 +1061,24 @@ void Application::drawViewports(FrameContext& frame)
         createViewport(pendingNewViewportCamera);
         pendingNewViewport = false;
         pendingNewViewportCamera = nullptr;
+    }
+}
+
+bool Application::viewportNeedsDecalBuffer(const ux3d::imgui::ViewportInstance& viewport) const
+{
+    if (gltfLayer == nullptr || !gltfLayer->hasDecalMaterials()) {
+        return false;
+    }
+    // AsoboOptions::applies already includes the master switch; checking it explicitly
+    // keeps the requirement readable and guards a future change to applies().
+    return viewport.settings.asobo.enabled && viewport.settings.asobo.applies("ASOBO_material_geometry_decal");
+}
+
+void Application::releaseDecalBuffer()
+{
+    decalBuffer.release();
+    if (decalPrepassLayer != nullptr) {
+        decalPrepassLayer->setDebugTargets(0, 0, 0, 0);
     }
 }
 

@@ -2,6 +2,7 @@
 
 #include "imgui/Framebuffer.h"
 #include "imgui/Profiling.h"
+#include <algorithm>
 #include <cstdio>
 #include <utility>
 
@@ -269,6 +270,195 @@ void TransmissionTarget::capture(Framebuffer& source)
     glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(previousTexture));
 
     source.bind();
+}
+
+DecalBuffer::~DecalBuffer()
+{
+    release();
+}
+
+void DecalBuffer::destroy()
+{
+    if (m_accumulationFbo != 0) {
+        glDeleteFramebuffers(1, &m_accumulationFbo);
+        m_accumulationFbo = 0;
+    }
+    if (m_prepassFbo != 0) {
+        glDeleteFramebuffers(1, &m_prepassFbo);
+        m_prepassFbo = 0;
+    }
+    if (m_normalTexture != 0) {
+        glDeleteTextures(1, &m_normalTexture);
+        m_normalTexture = 0;
+    }
+    for (GLuint& texture : m_accumulationTextures) {
+        if (texture != 0) {
+            glDeleteTextures(1, &texture);
+            texture = 0;
+        }
+    }
+    if (m_depthTexture != 0) {
+        glDeleteTextures(1, &m_depthTexture);
+        m_depthTexture = 0;
+    }
+    m_width = 0;
+    m_height = 0;
+}
+
+bool DecalBuffer::ensure(int width, int height)
+{
+    if (width < 1 || height < 1) {
+        return false;
+    }
+    if (isValid()) {
+        if (width == m_width && height == m_height) {
+            return false;
+        }
+        destroy();
+        create(width, height);
+        ++m_resizeCount;
+        ++m_allocationCount;
+        return true;
+    }
+    create(width, height);
+    ++m_allocationCount;
+    return true;
+}
+
+void DecalBuffer::release()
+{
+    if (!isValid() && m_depthTexture == 0 && m_normalTexture == 0) {
+        return;
+    }
+    destroy();
+    ++m_releaseCount;
+}
+
+void DecalBuffer::create(int width, int height)
+{
+    m_width = width;
+    m_height = height;
+
+    // Depth: one 32F texture shared by both framebuffers.
+    glGenTextures(1, &m_depthTexture);
+    glBindTexture(GL_TEXTURE_2D, m_depthTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, width, height, 0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    // G0: world-space geometric normal, n * 0.5 + 0.5.
+    glGenTextures(1, &m_normalTexture);
+    glBindTexture(GL_TEXTURE_2D, m_normalTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB10_A2, width, height, 0, GL_RGBA, GL_UNSIGNED_INT_2_10_10_10_REV, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    // A0-A5 in the design table's formats and order.
+    const GLint internalFormats[DecalBuffer::kAccumulationTargetCount] = {
+        GL_RGBA8, GL_RGBA16F, GL_RGBA16F, GL_RG8, GL_RG8, GL_R8,
+    };
+    const GLenum formats[DecalBuffer::kAccumulationTargetCount] = {
+        GL_RGBA, GL_RGBA, GL_RGBA, GL_RG, GL_RG, GL_RED,
+    };
+    const GLenum types[DecalBuffer::kAccumulationTargetCount] = {
+        GL_UNSIGNED_BYTE, GL_FLOAT, GL_FLOAT, GL_UNSIGNED_BYTE, GL_UNSIGNED_BYTE, GL_UNSIGNED_BYTE,
+    };
+    for (int i = 0; i < DecalBuffer::kAccumulationTargetCount; ++i) {
+        glGenTextures(1, &m_accumulationTextures[i]);
+        glBindTexture(GL_TEXTURE_2D, m_accumulationTextures[i]);
+        glTexImage2D(GL_TEXTURE_2D, 0, internalFormats[i], width, height, 0, formats[i], types[i], nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    }
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    // Prepass: depth + G0.
+    glGenFramebuffers(1, &m_prepassFbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, m_prepassFbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, m_depthTexture, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_normalTexture, 0);
+    const GLenum prepassDrawBuffer = GL_COLOR_ATTACHMENT0;
+    glDrawBuffers(1, &prepassDrawBuffer);
+    GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    if (status != GL_FRAMEBUFFER_COMPLETE) {
+        std::fprintf(stderr, "Decal prepass framebuffer is not complete! Status: 0x%X\n", status);
+    }
+
+    // Accumulation: the same depth texture + A0-A5. Depth is never written here.
+    glGenFramebuffers(1, &m_accumulationFbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, m_accumulationFbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, m_depthTexture, 0);
+    GLenum accumulationDrawBuffers[DecalBuffer::kAccumulationTargetCount];
+    for (int i = 0; i < DecalBuffer::kAccumulationTargetCount; ++i) {
+        const GLenum attachment = static_cast<GLenum>(GL_COLOR_ATTACHMENT0 + i);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, attachment, GL_TEXTURE_2D, m_accumulationTextures[i], 0);
+        accumulationDrawBuffers[i] = attachment;
+    }
+    glDrawBuffers(DecalBuffer::kAccumulationTargetCount, accumulationDrawBuffers);
+    status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    if (status != GL_FRAMEBUFFER_COMPLETE) {
+        std::fprintf(stderr, "Decal accumulation framebuffer is not complete! Status: 0x%X\n", status);
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    ux3d::imgui::profiling::countFramebufferCreation(2);
+    ux3d::imgui::profiling::countTextureCreation(2 + DecalBuffer::kAccumulationTargetCount);
+    ux3d::imgui::profiling::countTextureAllocation(getMemoryBytes());
+}
+
+void DecalBuffer::clearTargets()
+{
+    if (!isValid()) {
+        return;
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, m_prepassFbo);
+    glViewport(0, 0, m_width, m_height);
+    glDepthMask(GL_TRUE);
+    const GLfloat one = 1.0f;
+    glClearBufferfv(GL_DEPTH, 0, &one);
+    const GLfloat zero[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    glClearBufferfv(GL_COLOR, 0, zero);
+
+    // The accumulation pass never writes depth.
+    glBindFramebuffer(GL_FRAMEBUFFER, m_accumulationFbo);
+    glViewport(0, 0, m_width, m_height);
+    glDepthMask(GL_FALSE);
+    const GLfloat clearValues[DecalBuffer::kAccumulationTargetCount][4] = {
+        { 0.0f, 0.0f, 0.0f, 1.0f }, // A0 base colour V, T
+        { 0.0f, 0.0f, 0.0f, 1.0f }, // A1 normal V, T
+        { 0.0f, 0.0f, 0.0f, 1.0f }, // A2 emissive V, T
+        { 0.0f, 1.0f, 0.0f, 0.0f }, // A3 metallic V, T
+        { 0.0f, 1.0f, 0.0f, 0.0f }, // A4 roughness V, T
+        { 1.0f, 0.0f, 0.0f, 0.0f }, // A5 occlusion product
+    };
+    for (int i = 0; i < DecalBuffer::kAccumulationTargetCount; ++i) {
+        glClearBufferfv(GL_COLOR, i, clearValues[i]);
+    }
+    glDepthMask(GL_TRUE);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+void DecalBuffer::bindPrepass(int viewportWidth, int viewportHeight)
+{
+    glBindFramebuffer(GL_FRAMEBUFFER, m_prepassFbo);
+    glViewport(0, 0, viewportWidth, viewportHeight);
+}
+
+void DecalBuffer::bindAccumulation(int viewportWidth, int viewportHeight)
+{
+    glBindFramebuffer(GL_FRAMEBUFFER, m_accumulationFbo);
+    glViewport(0, 0, viewportWidth, viewportHeight);
+    glDepthMask(GL_FALSE);
 }
 
 } // namespace ux3d::imgui

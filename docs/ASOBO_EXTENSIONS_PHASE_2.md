@@ -2,7 +2,7 @@
 
 [Journal index](ASOBO_EXTENSIONS_JOURNAL.md) · [Extension reference](ASOBO_EXTENSIONS_REFERENCE.md) · [Surface-data study](ASOBO_GBUFFER_STUDY.md) · [Validation rules](RENDERER_OPTIMIZATION_VALIDATION.md)
 
-**Status:** Design approved 2026-10-25; not started.
+**Status:** Design approved 2026-10-25; A2.1 (buffer and prepass) done, A2.2 next.
 
 **Entry:** A1.2, A1.4, the A0.6 notes and the [surface-data study](ASOBO_GBUFFER_STUDY.md). **Goal:** decals
 composite the way MSFS composites them. `ASOBO_material_geometry_decal` is used by 144 of 207 project files: 7 cockpit materials and 4 exterior materials.
@@ -128,13 +128,21 @@ A0 to `RGBA16F` or A3–A5 to 16-bit only if the tests show banding. Not a user 
 Run one at a time; each lands, is reviewed and committed before the next. Owners per the worker roster
 (DeepSeek for build-heavy work, GPT Sol/Astra for bounded work, Gemini Flash for documentation).
 
-- [ ] **A2.1 — Decal buffer and prepass. Owner: DeepSeek.**
+- [x] **A2.1 — Decal buffer and prepass. Done 2026-10-25. Owner: DeepSeek.**
   - Shared targets as in the table, lazy creation, resize, release; memory reported in the Statistics panel.
   - Prepass layer (model: `PickingRenderLayer`), opaque + MASK, decals excluded, jittered camera.
   - Wired only for viewports with active decals; nothing else changes yet.
   - **Tests:** prepass depth equals the forward depth on an opaque fixture (read back, exact); G0 normals within
     1/512 of the forward geometric-normal debug view; viewports resized, closed and reopened; memory counted once
     for three viewports; full regression byte-identical (no viewport uses decals in the suites).
+  - **Results:** shared buffer is 33 B/px: 47,520,000 B (45.32 MiB) at 1600x900 and 68,428,800 B (65.26 MiB) at
+    1920x1080. Synthetic fixture: 33,752 receiver pixels, prepass depth max |diff| 0 (all exact), G0 encoded max
+    diff 0 (byte-identical to the forward Geometry Normal view), MASK plane included, two instances of one mesh
+    in the instancing path, decal material excluded. Resize/open/close of three viewports: 0 GL errors, one
+    shared 579x796 buffer (15,209,172 B), released when the last viewport closes. E195 cockpit and HelloCube
+    dumps are byte-identical to `build/baselines/8d58094.exe`. E195 `DecalPrepass` GPU time: median 0.085 ms
+    (min 0.084, max 0.566) over 53 samples at 734x696 render resolution. New diagnostics:
+    `--decal-prepass-check` and the "Decal prepass depth"/"Decal prepass normal" Render Modes.
 - [ ] **A2.2 — Decal pass and receiver application. Owner: DeepSeek.**
   - Decal shader variant, blend states, A1.4 ordering, decal draws removed from that viewport's transparent list.
   - `pbr.frag` receiver variant and the per-viewport uniform; receiver classes.

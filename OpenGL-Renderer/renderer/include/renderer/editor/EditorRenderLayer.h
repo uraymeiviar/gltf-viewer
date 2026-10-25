@@ -59,6 +59,10 @@ enum class RenderMode : uint32_t {
     IridescenceFactor,
     IridescenceThickness,
 
+    // A2.1: inspect the decal prepass targets (shown only while the buffer is active).
+    DecalPrepassDepth,
+    DecalPrepassNormal,
+
 };
 
 enum class GizmoSpace : uint32_t {

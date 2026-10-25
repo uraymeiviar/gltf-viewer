@@ -45,6 +45,214 @@ int Application::writeSelfCheckReport(const ux3d::imgui::SelfCheckResult& result
     return 0;
 }
 
+int Application::drainGLErrors(const char* where)
+{
+    int count = 0;
+    GLenum error = GL_NO_ERROR;
+    while ((error = glGetError()) != GL_NO_ERROR) {
+        ++count;
+        ++s_glErrorTotal;
+        std::fprintf(stderr, "GL error 0x%X during %s\n", error, where != nullptr ? where : "automation");
+    }
+    return count;
+}
+
+bool Application::writeDecalPrepassCheck(const std::string& path, ux3d::imgui::ViewportInstance& viewport)
+{
+    const int width = s_decalCheckCaptured ? s_decalCheckWidth : viewport.sceneFbo.getWidth();
+    const int height = s_decalCheckCaptured ? s_decalCheckHeight : viewport.sceneFbo.getHeight();
+    const bool prepassValid = decalBuffer.isValid();
+    const size_t expectedPixels = static_cast<size_t>(width) * static_cast<size_t>(height);
+    const bool forwardCaptured = s_decalCheckCaptured && width > 0 && height > 0
+        && s_decalCheckForwardColor.size() == expectedPixels * 4u
+        && s_decalCheckForwardDepth.size() == expectedPixels;
+    const bool colorValid = forwardCaptured;
+
+    std::vector<float> prepassDepth;
+    std::vector<float> g0;
+    const std::vector<float>& forwardDepth = s_decalCheckForwardDepth;
+    const std::vector<uint8_t>& forwardColor = s_decalCheckForwardColor;
+    bool depthCompared = false;
+    bool normalCompared = false;
+    bool readSucceeded = true;
+    const bool singleSampleDepth = forwardCaptured;
+
+    GLint previousPackAlignment = 4;
+    glGetIntegerv(GL_PACK_ALIGNMENT, &previousPackAlignment);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    drainGLErrors("decal-prepass-check-before");
+
+    if (prepassValid && colorValid) {
+        const size_t pixelCount = expectedPixels;
+
+        prepassDepth.resize(pixelCount);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, decalBuffer.getPrepassFbo());
+        glReadBuffer(GL_COLOR_ATTACHMENT0);
+        glReadPixels(0, 0, width, height, GL_DEPTH_COMPONENT, GL_FLOAT, prepassDepth.data());
+        if (drainGLErrors("decal-prepass-check-prepass-depth") != 0) {
+            readSucceeded = false;
+        }
+
+        // G0's ten-bit normal is read as normalized floats, then quantized exactly like
+        // the "Decal prepass normal" debug view quantizes it into the RGBA8 viewport.
+        g0.resize(pixelCount * 4u);
+        glReadPixels(0, 0, width, height, GL_RGBA, GL_FLOAT, g0.data());
+        if (drainGLErrors("decal-prepass-check-g0") != 0) {
+            readSucceeded = false;
+        }
+
+        const bool geometryNormalView =
+            viewport.settings.renderMode == ux3d::renderer::RenderMode::NormalGeometry;
+
+        uint64_t depthComparedPixels = 0;
+        uint64_t depthExactPixels = 0;
+        uint64_t depthOverOneUlp = 0;
+        double depthMaxAbsDiff = 0.0;
+        double prepassMinDepth = 1.0;
+        double forwardMinDepth = 1.0;
+        uint64_t prepassBelowOne = 0;
+        uint64_t forwardBelowOne = 0;
+        uint64_t normalComparedPixels = 0;
+        uint64_t normalExactPixels = 0;
+        uint64_t normalOverOne512 = 0;
+        int normalMaxChannelDiff8 = 0;
+        double normalMaxAbsDiff = 0.0;
+        double normalMaxComponentDiff = 0.0;
+
+        // The comparison covers receiver geometry only: both targets must hold a depth
+        // below the clear value. That leaves out the skybox (which the prepass excludes)
+        // and anything the forward pass leaves at the far plane.
+        constexpr float kFloatUlp = 1.1920928955078125e-7f; // one ulp at 1.0f
+        constexpr double kOneOver512 = 1.0 / 512.0;
+        for (size_t i = 0; i < pixelCount; ++i) {
+            prepassMinDepth = std::min(prepassMinDepth, static_cast<double>(prepassDepth[i]));
+            if (prepassDepth[i] < 1.0f) {
+                ++prepassBelowOne;
+            }
+            if (singleSampleDepth && forwardDepth[i] < 1.0f) {
+                ++forwardBelowOne;
+            }
+            if (singleSampleDepth) {
+                forwardMinDepth = std::min(forwardMinDepth, static_cast<double>(forwardDepth[i]));
+            }
+            const bool geometry = prepassDepth[i] < 1.0f
+                && (!singleSampleDepth || forwardDepth[i] < 1.0f);
+            if (!geometry) {
+                continue;
+            }
+
+            if (singleSampleDepth) {
+                ++depthComparedPixels;
+                const double diff = std::fabs(static_cast<double>(prepassDepth[i]) - forwardDepth[i]);
+                depthMaxAbsDiff = std::max(depthMaxAbsDiff, diff);
+                if (diff == 0.0) {
+                    ++depthExactPixels;
+                }
+                if (diff > kFloatUlp) {
+                    ++depthOverOneUlp;
+                }
+            }
+
+            if (geometryNormalView) {
+                ++normalComparedPixels;
+                bool normalExact = true;
+                for (int c = 0; c < 3; ++c) {
+                    const float prepassEncoded = std::clamp(g0[i * 4u + c], 0.0f, 1.0f);
+                    const int prepassByte = static_cast<int>(std::lround(prepassEncoded * 255.0f));
+                    const int forwardByte = static_cast<int>(forwardColor[i * 4u + c]);
+                    const int channelDiff = std::abs(prepassByte - forwardByte);
+                    const double encodedDiff = static_cast<double>(channelDiff) / 255.0;
+                    normalMaxChannelDiff8 = std::max(normalMaxChannelDiff8, channelDiff);
+                    normalMaxAbsDiff = std::max(normalMaxAbsDiff, encodedDiff);
+                    const double componentDiff = std::fabs(
+                        static_cast<double>(prepassEncoded * 2.0f - 1.0f)
+                        - static_cast<double>(static_cast<float>(forwardByte) / 255.0f * 2.0f - 1.0f));
+                    normalMaxComponentDiff = std::max(normalMaxComponentDiff, componentDiff);
+                    if (channelDiff != 0) {
+                        normalExact = false;
+                    }
+                    if (encodedDiff > kOneOver512) {
+                        ++normalOverOne512;
+                    }
+                }
+                if (normalExact) {
+                    ++normalExactPixels;
+                }
+            }
+        }
+
+        depthCompared = singleSampleDepth && depthComparedPixels > 0;
+        normalCompared = geometryNormalView && normalComparedPixels > 0;
+
+        std::ofstream output(path, std::ios::binary | std::ios::trunc);
+        if (!output) {
+            std::fprintf(stderr, "Could not open decal prepass check output '%s'\n", path.c_str());
+            glPixelStorei(GL_PACK_ALIGNMENT, previousPackAlignment);
+            return false;
+        }
+        output << std::setprecision(10);
+        output << "{\n";
+        output << "  \"schema\": \"glider.decal-prepass-check.v1\",\n";
+        output << "  \"width\": " << width << ",\n";
+        output << "  \"height\": " << height << ",\n";
+        output << "  \"decalBuffer\": {\"active\": " << (prepassValid ? "true" : "false")
+               << ", \"width\": " << decalBuffer.getWidth() << ", \"height\": " << decalBuffer.getHeight()
+               << ", \"bytes\": " << decalBuffer.getMemoryBytes()
+               << ", \"allocations\": " << decalBuffer.getAllocationCount()
+               << ", \"resizes\": " << decalBuffer.getResizeCount()
+               << ", \"releases\": " << decalBuffer.getReleaseCount() << "},\n";
+        output << "  \"depth\": {\"compared\": " << (depthCompared ? "true" : "false")
+               << ", \"pixels\": " << depthComparedPixels
+               << ", \"exactPixels\": " << depthExactPixels
+               << ", \"overOneUlp\": " << depthOverOneUlp
+               << ", \"prepassBelowOne\": " << prepassBelowOne
+               << ", \"forwardBelowOne\": " << forwardBelowOne
+               << ", \"prepassMin\": " << prepassMinDepth
+               << ", \"forwardMin\": " << forwardMinDepth
+               << ", \"maxAbsDiff\": " << depthMaxAbsDiff << "},\n";
+        output << "  \"normal\": {\"compared\": " << (normalCompared ? "true" : "false")
+               << ", \"pixels\": " << normalComparedPixels
+               << ", \"exactPixels\": " << normalExactPixels
+               << ", \"overOne512\": " << normalOverOne512
+               << ", \"maxChannelDiff8\": " << normalMaxChannelDiff8
+               << ", \"maxEncodedDiff\": " << normalMaxAbsDiff
+               << ", \"maxNormalComponentDiff\": " << normalMaxComponentDiff << "},\n";
+        output << "  \"glErrors\": " << s_glErrorTotal << ",\n";
+        output << "  \"readSucceeded\": " << (readSucceeded ? "true" : "false") << "\n";
+        output << "}\n";
+        output.flush();
+        if (!output.good()) {
+            std::fprintf(stderr, "Could not write decal prepass check output '%s'\n", path.c_str());
+            glPixelStorei(GL_PACK_ALIGNMENT, previousPackAlignment);
+            return false;
+        }
+    } else {
+        std::ofstream output(path, std::ios::binary | std::ios::trunc);
+        if (!output) {
+            std::fprintf(stderr, "Could not open decal prepass check output '%s'\n", path.c_str());
+            glPixelStorei(GL_PACK_ALIGNMENT, previousPackAlignment);
+            return false;
+        }
+        output << "{\n  \"schema\": \"glider.decal-prepass-check.v1\",\n";
+        output << "  \"width\": " << width << ",\n  \"height\": " << height << ",\n";
+        output << "  \"decalBuffer\": {\"active\": " << (prepassValid ? "true" : "false")
+               << ", \"bytes\": " << decalBuffer.getMemoryBytes() << "},\n";
+        output << "  \"depth\": {\"compared\": false},\n";
+        output << "  \"normal\": {\"compared\": false},\n";
+        output << "  \"glErrors\": " << s_glErrorTotal << ",\n";
+        output << "  \"readSucceeded\": false\n}\n";
+    }
+
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+    glReadBuffer(GL_BACK);
+    glPixelStorei(GL_PACK_ALIGNMENT, previousPackAlignment);
+    std::printf("Wrote decal prepass check to %s (%dx%d, depth %s, normal %s)\n", path.c_str(), width, height,
+                depthCompared ? "compared" : "skipped", normalCompared ? "compared" : "skipped");
+    // An inactive buffer is a valid result (files without decals never create it); the
+    // report says so. A missing forward capture is a real failure.
+    return readSucceeded && colorValid;
+}
+
 bool Application::saveImage(const char* filename, int width, int height, const uint8_t* rgba)
 {
     if (!filename || width <= 0 || height <= 0 || !rgba) return false;
@@ -695,6 +903,29 @@ void Application::finishFrame(FrameContext& frame, int displayW, int displayH)
 
     ++frameCount;
     const bool profileCaptureReady = s_captureViewportPath.empty() || s_captureAttempted;
+
+    // A2.1: one-shot diagnostic readback of the prepass depth/G0 against the forward
+    // depth and Geometry Normal debug view. It runs after the warm-up frames and exits.
+    if (!s_decalPrepassCheckPath.empty() && !s_decalPrepassCheckAttempted
+        && frameCount >= SCENARIO_REPORT_FRAME && activeViewport != nullptr && s_decalCheckCaptured) {
+        s_decalPrepassCheckAttempted = true;
+        if (!writeDecalPrepassCheck(s_decalPrepassCheckPath, *activeViewport)) {
+            s_outputFailed = true;
+        }
+        glfwSetWindowShouldClose(window, GLFW_TRUE);
+    } else if (!s_decalPrepassCheckPath.empty() && !s_decalPrepassCheckAttempted && frameCount >= 64) {
+        // The active viewport never rendered into a single-sample target (for example it
+        // was closed or stayed inactive). Do not wait forever for a diagnostic.
+        s_decalPrepassCheckAttempted = true;
+        s_outputFailed = true;
+        std::fprintf(stderr, "Decal prepass check could not capture the active viewport\n");
+        glfwSetWindowShouldClose(window, GLFW_TRUE);
+    }
+
+    // Automation runs read GL errors instead of letting them go unnoticed.
+    if (uiScenario.active() || !s_decalPrepassCheckPath.empty()) {
+        drainGLErrors("frame");
+    }
     const bool profileReportReady = !s_profileReportPath.empty() && !s_profileReportAttempted &&
                                     frameCount >= SCENARIO_REPORT_FRAME && activeViewport != nullptr &&
                                     profileCaptureReady;
@@ -835,6 +1066,14 @@ void Application::finishFrame(FrameContext& frame, int displayW, int displayH)
         uiFrame.logErrors = s_consoleLogs.counts().errors;
         uiFrame.logWarnings = s_consoleLogs.counts().warnings;
         uiFrame.logInfo = s_consoleLogs.counts().info;
+        uiFrame.decalBufferActive = decalBuffer.isValid();
+        uiFrame.decalBufferWidth = decalBuffer.getWidth();
+        uiFrame.decalBufferHeight = decalBuffer.getHeight();
+        uiFrame.decalBufferBytes = decalBuffer.getMemoryBytes();
+        uiFrame.decalBufferAllocations = decalBuffer.getAllocationCount();
+        uiFrame.decalBufferResizes = decalBuffer.getResizeCount();
+        uiFrame.decalBufferReleases = decalBuffer.getReleaseCount();
+        uiFrame.glErrors = s_glErrorTotal;
         uiFrame.hierarchyBuildCount = ux3d::imgui::SceneHierarchyPanel::rowModelBuildCount();
         {
             std::string revisionsJson =

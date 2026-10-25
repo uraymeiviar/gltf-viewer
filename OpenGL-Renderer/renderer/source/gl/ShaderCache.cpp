@@ -175,7 +175,10 @@ GLuint ux3d::renderer::gl::ShaderCache::selectShader(const core::string& shaderI
     errorString = "Could not select shader: " + shaderIdentfier + "\n" + errorString;
     core::debugLog(core::LogLevel::Error, errorString.c_str());
 #else
-    core::logError("Shader %s could not be compiled", shaderIdentfier.c_str());
+    GLchar msg[1024];
+    GLsizei length = 0;
+    m_gl->getShaderInfoLog(glShader, sizeof(msg), &length, msg);
+    core::logError("Shader %s could not be compiled:\n%s", shaderIdentfier.c_str(), msg);
 #endif
 
     return invalid;

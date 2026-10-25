@@ -24,6 +24,7 @@
 #include "gltf/Utils.h"
 #include "renderer/Renderer.h"
 #include "renderer/CommandGenerator.h"
+#include "renderer/DecalPrepassLayer.h"
 #include "renderer/PickingRenderLayer.h"
 #include "renderer/gltf/GltfRenderLayer.h"
 #include "renderer/TransformHierarchyNode.h"
@@ -255,6 +256,12 @@ private:
     void drawPanels(FrameContext& frame);
     void drawLogger();
     void finishFrame(FrameContext& frame, int displayW, int displayH);
+    // A2.1: true when this viewport's file has decal materials, ASOBO is on and the
+    // viewport applies ASOBO_material_geometry_decal.
+    bool viewportNeedsDecalBuffer(const ux3d::imgui::ViewportInstance& viewport) const;
+    void releaseDecalBuffer();
+    bool writeDecalPrepassCheck(const std::string& path, ux3d::imgui::ViewportInstance& viewport);
+    int drainGLErrors(const char* where);
 
     static double wallClockMs()
     {
@@ -290,6 +297,9 @@ private:
     std::unique_ptr<ux3d::renderer::Renderer> glRenderer;
     std::unique_ptr<ux3d::renderer::PickingRenderLayer> pickingLayer;
     ux3d::imgui::Framebuffer pickingTarget;
+    // A2.1: one decal buffer and its prepass layer for all viewports.
+    std::unique_ptr<ux3d::renderer::DecalPrepassLayer> decalPrepassLayer;
+    ux3d::imgui::DecalBuffer decalBuffer;
     ux3d::renderer::ReverseMapping currentReverseMapping;
     std::vector<std::unique_ptr<ux3d::imgui::ViewportInstance>> viewports;
     ux3d::imgui::ViewportInstance* activeViewport = nullptr;
@@ -318,6 +328,16 @@ private:
     bool s_resetLayout = false;
     std::string modelToLoad;
     std::string dumpFramePath = "";
+    std::string s_decalPrepassCheckPath;
+    bool s_decalPrepassCheckAttempted = false;
+    // A2.1 check: the forward depth and Geometry Normal colour are read right after the
+    // forward scene draw, before the grid, bounding-box and picking overlays.
+    std::vector<float> s_decalCheckForwardDepth;
+    std::vector<uint8_t> s_decalCheckForwardColor;
+    int s_decalCheckWidth = 0;
+    int s_decalCheckHeight = 0;
+    bool s_decalCheckCaptured = false;
+    uint64_t s_glErrorTotal = 0;
     std::string uiScriptPath;
     std::string uiReportPath;
     ux3d::imgui::UiScenario uiScenario;

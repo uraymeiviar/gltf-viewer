@@ -26,6 +26,8 @@ constexpr ShadingModeInfo s_shadingModes[] = {
     {"Geometry Normal", ux3d::renderer::RenderMode::NormalGeometry, nullptr, false},
     {"Geometry Tangent", ux3d::renderer::RenderMode::Tangent, nullptr, false},
     {"Geometry Bitangent", ux3d::renderer::RenderMode::Bitangent, nullptr, false},
+    {"Decal Prepass Depth", ux3d::renderer::RenderMode::DecalPrepassDepth, nullptr, false},
+    {"Decal Prepass Normal", ux3d::renderer::RenderMode::DecalPrepassNormal, nullptr, false},
     {"Shading Normal", ux3d::renderer::RenderMode::ShadingNormal, nullptr, false},
     {"Alpha", ux3d::renderer::RenderMode::Alpha, nullptr, false},
     {"", ux3d::renderer::RenderMode::None, nullptr, true},
@@ -255,6 +257,10 @@ const char* Application::getRenderModeLabel(ux3d::renderer::RenderMode mode)
         return "Geometry Tangent";
     case RM::Bitangent:
         return "Geometry Bitangent";
+    case RM::DecalPrepassDepth:
+        return "Decal Prepass Depth";
+    case RM::DecalPrepassNormal:
+        return "Decal Prepass Normal";
     case RM::Alpha:
         return "Alpha";
     case RM::Occlusion:
@@ -485,7 +491,14 @@ void Application::drawViewportMenuBody()
 
 void Application::drawShadingMenu(ux3d::imgui::ViewportInstance& viewport)
 {
+    const bool showDecalPrepassViews = decalBuffer.isValid() && viewportNeedsDecalBuffer(viewport);
     for (const auto& item : s_shadingModes) {
+        // A2.1: the decal prepass modes are shown only while the buffer is active.
+        if ((item.mode == ux3d::renderer::RenderMode::DecalPrepassDepth ||
+             item.mode == ux3d::renderer::RenderMode::DecalPrepassNormal) &&
+            !showDecalPrepassViews) {
+            continue;
+        }
         if (item.isSeparator) {
             ImGui::Separator();
         } else {

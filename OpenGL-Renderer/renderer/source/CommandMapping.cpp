@@ -207,7 +207,8 @@ void CommandMapping::prepareInstancing(CmdDesc& desc) const
     desc.instanceable = false;
     const Mesh* mesh = desc.mesh;
     const Material* material = desc.material;
-    if (mesh == nullptr || material == nullptr || desc.pass == nullptr || desc.pass->getId() != RenderPassType::Opaque
+    if (mesh == nullptr || material == nullptr || desc.pass == nullptr
+        || (desc.pass->getId() != RenderPassType::Opaque && desc.pass->getId() != RenderPassType::DecalPrepass)
         || desc.command.tag != CommandTag::Draw || desc.command.program == nullptr || desc.command.instanceCount != 0
         || mesh->vertexShader != "primitive.vert" || !mesh->uniformBlocks.empty() || mesh->jointsSampler != nullptr
         || mesh->getMorphTargetSampler().texture != nullptr || mesh->defines.isDefined("USE_SKINNING")

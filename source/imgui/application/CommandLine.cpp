@@ -262,6 +262,12 @@ std::optional<int> Application::configure(int argc, char** argv)
         if (arg == "--dump-frame" && i + 1 < argc) {
             dumpFramePath = argv[++i];
             dumpFrameCountdown = 8;
+        } else if (arg == "--decal-prepass-check" && i + 1 < argc) {
+            // A2.1 diagnostic: read the prepass depth/G0 and the forward depth/geometry
+            // normal after the warm-up frames, write a JSON report, then exit. Redraw
+            // skipping would otherwise leave the warm-up frame uncaptured.
+            s_decalPrepassCheckPath = argv[++i];
+            s_disableRedrawSkip = true;
         } else if (arg == "--capture-viewport" && i + 1 < argc) {
             s_captureViewportPath = argv[++i];
         } else if (arg == "--capture-frame" && i + 1 < argc) {
@@ -565,6 +571,16 @@ std::optional<int> Application::configure(int argc, char** argv)
     }
 
     ux3d::imgui::profiling::setCountingEnabled(s_profilingEnabled);
+
+    // A2.1 check: the forward depth readback requires a single-sample target. The check
+    // also redraws every frame so the warm-up frame is captured (see the argument above).
+    if (!s_decalPrepassCheckPath.empty()) {
+        for (auto& vp : viewports) {
+            if (vp) {
+                vp->settings.antiAliasingIdx = 0;
+            }
+        }
+    }
 
     // P1.5 diagnostic control: append deterministic entries covering every
     // severity without echoing them to stderr. Used to exercise counters, Copy

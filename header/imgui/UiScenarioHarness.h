@@ -60,6 +60,15 @@ struct UiScenarioFrame {
     // P4.1 revision contract: pre-rendered JSON object with per-kind revisions,
     // full-sync count and the kinds consumed at the most recent sync point.
     std::string revisionsJson = "{}";
+    // A2.1: the shared decal buffer's live state, counted once for all viewports.
+    bool decalBufferActive = false;
+    int decalBufferWidth = 0;
+    int decalBufferHeight = 0;
+    uint64_t decalBufferBytes = 0;
+    uint64_t decalBufferAllocations = 0;
+    uint64_t decalBufferResizes = 0;
+    uint64_t decalBufferReleases = 0;
+    uint64_t glErrors = 0;
     std::vector<ViewportInfo> viewports;
     std::function<std::string()> expectedCopyText;
     std::function<void(const std::string&, int)> appendLog;
@@ -687,7 +696,15 @@ private:
             << ",\"hierarchyBuildCount\":" << frame.hierarchyBuildCount
             << ",\"revisions\":" << frame.revisionsJson
             << ",\"logger\":{\"entries\":" << frame.logEntries << ",\"errors\":" << frame.logErrors
-            << ",\"warnings\":" << frame.logWarnings << ",\"info\":" << frame.logInfo << "}";
+            << ",\"warnings\":" << frame.logWarnings << ",\"info\":" << frame.logInfo << "}"
+            << ",\"decalBuffer\":{\"active\":" << (frame.decalBufferActive ? "true" : "false")
+            << ",\"width\":" << frame.decalBufferWidth
+            << ",\"height\":" << frame.decalBufferHeight
+            << ",\"bytes\":" << frame.decalBufferBytes
+            << ",\"allocations\":" << frame.decalBufferAllocations
+            << ",\"resizes\":" << frame.decalBufferResizes
+            << ",\"releases\":" << frame.decalBufferReleases << "}"
+            << ",\"glErrors\":" << frame.glErrors;
 
         out << ",\"windows\":{";
         bool firstWindow = true;

@@ -57,7 +57,15 @@ void Application::drawPanels(FrameContext& frame)
     // -------------------------------------------------------------
     if (showStatistics) {
         if (ImGui::Begin(WND_STATISTICS, &showStatistics)) {
-            ux3d::imgui::StatisticsPanel::render(gltfModel, currentFilePath);
+            ux3d::imgui::RenderBufferStatistics buffers;
+            buffers.decalBufferActive = decalBuffer.isValid();
+            buffers.decalBufferWidth = decalBuffer.getWidth();
+            buffers.decalBufferHeight = decalBuffer.getHeight();
+            buffers.decalBufferBytes = decalBuffer.getMemoryBytes();
+            buffers.decalBufferAllocations = decalBuffer.getAllocationCount();
+            buffers.decalBufferResizes = decalBuffer.getResizeCount();
+            buffers.decalBufferReleases = decalBuffer.getReleaseCount();
+            ux3d::imgui::StatisticsPanel::render(gltfModel, currentFilePath, buffers);
         }
         ImGui::End();
     }

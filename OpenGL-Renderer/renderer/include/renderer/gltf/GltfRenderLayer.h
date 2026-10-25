@@ -173,6 +173,10 @@ private:
     bool m_assetNormalMapConventionDirectX = false;
     // Set by updateGltf when extensionsUsed declares ASOBO_material_draw_order (A1.4).
     bool m_assetDrawOrderDeclared = false;
+    // A2.1: set by updateGltf when at least one material carries
+    // ASOBO_material_geometry_decal or ASOBO_material_blend_gbuffer. Files without them
+    // never allocate the shared decal buffer.
+    bool m_assetHasDecalMaterials = false;
     // Set by updateGltf when extensionsUsed declares ASOBO_asset_optimized (A1.9). The package
     // tool stores TEXCOORD_n/COLOR_0 as half-floats in SHORT/USHORT and NORMAL/TANGENT as
     // signed bytes; the vertex attributes are fed to GL with the matching type.
@@ -220,6 +224,9 @@ public:
     // A1.2: the asset's ASOBO_normal_map_convention is "DirectX". Whether the viewport
     // applies it is a separate AsoboOptions switch, so the shader flag combines both.
     bool usesDirectXNormalMaps() const { return m_assetNormalMapConventionDirectX; }
+
+    // A2.1: the loaded file contains at least one decal material.
+    bool hasDecalMaterials() const { return m_assetHasDecalMaterials; }
 
     // Isolation (local view): when root is not null, only that node is drawn, plus its
     // descendants when includeChildren is set. Nodes already hidden by their own visible

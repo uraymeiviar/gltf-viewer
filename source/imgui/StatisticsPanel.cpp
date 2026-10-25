@@ -64,12 +64,14 @@ struct StatisticsCache {
     bool valid = false;
     std::string path;
     const ux3d::gltf::Gltf* model = nullptr;
+    RenderBufferStatistics buffers;
     StatisticsSnapshot snapshot;
 };
 
 StatisticsCache s_cache;
 
-StatisticsSnapshot buildSnapshot(const ux3d::gltf::Gltf& gltfModel, const std::string& currentFilePath)
+StatisticsSnapshot buildSnapshot(const ux3d::gltf::Gltf& gltfModel, const std::string& currentFilePath,
+                                 const RenderBufferStatistics& buffers)
 {
     // Compute total metrics.
     uint64_t totalVertices = 0;
@@ -171,6 +173,11 @@ StatisticsSnapshot buildSnapshot(const ux3d::gltf::Gltf& gltfModel, const std::s
     const size_t bufferViewCount = gltfModel.getElements<ux3d::gltf::BufferView>().size();
     const size_t bufferCount = gltfModel.getElements<ux3d::gltf::Buffer>().size();
 
+    const std::string decalResolution = buffers.decalBufferActive
+        ? (std::to_string(buffers.decalBufferWidth) + " x " + std::to_string(buffers.decalBufferHeight))
+        : std::string();
+    const std::string decalMemory = buffers.decalBufferActive ? formatBytes(buffers.decalBufferBytes) : std::string();
+
     StatisticsSnapshot snapshot;
     snapshot.rows = {
         { "File Size", fileSizeText },
@@ -195,6 +202,13 @@ StatisticsSnapshot buildSnapshot(const ux3d::gltf::Gltf& gltfModel, const std::s
         { "Buffer Views", std::to_string(bufferViewCount) },
         { "Buffers", std::to_string(bufferCount) },
     };
+    // A2.1: one shared decal buffer, so these rows are counted once for all viewports.
+    // Files without a decal buffer keep the panel exactly as it was before A2.1.
+    if (buffers.decalBufferActive) {
+        snapshot.rows.push_back({ "Decal Buffer", "Active (shared)" });
+        snapshot.rows.push_back({ "Decal Buffer Resolution", decalResolution });
+        snapshot.rows.push_back({ "Decal Buffer Memory", decalMemory });
+    }
 
     std::ostringstream copy;
     copy << "File: " << currentFilePath << "\n";
@@ -216,18 +230,26 @@ StatisticsSnapshot buildSnapshot(const ux3d::gltf::Gltf& gltfModel, const std::s
     copy << "Accessors: " << accessorCount << "\n";
     copy << "Buffer Views: " << bufferViewCount << "\n";
     copy << "Buffers: " << bufferCount << " (" << bufferText << ")\n";
+    if (buffers.decalBufferActive) {
+        copy << "Decal Buffer: Active (shared)\n";
+        copy << "Decal Buffer Resolution: " << decalResolution << "\n";
+        copy << "Decal Buffer Memory: " << decalMemory << "\n";
+    }
     snapshot.clipboard = copy.str();
     return snapshot;
 }
 
-void ensureSnapshot(const ux3d::gltf::Gltf& gltfModel, const std::string& currentFilePath)
+void ensureSnapshot(const ux3d::gltf::Gltf& gltfModel, const std::string& currentFilePath,
+                    const RenderBufferStatistics& buffers)
 {
-    if (s_cache.valid && s_cache.model == &gltfModel && s_cache.path == currentFilePath) {
+    if (s_cache.valid && s_cache.model == &gltfModel && s_cache.path == currentFilePath
+        && s_cache.buffers == buffers) {
         return;
     }
-    s_cache.snapshot = buildSnapshot(gltfModel, currentFilePath);
+    s_cache.snapshot = buildSnapshot(gltfModel, currentFilePath, buffers);
     s_cache.path = currentFilePath;
     s_cache.model = &gltfModel;
+    s_cache.buffers = buffers;
     s_cache.valid = true;
 }
 
@@ -238,9 +260,10 @@ void StatisticsPanel::invalidate()
     s_cache.valid = false;
 }
 
-void StatisticsPanel::render(const ux3d::gltf::Gltf& gltfModel, const std::string& currentFilePath)
+void StatisticsPanel::render(const ux3d::gltf::Gltf& gltfModel, const std::string& currentFilePath,
+                             const RenderBufferStatistics& buffers)
 {
-    ensureSnapshot(gltfModel, currentFilePath);
+    ensureSnapshot(gltfModel, currentFilePath, buffers);
     const StatisticsSnapshot& snapshot = s_cache.snapshot;
 
     // Action buttons. Copy and display are both backed by the same snapshot.

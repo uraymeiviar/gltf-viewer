@@ -200,6 +200,8 @@ int Application::run(int argc, char** argv)
     glRenderer->setGpuProfilingEnabled(s_profilingEnabled);
 
     pickingLayer = std::make_unique<ux3d::renderer::PickingRenderLayer>(gladGL.get());
+    // A2.1: the decal prepass adds its own program and pass to the scene built below.
+    decalPrepassLayer = std::make_unique<ux3d::renderer::DecalPrepassLayer>(gladGL.get());
     // P5.2: the one picking target shared by all viewports, a single pixel.
     pickingTarget.resize(1, 1, 1);
 
@@ -295,6 +297,7 @@ int Application::run(int argc, char** argv)
         // Automation (UI scripts, benchmarks, captures, dumps, reports) runs on frame
         // counts, so it always polls.
         const bool automationPending = uiScenario.active() || s_benchmarkEnabled || !dumpFramePath.empty() ||
+                                       !s_decalPrepassCheckPath.empty() ||
                                        (!s_captureViewportPath.empty() && !s_captureAttempted) ||
                                        (!s_profileReportPath.empty() && !s_profileReportAttempted) ||
                                        (!scenarioReportPath.empty() && frameCount <= SCENARIO_REPORT_FRAME);
@@ -347,6 +350,10 @@ int Application::run(int argc, char** argv)
         commandGenerator->clearVertexLayoutCache();
         commandGenerator.reset();
     }
+    // Drop the decal buffer and its layer before the GL context goes away; the pooled
+    // material copies hold no GL objects, but the buffer's textures and FBOs do.
+    releaseDecalBuffer();
+    decalPrepassLayer.reset();
     if (gltfLayer != nullptr) {
         gltfLayer.reset();
     }

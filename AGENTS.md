@@ -237,9 +237,14 @@ build/bin/Release/Glider.exe
 - `--select-node <name>`: Automatically selects a node by name and frames camera on startup.
 - `--debug-view <name>`: Selects a viewport Render Mode at startup, using the View menu's names with spaces,
   underscores and hyphens ignored (`occlusion`, `roughness`, `shadingnormal`, `geometrybitangent`,
-  `normaltexture`, ...). Unknown names log the value and leave the default shaded view.
+  `normaltexture`, `decalprepassdepth`, `decalprepassnormal`, ...). Unknown names log the value and leave the
+  default shaded view.
 - `--select-viewport <id>`: Selects a viewport to inspect its settings.
 - `--dump-frame <output.jpg>`: Renders 8 warm-up frames and dumps the window framebuffer to disk as `.jpg` or `.png`.
+- `--decal-prepass-check <out.json>`: A2.1 diagnostic. After the warm-up frames it reads the decal prepass
+  depth/G0 and the forward depth/Geometry Normal, writes the maximum differences and viewport/buffer sizes,
+  then exits. It forces a single-sample target and redraws every frame. Files without a decal material report
+  `decalBuffer.active: false` instead of failing.
 - `--exit-after-dump`: Exits the application immediately after dumping the frame.
 - `--quality <high|balanced|performance>`: Render-quality preset for this run (default High, the original quality). Finer overrides: `--ibl-size`, `--ibl-irradiance-size`, `--ibl-lut-size`, `--ibl-precision <32|16>`, `--ibl-samples`, `--grid-mode <ray|plane>`, `--render-scale`. The UI equivalents are **Viewport Settings → Quality** (preset, ground grid, render scale) and **Scene Inspector → IBL Filter Settings** (the IBL filter sizes and samples, shown while IBL is enabled); both are renderer-wide and saved in `%APPDATA%/Glider/render_quality.txt`.
 - `--hdr-rotation <deg>`, `--exposure <ev>`, `--tone-mapping <neutral|hill|narkowicz>`: Environment rotation,
