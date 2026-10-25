@@ -19,6 +19,28 @@ enum class AntiAliasingMode {
     TAA = 5
 };
 
+struct HdrPostProcessParams {
+    bool rawPassThrough = false; // true for debug render modes (--debug-view)
+    float exposureEv = 0.0f;     // manual exposure EV
+    int toneMappingMode = 1;     // 0 = PBR Neutral, 1 = ACES Hill, 2 = ACES Narkowicz
+    bool hasClearColor = false;  // true when skybox is hidden (!showBackground)
+    glm::vec3 clearColor{ 0.12f, 0.12f, 0.14f };
+    // Phase 2: Bloom
+    bool bloomEnabled = true;
+    float bloomIntensity = 0.04f;
+    float bloomRadius = 1.0f;
+    // Phase 3: Auto-Exposure
+    bool autoExposure = false;
+    float exposureCompensationEv = 0.0f;
+    float autoExposureMinEv = -6.0f;
+    float autoExposureMaxEv = 6.0f;
+    float autoExposureSpeedUp = 3.0f;
+    float autoExposureSpeedDown = 1.5f;
+    float deltaTime = 1.0f / 60.0f;
+    bool snapExposure = false;
+    bool startFromManualEv = false;
+};
+
 class AntiAliasing {
 public:
     AntiAliasing();
@@ -43,6 +65,14 @@ public:
                   int width, int height,
                   const glm::mat4& currentViewProj,
                   bool sceneDirty);
+
+    // Execute HDR post-processing (Bloom + Tone Mapping) into targetLdrFbo.
+    void renderPostProcess(GLuint inputHdrTexture,
+                           GLuint targetLdrFbo,
+                           int width, int height,
+                           const HdrPostProcessParams& params);
+
+    void setRawMode(bool rawMode) { m_rawMode = rawMode; }
 
     void resetHistory();
 
@@ -74,12 +104,24 @@ public:
     bool getLastTaaHistoryValid() const { return m_lastTaaHistoryValid; }
     float getLastTaaBlendFactor() const { return m_lastTaaBlendFactor; }
     uint64_t getLastTaaTargetGeneration() const { return m_lastTaaTargetGeneration; }
+    float getAdaptedExposureEv() const { return m_adaptedEv; }
+    bool isExposureAdapting() const { return m_exposureAdapting; }
 
     static SelfCheckResult runTargetAllocationSelfCheck(bool forceFailure = false);
 
 private:
+    static constexpr int kBloomMips = 5;
+    static constexpr int kBloomCanonicalHeight = 225;
+    static constexpr int kMeterSize = 64;
+
     void ensureFxaaBuffers(int width, int height);
     void ensureTaaBuffers(int width, int height);
+    void ensureBloomBuffers(int width, int height);
+    void releaseBloomTargets();
+    GLuint renderBloom(GLuint inputHdrTexture, int width, int height, const HdrPostProcessParams& params);
+    void ensureMeterBuffers();
+    void releaseMeterTargets();
+    float updateAutoExposure(GLuint inputHdrTexture, int width, int height, const HdrPostProcessParams& params);
 
     // Quad VAO & VBO
     GLuint m_quadVao = 0;
@@ -98,6 +140,50 @@ private:
     GLint m_taaHistTexLoc = -1;
     GLint m_taaTexelSizeLoc = -1;
     GLint m_taaBlendFactorLoc = -1;
+    GLint m_taaRawModeLoc = -1;
+    bool m_rawMode = false;
+
+    // Post-processing Tone Mapping resources
+    GLuint m_tonemapProgram = 0;
+    GLint m_tmHdrTexLoc = -1;
+    GLint m_tmBloomTexLoc = -1;
+    GLint m_tmExposureLoc = -1;
+    GLint m_tmToneMapModeLoc = -1;
+    GLint m_tmRawModeLoc = -1;
+    GLint m_tmHasClearColorLoc = -1;
+    GLint m_tmClearColorLoc = -1;
+    GLint m_tmBloomEnabledLoc = -1;
+    GLint m_tmBloomIntensityLoc = -1;
+
+    // Jimenez 2014 Bloom resources
+    GLuint m_bloomDownsampleProgram = 0;
+    GLint m_bdSrcTexLoc = -1;
+    GLint m_bdSrcTexelSizeLoc = -1;
+    GLint m_bdFirstPassLoc = -1;
+    GLint m_bdHasClearColorLoc = -1;
+    GLint m_bdClearColorLoc = -1;
+
+    GLuint m_bloomUpsampleProgram = 0;
+    GLint m_buSrcTexLoc = -1;
+    GLint m_buTexelSizeLoc = -1;
+    GLint m_buFilterRadiusLoc = -1;
+
+    GLuint m_bloomFbo[kBloomMips] = {};
+    GLuint m_bloomTexture[kBloomMips] = {};
+    int m_bloomMipW[kBloomMips] = {};
+    int m_bloomMipH[kBloomMips] = {};
+
+    // Auto-Exposure metering resources
+    GLuint m_meterProgram = 0;
+    GLint m_meterHdrTexLoc = -1;
+    GLint m_meterTexelSizeLoc = -1;
+    GLint m_meterHasClearColorLoc = -1;
+    GLint m_meterClearColorLoc = -1;
+    GLuint m_meterFbo = 0;
+    GLuint m_meterTexture = 0;
+    float m_adaptedEv = 0.0f;
+    bool m_exposureValid = false;
+    bool m_exposureAdapting = false;
 
     GLuint m_taaFbo[2] = { 0, 0 };
     GLuint m_taaTexture[2] = { 0, 0 };

@@ -2451,6 +2451,7 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
         mesh->polygonMode = gl::PolygonMode::Fill;
         material->fragmentShader = "pbr.frag";
         material->renderSettings = renderSettings;
+        material->defines.define("LINEAR_OUTPUT", 1);
     }
 
     // add CubeMap
@@ -2458,55 +2459,11 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
         scene.drawables.emplace_back(m_resourceManager.getCubeMapTuple());
     }
 
-    // Previous transmission duplicates are reused from the pools below.
+    // The scene target is already linear RGBA16F; capture the behind copy directly
+    // from the HDR scene before Transmissive / glass Transparent passes without
+    // duplicating drawables into a second LINEAR_OUTPUT pass.
     m_postTransmissionDrawables.clear();
-    size_t transmissionPoolUsed = 0;
-
-    // Duplicate drawables for transmission path
     if (containsTransmissiveMaterial) {
-        for (const auto [mesh, material] : scene.drawables) {
-            // Never put ASOBO glass in the behind copy: avoids sampling the texture while
-            // writing it and deliberately leaves glass-behind-glass refraction unsupported.
-            // Windshield SSR reads opaque colour only; ordinary transparents draw after it.
-            if (material->defines.isDefined("ASOBO_GLASS_REFLECTION")
-                || (scene.windshieldSsr && material->renderPass->getId() == Transparent)) {
-                continue;
-            }
-            if (material->renderPass->getId() != Opaque
-                && material->renderPass->getId() != Transparent
-                && material->renderPass->getId() != Grid) {
-                continue;
-            }
-
-            Material* materialDuplicate = nullptr;
-            RenderPass* renderPassDuplicate = nullptr;
-            if (transmissionPoolUsed < m_transmissionMaterialPool.size()) {
-                materialDuplicate = m_transmissionMaterialPool[transmissionPoolUsed].get();
-                *materialDuplicate = *material;
-                renderPassDuplicate = m_transmissionPassPool[transmissionPoolUsed].get();
-                *renderPassDuplicate = *material->renderPass;
-            } else {
-                m_transmissionMaterialPool.push_back(std::make_unique<Material>(*material));
-                m_transmissionPassPool.push_back(std::make_unique<RenderPass>(*material->renderPass));
-                materialDuplicate = m_transmissionMaterialPool.back().get();
-                renderPassDuplicate = m_transmissionPassPool.back().get();
-            }
-            ++transmissionPoolUsed;
-            materialDuplicate->defines.define("LINEAR_OUTPUT", 1);
-            materialDuplicate->renderPass = renderPassDuplicate;
-
-            if (material->renderPass->getId() == Opaque) {
-                renderPassDuplicate->setId(RenderPassType::Opaque2);
-            } else if (material->renderPass->getId() == Transparent) {
-                renderPassDuplicate->setId(RenderPassType::Transparent2);
-            } else if (material->renderPass->getId() == Grid) {
-                renderPassDuplicate->setId(RenderPassType::Grid2);
-            }
-
-            m_postTransmissionDrawables.emplace_back(mesh, materialDuplicate);
-        }
-
-        scene.drawables.concat(m_postTransmissionDrawables);
         scene.drawables.emplace_back(m_resourceManager.getEmptyTransmissionBlit());
     }
 

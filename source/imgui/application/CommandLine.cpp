@@ -241,6 +241,16 @@ std::optional<int> Application::configure(int argc, char** argv)
     float cliExposureEV = 0.0f;
     bool cliToneMappingProvided = false;
     int cliToneMappingIdx = 1;
+    bool cliBloomProvided = false;
+    bool cliBloomEnabled = true;
+    bool cliBloomIntensityProvided = false;
+    float cliBloomIntensity = 0.04f;
+    bool cliBloomRadiusProvided = false;
+    float cliBloomRadius = 1.0f;
+    bool cliAutoExposureProvided = false;
+    bool cliAutoExposure = false;
+    bool cliExposureCompensationProvided = false;
+    float cliExposureCompensationEV = 0.0f;
 
     auto parseDisplayOptions = [](const std::string& spec, ux3d::imgui::HierarchyDisplayOptions& options) {
         std::stringstream stream(spec);
@@ -590,7 +600,9 @@ std::optional<int> Application::configure(int argc, char** argv)
                 activeViewport->settings.setLegacyAA(4);
             else if (aaVal == "taa" || aaVal == "5")
                 activeViewport->settings.setLegacyAA(5);
-        } else if ((arg == "--msaa" || arg == "--post-aa") && i + 1 < argc) {
+        } else if ((arg == "--msaa" || arg == "--post-aa" || arg == "--bloom" ||
+                    arg == "--bloom-intensity" || arg == "--bloom-radius" ||
+                    arg == "--auto-exposure" || arg == "--exposure-compensation") && i + 1 < argc) {
             ++i; // Applied in a second pass, after every legacy --aa argument.
         } else if (arg == "--clear-color" && i + 1 < argc) {
             float r, g, b;
@@ -645,6 +657,42 @@ std::optional<int> Application::configure(int argc, char** argv)
             if (value == "none" || value == "fxaa" || value == "taa")
                 activeViewport->settings.postAAIdx = value == "none" ? 0 : value == "fxaa" ? 1 : 2;
             else { std::fprintf(stderr, "Invalid --post-aa: %s\n", value.c_str()); return 1; }
+        } else if (arg == "--bloom") {
+            const std::string val = toLowerAscii(argv[++i]);
+            if (val == "on" || val == "1" || val == "true") {
+                cliBloomEnabled = true;
+            } else if (val == "off" || val == "0" || val == "false") {
+                cliBloomEnabled = false;
+            } else {
+                std::fprintf(stderr, "Invalid --bloom: %s\n", val.c_str());
+                return 1;
+            }
+            cliBloomProvided = true;
+            getSceneEnvironment(sceneEnvironments, gltfModel, activeScene).bloomEnabled = cliBloomEnabled;
+        } else if (arg == "--bloom-intensity") {
+            cliBloomIntensity = std::stof(argv[++i]);
+            cliBloomIntensityProvided = true;
+            getSceneEnvironment(sceneEnvironments, gltfModel, activeScene).bloomIntensity = cliBloomIntensity;
+        } else if (arg == "--bloom-radius") {
+            cliBloomRadius = std::stof(argv[++i]);
+            cliBloomRadiusProvided = true;
+            getSceneEnvironment(sceneEnvironments, gltfModel, activeScene).bloomRadius = cliBloomRadius;
+        } else if (arg == "--auto-exposure") {
+            const std::string val = toLowerAscii(argv[++i]);
+            if (val == "on" || val == "1" || val == "true" || val == "auto") {
+                cliAutoExposure = true;
+            } else if (val == "off" || val == "0" || val == "false" || val == "manual") {
+                cliAutoExposure = false;
+            } else {
+                std::fprintf(stderr, "Invalid --auto-exposure: %s\n", val.c_str());
+                return 1;
+            }
+            cliAutoExposureProvided = true;
+            getSceneEnvironment(sceneEnvironments, gltfModel, activeScene).autoExposure = cliAutoExposure;
+        } else if (arg == "--exposure-compensation") {
+            cliExposureCompensationEV = std::stof(argv[++i]);
+            cliExposureCompensationProvided = true;
+            getSceneEnvironment(sceneEnvironments, gltfModel, activeScene).exposureCompensationEV = cliExposureCompensationEV;
         }
     }
 
@@ -1068,13 +1116,23 @@ std::optional<int> Application::configure(int argc, char** argv)
         return writeAsoboReport(gltfModel, asoboReportPath) ? 0 : 1;
     }
 
-    if (cliClearProvided || cliHdrProvided || cliHdrRotationProvided || cliExposureProvided || cliToneMappingProvided) {
+    if (cliClearProvided || cliHdrProvided || cliHdrRotationProvided || cliExposureProvided || cliToneMappingProvided ||
+        cliBloomProvided || cliBloomIntensityProvided || cliBloomRadiusProvided ||
+        cliAutoExposureProvided || cliExposureCompensationProvided) {
         for (auto& env : sceneEnvironments) {
             if (cliClearProvided) { env.showBackground = false; env.clearColor = cliClearColor; }
             if (cliHdrProvided) env.currentHdrPath = cliHdrPath;
             if (cliHdrRotationProvided) env.hdrRotation = cliHdrRotation;
             if (cliExposureProvided) env.exposureEV = cliExposureEV;
             if (cliToneMappingProvided) env.toneMappingIdx = cliToneMappingIdx;
+            if (cliBloomProvided) env.bloomEnabled = cliBloomEnabled;
+            if (cliBloomIntensityProvided) env.bloomIntensity = cliBloomIntensity;
+            if (cliBloomRadiusProvided) env.bloomRadius = cliBloomRadius;
+            if (cliAutoExposureProvided) {
+                env.autoExposure = cliAutoExposure;
+                env.autoExposureStartFromManual = cliAutoExposure && cliExposureProvided;
+            }
+            if (cliExposureCompensationProvided) env.exposureCompensationEV = cliExposureCompensationEV;
         }
     }
 

@@ -139,6 +139,7 @@ protected:
     ToneMappingsEnum m_toneMapping = ToneMappingsEnum::None;
     bool m_useIBL = true;
     bool m_asoboGlassCopy = false;
+    bool m_windshieldSsr = false;
     bool m_usePunctualLights = true;
     glm::mat3x3 m_environmentMapRotation = glm::mat3x3(1.0f);
     gl::Uniform m_environmentMapRotationUniform;

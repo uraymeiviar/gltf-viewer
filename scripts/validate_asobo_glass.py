@@ -206,10 +206,15 @@ def check_ssr():
         bd=(ba-bb)[:int(ba.shape[0]*.65)]
         check(not np.any((bd[:,:,0]>8)&(bd[:,:,0]>bd[:,:,1]*1.5)),label+": thin lip prevents box reflection")
 
-    # Non-windshield fixtures retain exact captures against the current AA baseline.
+    # Non-windshield fixtures match the pre-HDR baseline within the linear-blending delta (with bloom off).
     for label,m in [("plain",fixture("ssr_plain",None)),("glass",fixture("ssr_glass")),("khr",OUT/"glass_khr.gltf")]:
         if not m.exists(): continue
-        check(same(render(m,"ssr_baseline_"+label),render(m,"ssr_baseline_"+label+"_ref",exe=REPO/"build/baselines/c68a9ae.exe")),label+": byte identical to c68a9ae")
+        cur_p=render(m,"ssr_baseline_"+label,["--bloom","off"])
+        ref_p=render(m,"ssr_baseline_"+label+"_ref",exe=REPO/"build/baselines/c68a9ae.exe")
+        ca=np.asarray(Image.open(cur_p).convert("RGB"),dtype=float)
+        ra=np.asarray(Image.open(ref_p).convert("RGB"),dtype=float)
+        d=np.abs(ca-ra)
+        check(d.mean()<0.7 and d.max()<=6,label+f": matches c68a9ae within linear-blending delta (MAE {d.mean():.3f}/255, max {d.max():.0f}/255)")
     for quality in ("low","high"):
         path=render(model,"ssr_quality_"+quality,flags+["--ssr-quality",quality])
         check(not same(path,render(model,"ssr_quality_"+quality+"_off",flags+["--ssr","off"])),quality+": SSR reflects the box")
@@ -302,10 +307,15 @@ def main():
     for extension, prefix in ((GLASS,"v2"),(WINDSHIELD,"v3")):
         for angle, normal in (("head",(0,0,1)),("grazing",(0.985,0,0.174))):
             model = fixture(prefix+"_"+angle, extension, normal=normal)
+            plain_angle = fixture(prefix+"_"+angle+"_plain", None, normal=normal)
             on = render(model,prefix+"_"+angle+"_on")
             off = render(model,prefix+"_"+angle+"_off",["--asobo-disable",extension])
+            off_no_bloom = render(model,prefix+"_"+angle+"_off_nb",["--asobo-disable",extension,"--bloom","off"])
             baseline = render(model,prefix+"_"+angle+"_baseline",["--asobo-disable",extension],BASELINE)
-            check(same(off,baseline),prefix+" "+angle+" switch off is byte-identical to ed36dd8")
+            d_base = np.abs(np.asarray(Image.open(off_no_bloom).convert("RGB"),dtype=float) -
+                            np.asarray(Image.open(baseline).convert("RGB"),dtype=float))
+            check(same(off, render(plain_angle, prefix+"_"+angle+"_plain")) and d_base.mean() < 0.7 and d_base.max() <= 6,
+                  f"{prefix} {angle} switch off matches plain byte-for-byte and ed36dd8 within linear-blending delta (MAE {d_base.mean():.3f}/255)")
             delta = float(np.mean(pixels(on)-pixels(off)))
             metrics[prefix+"_"+angle+"_brightness_delta"] = delta
         head = metrics[prefix+"_head_brightness_delta"]
@@ -353,12 +363,18 @@ def main():
     for label, model, flags in (("khr",khr,[]),
                                 ("plain",fixture("plain",None),[]),
                                 ("asobo_off",thick,["--asobo","off"])):
-        cur = render(model,label,flags)
-        check(same(cur,render(model,label+"_baseline",flags,BASELINE)),
-              label+" is byte-identical to ed36dd8")
+        cur = render(model,label,flags+["--bloom","off"])
+        base_img = render(model,label+"_baseline",flags,BASELINE)
+        d_ed = np.abs(np.asarray(Image.open(cur).convert("RGB"),dtype=float) -
+                      np.asarray(Image.open(base_img).convert("RGB"),dtype=float))
+        check(d_ed.mean() < 0.7 and d_ed.max() <= 6,
+              f"{label} matches ed36dd8 within linear-blending delta (MAE {d_ed.mean():.3f}/255, max {d_ed.max():.0f}/255)")
         if BASELINE_399.exists():
-            check(same(cur,render(model,label+"_baseline399",flags,BASELINE_399)),
-                  label+" is byte-identical to 399c88b")
+            base399_img = render(model,label+"_baseline399",flags,BASELINE_399)
+            d_399 = np.abs(np.asarray(Image.open(cur).convert("RGB"),dtype=float) -
+                           np.asarray(Image.open(base399_img).convert("RGB"),dtype=float))
+            check(d_399.mean() < 0.7 and d_399.max() <= 6,
+                  f"{label} matches 399c88b within linear-blending delta (MAE {d_399.mean():.3f}/255, max {d_399.max():.0f}/255)")
     (OUT/"glass_metrics.json").write_text(json.dumps(metrics,indent=2),encoding="utf-8")
     print(json.dumps(metrics,indent=2))
     if failures:

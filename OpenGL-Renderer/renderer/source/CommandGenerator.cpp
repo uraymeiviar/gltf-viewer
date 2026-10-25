@@ -132,6 +132,7 @@ void ux3d::renderer::CommandGenerator::bindFrameBlocks()
 void ux3d::renderer::CommandGenerator::update(const RendererScene& scene)
 {
     m_asoboGlassCopy = scene.asoboGlassCopy;
+    m_windshieldSsr = scene.windshieldSsr;
     m_lights.update(scene.lights);
     m_activeCamera = scene.camera;
     m_activeEnvironmentMap = scene.environmentMap;
@@ -149,12 +150,13 @@ void ux3d::renderer::CommandGenerator::emitCommands()
 
         // sort into passes
         uint32_t bucket = desc->pass->getId();
-        if (m_asoboGlassCopy) {
-            // The legacy KHR copy precedes decals. ASOBO glass needs the accumulated
-            // labels on its receivers in the behind copy as well as the forward pass.
-            if (bucket == RenderPassType::DecalPrepass) bucket = RenderPassType::Opaque2;
-            else if (bucket == RenderPassType::DecalAccumulation) bucket = RenderPassType::Grid2;
-            else if (bucket >= RenderPassType::Opaque2 && bucket <= RenderPassType::TransmissiveBlit) bucket += 2;
+        if (m_asoboGlassCopy && !m_windshieldSsr && bucket == RenderPassType::Transparent) {
+            // Non-glass transparents draw before the behind copy is captured so ASOBO
+            // glass v2 can refract them without redrawing the opaque scene.
+            const bool reflection = desc->material != nullptr && desc->material->defines.isDefined("ASOBO_GLASS_REFLECTION");
+            if (!reflection) {
+                bucket = RenderPassType::Transparent2;
+            }
         }
         auto& pass = m_passCommands[bucket];
         const Material* material = desc->material;

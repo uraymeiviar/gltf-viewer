@@ -9,8 +9,6 @@ enum RenderPassType : uint32_t {
     Outline,
     Opaque2,
     Grid2,
-    Transparent2,
-    TransmissiveBlit,
     // A2.1: the decal prepass runs before the forward opaque pass so the forward shader
     // can read the receiver depth and normal (A2.2).
     DecalPrepass,
@@ -19,6 +17,8 @@ enum RenderPassType : uint32_t {
     DecalAccumulation,
     Opaque, //2
     Grid, //2
+    Transparent2,
+    TransmissiveBlit,
     Transmissive,
     Transparent, //2
     Gizmos,

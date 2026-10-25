@@ -36,6 +36,7 @@ void Application::runFrame()
     lastFrameTime = currentTime;
     if (deltaTime > 0.1f) deltaTime = 0.1f;
     if (s_fixedFrameTime >= 0.0f) deltaTime = s_fixedFrameTime;
+    frame.deltaTime = deltaTime;
 
     // Update animation player
     const auto animationUpdateStart = ux3d::imgui::profiling::Clock::now();

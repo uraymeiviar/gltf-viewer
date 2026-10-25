@@ -10,8 +10,10 @@ ux3d::renderer::TransmissiveBlitPass::TransmissiveBlitPass(gl::GL* gl, uint32_t 
 
 void ux3d::renderer::TransmissiveBlitPass::setBlitFramebufferFunction(std::function<void()> _blitFramebuffer, math::vec4 _clearColor)
 {
+    (void)_clearColor;
     m_preCommands.clear();
     m_postCommands.clear();
     m_preCommands.emplace_back(Command::makeExternalFunctionCommand(m_gl, _blitFramebuffer));
-    m_postCommands.emplace_back(Command::makeClearCommand(m_gl, gl::ClearTarget::All, _clearColor.r, _clearColor.g, _clearColor.b, _clearColor.a));
+    m_postCommands.emplace_back(Command::makeDepthTestCommand(m_gl, true));
+    m_postCommands.emplace_back(Command::makeBlendCommand(m_gl, false));
 }

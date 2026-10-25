@@ -2,9 +2,11 @@
 
 #include "imgui/AntiAliasing.h"
 #include "imgui/Profiling.h"
+#include <algorithm>
 #include <cstdio>
 #include <cmath>
 #include <sstream>
+#include <vector>
 
 namespace ux3d::imgui {
 
@@ -93,7 +95,7 @@ void main() {
 }
 )";
 
-// TAA Fragment Shader with 3x3 color neighborhood clamp to prevent ghosting
+// TAA Fragment Shader with reversible Karis luminance weighting and 3x3 neighborhood clamp in HDR
 static const char* s_taaFS = R"(#version 410 core
 in vec2 v_TexCoord;
 out vec4 FragColor;
@@ -102,29 +104,308 @@ uniform sampler2D u_CurrentTexture;
 uniform sampler2D u_HistoryTexture;
 uniform vec2 u_TexelSize;
 uniform float u_BlendFactor;
+uniform int u_RawMode;
+
+float hdrLuma(vec3 c) {
+    return max(0.0, dot(c, vec3(0.2126, 0.7152, 0.0722)));
+}
+
+vec3 karisWeight(vec3 c) {
+    return c / (1.0 + hdrLuma(c));
+}
+
+vec3 karisUnweight(vec3 c) {
+    return c / max(1.0 - hdrLuma(c), 1e-5);
+}
 
 void main() {
-    vec3 current = texture(u_CurrentTexture, v_TexCoord).rgb;
-    vec3 history = texture(u_HistoryTexture, v_TexCoord).rgb;
+    vec4 current4 = texture(u_CurrentTexture, v_TexCoord);
+    if (u_BlendFactor >= 0.9999) {
+        FragColor = current4;
+        return;
+    }
 
-    // 3x3 color neighborhood bounding box
-    vec3 minColor = current;
-    vec3 maxColor = current;
+    vec3 current = max(vec3(0.0), current4.rgb);
+    vec3 currentW = (u_RawMode != 0) ? current : karisWeight(current);
+
+    // 3x3 color neighborhood bounding box in Karis-weighted HDR space
+    vec3 minColor = currentW;
+    vec3 maxColor = currentW;
+    float minAlpha = current4.a;
+    float maxAlpha = current4.a;
 
     for (int y = -1; y <= 1; ++y) {
         for (int x = -1; x <= 1; ++x) {
-            vec3 neighbor = texture(u_CurrentTexture, v_TexCoord + vec2(float(x), float(y)) * u_TexelSize).rgb;
-            minColor = min(minColor, neighbor);
-            maxColor = max(maxColor, neighbor);
+            vec4 neighbor4 = texture(u_CurrentTexture, v_TexCoord + vec2(float(x), float(y)) * u_TexelSize);
+            vec3 neighbor = max(vec3(0.0), neighbor4.rgb);
+            vec3 neighborW = (u_RawMode != 0) ? neighbor : karisWeight(neighbor);
+            minColor = min(minColor, neighborW);
+            maxColor = max(maxColor, neighborW);
+            minAlpha = min(minAlpha, neighbor4.a);
+            maxAlpha = max(maxAlpha, neighbor4.a);
         }
     }
 
-    // Clamp history into the current neighborhood color bounding box
-    history = clamp(history, minColor, maxColor);
+    vec4 history4 = texture(u_HistoryTexture, v_TexCoord);
+    vec3 history = max(vec3(0.0), history4.rgb);
+    vec3 historyW = (u_RawMode != 0) ? history : karisWeight(history);
 
-    // Exponential moving average blend
-    vec3 result = mix(history, current, u_BlendFactor);
-    FragColor = vec4(result, 1.0);
+    // Clamp history into the current neighborhood bounding box
+    historyW = clamp(historyW, minColor, maxColor);
+    float historyA = clamp(history4.a, minAlpha, maxAlpha);
+
+    // Exponential moving average blend in Karis-weighted space, then invert
+    vec3 blendedW = mix(historyW, currentW, u_BlendFactor);
+    vec3 result = (u_RawMode != 0) ? blendedW : karisUnweight(blendedW);
+    float resultA = mix(historyA, current4.a, u_BlendFactor);
+    FragColor = vec4(result, resultA);
+}
+)";
+
+// Post-processing Tone Mapping Fragment Shader (matches resources/shaders/tonemapping.glsl)
+static const char* s_tonemapFS = R"(#version 410 core
+in vec2 v_TexCoord;
+out vec4 FragColor;
+
+uniform sampler2D u_HdrTexture;
+uniform sampler2D u_BloomTexture;
+uniform float u_Exposure;
+uniform int u_ToneMapMode;
+uniform int u_RawMode;
+uniform int u_HasClearColor;
+uniform vec3 u_ClearColor;
+uniform int u_BloomEnabled;
+uniform float u_BloomIntensity;
+
+const float GAMMA = 2.2;
+const float INV_GAMMA = 1.0 / GAMMA;
+
+const mat3 ACESInputMat = mat3(
+    0.59719, 0.07600, 0.02840,
+    0.35458, 0.90834, 0.13383,
+    0.04823, 0.01566, 0.83777
+);
+
+const mat3 ACESOutputMat = mat3(
+    1.60475, -0.10208, -0.00327,
+    -0.53108,  1.10813, -0.07276,
+    -0.07367, -0.00605,  1.07602
+);
+
+vec3 linearTosRGB(vec3 color) {
+    return pow(max(color, vec3(0.0)), vec3(INV_GAMMA));
+}
+
+vec3 RRTAndODTFit(vec3 v) {
+    vec3 a = v * (v + 0.0245786) - 0.000090537;
+    vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081;
+    return a / b;
+}
+
+vec3 toneMapACES_Hill(vec3 color) {
+    color = ACESInputMat * color;
+    color = RRTAndODTFit(color);
+    color = ACESOutputMat * color;
+    return clamp(color, 0.0, 1.0);
+}
+
+vec3 toneMapACES_Narkowicz(vec3 color) {
+    const float A = 2.51;
+    const float B = 0.03;
+    const float C = 2.43;
+    const float D = 0.59;
+    const float E = 0.14;
+    return clamp((color * (A * color + B)) / (color * (C * color + D) + E), 0.0, 1.0);
+}
+
+vec3 toneMap_KhronosPbrNeutral(vec3 color) {
+    const float startCompression = 0.8 - 0.04;
+    const float desaturation = 0.15;
+
+    float x = min(color.r, min(color.g, color.b));
+    float offset = x < 0.08 ? x - 6.25 * x * x : 0.04;
+    color -= offset;
+
+    float peak = max(color.r, max(color.g, color.b));
+    if (peak < startCompression) return color;
+
+    const float d = 1.0 - startCompression;
+    float newPeak = 1.0 - d * d / (peak + d - startCompression);
+    color *= newPeak / peak;
+
+    float g = 1.0 - 1.0 / (desaturation * (peak - newPeak) + 1.0);
+    return mix(color, newPeak * vec3(1.0, 1.0, 1.0), g);
+}
+
+vec3 applyToneMap(vec3 color) {
+    color *= u_Exposure;
+    if (u_ToneMapMode == 0) {
+        return linearTosRGB(clamp(toneMap_KhronosPbrNeutral(color), 0.0, 1.0));
+    } else if (u_ToneMapMode == 2) {
+        return linearTosRGB(toneMapACES_Narkowicz(color));
+    } else {
+        color = toneMapACES_Hill(color);
+        return linearTosRGB(color);
+    }
+}
+
+void main() {
+    vec4 hdr = texture(u_HdrTexture, v_TexCoord);
+    if (u_RawMode != 0) {
+        FragColor = vec4(clamp(hdr.rgb, 0.0, 1.0), 1.0);
+        return;
+    }
+
+    vec3 bloom = vec3(0.0);
+    float bFactor = 0.0;
+    if (u_BloomEnabled != 0) {
+        // The tent upsample adds every pyramid level on top of the next (GL_ONE, GL_ONE), so
+        // the chain holds the sum of kBloomMips (5) blurred copies. Average them, or the
+        // intensity mix brightens and veils the whole frame instead of conserving energy.
+        bloom = max(vec3(0.0), texture(u_BloomTexture, v_TexCoord).rgb) / 5.0;
+        bFactor = clamp(u_BloomIntensity, 0.0, 1.0);
+    }
+
+    vec3 ldr;
+    if (u_HasClearColor != 0) {
+        float cov = clamp(hdr.a, 0.0, 1.0);
+        vec3 unlitBg = u_ClearColor * (1.0 - cov);
+        vec3 litHdr = max(vec3(0.0), hdr.rgb - unlitBg);
+        vec3 bloomedLit = mix(litHdr, bloom, bFactor);
+        ldr = unlitBg + ((cov > 0.0 || dot(bloomedLit, vec3(1.0)) > 1e-5) ? applyToneMap(bloomedLit) : vec3(0.0));
+    } else {
+        vec3 bloomedHdr = mix(max(vec3(0.0), hdr.rgb), bloom, bFactor);
+        ldr = applyToneMap(bloomedHdr);
+    }
+    FragColor = vec4(clamp(ldr, 0.0, 1.0), 1.0);
+}
+)";
+
+// Jimenez 2014 13-tap bilinear downsample (with Karis firefly suppression on first pass)
+static const char* s_bloomDownsampleFS = R"(
+#version 410 core
+in vec2 v_TexCoord;
+out vec4 FragColor;
+
+uniform sampler2D u_SrcTexture;
+uniform vec2 u_SrcTexelSize;
+uniform int u_FirstPass;
+uniform int u_HasClearColor;
+uniform vec3 u_ClearColor;
+
+float calcLuma(vec3 c) {
+    return dot(c, vec3(0.2126, 0.7152, 0.0722));
+}
+
+vec3 sampleSrc(vec2 uv) {
+    vec4 s = texture(u_SrcTexture, uv);
+    vec3 c = max(vec3(0.0), s.rgb);
+    if (u_FirstPass != 0 && u_HasClearColor != 0) {
+        float cov = clamp(s.a, 0.0, 1.0);
+        c = max(vec3(0.0), c - u_ClearColor * (1.0 - cov));
+    }
+    return c;
+}
+
+void main() {
+    vec2 d = u_SrcTexelSize;
+    vec3 a  = sampleSrc(v_TexCoord + vec2(-2.0,  2.0) * d);
+    vec3 b  = sampleSrc(v_TexCoord + vec2( 0.0,  2.0) * d);
+    vec3 c  = sampleSrc(v_TexCoord + vec2( 2.0,  2.0) * d);
+    vec3 d0 = sampleSrc(v_TexCoord + vec2(-2.0,  0.0) * d);
+    vec3 e  = sampleSrc(v_TexCoord);
+    vec3 f  = sampleSrc(v_TexCoord + vec2( 2.0,  0.0) * d);
+    vec3 g  = sampleSrc(v_TexCoord + vec2(-2.0, -2.0) * d);
+    vec3 h  = sampleSrc(v_TexCoord + vec2( 0.0, -2.0) * d);
+    vec3 i  = sampleSrc(v_TexCoord + vec2( 2.0, -2.0) * d);
+    vec3 j  = sampleSrc(v_TexCoord + vec2(-1.0,  1.0) * d);
+    vec3 k  = sampleSrc(v_TexCoord + vec2( 1.0,  1.0) * d);
+    vec3 l  = sampleSrc(v_TexCoord + vec2(-1.0, -1.0) * d);
+    vec3 m  = sampleSrc(v_TexCoord + vec2( 1.0, -1.0) * d);
+
+    vec3 g0 = (j + k + l + m) * 0.25;
+    vec3 g1 = (a + b + d0 + e) * 0.25;
+    vec3 g2 = (b + c + e + f) * 0.25;
+    vec3 g3 = (d0 + e + g + h) * 0.25;
+    vec3 g4 = (e + f + h + i) * 0.25;
+
+    if (u_FirstPass != 0) {
+        float l1 = calcLuma(g1);
+        float l2 = calcLuma(g2);
+        float l3 = calcLuma(g3);
+        float l4 = calcLuma(g4);
+        float hi1 = max(l1, l2), lo1 = min(l1, l2);
+        float hi2 = max(l3, l4), lo2 = min(l3, l4);
+        float lSecond = max(min(hi1, hi2), max(lo1, lo2));
+
+        float w0 = 0.500 / (1.0 + max(0.0, calcLuma(g0) - lSecond));
+        float w1 = 0.125 / (1.0 + max(0.0, l1 - lSecond));
+        float w2 = 0.125 / (1.0 + max(0.0, l2 - lSecond));
+        float w3 = 0.125 / (1.0 + max(0.0, l3 - lSecond));
+        float w4 = 0.125 / (1.0 + max(0.0, l4 - lSecond));
+        float wSum = max(w0 + w1 + w2 + w3 + w4, 1e-6);
+        FragColor = vec4((w0 * g0 + w1 * g1 + w2 * g2 + w3 * g3 + w4 * g4) / wSum, 1.0);
+    } else {
+        FragColor = vec4(0.5 * g0 + 0.125 * (g1 + g2 + g3 + g4), 1.0);
+    }
+}
+)";
+
+// Jimenez 2014 3x3 tent upsample filter
+static const char* s_bloomUpsampleFS = R"(
+#version 410 core
+in vec2 v_TexCoord;
+out vec4 FragColor;
+
+uniform sampler2D u_SrcTexture;
+uniform vec2 u_TexelSize;
+uniform float u_FilterRadius;
+
+void main() {
+    vec2 d = u_TexelSize * u_FilterRadius;
+    vec3 a  = texture(u_SrcTexture, v_TexCoord + vec2(-d.x,  d.y)).rgb;
+    vec3 b  = texture(u_SrcTexture, v_TexCoord + vec2( 0.0,  d.y)).rgb;
+    vec3 c  = texture(u_SrcTexture, v_TexCoord + vec2( d.x,  d.y)).rgb;
+    vec3 d0 = texture(u_SrcTexture, v_TexCoord + vec2(-d.x,  0.0)).rgb;
+    vec3 e  = texture(u_SrcTexture, v_TexCoord).rgb;
+    vec3 f  = texture(u_SrcTexture, v_TexCoord + vec2( d.x,  0.0)).rgb;
+    vec3 g  = texture(u_SrcTexture, v_TexCoord + vec2(-d.x, -d.y)).rgb;
+    vec3 h  = texture(u_SrcTexture, v_TexCoord + vec2( 0.0, -d.y)).rgb;
+    vec3 i  = texture(u_SrcTexture, v_TexCoord + vec2( d.x, -d.y)).rgb;
+
+    vec3 tent = (a + c + g + i) + 2.0 * (b + d0 + f + h) + 4.0 * e;
+    FragColor = vec4(tent * (1.0 / 16.0), 1.0);
+}
+)";
+
+// 64x64 luminance metering downsample shader for Auto-Exposure
+static const char* s_meterFS = R"(
+#version 410 core
+in vec2 v_TexCoord;
+out vec4 FragColor;
+
+uniform sampler2D u_HdrTexture;
+uniform vec2 u_TexelSize;
+uniform int u_HasClearColor;
+uniform vec3 u_ClearColor;
+
+void main() {
+    vec3 sumRgb = vec3(0.0);
+    for (int y = -1; y <= 1; y += 2) {
+        for (int x = -1; x <= 1; x += 2) {
+            vec2 uv = clamp(v_TexCoord + vec2(float(x), float(y)) * 0.25 * u_TexelSize, vec2(0.001), vec2(0.999));
+            vec4 s = texture(u_HdrTexture, uv);
+            vec3 c = max(vec3(0.0), s.rgb);
+            if (u_HasClearColor != 0) {
+                float cov = clamp(s.a, 0.0, 1.0);
+                c = max(vec3(0.0), c - u_ClearColor * (1.0 - cov));
+            }
+            sumRgb += c;
+        }
+    }
+    vec3 avgRgb = sumRgb * 0.25;
+    float luma = dot(avgRgb, vec3(0.2126, 0.7152, 0.0722));
+    FragColor = vec4(luma, 0.0, 0.0, 1.0);
 }
 )";
 
@@ -228,12 +509,55 @@ void AntiAliasing::init()
         m_taaHistTexLoc = glGetUniformLocation(m_taaProgram, "u_HistoryTexture");
         m_taaTexelSizeLoc = glGetUniformLocation(m_taaProgram, "u_TexelSize");
         m_taaBlendFactorLoc = glGetUniformLocation(m_taaProgram, "u_BlendFactor");
+        m_taaRawModeLoc = glGetUniformLocation(m_taaProgram, "u_RawMode");
+    }
+
+    // Compile Tone Mapping program
+    m_tonemapProgram = linkProgram(s_quadVS, s_tonemapFS);
+    if (m_tonemapProgram) {
+        m_tmHdrTexLoc = glGetUniformLocation(m_tonemapProgram, "u_HdrTexture");
+        m_tmBloomTexLoc = glGetUniformLocation(m_tonemapProgram, "u_BloomTexture");
+        m_tmExposureLoc = glGetUniformLocation(m_tonemapProgram, "u_Exposure");
+        m_tmToneMapModeLoc = glGetUniformLocation(m_tonemapProgram, "u_ToneMapMode");
+        m_tmRawModeLoc = glGetUniformLocation(m_tonemapProgram, "u_RawMode");
+        m_tmHasClearColorLoc = glGetUniformLocation(m_tonemapProgram, "u_HasClearColor");
+        m_tmClearColorLoc = glGetUniformLocation(m_tonemapProgram, "u_ClearColor");
+        m_tmBloomEnabledLoc = glGetUniformLocation(m_tonemapProgram, "u_BloomEnabled");
+        m_tmBloomIntensityLoc = glGetUniformLocation(m_tonemapProgram, "u_BloomIntensity");
+    }
+
+    // Compile Bloom Downsample & Upsample programs
+    m_bloomDownsampleProgram = linkProgram(s_quadVS, s_bloomDownsampleFS);
+    if (m_bloomDownsampleProgram) {
+        m_bdSrcTexLoc = glGetUniformLocation(m_bloomDownsampleProgram, "u_SrcTexture");
+        m_bdSrcTexelSizeLoc = glGetUniformLocation(m_bloomDownsampleProgram, "u_SrcTexelSize");
+        m_bdFirstPassLoc = glGetUniformLocation(m_bloomDownsampleProgram, "u_FirstPass");
+        m_bdHasClearColorLoc = glGetUniformLocation(m_bloomDownsampleProgram, "u_HasClearColor");
+        m_bdClearColorLoc = glGetUniformLocation(m_bloomDownsampleProgram, "u_ClearColor");
+    }
+
+    m_bloomUpsampleProgram = linkProgram(s_quadVS, s_bloomUpsampleFS);
+    if (m_bloomUpsampleProgram) {
+        m_buSrcTexLoc = glGetUniformLocation(m_bloomUpsampleProgram, "u_SrcTexture");
+        m_buTexelSizeLoc = glGetUniformLocation(m_bloomUpsampleProgram, "u_TexelSize");
+        m_buFilterRadiusLoc = glGetUniformLocation(m_bloomUpsampleProgram, "u_FilterRadius");
+    }
+
+    // Compile Auto-Exposure metering program
+    m_meterProgram = linkProgram(s_quadVS, s_meterFS);
+    if (m_meterProgram) {
+        m_meterHdrTexLoc = glGetUniformLocation(m_meterProgram, "u_HdrTexture");
+        m_meterTexelSizeLoc = glGetUniformLocation(m_meterProgram, "u_TexelSize");
+        m_meterHasClearColorLoc = glGetUniformLocation(m_meterProgram, "u_HasClearColor");
+        m_meterClearColorLoc = glGetUniformLocation(m_meterProgram, "u_ClearColor");
     }
 }
 
 void AntiAliasing::cleanup()
 {
     releaseTargets();
+    releaseBloomTargets();
+    releaseMeterTargets();
 
     if (m_quadVbo) {
         glDeleteBuffers(1, &m_quadVbo);
@@ -250,6 +574,22 @@ void AntiAliasing::cleanup()
     if (m_taaProgram) {
         glDeleteProgram(m_taaProgram);
         m_taaProgram = 0;
+    }
+    if (m_tonemapProgram) {
+        glDeleteProgram(m_tonemapProgram);
+        m_tonemapProgram = 0;
+    }
+    if (m_bloomDownsampleProgram) {
+        glDeleteProgram(m_bloomDownsampleProgram);
+        m_bloomDownsampleProgram = 0;
+    }
+    if (m_bloomUpsampleProgram) {
+        glDeleteProgram(m_bloomUpsampleProgram);
+        m_bloomUpsampleProgram = 0;
+    }
+    if (m_meterProgram) {
+        glDeleteProgram(m_meterProgram);
+        m_meterProgram = 0;
     }
 }
 
@@ -316,10 +656,10 @@ size_t AntiAliasing::getOwnedFramebufferCount() const
 uint64_t AntiAliasing::getEstimatedLiveBytes() const
 {
     uint64_t bytes = 0;
-    const uint64_t perTexture = static_cast<uint64_t>(m_width) * static_cast<uint64_t>(m_height) * 4ull;
-    if (m_fxaaTexture != 0) bytes += perTexture;
-    if (m_taaTexture[0] != 0) bytes += perTexture;
-    if (m_taaTexture[1] != 0) bytes += perTexture;
+    const uint64_t pixels = static_cast<uint64_t>(m_width) * static_cast<uint64_t>(m_height);
+    if (m_fxaaTexture != 0) bytes += pixels * 4ull;
+    if (m_taaTexture[0] != 0) bytes += pixels * 8ull;
+    if (m_taaTexture[1] != 0) bytes += pixels * 8ull;
     return bytes;
 }
 
@@ -369,6 +709,7 @@ void AntiAliasing::resetHistory()
 {
     m_historyValid = false;
     m_frameIndex = 0;
+    m_exposureValid = false;
 }
 
 void AntiAliasing::ensureFxaaBuffers(int width, int height)
@@ -438,7 +779,7 @@ void AntiAliasing::ensureTaaBuffers(int width, int height)
     for (int i = 0; i < 2; ++i) {
         glGenTextures(1, &m_taaTexture[i]);
         glBindTexture(GL_TEXTURE_2D, m_taaTexture[i]);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, m_width, m_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, m_width, m_height, 0, GL_RGBA, GL_FLOAT, nullptr);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -460,7 +801,7 @@ void AntiAliasing::ensureTaaBuffers(int width, int height)
     m_targetAllocationCount += 2;
     ux3d::imgui::profiling::countTextureCreation(2);
     ux3d::imgui::profiling::countFramebufferCreation(2);
-    ux3d::imgui::profiling::countTextureAllocation(static_cast<uint64_t>(m_width) * static_cast<uint64_t>(m_height) * 4ull * 2ull);
+    ux3d::imgui::profiling::countTextureAllocation(static_cast<uint64_t>(m_width) * static_cast<uint64_t>(m_height) * 8ull * 2ull);
 }
 
 GLuint AntiAliasing::render(AntiAliasingMode mode,
@@ -588,6 +929,7 @@ GLuint AntiAliasing::render(AntiAliasingMode mode,
 
         glUniform2f(m_taaTexelSizeLoc, 1.0f / static_cast<float>(width), 1.0f / static_cast<float>(height));
         glUniform1f(m_taaBlendFactorLoc, blendFactor);
+        glUniform1i(m_taaRawModeLoc, m_rawMode ? 1 : 0);
 
         glBindVertexArray(m_quadVao);
         glDrawArrays(GL_TRIANGLES, 0, 6);
@@ -612,6 +954,335 @@ GLuint AntiAliasing::render(AntiAliasingMode mode,
     }
 
     return inputColorTexture;
+}
+
+void AntiAliasing::releaseBloomTargets()
+{
+    for (int i = 0; i < kBloomMips; ++i) {
+        if (m_bloomTexture[i] != 0) {
+            glDeleteTextures(1, &m_bloomTexture[i]);
+            m_bloomTexture[i] = 0;
+        }
+        if (m_bloomFbo[i] != 0) {
+            glDeleteFramebuffers(1, &m_bloomFbo[i]);
+            m_bloomFbo[i] = 0;
+        }
+        m_bloomMipW[i] = 0;
+        m_bloomMipH[i] = 0;
+    }
+}
+
+void AntiAliasing::ensureBloomBuffers(int width, int height)
+{
+    if (width < 1 || height < 1) return;
+
+    const double aspect = static_cast<double>(width) / static_cast<double>(std::max(1, height));
+    int targetW[kBloomMips] = {};
+    int targetH[kBloomMips] = {};
+    bool match = true;
+    for (int i = 0; i < kBloomMips; ++i) {
+        targetH[i] = std::max(1, kBloomCanonicalHeight >> i);
+        targetW[i] = std::max(1, static_cast<int>(std::lround(static_cast<double>(targetH[i]) * aspect)));
+        if (m_bloomTexture[i] == 0 || m_bloomFbo[i] == 0 ||
+            m_bloomMipW[i] != targetW[i] || m_bloomMipH[i] != targetH[i]) {
+            match = false;
+        }
+    }
+    if (match) {
+        return;
+    }
+
+    releaseBloomTargets();
+
+    for (int i = 0; i < kBloomMips; ++i) {
+        m_bloomMipW[i] = targetW[i];
+        m_bloomMipH[i] = targetH[i];
+
+        glGenTextures(1, &m_bloomTexture[i]);
+        glBindTexture(GL_TEXTURE_2D, m_bloomTexture[i]);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, m_bloomMipW[i], m_bloomMipH[i], 0, GL_RGBA, GL_FLOAT, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+        glGenFramebuffers(1, &m_bloomFbo[i]);
+        glBindFramebuffer(GL_FRAMEBUFFER, m_bloomFbo[i]);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_bloomTexture[i], 0);
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+GLuint AntiAliasing::renderBloom(GLuint inputHdrTexture, int width, int height, const HdrPostProcessParams& params)
+{
+    static_assert(kBloomMips == 5, "s_tonemapFS averages the five accumulated bloom levels");
+    if (!params.bloomEnabled || params.rawPassThrough || params.bloomIntensity <= 0.0f ||
+        !m_bloomDownsampleProgram || !m_bloomUpsampleProgram) {
+        return 0;
+    }
+
+    ensureBloomBuffers(width, height);
+    if (m_bloomTexture[0] == 0 || m_bloomFbo[0] == 0) {
+        return 0;
+    }
+
+    const float invAspect = static_cast<float>(height) / static_cast<float>(std::max(1, width));
+
+    // 1. 13-tap Downsample chain (mip 0 .. kBloomMips - 1)
+    glDisable(GL_BLEND);
+    glUseProgram(m_bloomDownsampleProgram);
+    glUniform1i(m_bdSrcTexLoc, 0);
+    glUniform1i(m_bdHasClearColorLoc, params.hasClearColor ? 1 : 0);
+    glUniform3f(m_bdClearColorLoc, params.clearColor.r, params.clearColor.g, params.clearColor.b);
+
+    glBindVertexArray(m_quadVao);
+    for (int i = 0; i < kBloomMips; ++i) {
+        glViewport(0, 0, m_bloomMipW[i], m_bloomMipH[i]);
+        glBindFramebuffer(GL_FRAMEBUFFER, m_bloomFbo[i]);
+
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, (i == 0) ? inputHdrTexture : m_bloomTexture[i - 1]);
+
+        const float srcVirtualH = static_cast<float>((i == 0) ? (kBloomCanonicalHeight * 2) : m_bloomMipH[i - 1]);
+        const float stepY = 1.0f / std::max(1.0f, srcVirtualH);
+        const float stepX = stepY * invAspect;
+        glUniform2f(m_bdSrcTexelSizeLoc, stepX, stepY);
+        glUniform1i(m_bdFirstPassLoc, (i == 0) ? 1 : 0);
+
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+        ux3d::imgui::profiling::countAppDrawCall();
+    }
+
+    // 2. 3x3 Tent Upsample chain with additive accumulation (kBloomMips - 1 down to 1 -> into i - 1)
+    glEnable(GL_BLEND);
+    glBlendEquation(GL_FUNC_ADD);
+    glBlendFunc(GL_ONE, GL_ONE);
+    glUseProgram(m_bloomUpsampleProgram);
+    glUniform1i(m_buSrcTexLoc, 0);
+    glUniform1f(m_buFilterRadiusLoc, std::max(0.1f, params.bloomRadius));
+
+    for (int i = kBloomMips - 1; i >= 1; --i) {
+        glViewport(0, 0, m_bloomMipW[i - 1], m_bloomMipH[i - 1]);
+        glBindFramebuffer(GL_FRAMEBUFFER, m_bloomFbo[i - 1]);
+
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, m_bloomTexture[i]);
+
+        const float stepY = 1.0f / static_cast<float>(std::max(1, m_bloomMipH[i]));
+        const float stepX = stepY * invAspect;
+        glUniform2f(m_buTexelSizeLoc, stepX, stepY);
+
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+        ux3d::imgui::profiling::countAppDrawCall();
+    }
+
+    glBindVertexArray(0);
+    glDisable(GL_BLEND);
+    return m_bloomTexture[0];
+}
+
+void AntiAliasing::releaseMeterTargets()
+{
+    if (m_meterTexture != 0) {
+        glDeleteTextures(1, &m_meterTexture);
+        m_meterTexture = 0;
+    }
+    if (m_meterFbo != 0) {
+        glDeleteFramebuffers(1, &m_meterFbo);
+        m_meterFbo = 0;
+    }
+}
+
+void AntiAliasing::ensureMeterBuffers()
+{
+    if (m_meterTexture != 0 && m_meterFbo != 0) {
+        return;
+    }
+    releaseMeterTargets();
+
+    glGenTextures(1, &m_meterTexture);
+    glBindTexture(GL_TEXTURE_2D, m_meterTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, kMeterSize, kMeterSize, 0, GL_RED, GL_FLOAT, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    glGenFramebuffers(1, &m_meterFbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, m_meterFbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_meterTexture, 0);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+float AntiAliasing::updateAutoExposure(GLuint inputHdrTexture, int width, int height, const HdrPostProcessParams& params)
+{
+    if (!params.autoExposure || params.rawPassThrough || !m_meterProgram) {
+        m_exposureValid = false;
+        m_exposureAdapting = false;
+        m_adaptedEv = params.exposureEv;
+        return params.exposureEv;
+    }
+
+    ensureMeterBuffers();
+    if (m_meterFbo == 0 || m_meterTexture == 0) {
+        return params.exposureEv;
+    }
+
+    glDisable(GL_BLEND);
+    glViewport(0, 0, kMeterSize, kMeterSize);
+    glBindFramebuffer(GL_FRAMEBUFFER, m_meterFbo);
+    glUseProgram(m_meterProgram);
+
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, inputHdrTexture);
+    glUniform1i(m_meterHdrTexLoc, 0);
+    glUniform2f(m_meterTexelSizeLoc, 1.0f / static_cast<float>(kMeterSize), 1.0f / static_cast<float>(kMeterSize));
+    glUniform1i(m_meterHasClearColorLoc, params.hasClearColor ? 1 : 0);
+    glUniform3f(m_meterClearColorLoc, params.clearColor.r, params.clearColor.g, params.clearColor.b);
+
+    glBindVertexArray(m_quadVao);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    glBindVertexArray(0);
+    ux3d::imgui::profiling::countAppDrawCall();
+
+    std::vector<float> pixels(kMeterSize * kMeterSize, 0.0f);
+    glReadPixels(0, 0, kMeterSize, kMeterSize, GL_RED, GL_FLOAT, pixels.data());
+
+    struct Sample {
+        float logLuma;
+        float weight;
+    };
+    std::vector<Sample> samples;
+    samples.reserve(kMeterSize * kMeterSize);
+    float totalWeight = 0.0f;
+    for (int y = 0; y < kMeterSize; ++y) {
+        const float dy = (static_cast<float>(y) + 0.5f) / static_cast<float>(kMeterSize) - 0.5f;
+        for (int x = 0; x < kMeterSize; ++x) {
+            const float dx = (static_cast<float>(x) + 0.5f) / static_cast<float>(kMeterSize) - 0.5f;
+            const float w = std::exp(-4.0f * (dx * dx + dy * dy));
+            const float luma = std::max(pixels[static_cast<size_t>(y * kMeterSize + x)], 1e-4f);
+            samples.push_back({ std::log2(luma), w });
+            totalWeight += w;
+        }
+    }
+
+    std::stable_sort(samples.begin(), samples.end(), [](const Sample& a, const Sample& b) {
+        return a.logLuma < b.logLuma;
+    });
+
+    // Outlier rejection: ignore darkest 50% and brightest 2% of centre-weighted samples
+    const float loCut = 0.50f * totalWeight;
+    const float hiCut = 0.98f * totalWeight;
+    float accumW = 0.0f;
+    float sumWeightedLogLuma = 0.0f;
+    float sumAcceptedW = 0.0f;
+    for (const Sample& s : samples) {
+        const float nextW = accumW + s.weight;
+        const float segLo = std::max(accumW, loCut);
+        const float segHi = std::min(nextW, hiCut);
+        if (segHi > segLo) {
+            const float w = segHi - segLo;
+            sumWeightedLogLuma += w * s.logLuma;
+            sumAcceptedW += w;
+        }
+        accumW = nextW;
+    }
+
+    const float meanLogLuma = (sumAcceptedW > 1e-6f) ? (sumWeightedLogLuma / sumAcceptedW) : std::log2(0.18f);
+    const float avgLuma = std::exp2(meanLogLuma);
+    const float minEv = std::min(params.autoExposureMinEv, params.autoExposureMaxEv);
+    const float maxEv = std::max(params.autoExposureMinEv, params.autoExposureMaxEv);
+    const float targetEv = std::clamp(params.exposureCompensationEv - std::log2(std::max(avgLuma, 1e-4f) / 0.18f), minEv, maxEv);
+
+    if (params.snapExposure || (!m_exposureValid && !params.startFromManualEv)) {
+        m_adaptedEv = targetEv;
+        m_exposureValid = true;
+        m_exposureAdapting = false;
+    } else {
+        if (!m_exposureValid) {
+            m_adaptedEv = std::clamp(params.exposureEv, minEv, maxEv);
+            m_exposureValid = true;
+        }
+        const float speed = (targetEv > m_adaptedEv) ? params.autoExposureSpeedUp : params.autoExposureSpeedDown;
+        const float dt = std::max(0.0f, params.deltaTime);
+        const float factor = 1.0f - std::exp(-std::max(0.0f, speed * dt));
+        m_adaptedEv = std::clamp(m_adaptedEv + (targetEv - m_adaptedEv) * factor, minEv, maxEv);
+        m_exposureAdapting = std::abs(targetEv - m_adaptedEv) > 1e-3f;
+    }
+
+    return m_adaptedEv;
+}
+
+void AntiAliasing::renderPostProcess(GLuint inputHdrTexture,
+                                     GLuint targetLdrFbo,
+                                     int width, int height,
+                                     const HdrPostProcessParams& params)
+{
+    if (inputHdrTexture == 0 || targetLdrFbo == 0 || width <= 0 || height <= 0) {
+        return;
+    }
+
+    if (!m_quadVao || !m_tonemapProgram) {
+        init();
+    }
+    if (!m_tonemapProgram || !m_quadVao) {
+        return;
+    }
+
+    glDisable(GL_DEPTH_TEST);
+    glDepthMask(GL_FALSE);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_BLEND);
+    glDisable(GL_SCISSOR_TEST);
+    glDisable(GL_STENCIL_TEST);
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+
+    // Phase 3: Exposure metering (HDR after TAA resolve)
+    const float effectiveEv = updateAutoExposure(inputHdrTexture, width, height, params);
+
+    // Phase 2: Physically based bloom (Jimenez 2014)
+    const GLuint bloomTex = renderBloom(inputHdrTexture, width, height, params);
+
+    // Phase 1: Tone mapping composite pass into LDR FBO
+    glViewport(0, 0, width, height);
+    glBindFramebuffer(GL_FRAMEBUFFER, targetLdrFbo);
+    glUseProgram(m_tonemapProgram);
+
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, inputHdrTexture);
+    glUniform1i(m_tmHdrTexLoc, 0);
+
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, (bloomTex != 0) ? bloomTex : inputHdrTexture);
+    glUniform1i(m_tmBloomTexLoc, 1);
+
+    const float exposureLinear = std::pow(2.0f, effectiveEv);
+    glUniform1f(m_tmExposureLoc, exposureLinear);
+    glUniform1i(m_tmToneMapModeLoc, params.toneMappingMode);
+    glUniform1i(m_tmRawModeLoc, params.rawPassThrough ? 1 : 0);
+    glUniform1i(m_tmHasClearColorLoc, params.hasClearColor ? 1 : 0);
+    glUniform3f(m_tmClearColorLoc, params.clearColor.r, params.clearColor.g, params.clearColor.b);
+    glUniform1i(m_tmBloomEnabledLoc, (bloomTex != 0) ? 1 : 0);
+    glUniform1f(m_tmBloomIntensityLoc, params.bloomIntensity);
+
+    glBindVertexArray(m_quadVao);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    glBindVertexArray(0);
+    ux3d::imgui::profiling::countAppDrawCall();
+
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    glUseProgram(0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glDepthMask(GL_TRUE);
 }
 
 SelfCheckResult AntiAliasing::runTargetAllocationSelfCheck(bool forceFailure)
@@ -706,7 +1377,7 @@ SelfCheckResult AntiAliasing::runTargetAllocationSelfCheck(bool forceFailure)
     check(aa.getOwnedFramebufferCount() == 2, "TAA owns exactly 2 FBOs");
     check(aa.getFxaaTexture() == 0, "FXAA target released upon entering TAA");
     check(aa.getTaaTexture(0) != 0 && aa.getTaaTexture(1) != 0, "Both TAA ping-pong targets are allocated");
-    check(aa.getEstimatedLiveBytes() == 800ULL * 600ULL * 4ULL * 2ULL, "TAA live bytes matches 800x600x4x2 (3,840,000 bytes)");
+    check(aa.getEstimatedLiveBytes() == 800ULL * 600ULL * 8ULL * 2ULL, "TAA live bytes matches 800x600x8x2 (7,680,000 bytes)");
     check(aa.getTargetAllocationCount() == 2, "Entering TAA allocates 2 textures");
     check(aa.getTargetDeletionCount() == 1, "Entering TAA deletes 1 inactive FXAA texture");
     check(aa.isHistoryValid() == true, "History becomes valid after first TAA frame");
@@ -747,7 +1418,7 @@ SelfCheckResult AntiAliasing::runTargetAllocationSelfCheck(bool forceFailure)
     GLuint taaResized = aa.render(AntiAliasingMode::TAA, testInputTex, 1280, 720, identityMat, false);
     check(aa.getWidth() == 1280 && aa.getHeight() == 720, "TAA dimensions updated to 1280x720");
     check(aa.getOwnedTargetCount() == 2, "TAA retains 2 targets after resize");
-    check(aa.getEstimatedLiveBytes() == 1280ULL * 720ULL * 4ULL * 2ULL, "TAA live bytes updated to 1280x720x4x2 (7,372,800 bytes)");
+    check(aa.getEstimatedLiveBytes() == 1280ULL * 720ULL * 8ULL * 2ULL, "TAA live bytes updated to 1280x720x8x2 (14,745,600 bytes)");
     check(aa.getTargetAllocationCount() == 2, "Resize allocates 2 new textures");
     check(aa.getTargetDeletionCount() == 2, "Resize deletes 2 old textures");
     check(aa.getTargetGeneration() > genBeforeResize, "Target generation advanced on resize");
@@ -830,7 +1501,7 @@ SelfCheckResult AntiAliasing::runTargetAllocationSelfCheck(bool forceFailure)
     check(vp3.getOwnedTargetCount() == 0, "Multi-viewport: vp3 (MSAA_4x) owns 0 targets");
 
     check(vp1.getEstimatedLiveBytes() == 800ULL * 600ULL * 4ULL, "Multi-viewport: vp1 has 1,920,000 live bytes");
-    check(vp2.getEstimatedLiveBytes() == 1024ULL * 768ULL * 4ULL * 2ULL, "Multi-viewport: vp2 has 6,291,456 live bytes");
+    check(vp2.getEstimatedLiveBytes() == 1024ULL * 768ULL * 8ULL * 2ULL, "Multi-viewport: vp2 has 12,582,912 live bytes");
     check(vp3.getEstimatedLiveBytes() == 0, "Multi-viewport: vp3 has 0 live bytes");
 
     // Viewport closure simulation

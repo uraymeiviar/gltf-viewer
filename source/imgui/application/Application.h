@@ -140,6 +140,7 @@ struct WindowState {
 struct FrameContext {
     ux3d::imgui::profiling::Clock::time_point start;
     uint64_t number = 0;
+    float deltaTime = 1.0f / 60.0f;
     ux3d::imgui::profiling::FrameSample sample;
     bool profiling = false;
     void markStage(const char* name, ux3d::imgui::profiling::Clock::time_point stageStart)

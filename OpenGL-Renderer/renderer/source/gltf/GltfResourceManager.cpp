@@ -116,6 +116,7 @@ void GltfResourceManager::initCubeMap()
     m_cubeMapMaterial = createWithGLContext<Material>();
     m_cubeMapMaterial->fragmentShader = "cubemap.frag";
     m_cubeMapMaterial->renderPass = m_opaquePass;
+    m_cubeMapMaterial->defines.define("LINEAR_OUTPUT", 1);
     m_cubeMapMaterial->isDoubleSided = true;
 }
 

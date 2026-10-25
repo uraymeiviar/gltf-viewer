@@ -119,13 +119,65 @@ void SceneInspector::render(SceneEnvironmentState& env,
             revisions.mark(SceneChange::RenderSettings);
         }
 
-        // Exposure (EV slider and linear multiplier)
-        if (ImGui::SliderFloat("Exposure (EV)", &env.exposureEV, -4.0f, 4.0f, "%.2f EV")) {
-            float linearExposure = std::pow(2.0f, env.exposureEV);
-            if (commandGenerator != nullptr) {
-                commandGenerator->setExposure(linearExposure);
-            }
+        // Exposure mode (Manual / Auto) and controls
+        const char* exposureModeNames[] = { "Manual", "Auto" };
+        int exposureModeIdx = env.autoExposure ? 1 : 0;
+        if (ImGui::Combo("Exposure Mode", &exposureModeIdx, exposureModeNames, 2)) {
+            env.autoExposure = (exposureModeIdx == 1);
+            env.autoExposureStartFromManual = env.autoExposure;
             revisions.mark(SceneChange::RenderSettings);
+        }
+        UiProbe::item("scene.exposure.mode", 0);
+
+        if (!env.autoExposure) {
+            // Manual Exposure (EV slider and linear multiplier)
+            if (ImGui::SliderFloat("Exposure (EV)", &env.exposureEV, -4.0f, 4.0f, "%.2f EV")) {
+                float linearExposure = std::pow(2.0f, env.exposureEV);
+                if (commandGenerator != nullptr) {
+                    commandGenerator->setExposure(linearExposure);
+                }
+                revisions.mark(SceneChange::RenderSettings);
+            }
+        } else {
+            if (ImGui::SliderFloat("EV Compensation", &env.exposureCompensationEV, -4.0f, 4.0f, "%+.2f EV")) {
+                revisions.mark(SceneChange::RenderSettings);
+            }
+            if (ImGui::SliderFloat("Min Exposure (EV)", &env.autoExposureMinEV, -10.0f, 0.0f, "%.2f EV")) {
+                if (env.autoExposureMinEV > env.autoExposureMaxEV) {
+                    env.autoExposureMaxEV = env.autoExposureMinEV;
+                }
+                revisions.mark(SceneChange::RenderSettings);
+            }
+            if (ImGui::SliderFloat("Max Exposure (EV)", &env.autoExposureMaxEV, 0.0f, 10.0f, "%.2f EV")) {
+                if (env.autoExposureMaxEV < env.autoExposureMinEV) {
+                    env.autoExposureMinEV = env.autoExposureMaxEV;
+                }
+                revisions.mark(SceneChange::RenderSettings);
+            }
+            if (ImGui::SliderFloat("Adapt Speed Up", &env.autoExposureSpeedUp, 0.2f, 20.0f, "%.1f /s")) {
+                revisions.mark(SceneChange::RenderSettings);
+            }
+            if (ImGui::SliderFloat("Adapt Speed Down", &env.autoExposureSpeedDown, 0.2f, 20.0f, "%.1f /s")) {
+                revisions.mark(SceneChange::RenderSettings);
+            }
+        }
+
+        ImGui::Separator();
+
+        // Physically based bloom (Jimenez 2014)
+        if (ImGui::Checkbox("Bloom", &env.bloomEnabled)) {
+            revisions.mark(SceneChange::RenderSettings);
+        }
+        UiProbe::item("scene.bloom.on", 0);
+        if (env.bloomEnabled) {
+            if (ImGui::SliderFloat("Bloom Intensity", &env.bloomIntensity, 0.0f, 0.5f, "%.3f")) {
+                revisions.mark(SceneChange::RenderSettings);
+            }
+            UiProbe::item("scene.bloom.intensity", 0);
+            if (ImGui::SliderFloat("Bloom Radius", &env.bloomRadius, 0.25f, 3.0f, "%.2f")) {
+                revisions.mark(SceneChange::RenderSettings);
+            }
+            UiProbe::item("scene.bloom.radius", 0);
         }
 
         ImGui::Separator();

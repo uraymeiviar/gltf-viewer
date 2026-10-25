@@ -142,19 +142,9 @@ void Framebuffer::resize(int width, int height, int samples, bool linearFloat)
     if (height < 1) height = 1;
     if (samples < 1) samples = 1;
 
-    if (linearFloat && glassCopyFault("allocation")) {
-        glassCopyWarning("injected allocation failure");
-        m_floatUnavailable = true;
-    }
     if (linearFloat && m_floatUnavailable) {
-        // The application already has a valid RGBA8 viewport for the old path.
-        // Do not spend more GPU memory allocating an unused fallback framebuffer.
         cleanup();
         return;
-    }
-    if (linearFloat && samples > 1 && glassCopyFault("multisample")) {
-        glassCopyWarning("injected multisample allocation failure");
-        m_floatSamplesUnsupported = true;
     }
     if (linearFloat && m_floatSamplesUnsupported) samples = 1;
 
@@ -275,10 +265,6 @@ void Framebuffer::unbind()
 bool Framebuffer::resolve()
 {
     if (!m_valid) return false;
-    if (m_linearFloat && glassCopyFault("resolve")) {
-        glassCopyWarning("injected resolve failure");
-        return false;
-    }
     if (m_samples > 1 && m_msaaFbo && m_fbo) {
         // Identical colour formats, dimensions, and explicit attachment selection.
         // Only the sample count changes; never combine this resolve with a resize.
@@ -327,7 +313,7 @@ void TransmissionTarget::create()
     glGetIntegerv(GL_TEXTURE_BINDING_2D, &previousTexture);
     glGenTextures(1, &m_texture);
     glBindTexture(GL_TEXTURE_2D, m_texture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, kSize, kSize, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, kSize, kSize, 0, GL_RGBA, GL_FLOAT, nullptr);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -379,15 +365,29 @@ bool TransmissionTarget::capture(Framebuffer& source, bool fullResolution)
         glassCopyWarning("invalid capture source");
         return false;
     }
-    if (fullResolution && glassCopyFault("capture")) {
-        glassCopyWarning("injected capture failure");
-        return false;
+    if (fullResolution) {
+        if (glassCopyFault("allocation")) {
+            glassCopyWarning("injected allocation failure");
+            return false;
+        }
+        if (source.getSamples() > 1 && glassCopyFault("multisample")) {
+            glassCopyWarning("injected multisample allocation failure");
+            return false;
+        }
+        if (source.getSamples() > 1 && glassCopyFault("resolve")) {
+            glassCopyWarning("injected resolve failure");
+            return false;
+        }
+        if (glassCopyFault("capture")) {
+            glassCopyWarning("injected capture failure");
+            return false;
+        }
     }
     const int width = fullResolution ? source.getWidth() : kSize;
     const int height = fullResolution ? source.getHeight() : kSize;
     if (width != m_width || height != m_height || fullResolution != m_fullResolution) {
         glBindTexture(GL_TEXTURE_2D, m_texture);
-        glTexImage2D(GL_TEXTURE_2D, 0, fullResolution ? GL_RGBA16F : GL_RGBA8,
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F,
                      width, height, 0, GL_RGBA, GL_FLOAT, nullptr);
         m_width = width;
         m_height = height;

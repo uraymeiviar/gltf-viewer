@@ -305,14 +305,13 @@ void Application::drawViewports(FrameContext& frame)
         if (vpH < 1) vpH = 1;
 
         const int postAA = vp->settings.effectivePostAAIdx();
-        if (postAA != 2 && vp->overlayFbo.isValid()) vp->overlayFbo = ux3d::imgui::Framebuffer();
         auto aaMode = static_cast<ux3d::imgui::AntiAliasingMode>(postAA == 0 ? 0 : postAA + 3);
         int desiredSamples = ux3d::imgui::AntiAliasing::getSampleCount(
             static_cast<ux3d::imgui::AntiAliasingMode>(vp->settings.effectiveMsaaIdx()));
 
         if (vp->sceneFbo.getWidth() != vpW || vp->sceneFbo.getHeight() != vpH ||
-            vp->sceneFbo.getSamples() != desiredSamples) {
-            vp->sceneFbo.resize(vpW, vpH, desiredSamples);
+            vp->sceneFbo.getSamples() != desiredSamples || !vp->sceneFbo.isLinearFloat()) {
+            vp->sceneFbo.resize(vpW, vpH, desiredSamples, true);
             vp->antiAliasing.resetHistory();
         }
 
@@ -442,7 +441,10 @@ void Application::drawViewports(FrameContext& frame)
         const bool isTaa = aaMode == ux3d::imgui::AntiAliasingMode::TAA;
         const bool taaAccumulating =
             isTaa && (!vp->antiAliasing.isHistoryValid() || vp->taaStableRenders < kTaaSettleRenders);
-        const bool redrawScene = s_disableRedrawSkip || !keyUnchanged || pickingRendered || taaAccumulating;
+        const bool exposureAdapting = activeEnvironment.autoExposure && vp->antiAliasing.isExposureAdapting();
+        const bool cameraJumped = !vp->hasCachedImage ||
+            (glm::distance(cameraEye, vp->lastRenderKey.eye) > 0.5f * std::max(1.0f, cameraZoom));
+        const bool redrawScene = s_disableRedrawSkip || !keyUnchanged || pickingRendered || taaAccumulating || exposureAdapting;
         if (redrawScene) {
             vp->taaStableRenders =
                 (keyUnchanged && isTaa && vp->antiAliasing.isHistoryValid()) ? vp->taaStableRenders + 1 : 0;
@@ -464,7 +466,7 @@ void Application::drawViewports(FrameContext& frame)
                 glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
             } else {
                 glClearColor(activeEnvironment.clearColor.r, activeEnvironment.clearColor.g,
-                             activeEnvironment.clearColor.b, activeEnvironment.clearColor.a);
+                             activeEnvironment.clearColor.b, 0.0f);
             }
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         }
@@ -699,17 +701,9 @@ void Application::drawViewports(FrameContext& frame)
                                            vp->settings.ssrQuality, vp->settings.interiorSkyReflection);
             // TAA resolves the per-frame ray phase noise into soft reflection silhouettes.
             commandGenerator->setSsrFrame(isTaa ? static_cast<float>(vp->taaStableRenders % 64u) : 0.0f);
-            if (scene.asoboGlassCopy) glassCopyFbo.resize(vpW, vpH, vp->sceneFbo.getSamples(), true);
-            const bool floatCopy = scene.asoboGlassCopy && glassCopyFbo.isValid() && glassCopyFbo.isLinearFloat();
+            const bool floatCopy = scene.asoboGlassCopy && vp->sceneFbo.isValid() && vp->sceneFbo.isLinearFloat();
             transmissionDestination = floatCopy ? &vp->sceneFbo : nullptr;
-            transmissionSource = floatCopy ? &glassCopyFbo : &vp->sceneFbo;
-            if (floatCopy) {
-                glassCopyFbo.bind();
-                glViewport(0, 0, vpW, vpH);
-                glClearColor(activeEnvironment.clearColor.r, activeEnvironment.clearColor.g,
-                             activeEnvironment.clearColor.b, activeEnvironment.clearColor.a);
-                glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-            }
+            transmissionSource = &vp->sceneFbo;
             glRenderer->draw({commandGenerator.get()});
             transmissionSource = nullptr;
             transmissionDestination = nullptr;
@@ -778,31 +772,78 @@ void Application::drawViewports(FrameContext& frame)
                 gltfLayer->getActiveCamera()->setProjection(ux3d::math::mat4x4(proj));
             }
 
+            // Order: scene (HDR, MSAA) -> resolve -> TAA in HDR -> [exposure metering] ->
+            // [bloom] -> tone map -> FXAA (LDR) -> overlays -> ImGui.
+            vp->sceneFbo.unbind();
+            GLuint hdrTexture = vp->sceneFbo.getColorTexture();
+            const bool isDebugView = mode != ux3d::renderer::RenderMode::None;
+            vp->antiAliasing.setRawMode(isDebugView);
             if (isTaa) {
-                // Resolve hardware samples first, then accumulate only the scene.
-                // Composite into separate storage so overlays never contaminate history.
-                vp->sceneFbo.unbind();
                 const auto aaStart = ux3d::imgui::profiling::Clock::now();
-                const GLuint sceneTexture = vp->antiAliasing.render(
-                    aaMode, vp->sceneFbo.getColorTexture(), vpW, vpH, proj * view, frameSceneDirty);
+                hdrTexture = vp->antiAliasing.render(
+                    aaMode, hdrTexture, vpW, vpH, proj * view, frameSceneDirty);
                 frame.markStage("aa.render", aaStart);
-                vp->overlayFbo.resize(vpW, vpH, 1);
-                GLuint aaFbo = vp->sceneFbo.getResolveFbo();
-                for (int i = 0; i < 2; ++i) {
-                    if (sceneTexture == vp->antiAliasing.getTaaTexture(i)) aaFbo = vp->antiAliasing.getTaaFbo(i);
-                }
-                glDisable(GL_SCISSOR_TEST);
-                glBindFramebuffer(GL_READ_FRAMEBUFFER, aaFbo);
-                glBindFramebuffer(GL_DRAW_FRAMEBUFFER, vp->overlayFbo.getFbo());
-                glBlitFramebuffer(0, 0, vpW, vpH, 0, 0, vpW, vpH, GL_COLOR_BUFFER_BIT, GL_NEAREST);
-                vp->overlayFbo.bind();
-                glDepthMask(GL_TRUE);
-                glClear(GL_DEPTH_BUFFER_BIT);
+            } else if (aaMode != ux3d::imgui::AntiAliasingMode::FXAA) {
+                vp->antiAliasing.releaseTargets();
+            }
 
-                // Rebuild opaque depth with the unjittered camera. Reusing jittered
-                // scene depth would still make grid/box occlusion flicker at edges.
-                if (vp->settings.showGrid || vp->settings.showSceneBoundingBox ||
-                    vp->settings.showSelectedBoundingBox || vp->settings.wireframeOverlay) {
+            const int overlaySamples = (!isTaa && aaMode != ux3d::imgui::AntiAliasingMode::FXAA)
+                                           ? vp->sceneFbo.getSamples()
+                                           : 1;
+            vp->overlayFbo.resize(vpW, vpH, overlaySamples, false);
+
+            ux3d::imgui::HdrPostProcessParams postParams;
+            postParams.rawPassThrough = isDebugView;
+            postParams.exposureEv = activeEnvironment.exposureEV;
+            postParams.toneMappingMode = activeEnvironment.toneMappingIdx;
+            postParams.hasClearColor = !activeEnvironment.showBackground;
+            postParams.clearColor = glm::vec3(activeEnvironment.clearColor.r,
+                                              activeEnvironment.clearColor.g,
+                                              activeEnvironment.clearColor.b);
+            postParams.bloomEnabled = activeEnvironment.bloomEnabled;
+            postParams.bloomIntensity = activeEnvironment.bloomIntensity;
+            postParams.bloomRadius = activeEnvironment.bloomRadius;
+            postParams.autoExposure = activeEnvironment.autoExposure;
+            postParams.startFromManualEv = activeEnvironment.autoExposureStartFromManual;
+            postParams.exposureCompensationEv = activeEnvironment.exposureCompensationEV;
+            postParams.autoExposureMinEv = activeEnvironment.autoExposureMinEV;
+            postParams.autoExposureMaxEv = activeEnvironment.autoExposureMaxEV;
+            postParams.autoExposureSpeedUp = activeEnvironment.autoExposureSpeedUp;
+            postParams.autoExposureSpeedDown = activeEnvironment.autoExposureSpeedDown;
+            postParams.deltaTime = frame.deltaTime;
+            postParams.snapExposure = cameraJumped && !activeEnvironment.autoExposureStartFromManual;
+            vp->antiAliasing.renderPostProcess(hdrTexture, vp->overlayFbo.getFbo(), vpW, vpH, postParams);
+
+            if (aaMode == ux3d::imgui::AntiAliasingMode::FXAA) {
+                const auto aaStart = ux3d::imgui::profiling::Clock::now();
+                const GLuint fxaaTex = vp->antiAliasing.render(
+                    aaMode, vp->overlayFbo.getColorTexture(), vpW, vpH, proj * view, frameSceneDirty);
+                frame.markStage("aa.render", aaStart);
+                if (fxaaTex != 0 && vp->antiAliasing.getFxaaFbo() != 0) {
+                    glDisable(GL_SCISSOR_TEST);
+                    glBindFramebuffer(GL_READ_FRAMEBUFFER, vp->antiAliasing.getFxaaFbo());
+                    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, vp->overlayFbo.getFbo());
+                    glBlitFramebuffer(0, 0, vpW, vpH, 0, 0, vpW, vpH, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+                }
+            }
+
+            const bool hasWireframeOverlay =
+                vp->settings.wireframeOverlay && shadingMode != ux3d::renderer::RenderMode::Wireframe;
+            const bool hasSceneBbox =
+                vp->settings.showSceneBoundingBox && activeScene != nullptr && !activeScene->getNodes().empty();
+            const bool hasSelectedBbox =
+                vp->settings.showSelectedBoundingBox && selection.type == ux3d::imgui::SelectionType::Node &&
+                selection.selectedNode != nullptr;
+            const bool hasOverlays =
+                vp->settings.showGrid || hasSceneBbox || hasSelectedBbox || hasWireframeOverlay;
+
+            if (hasOverlays) {
+                if (isTaa) {
+                    vp->overlayFbo.bind();
+                    glDepthMask(GL_TRUE);
+                    glClear(GL_DEPTH_BUFFER_BIT);
+                    // Rebuild opaque depth with the unjittered camera. Reusing jittered
+                    // scene depth would still make grid/box occlusion flicker at edges.
                     auto [depthScene, depthMapping] = gltfLayer->createScene(activeScene);
                     for (auto it = depthScene.drawables.begin(); it != depthScene.drawables.end();) {
                         auto [mesh, material] = *it;
@@ -822,12 +863,16 @@ void Application::drawViewports(FrameContext& frame)
                     glRenderer->setGpuFrameContext(frame.number, vp->id, "overlay-depth");
                     glRenderer->draw({commandGenerator.get()});
                     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-                    vp->overlayFbo.bind();
+                } else {
+                    glDisable(GL_SCISSOR_TEST);
+                    glBindFramebuffer(GL_READ_FRAMEBUFFER, vp->sceneFbo.getFbo());
+                    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, vp->overlayFbo.getFbo());
+                    glBlitFramebuffer(0, 0, vpW, vpH, 0, 0, vpW, vpH, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
                 }
-                displayTexture = vp->overlayFbo.getColorTexture();
+                vp->overlayFbo.bind();
             }
 
-            if (vp->settings.wireframeOverlay && shadingMode != ux3d::renderer::RenderMode::Wireframe) {
+            if (hasWireframeOverlay) {
                 const auto wireframeStart = ux3d::imgui::profiling::Clock::now();
                 glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
                 glEnable(GL_POLYGON_OFFSET_LINE);
@@ -837,11 +882,6 @@ void Application::drawViewports(FrameContext& frame)
                 gltfLayer->asoboOptions = vp->settings.asobo;
                 auto [wireScene, _] = gltfLayer->createScene(activeScene);
                 gltfLayer->frustumCulling = false;
-                // The overlay draws lines over the finished shaded image. With
-                // transmissive materials, createScene adds the transmission set-up:
-                // duplicate Opaque2/Grid2/Transparent2 drawables and a TransmissiveBlit
-                // pass whose post-command clears the whole framebuffer. Redrawing that
-                // here wiped the shaded image, leaving only lines, so it is left out.
                 for (auto it = wireScene.drawables.begin(); it != wireScene.drawables.end();) {
                     auto& [mesh, material] = *it;
                     const auto passId = (material != nullptr && material->renderPass != nullptr)
@@ -873,6 +913,9 @@ void Application::drawViewports(FrameContext& frame)
             }
         } else if (redrawScene) {
             currentReverseMapping.clear();
+            vp->sceneFbo.unbind();
+            vp->overlayFbo.resize(vpW, vpH, 1, false);
+            vp->overlayFbo.bind();
         }
 
         // 2. Render ground grid
@@ -903,16 +946,10 @@ void Application::drawViewports(FrameContext& frame)
         }
         frame.markStage("overlays.gridBbox", overlayStart);
 
-        // 4. Post-processing Anti-Aliasing pass
+        // 4. Finalize LDR display target
         if (redrawScene) {
-            if (isTaa) vp->overlayFbo.unbind();
-            else vp->sceneFbo.unbind();
-            if (!isTaa) {
-                const auto antiAliasingStart = ux3d::imgui::profiling::Clock::now();
-                displayTexture = vp->antiAliasing.render(
-                    aaMode, vp->sceneFbo.getColorTexture(), vpW, vpH, proj * view, frameSceneDirty);
-                frame.markStage("aa.render", antiAliasingStart);
-            }
+            vp->overlayFbo.unbind();
+            displayTexture = vp->overlayFbo.getColorTexture();
             // The AA call can reallocate its targets; key on the generation after it.
             renderKey.aaTargetGeneration = vp->antiAliasing.getTargetGeneration();
             vp->lastRenderKey = renderKey;

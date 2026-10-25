@@ -20,6 +20,18 @@ struct SceneEnvironmentState {
 
     int toneMappingIdx = 1; // 0 = PBR Neutral, 1 = ACES Hill, 2 = ACES Narkowicz
     float exposureEV = 0.0f; // EV value, exposure = 2^EV
+    bool autoExposure = false; // false = Manual (default), true = Auto-Exposure
+    bool autoExposureStartFromManual = false;
+    float exposureCompensationEV = 0.0f;
+    float autoExposureMinEV = -6.0f;
+    float autoExposureMaxEV = 6.0f;
+    float autoExposureSpeedUp = 3.0f;
+    float autoExposureSpeedDown = 1.5f;
+
+    bool bloomEnabled = true;
+    float bloomIntensity = 0.04f;
+    float bloomRadius = 1.0f;
+
     bool iblEnabled = true;
     bool punctualLightsEnabled = true;
 
