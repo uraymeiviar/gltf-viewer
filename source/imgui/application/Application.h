@@ -337,6 +337,7 @@ private:
     bool s_resetLayout = false;
     std::string modelToLoad;
     std::string dumpFramePath = "";
+    std::string dumpNextFramePath; // Optional consecutive-frame overlay diagnostic
     std::string s_decalPrepassCheckPath;
     bool s_decalPrepassCheckAttempted = false;
     // A2.1 check: the forward depth and Geometry Normal colour are read right after the

@@ -45,6 +45,7 @@ void Application::drawViewports(FrameContext& frame)
     for (auto& vp : viewports) {
         if (!vp->isOpen) {
             vp->antiAliasing.releaseTargets();
+            vp->overlayFbo = ux3d::imgui::Framebuffer();
             vp->hasCachedImage = false;
             continue;
         }
@@ -60,6 +61,7 @@ void Application::drawViewports(FrameContext& frame)
 
         if (!vp->isOpen) {
             vp->antiAliasing.releaseTargets();
+            vp->overlayFbo = ux3d::imgui::Framebuffer();
             vp->hasCachedImage = false;
             ImGui::End();
             continue;
@@ -302,8 +304,11 @@ void Application::drawViewports(FrameContext& frame)
         if (vpW < 1) vpW = 1;
         if (vpH < 1) vpH = 1;
 
-        auto aaMode = static_cast<ux3d::imgui::AntiAliasingMode>(vp->settings.antiAliasingIdx);
-        int desiredSamples = ux3d::imgui::AntiAliasing::getSampleCount(aaMode);
+        const int postAA = vp->settings.effectivePostAAIdx();
+        if (postAA != 2 && vp->overlayFbo.isValid()) vp->overlayFbo = ux3d::imgui::Framebuffer();
+        auto aaMode = static_cast<ux3d::imgui::AntiAliasingMode>(postAA == 0 ? 0 : postAA + 3);
+        int desiredSamples = ux3d::imgui::AntiAliasing::getSampleCount(
+            static_cast<ux3d::imgui::AntiAliasingMode>(vp->settings.effectiveMsaaIdx()));
 
         if (vp->sceneFbo.getWidth() != vpW || vp->sceneFbo.getHeight() != vpH ||
             vp->sceneFbo.getSamples() != desiredSamples) {
@@ -405,7 +410,7 @@ void Application::drawViewports(FrameContext& frame)
                                   ? glm::translate(glm::mat4(1.0f), glm::vec3(2.0f * jitter.x, 2.0f * jitter.y, 0.0f))
                                   : glm::mat4(1.0f);
         glm::mat4 jitteredProj = jitterMat * proj;
-        glm::mat4 viewProj = jitteredProj * view;
+        glm::mat4 viewProj = proj * view; // Overlays always use the stable camera.
 
         // P5.3: redraw only when the render key changed, a click needs the picking
         // pass, the cached image is gone, or TAA is still accumulating. The key holds
@@ -469,6 +474,8 @@ void Application::drawViewports(FrameContext& frame)
                 gltfLayer->getActiveCamera()->setProjection(ux3d::math::mat4x4(jitteredProj));
             }
         }
+
+        GLuint displayTexture = vp->cachedDisplayTexture;
 
         // 1. Render glTF scene & background skybox
         if (redrawScene && gltfLayer != nullptr && glRenderer != nullptr && commandGenerator != nullptr) {
@@ -762,6 +769,55 @@ void Application::drawViewports(FrameContext& frame)
                 gltfLayer->getActiveCamera()->setProjection(ux3d::math::mat4x4(proj));
             }
 
+            if (isTaa) {
+                // Resolve hardware samples first, then accumulate only the scene.
+                // Composite into separate storage so overlays never contaminate history.
+                vp->sceneFbo.unbind();
+                const auto aaStart = ux3d::imgui::profiling::Clock::now();
+                const GLuint sceneTexture = vp->antiAliasing.render(
+                    aaMode, vp->sceneFbo.getColorTexture(), vpW, vpH, proj * view, frameSceneDirty);
+                frame.markStage("aa.render", aaStart);
+                vp->overlayFbo.resize(vpW, vpH, 1);
+                GLuint aaFbo = vp->sceneFbo.getResolveFbo();
+                for (int i = 0; i < 2; ++i) {
+                    if (sceneTexture == vp->antiAliasing.getTaaTexture(i)) aaFbo = vp->antiAliasing.getTaaFbo(i);
+                }
+                glDisable(GL_SCISSOR_TEST);
+                glBindFramebuffer(GL_READ_FRAMEBUFFER, aaFbo);
+                glBindFramebuffer(GL_DRAW_FRAMEBUFFER, vp->overlayFbo.getFbo());
+                glBlitFramebuffer(0, 0, vpW, vpH, 0, 0, vpW, vpH, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+                vp->overlayFbo.bind();
+                glDepthMask(GL_TRUE);
+                glClear(GL_DEPTH_BUFFER_BIT);
+
+                // Rebuild opaque depth with the unjittered camera. Reusing jittered
+                // scene depth would still make grid/box occlusion flicker at edges.
+                if (vp->settings.showGrid || vp->settings.showSceneBoundingBox ||
+                    vp->settings.showSelectedBoundingBox || vp->settings.wireframeOverlay) {
+                    auto [depthScene, depthMapping] = gltfLayer->createScene(activeScene);
+                    for (auto it = depthScene.drawables.begin(); it != depthScene.drawables.end();) {
+                        auto [mesh, material] = *it;
+                        if (!material || !material->renderPass ||
+                            material->renderPass->getId() != ux3d::renderer::RenderPassType::Opaque ||
+                            !currentReverseMapping.contains(mesh)) {
+                            it = depthScene.drawables.erase(it);
+                        } else ++it;
+                    }
+                    auto& depthLayer = vp->overlayDepthLayer;
+                    depthLayer.pickingOnly = true;
+                    depthLayer.prePass = [&] { vp->overlayFbo.bind(); };
+                    depthLayer.postPass = [] {};
+                    depthScene = depthLayer.applyLayer(std::move(depthScene));
+                    commandGenerator->update(depthScene);
+                    glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+                    glRenderer->setGpuFrameContext(frame.number, vp->id, "overlay-depth");
+                    glRenderer->draw({commandGenerator.get()});
+                    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+                    vp->overlayFbo.bind();
+                }
+                displayTexture = vp->overlayFbo.getColorTexture();
+            }
+
             if (vp->settings.wireframeOverlay && shadingMode != ux3d::renderer::RenderMode::Wireframe) {
                 const auto wireframeStart = ux3d::imgui::profiling::Clock::now();
                 glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
@@ -813,7 +869,7 @@ void Application::drawViewports(FrameContext& frame)
         // 2. Render ground grid
         const auto overlayStart = ux3d::imgui::profiling::Clock::now();
         if (redrawScene && vp->settings.showGrid) {
-            gridRenderer.draw(view, (aaMode == ux3d::imgui::AntiAliasingMode::TAA ? jitteredProj : proj),
+            gridRenderer.draw(view, proj,
                               ux3d::math::vec3(cameraEye.x, cameraEye.y, cameraEye.z), cameraZoom,
                               ux3d::imgui::RenderQuality::settings().gridMode == ux3d::imgui::GridMode::PlaneMesh);
             ux3d::imgui::profiling::countOverlayDraw();
@@ -839,13 +895,15 @@ void Application::drawViewports(FrameContext& frame)
         frame.markStage("overlays.gridBbox", overlayStart);
 
         // 4. Post-processing Anti-Aliasing pass
-        GLuint displayTexture = vp->cachedDisplayTexture;
         if (redrawScene) {
-            vp->sceneFbo.unbind();
-            const auto antiAliasingStart = ux3d::imgui::profiling::Clock::now();
-            displayTexture =
-                vp->antiAliasing.render(aaMode, vp->sceneFbo.getColorTexture(), vpW, vpH, proj * view, frameSceneDirty);
-            frame.markStage("aa.render", antiAliasingStart);
+            if (isTaa) vp->overlayFbo.unbind();
+            else vp->sceneFbo.unbind();
+            if (!isTaa) {
+                const auto antiAliasingStart = ux3d::imgui::profiling::Clock::now();
+                displayTexture = vp->antiAliasing.render(
+                    aaMode, vp->sceneFbo.getColorTexture(), vpW, vpH, proj * view, frameSceneDirty);
+                frame.markStage("aa.render", antiAliasingStart);
+            }
             // The AA call can reallocate its targets; key on the generation after it.
             renderKey.aaTargetGeneration = vp->antiAliasing.getTargetGeneration();
             vp->lastRenderKey = renderKey;

@@ -371,6 +371,7 @@ void Application::createViewport(const ux3d::gltf::Node* cameraNode)
     newVp->attachedCameraNodeName = camName;
     if (activeViewport != nullptr) {
         newVp->settings = activeViewport->settings;
+        newVp->settings.setLegacyAA(5); // New viewports start with MSAA Off + TAA.
         if (cameraNode == nullptr && activeScene != nullptr) {
             newVp->cameraActor.fitCameraToScene(*activeScene, &gltfModel);
         }

@@ -16,6 +16,19 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 namespace ux3d::imgui::application {
+namespace {
+std::string effectiveAAName(const ViewportSettingsState& settings)
+{
+    const char* msaaNames[] = { "none", "msaa2", "msaa4", "msaa8" };
+    const char* postNames[] = { "none", "fxaa", "taa" };
+    const int msaa = settings.effectiveMsaaIdx();
+    const int post = settings.effectivePostAAIdx();
+    if (msaa == 0) return postNames[post];
+    if (post == 0) return msaaNames[msaa];
+    return std::string(msaaNames[msaa]) + "+" + postNames[post];
+}
+}
+
 
 int Application::writeSelfCheckReport(const ux3d::imgui::SelfCheckResult& result, const std::string& path,
                                       const char* label)
@@ -749,8 +762,10 @@ bool Application::writeScenarioReport(const std::string& reportPath, const std::
     out << "  },\n";
 
     out << "  \"settings\": {\n";
-    out << "    \"antiAliasing\": " << jsonEscape(antiAliasingName(settings.antiAliasingIdx)) << ",\n";
+    out << "    \"antiAliasing\": " << jsonEscape(effectiveAAName(settings)) << ",\n";
     out << "    \"antiAliasingIndex\": " << settings.antiAliasingIdx << ",\n";
+    out << "    \"msaaSamples\": " << (settings.effectiveMsaaIdx() == 0 ? 1 : 1 << settings.effectiveMsaaIdx()) << ",\n";
+    out << "    \"postAAIndex\": " << settings.effectivePostAAIdx() << ",\n";
     out << "    \"renderModeIndex\": " << settings.renderModeIdx << ",\n";
     out << "    \"toneMappingIndex\": " << environment.toneMappingIdx << ",\n";
     out << "    \"exposureEV\": ";
@@ -957,7 +972,7 @@ void Application::finishFrame(FrameContext& frame, int displayW, int displayH)
         report.viewportWidth = activeViewport->sceneFbo.getWidth();
         report.viewportHeight = activeViewport->sceneFbo.getHeight();
         report.viewportSamples = activeViewport->sceneFbo.getSamples();
-        report.antiAliasing = antiAliasingModeName(activeViewport->settings.antiAliasingIdx);
+        report.antiAliasing = effectiveAAName(activeViewport->settings);
         report.startup = ux3d::imgui::profiling::startupProfile();
         report.reportFrame = frameCount;
         report.frameSampleLimit = ux3d::imgui::profiling::kMaxRetainedFrameSamples;
@@ -1010,7 +1025,7 @@ void Application::finishFrame(FrameContext& frame, int displayW, int displayH)
             report.viewportWidth = activeViewport->sceneFbo.getWidth();
             report.viewportHeight = activeViewport->sceneFbo.getHeight();
             report.viewportSamples = activeViewport->sceneFbo.getSamples();
-            report.antiAliasing = antiAliasingModeName(activeViewport->settings.antiAliasingIdx);
+            report.antiAliasing = effectiveAAName(activeViewport->settings);
         }
         report.warmupFrames = s_benchmarkWarmupFrames;
         report.measuredFramesRequested = s_benchmarkMeasuredFrames;
@@ -1047,7 +1062,11 @@ void Application::finishFrame(FrameContext& frame, int displayW, int displayH)
                 s_outputFailed = true;
                 std::fprintf(stderr, "Failed to dump window frame to %s\n", dumpFramePath.c_str());
             }
-            if (exitAfterDump) {
+            if (!dumpNextFramePath.empty()) {
+                dumpFramePath = std::move(dumpNextFramePath);
+                dumpNextFramePath.clear();
+                dumpFrameCountdown = 1;
+            } else if (exitAfterDump) {
                 glfwSetWindowShouldClose(window, GLFW_TRUE);
             }
         }
@@ -1205,17 +1224,17 @@ void Application::finishFrame(FrameContext& frame, int displayW, int displayH)
             if (!targetVp) return false;
             std::string m = toLowerAscii(modeStr);
             if (m == "none" || m == "0")
-                targetVp->settings.antiAliasingIdx = 0;
+                targetVp->settings.setLegacyAA(0);
             else if (m == "msaa2" || m == "1")
-                targetVp->settings.antiAliasingIdx = 1;
+                targetVp->settings.setLegacyAA(1);
             else if (m == "msaa4" || m == "2")
-                targetVp->settings.antiAliasingIdx = 2;
+                targetVp->settings.setLegacyAA(2);
             else if (m == "msaa8" || m == "3")
-                targetVp->settings.antiAliasingIdx = 3;
+                targetVp->settings.setLegacyAA(3);
             else if (m == "fxaa" || m == "4")
-                targetVp->settings.antiAliasingIdx = 4;
+                targetVp->settings.setLegacyAA(4);
             else if (m == "taa" || m == "5")
-                targetVp->settings.antiAliasingIdx = 5;
+                targetVp->settings.setLegacyAA(5);
             else
                 return false;
             return true;
@@ -1229,6 +1248,7 @@ void Application::finishFrame(FrameContext& frame, int displayW, int displayH)
             auto newVp = std::make_unique<ux3d::imgui::ViewportInstance>(nextId, vpName, gladGL.get());
             if (activeViewport != nullptr) {
                 newVp->settings = activeViewport->settings;
+                newVp->settings.setLegacyAA(5); // New viewports start with MSAA Off + TAA.
                 if (activeScene != nullptr) {
                     newVp->cameraActor.fitCameraToScene(*activeScene, &gltfModel);
                 }

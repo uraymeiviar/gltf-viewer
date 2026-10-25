@@ -78,18 +78,23 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
 
             ImGui::Separator();
             ImGui::Text("Anti-Aliasing (AA):");
-            const char* aaModes[] = {
-                "Off (No AA)",
-                "MSAA 2x",
-                "MSAA 4x (Recommended)",
-                "MSAA 8x",
-                "FXAA (Fast Approximate)",
-                "TAA (Temporal Anti-Aliasing)"
-            };
-            if (ImGui::Combo("Mode##AntiAliasing", &state.antiAliasingIdx, aaModes, 6)) {
+            const char* msaaModes[] = { "Off", "2x", "4x", "8x" };
+            int msaa = state.effectiveMsaaIdx();
+            if (ImGui::Combo("MSAA", &msaa, msaaModes, 4)) {
+                state.msaaIdx = msaa;
+                if (antiAliasing) antiAliasing->resetHistory();
                 revisions.mark(SceneChange::ViewportSettings);
             }
-            ImGui::TextDisabled("Hardware MSAA (crisp geometry) or post-processing FXAA / TAA (temporal subpixel smoothing).");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Crisp geometry edges; costs memory and fill rate.");
+            const char* postModes[] = { "None", "FXAA", "TAA" };
+            int post = state.effectivePostAAIdx();
+            if (ImGui::Combo("Post AA", &post, postModes, 3)) {
+                state.postAAIdx = post;
+                if (antiAliasing) antiAliasing->resetHistory();
+                revisions.mark(SceneChange::ViewportSettings);
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                "FXAA: cheap, slightly soft.\nTAA: stable, best on shader aliasing and decals; can ghost.");
 
             ImGui::Separator();
             ImGui::Text("Face Culling & Winding:");

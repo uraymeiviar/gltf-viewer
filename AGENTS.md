@@ -235,7 +235,8 @@ build/bin/Release/Glider.exe
 
 `Glider.exe` supports several CLI flags useful for testing and headless image verification:
 - `[model.gltf / model.glb]`: Path to glTF or GLB file to open on startup (defaults to embedded `HelloCube.glb`).
-- `--aa <none|msaa2|msaa4|msaa8|fxaa|taa>`: Set anti-aliasing mode on startup.
+- `--aa <none|msaa2|msaa4|msaa8|fxaa|taa>`: Legacy AA preset, setting both MSAA and Post AA (e.g. msaa4 = 4x + None, taa = Off + TAA, none = Off + None).
+- `--msaa <0|2|4|8>` and `--post-aa <none|fxaa|taa>`: Independent per-viewport geometry and post AA overrides, applied after `--aa` regardless of argument order. New viewports default to MSAA Off + TAA.
 - `--isolate-node <name>`: Isolate a node (without descendants), select it and frame the camera on startup.
 - `--select-node <name>`: Automatically selects a node by name and frames camera on startup.
 - `--debug-view <name>`: Selects a viewport Render Mode at startup, using the View menu's names with spaces,
@@ -249,6 +250,7 @@ build/bin/Release/Glider.exe
   depth/G0 and the forward depth/Geometry Normal, writes the maximum differences and viewport/buffer sizes,
   then exits. It forces a single-sample target and redraws every frame. Files without a decal material report
   `decalBuffer.active: false` instead of failing.
+- `--dump-next-frame <output.png>`: With `--dump-frame`, also dump the immediately following window frame (overlay steadiness diagnostic); `--exit-after-dump` waits for both.
 - `--exit-after-dump`: Exits the application immediately after dumping the frame.
 - `--quality <high|balanced|performance>`: Render-quality preset for this run (default High, the original quality). Finer overrides: `--ibl-size`, `--ibl-irradiance-size`, `--ibl-lut-size`, `--ibl-precision <32|16>`, `--ibl-samples`, `--grid-mode <ray|plane>`, `--render-scale`. The UI equivalents are **Viewport Settings → Quality** (preset, ground grid, render scale) and **Scene Inspector → IBL Filter Settings** (the IBL filter sizes and samples, shown while IBL is enabled); both are renderer-wide and saved in `%APPDATA%/Glider/render_quality.txt`.
 - `--hdr-rotation <deg>`, `--exposure <ev>`, `--tone-mapping <neutral|hill|narkowicz>`: Environment rotation,

@@ -7,6 +7,7 @@
 #include "imgui/ViewportSettingsPanel.h"
 #include "imgui/SceneRevisions.h"
 #include "renderer/Camera.h"
+#include "renderer/PickingRenderLayer.h"
 #include "renderViewInput/CameraActor.h"
 #include "gltf/Node.h"
 #include <array>
@@ -67,6 +68,8 @@ struct ViewportInstance {
     // Rendering resources
     Framebuffer sceneFbo;
     Framebuffer pickingFbo;
+    Framebuffer overlayFbo; // TAA display composite; never fed back into history
+    ux3d::renderer::PickingRenderLayer overlayDepthLayer;
     AntiAliasing antiAliasing;
 
     // Viewport camera
@@ -90,7 +93,7 @@ struct ViewportInstance {
     uint64_t sceneSkips = 0;
 
     ViewportInstance(uint32_t vpId, const std::string& vpName, ux3d::renderer::gl::GL* glContext)
-        : id(vpId), name(vpName), rendererCamera(glContext)
+        : id(vpId), name(vpName), overlayDepthLayer(glContext), rendererCamera(glContext)
     {
         antiAliasing.init();
         cameraActor.setCamera(&rendererCamera);

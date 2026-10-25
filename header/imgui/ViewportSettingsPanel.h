@@ -23,7 +23,16 @@ struct ViewportSettingsState {
     ux3d::renderer::AsoboOptions asobo; // MSFS (ASOBO) extensions this viewport applies (A0.4)
     float decalDepthToleranceMm = 1.2f; // Receiver-normal tolerance for the decal buffer
     bool invertWinding = false;    // Invert front/back face winding order (CW vs CCW)
-    int antiAliasingIdx = 2;       // 0=None, 1=MSAA 2x, 2=MSAA 4x (Default), 3=MSAA 8x, 4=FXAA, 5=TAA
+    // Legacy mode remains the fallback for saved state and existing automation.
+    int antiAliasingIdx = 5;       // 0=None, 1/2/3=MSAA 2/4/8x, 4=FXAA, 5=TAA
+    int msaaIdx = -1;             // -1=legacy, 0=Off, 1/2/3=2/4/8x
+    int postAAIdx = -1;           // -1=legacy, 0=None, 1=FXAA, 2=TAA
+
+    int effectiveMsaaIdx() const { return msaaIdx >= 0 ? msaaIdx :
+        (antiAliasingIdx >= 1 && antiAliasingIdx <= 3 ? antiAliasingIdx : 0); }
+    int effectivePostAAIdx() const { return postAAIdx >= 0 ? postAAIdx :
+        (antiAliasingIdx >= 4 ? antiAliasingIdx - 3 : 0); }
+    void setLegacyAA(int mode) { antiAliasingIdx = mode; msaaIdx = postAAIdx = -1; }
 
     // Visual Inspection & Diagnostics
     bool wireframeOverlay = false;         // Overlay wireframe mesh edges on top of shaded model

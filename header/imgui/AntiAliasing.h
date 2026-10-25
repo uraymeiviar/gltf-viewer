@@ -13,7 +13,7 @@ namespace ux3d::imgui {
 enum class AntiAliasingMode {
     None = 0,
     MSAA_2x = 1,
-    MSAA_4x = 2, // Recommended default
+    MSAA_4x = 2, // Legacy mode values are stable for automation
     MSAA_8x = 3,
     FXAA = 4,
     TAA = 5

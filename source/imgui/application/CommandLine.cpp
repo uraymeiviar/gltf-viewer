@@ -263,6 +263,8 @@ std::optional<int> Application::configure(int argc, char** argv)
         if (arg == "--dump-frame" && i + 1 < argc) {
             dumpFramePath = argv[++i];
             dumpFrameCountdown = 8;
+        } else if (arg == "--dump-next-frame" && i + 1 < argc) {
+            dumpNextFramePath = argv[++i];
         } else if (arg == "--decal-prepass-check" && i + 1 < argc) {
             // A2.1 diagnostic: read the prepass depth/G0 and the forward depth/geometry
             // normal after the warm-up frames, write a JSON report, then exit. Redraw
@@ -546,17 +548,19 @@ std::optional<int> Application::configure(int argc, char** argv)
         } else if ((arg == "--aa" || arg == "--anti-aliasing") && i + 1 < argc) {
             std::string aaVal = argv[++i];
             if (aaVal == "none" || aaVal == "0")
-                activeViewport->settings.antiAliasingIdx = 0;
+                activeViewport->settings.setLegacyAA(0);
             else if (aaVal == "msaa2" || aaVal == "1")
-                activeViewport->settings.antiAliasingIdx = 1;
+                activeViewport->settings.setLegacyAA(1);
             else if (aaVal == "msaa4" || aaVal == "2")
-                activeViewport->settings.antiAliasingIdx = 2;
+                activeViewport->settings.setLegacyAA(2);
             else if (aaVal == "msaa8" || aaVal == "3")
-                activeViewport->settings.antiAliasingIdx = 3;
+                activeViewport->settings.setLegacyAA(3);
             else if (aaVal == "fxaa" || aaVal == "4")
-                activeViewport->settings.antiAliasingIdx = 4;
+                activeViewport->settings.setLegacyAA(4);
             else if (aaVal == "taa" || aaVal == "5")
-                activeViewport->settings.antiAliasingIdx = 5;
+                activeViewport->settings.setLegacyAA(5);
+        } else if ((arg == "--msaa" || arg == "--post-aa") && i + 1 < argc) {
+            ++i; // Applied in a second pass, after every legacy --aa argument.
         } else if (arg == "--hdr-rotation" && i + 1 < argc) {
             cliHdrRotation = std::stof(argv[++i]);
             cliHdrRotationProvided = true;
@@ -591,6 +595,21 @@ std::optional<int> Application::configure(int argc, char** argv)
         }
     }
 
+    for (int i = 1; i + 1 < argc; ++i) {
+        const std::string arg = argv[i];
+        if (arg == "--msaa") {
+            const std::string value = argv[++i];
+            if (value == "0" || value == "2" || value == "4" || value == "8")
+                activeViewport->settings.msaaIdx = value == "0" ? 0 : value == "2" ? 1 : value == "4" ? 2 : 3;
+            else { std::fprintf(stderr, "Invalid --msaa: %s\n", value.c_str()); return 1; }
+        } else if (arg == "--post-aa") {
+            const std::string value = argv[++i];
+            if (value == "none" || value == "fxaa" || value == "taa")
+                activeViewport->settings.postAAIdx = value == "none" ? 0 : value == "fxaa" ? 1 : 2;
+            else { std::fprintf(stderr, "Invalid --post-aa: %s\n", value.c_str()); return 1; }
+        }
+    }
+
     ux3d::imgui::profiling::setCountingEnabled(s_profilingEnabled);
 
     // A2.1 check: the forward depth readback requires a single-sample target. The check
@@ -598,7 +617,7 @@ std::optional<int> Application::configure(int argc, char** argv)
     if (!s_decalPrepassCheckPath.empty()) {
         for (auto& vp : viewports) {
             if (vp) {
-                vp->settings.antiAliasingIdx = 0;
+                vp->settings.setLegacyAA(0);
             }
         }
     }
