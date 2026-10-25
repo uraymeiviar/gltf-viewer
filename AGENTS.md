@@ -177,6 +177,7 @@ Replaces the legacy external `gltf_validator.exe` subprocess with a native, 100%
   - Degenerate (zero-area) triangle detection.
   - Animation timeline monotonicity ($t_{i+1} > t_i$) and interpolation output count checks.
   - Scene hierarchy cycle detection (DFS loop checking) and multi-parent rule checks.
+  - External resource URI portability checks (warnings for absolute paths, infos for external URLs).
 - **Interactive UI (`ValidationPanel`)**:
   - Filterable issues table with Errors (🔴), Warnings (🟡), and Infos (🔵).
   - Quick-search filter by code, JSON pointer, or message.

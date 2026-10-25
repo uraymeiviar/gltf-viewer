@@ -71,6 +71,9 @@ public:
         } else if (pstr.rfind("/images/", 0) == 0) {
             type = SelectionType::Image;
             std::sscanf(pstr.c_str(), "/images/%d", &idx);
+        } else if (pstr.rfind("/buffers/", 0) == 0) {
+            type = SelectionType::Buffer;
+            std::sscanf(pstr.c_str(), "/buffers/%d", &idx);
         } else if (pstr.rfind("/skins/", 0) == 0) {
             type = SelectionType::Skin;
             std::sscanf(pstr.c_str(), "/skins/%d", &idx);
@@ -232,6 +235,8 @@ ValidationReport GltfValidator::validate(const std::string& filePath, ux3d::gltf
     for (auto& t : gltfModel.getElements<ux3d::gltf::Texture>()) texList.push_back(&t);
     std::vector<ux3d::gltf::Image*> imgList;
     for (auto& img : gltfModel.getElements<ux3d::gltf::Image>()) imgList.push_back(&img);
+    std::vector<ux3d::gltf::Buffer*> bufList;
+    for (auto& b : gltfModel.getElements<ux3d::gltf::Buffer>()) bufList.push_back(&b);
 
     // -------------------------------------------------------------
     // Step 1: Ingest Raw Asset Text / Binary
@@ -876,6 +881,67 @@ ValidationReport GltfValidator::validate(const std::string& filePath, ux3d::gltf
         report.addIssue(ValidationSeverity::Info, "ASOBO_EXTENSIONS_NOT_RENDERED", message, "/extensionsUsed");
     }
 
+    // 3.10 External Resource URIs (portability checks for buffers and images)
+    auto startsWithCi = [](std::string_view str, std::string_view prefix) -> bool {
+        if (str.size() < prefix.size()) return false;
+        for (size_t i = 0; i < prefix.size(); ++i) {
+            if (std::tolower(static_cast<unsigned char>(str[i])) !=
+                std::tolower(static_cast<unsigned char>(prefix[i]))) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    auto checkUri = [&](const std::string& uri, const std::string& ptr, SelectionType selType, int elemIdx, void* obj) {
+        if (startsWithCi(uri, "data:")) {
+            return;
+        }
+        if (startsWithCi(uri, "http://") || startsWithCi(uri, "https://")) {
+            report.addIssue(ValidationSeverity::Info, "URI_EXTERNAL_URL",
+                            "URI '" + uri + "' is an external URL; remote resources may not be available offline.",
+                            ptr, selType, elemIdx, obj);
+            return;
+        }
+
+        const bool isWindowsDrive = (uri.size() >= 3 && std::isalpha(static_cast<unsigned char>(uri[0])) &&
+                                     uri[1] == ':' && (uri[2] == '/' || uri[2] == '\\'));
+        const bool isUncOrRoot = (!uri.empty() && (uri[0] == '/' || uri[0] == '\\'));
+        const bool isFileScheme = startsWithCi(uri, "file:");
+
+        if (isFileScheme || isWindowsDrive || isUncOrRoot) {
+            report.addIssue(ValidationSeverity::Warning, "URI_ABSOLUTE_PATH",
+                            "URI '" + uri + "' is an absolute path, which is not portable across systems.",
+                            ptr, selType, elemIdx, obj);
+        }
+    };
+
+    if (jsonDoc.contains("buffers") && jsonDoc["buffers"].is_array()) {
+        int bIdx = 0;
+        for (const auto& buf : jsonDoc["buffers"]) {
+            if (buf.is_object() && buf.contains("uri") && buf["uri"].is_string()) {
+                const std::string uri = buf["uri"].get<std::string>();
+                const std::string ptr = "/buffers/" + std::to_string(bIdx) + "/uri";
+                void* obj = (bIdx < static_cast<int>(bufList.size())) ? bufList[bIdx] : nullptr;
+                checkUri(uri, ptr, SelectionType::Buffer, bIdx, obj);
+            }
+            bIdx++;
+        }
+    }
+
+    if (jsonDoc.contains("images") && jsonDoc["images"].is_array()) {
+        int imgIdx = 0;
+        for (const auto& img : jsonDoc["images"]) {
+            if (img.is_object() && img.contains("uri") && img["uri"].is_string()) {
+                const std::string uri = img["uri"].get<std::string>();
+                const std::string ptr = "/images/" + std::to_string(imgIdx) + "/uri";
+                void* obj = (imgIdx < static_cast<int>(imgList.size())) ? imgList[imgIdx] : nullptr;
+                checkUri(uri, ptr, SelectionType::Image, imgIdx, obj);
+            }
+            imgIdx++;
+        }
+    }
+
     // Correlate target objects with target indices for issues gathered in Tier 1
     for (auto& issue : report.issues) {
         if (issue.targetObject == nullptr && issue.targetIndex >= 0) {
@@ -903,6 +969,9 @@ ValidationReport GltfValidator::validate(const std::string& filePath, ux3d::gltf
                     break;
                 case SelectionType::Image:
                     if (issue.targetIndex < (int)imgList.size()) issue.targetObject = imgList[issue.targetIndex];
+                    break;
+                case SelectionType::Buffer:
+                    if (issue.targetIndex < (int)bufList.size()) issue.targetObject = bufList[issue.targetIndex];
                     break;
                 default: break;
             }
