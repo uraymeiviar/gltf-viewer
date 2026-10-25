@@ -330,40 +330,9 @@ bool MaterialInspector::render(ux3d::gltf::Material* material, ux3d::gltf::Gltf&
     std::string vendorHeader = "MSFS & Vendor Extensions (" + std::to_string(material->getUnknownExtensions().size()) + ")";
     if (ImGui::CollapsingHeader(vendorHeader.c_str(), hasVendorExts ? ImGuiTreeNodeFlags_DefaultOpen : 0)) {
         if (hasVendorExts) {
-            if (ExtensionInspector::instance().renderExtensions(material, gltfModel, revisions)) {
-                modified = true;
-            }
-            ImGui::Separator();
+            ExtensionInspector::instance().renderExtensions(material, gltfModel, revisions);
         } else {
             ImGui::TextDisabled("No vendor extensions defined on this material.");
-        }
-
-        // Add Extension Button
-        if (ImGui::Button("+ Add MSFS Extension...")) {
-            ImGui::OpenPopup("AddMsfsExtensionPopup");
-        }
-
-        if (ImGui::BeginPopup("AddMsfsExtensionPopup")) {
-            ImGui::TextDisabled("Select an extension to attach:");
-            ImGui::Separator();
-            for (const auto& name : ExtensionInspector::instance().getAvailableExtensionNames()) {
-                if (name.rfind("ASOBO_material_", 0) == 0 || name == "ASOBO_normal_map_convention" || name == "ASOBO_extra_occlusion_texture" || name == "ASOBO_occlusion_strength") {
-                    std::string label = ExtensionInspector::formatExtensionLabel(name);
-                    bool alreadyHas = material->getUnknownExtensions().count(name) != 0;
-                    if (alreadyHas) {
-                        ImGui::BeginDisabled();
-                    }
-                    if (ImGui::MenuItem(label.c_str())) {
-                        material->setUnknownExtension(name, "{}");
-                        modified = true;
-                        revisions.mark(SceneChange::Material);
-                    }
-                    if (alreadyHas) {
-                        ImGui::EndDisabled();
-                    }
-                }
-            }
-            ImGui::EndPopup();
         }
     }
 

@@ -195,6 +195,7 @@ Replaces the legacy external `gltf_validator.exe` subprocess with a native, 100%
 - **Hierarchy rows:** hiding a node greys its whole subtree (the renderer inherits visibility the same way); the selected row is light green. Long labels scroll horizontally (the list has a horizontal scrollbar), and the pinned eye buttons have an opaque background and reserved space so they never overlap the label.
 - The **Camera & Helpers** tab keeps two camera-preset buttons per row and edits Zoom, Rotation, Look Target, FoV and the Near/Far clipping planes with drag fields; the camera actions are disabled while attached to a glTF camera.
 - **Node inspector:** the object name is read-only (renaming is disabled in the viewer). The Transform header has **Local** and **Global** tabs; Global shows world-space translation/rotation/scale and converts edits back into local TRS through the parent's inverse world transform.
+- **Extension inspector:** MSFS and vendor extensions are read-only plain text (no add/remove controls, no document edits); ASOBO extensions with viewport support provide an on/off display switch for the active viewport in their header.
 - **File → Close** reloads the embedded default sample model, resetting the application to its initial scene.
 
 ### 3.9 Animation Menu

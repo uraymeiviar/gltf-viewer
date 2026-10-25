@@ -17,6 +17,7 @@
 #include "gltf/GlTypes.h"
 #include "gltf/AttributeType.h"
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/quaternion.hpp>
@@ -508,6 +509,33 @@ void ElementInspector::render(SelectionState& selection,
         ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Select an element from the Hierarchy or Resources panel.");
         return;
     }
+
+    ViewportInstance* activeViewport = nullptr;
+    if (viewports != nullptr && !viewports->empty()) {
+        if (viewports->size() == 1) {
+            activeViewport = (*viewports)[0].get();
+        } else {
+            ImGuiContext* g = ImGui::GetCurrentContext();
+            if (g != nullptr) {
+                for (int i = g->WindowsFocusOrder.Size - 1; i >= 0; --i) {
+                    ImGuiWindow* win = g->WindowsFocusOrder[i];
+                    if (!win || !win->Name) continue;
+                    for (auto& vp : *viewports) {
+                        std::string idTag = "###Viewport_" + std::to_string(vp->id);
+                        if (std::strstr(win->Name, idTag.c_str()) != nullptr) {
+                            activeViewport = vp.get();
+                            break;
+                        }
+                    }
+                    if (activeViewport != nullptr) break;
+                }
+            }
+            if (activeViewport == nullptr) {
+                activeViewport = (*viewports)[0].get();
+            }
+        }
+    }
+    ExtensionInspector::instance().setActiveViewport(activeViewport);
 
     const bool packagedTextures = gltfModel.isExtensionDeclared("ASOBO_asset_optimized");
     const bool ddsDeclared = gltfModel.isExtensionDeclared("MSFT_texture_dds");

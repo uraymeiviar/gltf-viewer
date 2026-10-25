@@ -4,6 +4,7 @@
 #include "imgui/EmbeddedVFS.h"
 #include "imgui/IconsMaterialDesignIcons.h"
 #include "imgui/TextureUtils.h"
+#include "imgui/ViewportInstance.h"
 #include "gltf/Texture.h"
 #include "gltf/Image.h"
 #include "gltf/extensions/AsoboExtensions.h"
@@ -13,6 +14,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <sstream>
+#include <unordered_set>
 
 namespace ux3d::imgui {
 
@@ -228,7 +230,6 @@ std::string ExtensionInspector::formatExtensionLabel(const std::string& extensio
 
     if (s.rfind("ASOBO_material_", 0) == 0) {
         std::string stem = s.substr(15);
-        // Replace underscores with spaces
         for (char& c : stem) if (c == '_') c = ' ';
         if (!stem.empty()) stem[0] = static_cast<char>(std::toupper(stem[0]));
         return stem + " (ASOBO)";
@@ -272,10 +273,7 @@ bool ExtensionInspector::renderExtensions(ux3d::gltf::GltfObject* object,
         return false;
     }
 
-    bool modified = false;
-    std::string extToRemove = "";
-
-    for (auto& [extName, jsonStr] : unknownExts) {
+    for (const auto& [extName, jsonStr] : unknownExts) {
         ImGui::PushID(extName.c_str());
 
         nlohmann::json extJson;
@@ -292,17 +290,11 @@ bool ExtensionInspector::renderExtensions(ux3d::gltf::GltfObject* object,
         bool headerOpen = ImGui::TreeNodeEx(label.c_str(),
                                            ImGuiTreeNodeFlags_DefaultOpen |
                                            ImGuiTreeNodeFlags_Framed |
-                                           ImGuiTreeNodeFlags_SpanAvailWidth);
-
-        // Remove extension button on right click or small trash icon
-        if (ImGui::BeginPopupContextItem()) {
-            if (ImGui::MenuItem("Remove Extension")) {
-                extToRemove = extName;
-            }
-            ImGui::EndPopup();
-        }
+                                           ImGuiTreeNodeFlags_SpanAvailWidth |
+                                           ImGuiTreeNodeFlags_AllowOverlap);
 
         namespace asobo = ux3d::gltf::asobo;
+        bool hasViewportSwitch = false;
         if (asobo::isAsoboExtension(extName) || extName == "MSFT_texture_dds") {
             const auto info = asobo::supportOf(extName);
             const char* status = asobo::supportLabel(info.status);
@@ -323,6 +315,42 @@ bool ExtensionInspector::renderExtensions(ux3d::gltf::GltfObject* object,
                 if (!info.note.empty()) ImGui::TextUnformatted(info.note.data(), info.note.data() + info.note.size());
                 ImGui::EndTooltip();
             }
+
+            if (asobo::isAsoboExtension(extName) &&
+                (info.status == asobo::Support::Rendered || info.status == asobo::Support::Partial) &&
+                info.viewportSwitch) {
+                hasViewportSwitch = true;
+            }
+        }
+
+        if (hasViewportSwitch) {
+            ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x * 2.0f);
+            bool applied = true;
+            bool switchEnabled = false;
+            if (m_activeViewport != nullptr) {
+                applied = std::find(m_activeViewport->settings.asobo.disabled.begin(),
+                                    m_activeViewport->settings.asobo.disabled.end(),
+                                    extName) == m_activeViewport->settings.asobo.disabled.end();
+                switchEnabled = m_activeViewport->settings.asobo.enabled;
+            }
+
+            if (!switchEnabled) {
+                ImGui::BeginDisabled();
+            }
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f));
+            if (ImGui::Checkbox("##viewportToggle", &applied)) {
+                if (m_activeViewport != nullptr) {
+                    m_activeViewport->settings.asobo.setApplied(extName, applied);
+                    revisions.mark(SceneChange::ViewportSettings);
+                }
+            }
+            ImGui::PopStyleVar();
+            if (!switchEnabled) {
+                ImGui::EndDisabled();
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                ImGui::SetTooltip("Display only: turns this extension off in the active viewport; the file is unchanged.");
+            }
         }
 
         if (headerOpen) {
@@ -335,11 +363,7 @@ bool ExtensionInspector::renderExtensions(ux3d::gltf::GltfObject* object,
                 ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Malformed JSON syntax");
                 ImGui::TextWrapped("%s", jsonStr.c_str());
             } else {
-                if (renderSingleExtension(extName, extJson, schema, gltfModel)) {
-                    object->setUnknownExtension(extName, extJson.dump(4));
-                    modified = true;
-                    revisions.mark(SceneChange::Extension);
-                }
+                renderSingleExtension(extName, extJson, schema, gltfModel);
             }
 
             ImGui::TreePop();
@@ -348,25 +372,22 @@ bool ExtensionInspector::renderExtensions(ux3d::gltf::GltfObject* object,
         ImGui::PopID();
     }
 
-    if (!extToRemove.empty()) {
-        object->removeUnknownExtension(extToRemove);
-        modified = true;
-        revisions.mark(SceneChange::Extension);
-    }
-
-    return modified;
+    return false;
 }
 
-bool ExtensionInspector::renderSingleExtension(const std::string& extName,
-                                               nlohmann::json& extJson,
+void ExtensionInspector::renderSingleExtension(const std::string& extName,
+                                               const nlohmann::json& extJson,
                                                const ExtensionSchemaInfo* schema,
                                                ux3d::gltf::Gltf& gltfModel)
 {
-    bool modified = false;
-
     if (!extJson.is_object()) {
         ImGui::TextDisabled("Value is not a JSON object: %s", extJson.dump().c_str());
-        return false;
+        return;
+    }
+
+    if (extJson.empty()) {
+        ImGui::TextDisabled("(No parameters)");
+        return;
     }
 
     std::unordered_set<std::string> renderedKeys;
@@ -377,331 +398,199 @@ bool ExtensionInspector::renderSingleExtension(const std::string& extName,
             auto itProp = schema->properties.find(propKey);
             if (itProp == schema->properties.end()) continue;
 
-            const auto& propDef = itProp->second;
+            if (!extJson.contains(propKey)) {
+                continue;
+            }
+
             renderedKeys.insert(propKey);
-
-            // If property doesn't exist yet in the JSON, provide default or initialize if edited
-            nlohmann::json currentVal;
-            if (extJson.contains(propKey)) {
-                currentVal = extJson[propKey];
-            } else if (!propDef.defaultValue.is_null()) {
-                currentVal = propDef.defaultValue;
-            } else if (propDef.isTexture) {
-                currentVal = nlohmann::json::object();
-            } else if (propDef.type == "boolean") {
-                currentVal = false;
-            } else if (propDef.type == "number") {
-                currentVal = 0.0;
-            } else if (propDef.type == "integer") {
-                currentVal = 0;
-            } else if (propDef.type == "string") {
-                currentVal = propDef.enumValues.empty() ? "" : propDef.enumValues.front();
-            }
-
-            if (renderPropertyWidget(propKey, currentVal, &propDef, gltfModel)) {
-                extJson[propKey] = currentVal;
-                modified = true;
-            }
+            renderPropertyReadOnly(propKey, extJson.at(propKey), &itProp->second, gltfModel);
         }
     }
 
     // 2. Render any remaining extra properties not described in the schema
-    for (auto& [k, v] : extJson.items()) {
+    for (const auto& [k, v] : extJson.items()) {
         if (renderedKeys.count(k) != 0 || k == "extensions" || k == "extras") {
             continue;
         }
 
-        if (renderGenericValue(k, v, gltfModel)) {
-            modified = true;
-        }
+        renderPropertyReadOnly(k, v, nullptr, gltfModel);
     }
-
-    return modified;
 }
 
-bool ExtensionInspector::renderPropertyWidget(const std::string& propKey,
-                                              nlohmann::json& propVal,
-                                              const ExtensionSchemaProperty* propDef,
-                                              ux3d::gltf::Gltf& gltfModel)
+void ExtensionInspector::renderPropertyReadOnly(const std::string& propKey,
+                                                const nlohmann::json& propVal,
+                                                const ExtensionSchemaProperty* propDef,
+                                                ux3d::gltf::Gltf& gltfModel)
 {
-    bool modified = false;
-    ImGui::PushID(propKey.c_str());
-
     std::string label = propKey;
     std::string desc = propDef ? propDef->description : "";
 
     // Texture property
-    if (propDef && propDef->isTexture) {
-        if (!propVal.is_object()) {
-            propVal = nlohmann::json::object();
-        }
-        if (renderTexturePicker(label.c_str(), propVal, desc, gltfModel)) {
-            modified = true;
-        }
-        ImGui::PopID();
-        return modified;
-    }
-
-    // String with Enum values
-    if (propDef && !propDef->enumValues.empty()) {
-        std::string currentVal = propVal.is_string() ? propVal.get<std::string>() : (propDef->enumValues.empty() ? "" : propDef->enumValues.front());
-        if (ImGui::BeginCombo(label.c_str(), currentVal.c_str())) {
-            for (const auto& opt : propDef->enumValues) {
-                bool isSel = (opt == currentVal);
-                if (ImGui::Selectable(opt.c_str(), isSel)) {
-                    propVal = opt;
-                    modified = true;
-                }
-                if (isSel) {
-                    ImGui::SetItemDefaultFocus();
-                }
-            }
-            ImGui::EndCombo();
-        }
-        helpMarker(desc);
-        ImGui::PopID();
-        return modified;
+    if ((propDef && propDef->isTexture) ||
+        propKey.find("Texture") != std::string::npos ||
+        propKey.find("Mask") != std::string::npos) {
+        renderTextureReadOnly(label, propVal, desc, gltfModel);
+        return;
     }
 
     // Boolean
-    if ((propDef && propDef->type == "boolean") || propVal.is_boolean()) {
-        bool b = propVal.is_boolean() ? propVal.get<bool>() : false;
-        if (ImGui::Checkbox(label.c_str(), &b)) {
-            propVal = b;
-            modified = true;
-        }
+    if (propVal.is_boolean()) {
+        ImGui::Text("%s: %s", label.c_str(), propVal.get<bool>() ? "true" : "false");
         helpMarker(desc);
-        ImGui::PopID();
-        return modified;
+        return;
     }
 
-    // Integer
-    if ((propDef && propDef->type == "integer") || propVal.is_number_integer()) {
-        int iVal = propVal.is_number() ? propVal.get<int>() : 0;
-        int minVal = (propDef && propDef->hasMinimum) ? static_cast<int>(propDef->minimum) : -10000;
-        int maxVal = (propDef && propDef->hasMaximum) ? static_cast<int>(propDef->maximum) : 10000;
-
-        if (propDef && propDef->hasMinimum && propDef->hasMaximum) {
-            if (ImGui::SliderInt(label.c_str(), &iVal, minVal, maxVal)) {
-                propVal = iVal;
-                modified = true;
-            }
+    // Number
+    if (propVal.is_number()) {
+        char buf[64];
+        if (propDef && propDef->type == "integer") {
+            std::snprintf(buf, sizeof(buf), "%lld", propVal.get<long long>());
+        } else if (propVal.is_number_integer() && (propDef == nullptr || propDef->type != "number")) {
+            std::snprintf(buf, sizeof(buf), "%lld", propVal.get<long long>());
         } else {
-            if (ImGui::DragInt(label.c_str(), &iVal, 1.0f, minVal, maxVal)) {
-                propVal = iVal;
-                modified = true;
-            }
+            std::snprintf(buf, sizeof(buf), "%.3f", propVal.get<double>());
         }
+        ImGui::Text("%s: %s", label.c_str(), buf);
         helpMarker(desc);
-        ImGui::PopID();
-        return modified;
-    }
-
-    // Number / Float
-    if ((propDef && propDef->type == "number") || propVal.is_number()) {
-        float fVal = propVal.is_number() ? propVal.get<float>() : 0.0f;
-        float minVal = (propDef && propDef->hasMinimum) ? static_cast<float>(propDef->minimum) : 0.0f;
-        float maxVal = (propDef && propDef->hasMaximum) ? static_cast<float>(propDef->maximum) : 1.0f;
-
-        if (propDef && propDef->hasMinimum && propDef->hasMaximum && (maxVal - minVal) <= 10.0f) {
-            if (ImGui::SliderFloat(label.c_str(), &fVal, minVal, maxVal, "%.3f")) {
-                propVal = static_cast<double>(fVal);
-                modified = true;
-            }
-        } else {
-            float step = (propKey.find("Scale") != std::string::npos || propKey.find("Tiling") != std::string::npos) ? 0.1f : 0.01f;
-            if (ImGui::DragFloat(label.c_str(), &fVal, step, 0.0f, 0.0f, "%.3f")) {
-                propVal = static_cast<double>(fVal);
-                modified = true;
-            }
-        }
-        helpMarker(desc);
-        ImGui::PopID();
-        return modified;
+        return;
     }
 
     // String
-    if ((propDef && propDef->type == "string") || propVal.is_string()) {
-        std::string sVal = propVal.is_string() ? propVal.get<std::string>() : "";
-        char buf[256];
-        std::strncpy(buf, sVal.c_str(), sizeof(buf));
-        buf[sizeof(buf) - 1] = '\0';
-
-        if (ImGui::InputText(label.c_str(), buf, sizeof(buf))) {
-            propVal = std::string(buf);
-            modified = true;
-        }
+    if (propVal.is_string()) {
+        ImGui::Text("%s: %s", label.c_str(), propVal.get<std::string>().c_str());
         helpMarker(desc);
-        ImGui::PopID();
-        return modified;
+        return;
     }
 
-    // Array (e.g. Color or Vector)
+    // Array
     if (propVal.is_array()) {
-        size_t arrSize = propVal.size();
-        bool allNumbers = true;
+        bool allPrimitives = true;
         for (const auto& el : propVal) {
-            if (!el.is_number()) { allNumbers = false; break; }
+            if (el.is_object() || el.is_array()) {
+                allPrimitives = false;
+                break;
+            }
         }
 
-        if (allNumbers && arrSize == 3 && propKey.find("Color") != std::string::npos) {
-            float col[3] = { propVal[0].get<float>(), propVal[1].get<float>(), propVal[2].get<float>() };
-            if (ImGui::ColorEdit3(label.c_str(), col)) {
-                propVal[0] = col[0];
-                propVal[1] = col[1];
-                propVal[2] = col[2];
-                modified = true;
-            }
-            helpMarker(desc);
-            ImGui::PopID();
-            return modified;
-        }
-        if (allNumbers && arrSize == 4 && propKey.find("Color") != std::string::npos) {
-            float col[4] = { propVal[0].get<float>(), propVal[1].get<float>(), propVal[2].get<float>(), propVal[3].get<float>() };
-            if (ImGui::ColorEdit4(label.c_str(), col)) {
-                propVal[0] = col[0];
-                propVal[1] = col[1];
-                propVal[2] = col[2];
-                propVal[3] = col[3];
-                modified = true;
-            }
-            helpMarker(desc);
-            ImGui::PopID();
-            return modified;
-        }
-        if (allNumbers && (arrSize >= 2 && arrSize <= 4)) {
-            float v[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-            for (size_t i = 0; i < arrSize; ++i) v[i] = propVal[i].get<float>();
-            bool changed = false;
-            if (arrSize == 2) changed = ImGui::DragFloat2(label.c_str(), v, 0.01f);
-            else if (arrSize == 3) changed = ImGui::DragFloat3(label.c_str(), v, 0.01f);
-            else if (arrSize == 4) changed = ImGui::DragFloat4(label.c_str(), v, 0.01f);
-            if (changed) {
-                for (size_t i = 0; i < arrSize; ++i) propVal[i] = v[i];
-                modified = true;
-            }
-            helpMarker(desc);
-            ImGui::PopID();
-            return modified;
-        }
-
-        // Generic array
-        if (ImGui::TreeNode(label.c_str())) {
-            helpMarker(desc);
-            for (size_t i = 0; i < arrSize; ++i) {
-                std::string itemKey = "[" + std::to_string(i) + "]";
-                if (renderGenericValue(itemKey, propVal[i], gltfModel)) {
-                    modified = true;
+        if (allPrimitives) {
+            std::ostringstream ss;
+            ss << "[";
+            for (size_t i = 0; i < propVal.size(); ++i) {
+                if (i > 0) ss << ", ";
+                const auto& el = propVal[i];
+                if (el.is_number()) {
+                    char nbuf[32];
+                    if (el.is_number_float() || (propDef && propDef->type == "number")) {
+                        std::snprintf(nbuf, sizeof(nbuf), "%.3f", el.get<double>());
+                    } else {
+                        std::snprintf(nbuf, sizeof(nbuf), "%lld", el.get<long long>());
+                    }
+                    ss << nbuf;
+                } else if (el.is_boolean()) {
+                    ss << (el.get<bool>() ? "true" : "false");
+                } else if (el.is_string()) {
+                    ss << "\"" << el.get<std::string>() << "\"";
+                } else {
+                    ss << el.dump();
                 }
             }
-            ImGui::TreePop();
+            ss << "]";
+            ImGui::Text("%s: %s", label.c_str(), ss.str().c_str());
+            helpMarker(desc);
+        } else {
+            if (ImGui::TreeNode(label.c_str())) {
+                helpMarker(desc);
+                for (size_t i = 0; i < propVal.size(); ++i) {
+                    std::string itemKey = "[" + std::to_string(i) + "]";
+                    renderPropertyReadOnly(itemKey, propVal[i], nullptr, gltfModel);
+                }
+                ImGui::TreePop();
+            }
         }
-        ImGui::PopID();
-        return modified;
+        return;
     }
 
     // Generic Object
     if (propVal.is_object()) {
         if (ImGui::TreeNode(label.c_str())) {
             helpMarker(desc);
-            for (auto& [subK, subV] : propVal.items()) {
-                if (renderGenericValue(subK, subV, gltfModel)) {
-                    modified = true;
-                }
+            for (const auto& [subK, subV] : propVal.items()) {
+                renderPropertyReadOnly(subK, subV, nullptr, gltfModel);
             }
             ImGui::TreePop();
         }
-        ImGui::PopID();
-        return modified;
+        return;
     }
 
-    ImGui::PopID();
-    return false;
+    // Null
+    if (propVal.is_null()) {
+        ImGui::Text("%s: null", label.c_str());
+        helpMarker(desc);
+        return;
+    }
+
+    ImGui::Text("%s: %s", label.c_str(), propVal.dump().c_str());
+    helpMarker(desc);
 }
 
-bool ExtensionInspector::renderGenericValue(const std::string& key,
-                                            nlohmann::json& val,
-                                            ux3d::gltf::Gltf& gltfModel)
+void ExtensionInspector::renderTextureReadOnly(const std::string& label,
+                                               const nlohmann::json& texVal,
+                                               const std::string& tooltip,
+                                               ux3d::gltf::Gltf& gltfModel)
 {
-    return renderPropertyWidget(key, val, nullptr, gltfModel);
-}
+    std::string desc = tooltip;
+    bool hasTex = false;
+    uint32_t currentTexId = 0;
+    int texCoord = -1;
 
-bool ExtensionInspector::renderTexturePicker(const char* label,
-                                             nlohmann::json& texObj,
-                                             const std::string& tooltip,
-                                             ux3d::gltf::Gltf& gltfModel)
-{
-    bool modified = false;
-    auto& textures = gltfModel.getElements<ux3d::gltf::Texture>();
+    if (texVal.is_object()) {
+        if (texVal.contains("index") && texVal["index"].is_number()) {
+            hasTex = true;
+            currentTexId = texVal["index"].get<uint32_t>();
+        }
+        if (texVal.contains("texCoord") && texVal["texCoord"].is_number()) {
+            texCoord = texVal["texCoord"].get<int>();
+        }
+    } else if (texVal.is_number()) {
+        hasTex = true;
+        currentTexId = texVal.get<uint32_t>();
+    }
 
-    bool hasTex = texObj.contains("index") && texObj["index"].is_number();
-    uint32_t currentTexId = hasTex ? texObj["index"].get<uint32_t>() : 0;
+    if (!hasTex) {
+        ImGui::Text("%s: None", label.c_str());
+        helpMarker(desc);
+        return;
+    }
 
-    std::string previewName = "None";
-    if (hasTex) {
-        for (auto& t : textures) {
-            if (t.m_ID == currentTexId) {
-                previewName = getTextureDisplayName(&t);
-                break;
-            }
+    const ux3d::gltf::Texture* foundTex = nullptr;
+    for (const auto& t : gltfModel.getElements<ux3d::gltf::Texture>()) {
+        if (t.m_ID == currentTexId) {
+            foundTex = &t;
+            break;
         }
     }
 
-    if (ImGui::BeginCombo(label, previewName.c_str())) {
-        bool isNoneSelected = !hasTex;
-        if (ImGui::Selectable("None", isNoneSelected)) {
-            texObj.erase("index");
-            modified = true;
+    std::string texDisplay;
+    if (foundTex != nullptr) {
+        std::string nameOrUri;
+        if (foundTex->getSource() != nullptr && !foundTex->getSource()->getUri().empty()) {
+            nameOrUri = foundTex->getSource()->getUri().c_str();
+        } else if (foundTex->getSource() != nullptr && foundTex->getSource()->hasName() && !foundTex->getSource()->getName().empty()) {
+            nameOrUri = foundTex->getSource()->getName().c_str();
+        } else {
+            nameOrUri = getTextureDisplayName(foundTex);
         }
-        if (isNoneSelected) {
-            ImGui::SetItemDefaultFocus();
-        }
-
-        for (auto& tex : textures) {
-            bool isSelected = hasTex && (currentTexId == tex.m_ID);
-            std::string itemLabel = getTextureDisplayName(&tex);
-            if (ImGui::Selectable(itemLabel.c_str(), isSelected)) {
-                texObj["index"] = tex.m_ID;
-                modified = true;
-            }
-            if (isSelected) {
-                ImGui::SetItemDefaultFocus();
-            }
-        }
-        ImGui::EndCombo();
-    }
-    helpMarker(tooltip);
-
-    if (hasTex) {
-        for (auto& t : textures) {
-            if (t.m_ID == currentTexId && t.getSource() != nullptr) {
-                auto* src = t.getSource();
-                if (!src->getUri().empty()) {
-                    ImGui::TextDisabled("File: %s", src->getUri().c_str());
-                }
-                auto res = src->getResolution();
-                if (res.size() >= 2 && res[0] > 0 && res[1] > 0) {
-                    ImGui::SameLine();
-                    ImGui::TextDisabled("(%ux%u px)", res[0], res[1]);
-                }
-                break;
-            }
-        }
+        texDisplay = nameOrUri + " [Texture " + std::to_string(currentTexId) + "]";
+    } else {
+        texDisplay = "[Texture " + std::to_string(currentTexId) + "]";
     }
 
-    // If texture is selected, show UV coordinate set if user wants to customize
-    if (hasTex) {
-        ImGui::Indent(15.0f);
-        int tc = texObj.value("texCoord", 0);
-        std::string tcLabel = std::string(label) + " UV Set";
-        if (ImGui::SliderInt(tcLabel.c_str(), &tc, 0, 3)) {
-            texObj["texCoord"] = tc;
-            modified = true;
-        }
-        ImGui::Unindent(15.0f);
+    if (texCoord >= 0) {
+        texDisplay += " (UV Set " + std::to_string(texCoord) + ")";
     }
 
-    return modified;
+    ImGui::Text("%s: %s", label.c_str(), texDisplay.c_str());
+    helpMarker(desc);
 }
 
 } // namespace ux3d::imgui
