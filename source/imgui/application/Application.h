@@ -196,6 +196,8 @@ private:
     std::string getWindowStateConfigPath();
     WindowState loadWindowState();
     void saveWindowState(GLFWwindow* window);
+    void loadImguiLayout();
+    void saveImguiLayout();
     bool parseWindowSize(const std::string& text, int& width, int& height);
     bool parseFloat3(const std::string& text, float& x, float& y, float& z);
     static std::string toLowerAscii(std::string text);

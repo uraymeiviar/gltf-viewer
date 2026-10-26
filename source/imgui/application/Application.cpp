@@ -156,9 +156,9 @@ int Application::run(int argc, char** argv)
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-    if (s_isolatedState) {
-        // Scenario runs must not inherit an interactive docking layout from imgui.ini.
-        io.IniFilename = nullptr;
+    io.IniFilename = nullptr;
+    if (!s_isolatedState) {
+        loadImguiLayout();
     }
 
     // Load FSS Fonts (fss-ui.ttf and fss-ui-mono.ttf with embedded MDI icons)
@@ -371,6 +371,10 @@ int Application::run(int argc, char** argv)
     }
     transmissionTarget.destroy();
     glassCopyFbo = ux3d::imgui::Framebuffer();
+
+    if (!s_isolatedState) {
+        saveImguiLayout();
+    }
 
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();

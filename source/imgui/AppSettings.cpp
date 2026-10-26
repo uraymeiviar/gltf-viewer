@@ -1,6 +1,7 @@
 // Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
 
 #include "imgui/AppSettings.h"
+#include "imgui/SettingsStorage.h"
 #include "core/Logger.h"
 
 #include <fstream>
@@ -187,51 +188,61 @@ void AppSettings::setResourceOptions(const ResourceDisplayOptions& options)
 
 bool AppSettings::loadSettings(const std::string& iniPath)
 {
-    std::string targetFile = iniPath.empty() ? m_iniPath : iniPath;
+    std::string targetFile = iniPath.empty() ? getDataFilePath("settings.ini").string() : iniPath;
+    m_iniPath = targetFile;
 
     std::error_code ec;
-    // Check if target file exists in current directory
-    if (!fs::exists(fs::u8path(targetFile), ec)) {
-        // Fallback: check alongside executable
-#ifdef _WIN32
-        char exeBuf[MAX_PATH];
-        DWORD len = GetModuleFileNameA(nullptr, exeBuf, MAX_PATH);
-        if (len > 0) {
-            fs::path exeDir = fs::path(exeBuf).parent_path();
-            fs::path alt = exeDir / targetFile;
-            if (fs::exists(alt, ec)) {
-                targetFile = alt.generic_string();
-            }
-        }
-#endif
-    }
-
     if (!fs::exists(fs::u8path(targetFile), ec)) {
         // File does not exist yet; save default settings
         saveSettings(targetFile);
         return false;
     }
 
-    std::ifstream in(targetFile);
+    std::ifstream in(fs::u8path(targetFile), std::ios::binary);
     if (!in.is_open()) {
+        static bool s_readFailLogged = false;
+        if (!s_readFailLogged) {
+            logSettingsMessage("Failed to read settings.ini: unable to open file; using defaults.", true);
+            s_readFailLogged = true;
+        }
+        return false;
+    }
+
+    std::string rawContent((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    bool hasBinary = false;
+    for (unsigned char c : rawContent) {
+        if (c < 0x09 || (c > 0x0D && c < 0x20)) {
+            hasBinary = true;
+            break;
+        }
+    }
+    if (hasBinary) {
+        static bool s_corruptLogged = false;
+        if (!s_corruptLogged) {
+            logSettingsMessage("Corrupt or invalid settings.ini detected; using defaults.", true);
+            s_corruptLogged = true;
+        }
         return false;
     }
 
     std::lock_guard<std::mutex> lock(m_mutex);
     m_searchPaths.clear();
 
+    std::istringstream iss(rawContent);
     std::string line;
     bool inSearchPathsSection = false;
     bool inSceneHierarchySection = false;
     bool inResourcesSection = false;
+    bool parsedAnySection = false;
 
-    while (std::getline(in, line)) {
+    while (std::getline(iss, line)) {
         std::string trimmed = trimString(line);
         if (trimmed.empty() || trimmed[0] == ';' || trimmed[0] == '#') {
             continue;
         }
 
         if (trimmed[0] == '[') {
+            parsedAnySection = true;
             // Check section header
             if (trimmed.rfind("[SearchPaths]", 0) == 0 || trimmed.rfind("[SearchPaths", 0) == 0) {
                 inSearchPathsSection = true;
@@ -304,6 +315,15 @@ bool AppSettings::loadSettings(const std::string& iniPath)
         }
     }
 
+    if (!rawContent.empty() && !parsedAnySection) {
+        static bool s_corruptLogged = false;
+        if (!s_corruptLogged) {
+            logSettingsMessage("Corrupt or invalid settings.ini detected; using defaults.", true);
+            s_corruptLogged = true;
+        }
+        return false;
+    }
+
     m_iniPath = targetFile;
     return true;
 }
@@ -311,13 +331,26 @@ bool AppSettings::loadSettings(const std::string& iniPath)
 bool AppSettings::saveSettings(const std::string& iniPath)
 {
     std::string targetFile = iniPath.empty() ? m_iniPath : iniPath;
+    if (targetFile.empty() || targetFile == "settings.ini") {
+        targetFile = getDataFilePath("settings.ini").string();
+    }
+    m_iniPath = targetFile;
+
+    if (!isDataDirectoryWritable()) {
+        static bool s_unwritableLogged = false;
+        if (!s_unwritableLogged) {
+            logSettingsMessage("Failed to write settings.ini: directory is not writable; changes kept in memory.", true);
+            s_unwritableLogged = true;
+        }
+        return false;
+    }
 
     std::vector<std::string> preservedLines;
     bool fileExisted = false;
 
     std::error_code ec;
     if (fs::exists(fs::u8path(targetFile), ec)) {
-        std::ifstream in(targetFile);
+        std::ifstream in(fs::u8path(targetFile));
         if (in.is_open()) {
             fileExisted = true;
             std::string line;
@@ -343,8 +376,13 @@ bool AppSettings::saveSettings(const std::string& iniPath)
         }
     }
 
-    std::ofstream out(targetFile);
-    if (!out.is_open()) {
+    std::ofstream out(fs::u8path(targetFile), std::ios::out | std::ios::trunc);
+    if (!out.is_open() || out.fail()) {
+        static bool s_saveFailLogged = false;
+        if (!s_saveFailLogged) {
+            logSettingsMessage("Failed to write settings.ini: file is not writable; changes kept in memory.", true);
+            s_saveFailLogged = true;
+        }
         return false;
     }
 
@@ -388,6 +426,15 @@ bool AppSettings::saveSettings(const std::string& iniPath)
     // Write any preserved other sections
     for (const auto& pl : preservedLines) {
         out << pl << "\n";
+    }
+
+    if (out.fail()) {
+        static bool s_writeErrLogged = false;
+        if (!s_writeErrLogged) {
+            logSettingsMessage("Failed to write settings.ini: write error; changes kept in memory.", true);
+            s_writeErrLogged = true;
+        }
+        return false;
     }
 
     m_iniPath = targetFile;

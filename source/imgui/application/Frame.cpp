@@ -89,6 +89,10 @@ void Application::runFrame()
 
     finishFrame(frame, displayW, displayH);
     glfwSwapBuffers(window);
+    if (!s_isolatedState && io.WantSaveIniSettings) {
+        io.WantSaveIniSettings = false;
+        saveImguiLayout();
+    }
     // P5.4: a frame is quiet when no input arrived, no viewport redrew, nothing is
     // pending for the next frame, and nothing animates. ImGui gets a few quiet
     // frames to settle hover and layout before the loop starts waiting.

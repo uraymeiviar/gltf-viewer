@@ -1,6 +1,8 @@
 // Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
 
 #include "imgui/RenderQuality.h"
+#include "imgui/SettingsStorage.h"
+#include <sstream>
 #include "imgui/UiProbe.h"
 #include "renderer/gltf/GltfRenderLayer.h"
 
@@ -33,14 +35,7 @@ bool isOneOf(T value, const T (&values)[N])
 
 std::filesystem::path configPath()
 {
-    const char* appData = std::getenv("APPDATA");
-    if (appData == nullptr || std::strlen(appData) == 0) {
-        return "render_quality.txt";
-    }
-    std::filesystem::path dir = std::filesystem::path(appData) / "Glider";
-    std::error_code ec;
-    std::filesystem::create_directories(dir, ec);
-    return dir / "render_quality.txt";
+    return getDataFilePath("render_quality.txt", s_persistenceEnabled);
 }
 
 uint64_t cubeBytes(uint32_t size, bool mips, uint32_t texelBytes)
@@ -160,23 +155,59 @@ void RenderQuality::load()
     if (!s_persistenceEnabled) {
         return;
     }
-    std::ifstream in(configPath());
+    const std::filesystem::path path = configPath();
+    std::error_code ec;
+    if (!std::filesystem::exists(path, ec)) {
+        return;
+    }
+    std::ifstream in(path, std::ios::binary);
     if (!in.is_open()) {
+        static bool s_readFailLogged = false;
+        if (!s_readFailLogged) {
+            logSettingsMessage("Failed to read render_quality.txt: unable to open file; using defaults.", true);
+            s_readFailLogged = true;
+        }
+        return;
+    }
+    std::string rawContent((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    bool hasBinary = false;
+    for (unsigned char c : rawContent) {
+        if (c < 0x09 || (c > 0x0D && c < 0x20)) {
+            hasBinary = true;
+            break;
+        }
+    }
+    if (hasBinary) {
+        static bool s_corruptLogged = false;
+        if (!s_corruptLogged) {
+            logSettingsMessage("Corrupt or invalid render_quality.txt detected; using defaults.", true);
+            s_corruptLogged = true;
+        }
         return;
     }
     RenderQualitySettings s = settings();
+    std::istringstream iss(rawContent);
     std::string key;
     double value = 0.0;
-    while (in >> key >> value) {
+    bool parsedAny = false;
+    while (iss >> key >> value) {
         const auto u = static_cast<uint32_t>(value);
-        if (key == "preset" && value >= 0 && value <= 3) s.preset = static_cast<QualityPreset>(u);
-        else if (key == "iblCubeSize") setChecked(s.iblCubeSize, u, kCubeSizes);
-        else if (key == "iblIrradianceSize") setChecked(s.iblIrradianceSize, u, kIrradianceSizes);
-        else if (key == "iblLutSize") setChecked(s.iblLutSize, u, kLutSizes);
-        else if (key == "iblHalfFloat") s.iblHalfFloat = value != 0.0;
-        else if (key == "iblSpecularSamples") setChecked(s.iblSpecularSamples, u, kSampleCounts);
-        else if (key == "gridMode" && (u == 0 || u == 1)) s.gridMode = static_cast<GridMode>(u);
-        else if (key == "renderScale") setChecked(s.renderScale, static_cast<float>(value), kRenderScales);
+        if (key == "preset" && value >= 0 && value <= 3) { s.preset = static_cast<QualityPreset>(u); parsedAny = true; }
+        else if (key == "iblCubeSize") { if (setChecked(s.iblCubeSize, u, kCubeSizes)) parsedAny = true; }
+        else if (key == "iblIrradianceSize") { if (setChecked(s.iblIrradianceSize, u, kIrradianceSizes)) parsedAny = true; }
+        else if (key == "iblLutSize") { if (setChecked(s.iblLutSize, u, kLutSizes)) parsedAny = true; }
+        else if (key == "iblHalfFloat") { s.iblHalfFloat = value != 0.0; parsedAny = true; }
+        else if (key == "iblSpecularSamples") { if (setChecked(s.iblSpecularSamples, u, kSampleCounts)) parsedAny = true; }
+        else if (key == "gridMode" && (u == 0 || u == 1)) { s.gridMode = static_cast<GridMode>(u); parsedAny = true; }
+        else if (key == "renderScale") { if (setChecked(s.renderScale, static_cast<float>(value), kRenderScales)) parsedAny = true; }
+    }
+    if (!rawContent.empty() && !parsedAny) {
+        static bool s_corruptLogged = false;
+        if (!s_corruptLogged) {
+            logSettingsMessage("Corrupt or invalid render_quality.txt detected; using defaults.", true);
+            s_corruptLogged = true;
+        }
+        return;
     }
     settings() = s;
 }
@@ -186,8 +217,22 @@ void RenderQuality::save()
     if (!s_persistenceEnabled) {
         return;
     }
-    std::ofstream out(configPath());
-    if (!out.is_open()) {
+    if (!isDataDirectoryWritable()) {
+        static bool s_unwritableLogged = false;
+        if (!s_unwritableLogged) {
+            logSettingsMessage("Failed to write render_quality.txt: directory is not writable; changes kept in memory.", true);
+            s_unwritableLogged = true;
+        }
+        return;
+    }
+    const std::filesystem::path path = configPath();
+    std::ofstream out(path, std::ios::out | std::ios::trunc);
+    if (!out.is_open() || out.fail()) {
+        static bool s_saveFailLogged = false;
+        if (!s_saveFailLogged) {
+            logSettingsMessage("Failed to write render_quality.txt: file is not writable; changes kept in memory.", true);
+            s_saveFailLogged = true;
+        }
         return;
     }
     const RenderQualitySettings& s = settings();
@@ -199,6 +244,13 @@ void RenderQuality::save()
     out << "iblSpecularSamples " << s.iblSpecularSamples << "\n";
     out << "gridMode " << static_cast<int>(s.gridMode) << "\n";
     out << "renderScale " << s.renderScale << "\n";
+    if (out.fail()) {
+        static bool s_writeErrLogged = false;
+        if (!s_writeErrLogged) {
+            logSettingsMessage("Failed to write render_quality.txt: write error; changes kept in memory.", true);
+            s_writeErrLogged = true;
+        }
+    }
 }
 
 bool RenderQuality::parseArgument(int argc, char** argv, int& i, std::string& error)

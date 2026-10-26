@@ -164,7 +164,12 @@ Implemented in [`CameraActor.cpp`](file:///H:/git-repos/gltf-viewer/source/rende
   - **Right**: Element Inspector (full height).
   - Optional panels (Viewport Settings, Statistics) dock into the center-bottom tab bar.
 - Layout reset shortcut: `Ctrl + L`.
-- Window position, dimensions, maximized state, recent file history and `settings.ini` (texture search paths, panel display options) are persisted in `%APPDATA%/Glider/`. A `settings.ini` next to the executable is copied there on first use; the working directory is never read.
+- **Portable State & Settings Storage**: All window state (`window_state.txt`), recent files (`recent_files.txt`), configuration (`settings.ini`), render quality (`render_quality.txt`), and ImGui docking layout (`imgui.ini`) live in a single portable folder next to `Glider.exe` (`<exeDir>/GliderData/`).
+  - **Fallback**: If the executable directory is not writable (e.g. under Program Files), Glider automatically falls back to `%APPDATA%/Glider/` (or `%TEMP%/Glider`), logging the fallback once. If both locations are unwritable, changes are kept in memory for the session without crashing.
+  - **One-Time Migration**: On first launch, if `<exeDir>/GliderData/` has no file yet, existing settings from `%APPDATA%/Glider/` (or legacy `%APPDATA%/Gestaltor/` and `<exeDir>/settings.ini`) are copied automatically without failing if the copy cannot complete.
+  - **Robust Non-Throwing I/O**: All filesystem operations use non-throwing `std::filesystem` overloads with `std::error_code` and explicit stream checking. Unreadable or corrupt files fallback to defaults with a single warning line; unwritable files/directories keep modified state in memory with a single warning line (never spamming every frame).
+  - **Test Hook**: Environment variable `GLIDER_DATA_DIR=<dir>` overrides the portable candidate directory for test automation.
+  - **`--isolated`**: Disables reading or writing any persistent settings to disk (leaves user settings completely untouched).
 
 ### 3.7 Built-in In-Process glTF 2.0 Validator
 
@@ -262,7 +267,7 @@ build/bin/Release/Glider.exe
   `decalBuffer.active: false` instead of failing.
 - `--dump-next-frame <output.png>`: With `--dump-frame`, also dump the immediately following window frame (overlay steadiness diagnostic); `--exit-after-dump` waits for both.
 - `--exit-after-dump`: Exits the application immediately after dumping the frame.
-- `--quality <high|balanced|performance>`: Render-quality preset for this run (default High, the original quality). Finer overrides: `--ibl-size`, `--ibl-irradiance-size`, `--ibl-lut-size`, `--ibl-precision <32|16>`, `--ibl-samples`, `--grid-mode <ray|plane>`, `--render-scale`. The UI equivalents are **Viewport Settings → Quality** (preset, ground grid, render scale) and **Scene Inspector → IBL Filter Settings** (the IBL filter sizes and samples, shown while IBL is enabled); both are renderer-wide and saved in `%APPDATA%/Glider/render_quality.txt`.
+- `--quality <high|balanced|performance>`: Render-quality preset for this run (default High, the original quality). Finer overrides: `--ibl-size`, `--ibl-irradiance-size`, `--ibl-lut-size`, `--ibl-precision <32|16>`, `--ibl-samples`, `--grid-mode <ray|plane>`, `--render-scale`. The UI equivalents are **Viewport Settings → Quality** (preset, ground grid, render scale) and **Scene Inspector → IBL Filter Settings** (the IBL filter sizes and samples, shown while IBL is enabled); both are renderer-wide and saved in `<exeDir>/GliderData/render_quality.txt` (or `%APPDATA%/Glider/render_quality.txt` on fallback).
 - `--hdr-rotation <deg>`, `--exposure <ev>`, `--tone-mapping <neutral|hill|narkowicz>`: Environment rotation,
   exposure and tone mapping for this run. Environment settings belong to the glTF scene (one set per scene, shared
   by every viewport) and are edited in the Inspector when the scene row is selected (`SceneInspector`).
@@ -355,3 +360,8 @@ JSON schemas live in `resources/schemas`. The UX3D libraries' own unit tests (`U
    - Do not delete old Qt editor widgets in `legacy/`; they serve as design reference for future feature migrations into Dear ImGui panels.
 5. **Always Test Visuals with Frame Dumps**:
    - After major viewport, camera, or renderer changes, verify visual correctness by dumping a frame (`--dump-frame`) and viewing the image file before concluding tasks.
+6. **Portable & Robust Settings Storage**:
+   - Never hardcode `%APPDATA%` or read/write settings in the working directory `.` directly.
+   - All settings, state, and temporary files must be resolved through `ux3d::imgui::getDataDirectory()` / `getDataFilePath()`.
+   - All filesystem operations on settings must use non-throwing `std::filesystem` overloads with `std::error_code` and check streams. Unreadable/corrupt files must fall back to defaults with a warning; unwritable files must keep state in memory with a warning (no repeated per-frame log spam).
+   - `--isolated` must never read or write any persistent state to disk.
