@@ -159,6 +159,10 @@ def ssr_fixture(name="ssr", attenuation=1.0, windshield=True, occluded=False):
                       {"pbrMetallicRoughness":{"baseColorFactor":[0,0,0,1],"metallicFactor":0,"roughnessFactor":1},"doubleSided":True}],
          "buffers":[{"byteLength":len(data),"uri":"data:application/octet-stream;base64,"+base64.b64encode(data).decode()}],
          "bufferViews":views,"accessors":accessors,"extensionsUsed":[WINDSHIELD] if windshield else []}
+    if windshield:
+        # An ASOBO-declared file uses the MSFS emissive convention (factor = colour x scale,
+        # rendered x 1/1000 by default), so author the box as the MSFS exporter would.
+        doc["materials"][1]["emissiveFactor"]=[1000,120,5]
     path=OUT/("ssr_"+name+".gltf")
     path.write_text(json.dumps(doc),encoding="utf-8")
     return path

@@ -37,6 +37,10 @@ uniform float u_IridescenceThicknessMaximum;
 // Emissive Strength
 uniform float u_EmissiveStrength;
 
+// ASOBO Emissive Multipliers (Day / Night)
+uniform float u_EmissiveDayMultiplier;
+uniform float u_EmissiveNightMultiplier;
+
 // PBR Next IOR
 uniform float u_Ior;
 

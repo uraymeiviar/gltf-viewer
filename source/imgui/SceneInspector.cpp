@@ -182,6 +182,20 @@ void SceneInspector::render(SceneEnvironmentState& env,
 
         ImGui::Separator();
 
+        // MSFS Emissive Scale & Time of Day
+        if (ImGui::DragFloat("MSFS Emissive: 1 unit = x", &env.msfsEmissiveScale, 0.0001f, 0.0f, 10.0f, "%.5f", ImGuiSliderFlags_Logarithmic)) {
+            revisions.mark(SceneChange::RenderSettings);
+        }
+        UiProbe::item("scene.msfs.emissive.scale", 0);
+
+        const char* timeOfDayNames[] = { "Day", "Night" };
+        if (ImGui::Combo("Time of Day", &env.timeOfDay, timeOfDayNames, 2)) {
+            revisions.mark(SceneChange::RenderSettings);
+        }
+        UiProbe::item("scene.time_of_day", 0);
+
+        ImGui::Separator();
+
         // IBL toggle
         if (ImGui::Checkbox("Image Based Lighting (IBL)", &env.iblEnabled)) {
             if (commandGenerator != nullptr) {

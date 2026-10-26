@@ -66,18 +66,18 @@ emissive and normals close to MSFS (user priority 1), and the explicit draw orde
     looks the same in this dark frame.
 - [ ] **A1.5 — `ASOBO_occlusion_strength` and `ASOBO_extra_occlusion_texture` (R2). Owner: Claude.** An occlusion
   strength override, and a second occlusion map combined by the A0.6 rule.
-- [ ] **A1.6 — Emissive (R2). Owner: Claude.**
-  - `ASOBO_material_emissive` day/night multipliers. Day is used until A6 adds time of day; the viewer setting
-    *Time of day: Day / Night* exists from this task on.
-  - MSFS emissive intensity convention: confirm how the exporter folds emissive strength into `emissiveFactor`
-    (`asobo_material_common.py::_extract_emissive_values`).
-  - **A2.2 fix (2026-10-25):** MSFS exporters write `emissiveFactor = colour × emissiveScale`; 20 materials in
-    the E195 cockpit are `[3000, 3000, 3000]`. The loader rejected any component > 1, silently dropping the
-    whole factor to `(0, 0, 0)` (black screens). `Material::setEmissiveFactor` now clamps each component to the
-    core glTF `[0, 1]` range (negatives to 0), and `MaterialsFromJson` logs one warning per material with the
-    original value. `KHR_materials_emissive_strength` is unchanged. The clamp is loader-only;
-    the built-in validator sees the original JSON. No MSFS cd/m² unit mapping is added here
-    (that is the later A6 environment setting).
+- [x] **A1.6 — Emissive (R2). Owner: Claude.**
+  - `ASOBO_material_emissive` day/night multipliers applied via scene environment setting *Time of day: Day (default) / Night*
+    and CLI `--time-of-day day|night`.
+  - MSFS emissive intensity convention: exporter writes `emissiveFactor = emissiveColor × emissiveScale` (default scale 1000,
+    E195 screens are `[3000, 3000, 3000]`).
+  - **A2.2 fix update (2026-10-26):** Glider now preserves the authored unclamped `emissiveFactor` (clamping only negative
+    components to 0.0), logging an info note rather than clamping > 1 values. For assets declaring `ASOBO_*` extensions in
+    viewports with ASOBO enabled, the renderer applies $E = \text{emissiveFactor} \times \text{emissiveTexture} \times \text{msfsEmissiveScale} \times M_{\text{tod}}$
+    where `msfsEmissiveScale` defaults to `1/1000` (editable in Scene Inspector → Environment, `--msfs-emissive-scale <x>`),
+    so default scale 1000 maps to 1.0 and 3000 screens bloom to 3.0. Decals (`decal_accum.frag`) follow the identical formula.
+    With ASOBO off or undeclared, factors are clamped to `[0, 1]` for exact glTF 2.0 / baseline parity.
+  - Interactive HDR color / intensity editing supported in Material Inspector.
 
   Glow (bloom) is A4.3.
 - [ ] **A1.7 — `ASOBO_material_alphamode_dither` (R3). Owner: GPT Astra.** Dithered (screen-door) transparency in

@@ -666,6 +666,8 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
 
         // base material defaults
         material->setUniform<math::vec3>("u_EmissiveFactor", math::vec3(0.f, 0.f, 0.f));
+        material->setUniform<float>("u_EmissiveDayMultiplier", 1.0f);
+        material->setUniform<float>("u_EmissiveNightMultiplier", 1.0f);
 
         material->defines.define("ALPHAMODE_OPAQUE", static_cast<int>(gltf::AlphaMode::Opaque));
         material->defines.define("ALPHAMODE_MASK", static_cast<int>(gltf::AlphaMode::Mask));
@@ -938,6 +940,16 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
         createSampler("Occlusion", occlusionTexture, "occlusionTexture");
 
         material->setUniform<math::vec3>("u_EmissiveFactor", gltfMaterial->getEmissiveFactorOrDefault());
+        float dayMultiplier = 1.0f;
+        float nightMultiplier = 1.0f;
+        if (material->asobo != nullptr) {
+            if (const gltf::asobo::ExtensionData* emissiveExt = material->asobo->find("ASOBO_material_emissive")) {
+                dayMultiplier = static_cast<float>(emissiveExt->number("emissiveDayMultiplier").value_or(1.0));
+                nightMultiplier = static_cast<float>(emissiveExt->number("emissiveNightMultiplier").value_or(1.0));
+            }
+        }
+        material->setUniform<float>("u_EmissiveDayMultiplier", dayMultiplier);
+        material->setUniform<float>("u_EmissiveNightMultiplier", nightMultiplier);
         material->setUniform<float>("u_NormalScale", gltfMaterial->getNormalTextureInfo().has_value() ? static_cast<float>(gltfMaterial->getNormalTextureInfo()->getScale()) : 1.f);
         material->setUniform<float>("u_OcclusionStrength", occlusionTexture.has_value() ? static_cast<float>(occlusionTexture->getScale()) : 1.f);
 
@@ -1847,6 +1859,14 @@ void GltfRenderLayer::updateGltf(const gltf::Gltf& gltf)
         convention != nullptr ? convention->string("tangent_space_convention") : nullptr;
     m_assetNormalMapConventionDirectX = tangentSpaceConvention != nullptr && *tangentSpaceConvention == "DirectX";
 
+    m_assetHasAsoboExtensions = false;
+    for (const auto& ext : gltf.getDeclaredExtensions()) {
+        if (gltf::asobo::isAsoboExtension(ext.c_str())) {
+            m_assetHasAsoboExtensions = true;
+            break;
+        }
+    }
+
     // A1.4: an extension the file does not declare is ignored. Without this declaration the
     // draw-order rule stays off even when the viewport applies the extension, so files that
     // do not use it keep the previous transparent order byte for byte.
@@ -2084,6 +2104,14 @@ bool GltfRenderLayer::updateMaterialStates(const gltf::Gltf& gltf)
     const std::string* tangentSpaceConvention =
         convention != nullptr ? convention->string("tangent_space_convention") : nullptr;
     m_assetNormalMapConventionDirectX = tangentSpaceConvention != nullptr && *tangentSpaceConvention == "DirectX";
+
+    m_assetHasAsoboExtensions = false;
+    for (const auto& ext : gltf.getDeclaredExtensions()) {
+        if (gltf::asobo::isAsoboExtension(ext.c_str())) {
+            m_assetHasAsoboExtensions = true;
+            break;
+        }
+    }
 
     m_syncingGltf = &gltf;
     updateMaterials(gltf.getMaterials());

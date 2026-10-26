@@ -121,7 +121,9 @@ def main():
     if E2_COCKPIT.exists():
         e2_cam = [str(E2_COCKPIT), "--camera-target", "-0.45,1.6,13.4", "--camera-yaw", "180", "--camera-pitch", "0", "--camera-distance", "0.3"]
         for aa in ("none", "msaa4", "taa"):
-            cur_png, cur_prof = run_capture(f"p1_e2_{aa}_cur", [*e2_cam, "--aa", aa, "--bloom", "off", "--auto-exposure", "off"], EXE)
+            # The reference predates the MSFS emissive mapping: compare with it switched off.
+            cur_png, cur_prof = run_capture(f"p1_e2_{aa}_cur", [*e2_cam, "--aa", aa, "--bloom", "off", "--auto-exposure", "off",
+                                                                "--msfs-emissive", "off"], EXE)
             base_png, base_prof = run_capture(f"p1_e2_{aa}_base", [*e2_cam, "--aa", aa], BASELINE)
             a = np.asarray(Image.open(cur_png).convert("RGB"), dtype=float)
             b = np.asarray(Image.open(base_png).convert("RGB"), dtype=float)

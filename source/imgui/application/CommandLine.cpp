@@ -251,6 +251,10 @@ std::optional<int> Application::configure(int argc, char** argv)
     bool cliAutoExposure = false;
     bool cliExposureCompensationProvided = false;
     float cliExposureCompensationEV = 0.0f;
+    bool cliMsfsEmissiveScaleProvided = false;
+    float cliMsfsEmissiveScale = 0.001f;
+    bool cliTimeOfDayProvided = false;
+    int cliTimeOfDay = 0;
 
     auto parseDisplayOptions = [](const std::string& spec, ux3d::imgui::HierarchyDisplayOptions& options) {
         std::stringstream stream(spec);
@@ -398,6 +402,8 @@ std::optional<int> Application::configure(int argc, char** argv)
             setAsoboParamArgs.push_back(std::move(edit));
         } else if (arg == "--disable-wireframe-cache") {
             s_disableWireframeCache = true;
+        } else if (arg == "--msfs-emissive" && i + 1 < argc) {
+            s_disableMsfsEmissive = toLowerAscii(argv[++i]) == "off";
         } else if (arg == "--wireframe-overlay") {
             activeViewport->settings.wireframeOverlay = true;
         } else if (arg == "--wireframe-color" && i + 1 < argc) {
@@ -628,7 +634,8 @@ std::optional<int> Application::configure(int argc, char** argv)
                 activeViewport->settings.setLegacyAA(5);
         } else if ((arg == "--msaa" || arg == "--post-aa" || arg == "--bloom" ||
                     arg == "--bloom-intensity" || arg == "--bloom-radius" ||
-                    arg == "--auto-exposure" || arg == "--exposure-compensation") && i + 1 < argc) {
+                    arg == "--auto-exposure" || arg == "--exposure-compensation" ||
+                    arg == "--msfs-emissive-scale" || arg == "--time-of-day") && i + 1 < argc) {
             ++i; // Applied in a second pass, after every legacy --aa argument.
         } else if (arg == "--clear-color" && i + 1 < argc) {
             float r, g, b;
@@ -719,6 +726,22 @@ std::optional<int> Application::configure(int argc, char** argv)
             cliExposureCompensationEV = std::stof(argv[++i]);
             cliExposureCompensationProvided = true;
             getSceneEnvironment(sceneEnvironments, gltfModel, activeScene).exposureCompensationEV = cliExposureCompensationEV;
+        } else if (arg == "--msfs-emissive-scale" && i + 1 < argc) {
+            cliMsfsEmissiveScale = std::stof(argv[++i]);
+            cliMsfsEmissiveScaleProvided = true;
+            getSceneEnvironment(sceneEnvironments, gltfModel, activeScene).msfsEmissiveScale = cliMsfsEmissiveScale;
+        } else if (arg == "--time-of-day" && i + 1 < argc) {
+            const std::string todVal = toLowerAscii(argv[++i]);
+            if (todVal == "night" || todVal == "1") {
+                cliTimeOfDay = 1;
+            } else if (todVal == "day" || todVal == "0") {
+                cliTimeOfDay = 0;
+            } else {
+                std::fprintf(stderr, "Invalid --time-of-day: %s (expected day or night)\n", todVal.c_str());
+                return 1;
+            }
+            cliTimeOfDayProvided = true;
+            getSceneEnvironment(sceneEnvironments, gltfModel, activeScene).timeOfDay = cliTimeOfDay;
         }
     }
 
@@ -1144,7 +1167,8 @@ std::optional<int> Application::configure(int argc, char** argv)
 
     if (cliClearProvided || cliHdrProvided || cliHdrRotationProvided || cliExposureProvided || cliToneMappingProvided ||
         cliBloomProvided || cliBloomIntensityProvided || cliBloomRadiusProvided ||
-        cliAutoExposureProvided || cliExposureCompensationProvided) {
+        cliAutoExposureProvided || cliExposureCompensationProvided ||
+        cliMsfsEmissiveScaleProvided || cliTimeOfDayProvided) {
         for (auto& env : sceneEnvironments) {
             if (cliClearProvided) { env.showBackground = false; env.clearColor = cliClearColor; }
             if (cliHdrProvided) env.currentHdrPath = cliHdrPath;
@@ -1159,6 +1183,8 @@ std::optional<int> Application::configure(int argc, char** argv)
                 env.autoExposureStartFromManual = cliAutoExposure && cliExposureProvided;
             }
             if (cliExposureCompensationProvided) env.exposureCompensationEV = cliExposureCompensationEV;
+            if (cliMsfsEmissiveScaleProvided) env.msfsEmissiveScale = cliMsfsEmissiveScale;
+            if (cliTimeOfDayProvided) env.timeOfDay = cliTimeOfDay;
         }
     }
 

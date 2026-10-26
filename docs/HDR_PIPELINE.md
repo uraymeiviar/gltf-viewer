@@ -64,3 +64,20 @@ Each open viewport in `Application::drawViewports` (`source/imgui/application/Vi
 | Bloom Enabled | `On` (`true`) | Scene Inspector → Environment | `--bloom on\|off` |
 | Bloom Intensity | `0.04` | Scene Inspector → Environment | `--bloom-intensity <x>` |
 | Bloom Radius | `1.0` | Scene Inspector → Environment | `--bloom-radius <x>` |
+| MSFS Emissive Scale | `0.001` (1/1000) | Scene Inspector → Environment | `--msfs-emissive-scale <x>` |
+| Time of Day | `Day` (`0`) | Scene Inspector → Environment | `--time-of-day day\|night` |
+
+---
+
+## 3. MSFS Emissive Brightness & Day/Night Scaling
+
+MSFS glTF assets write `emissiveFactor = emissiveColor × emissiveScale` (exporter scale typically 1000, UI up to 200,000) and omit `KHR_materials_emissive_strength`. To preserve authored dynamic range and bloom cockpit displays without washing out to flat white:
+
+1. **Unclamped authored factor**: The glTF loader stores the raw authored `emissiveFactor` (clamping only negative values to 0.0). Core glTF assets with factors in $[0, 1]$ remain byte-identical to baseline.
+2. **MSFS emissive unit formula**: For assets declaring ASOBO extensions (`extensionsUsed` containing `ASOBO_*`) in viewports with ASOBO enabled:
+   $$E = \text{emissiveFactor} \times \text{emissiveTexture} \times \text{msfsEmissiveScale} \times M_{\text{tod}}$$
+   where:
+   $$M_{\text{tod}} = \begin{cases} \text{emissiveNightMultiplier} & \text{if Time of Day is Night and } \text{ASOBO\_material\_emissive is applied} \\ \text{emissiveDayMultiplier} & \text{if Time of Day is Day and } \text{ASOBO\_material\_emissive is applied} \\ 1.0 & \text{otherwise} \end{cases}$$
+3. **Decal emissive**: Decal accumulation (`decal_accum.frag`) applies the identical formula to `u_EmissiveFactor` before weighting by `wEmissive`.
+4. **ASOBO disabled fallback**: If ASOBO extensions are undeclared or the viewport sets `--asobo off`, `emissiveFactor` is clamped to $[0, 1]$ and `msfsEmissiveScale` is bypassed, preserving standard glTF 2.0 behaviour and A/B comparison fidelity.
+5. **KHR Extension Coexistence**: `KHR_materials_emissive_strength` continues to multiply emissive radiance for assets using the Khronos extension.

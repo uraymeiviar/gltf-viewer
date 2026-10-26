@@ -259,7 +259,7 @@ ConversionResult MaterialsFromJson::convert(const nlohmann::json& _jsonMaterial)
                         ? _jsonMaterial["name"].get<std::string>()
                         : std::string();
                     core::logWarning("material '%s' emissiveFactor [%g, %g, %g] is outside [0, 1]; "
-                                     "clamping to the glTF core range",
+                                     "keeping authored value",
                                      materialName.c_str(), emissiveFactor.x, emissiveFactor.y,
                                      emissiveFactor.z);
                 }

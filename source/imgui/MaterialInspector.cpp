@@ -206,9 +206,25 @@ bool MaterialInspector::render(ux3d::gltf::Material* material, ux3d::gltf::Gltf&
         // Emissive Factor
         auto emissiveD = material->getEmissiveFactorOrDefault();
         float emissive[3] = { static_cast<float>(emissiveD.r), static_cast<float>(emissiveD.g), static_cast<float>(emissiveD.b) };
-        if (ImGui::ColorEdit3("Emissive Factor", emissive)) {
+        if (ImGui::ColorEdit3("Emissive Factor", emissive, ImGuiColorEditFlags_HDR | ImGuiColorEditFlags_Float)) {
             material->setEmissiveFactor(ux3d::math::dvec3(emissive[0], emissive[1], emissive[2]));
             modified = true;
+        }
+        float maxEmissive = std::max({ emissive[0], emissive[1], emissive[2] });
+        if (maxEmissive > 1.0f) {
+            float intensity = maxEmissive;
+            ImGui::PushFont(getMonoFont());
+            if (ImGui::DragFloat("Emissive Intensity", &intensity, std::max(1.0f, intensity * 0.01f), 0.0f, 200000.0f, "%.1f")) {
+                if (maxEmissive > 1e-6f) {
+                    float s = intensity / maxEmissive;
+                    emissive[0] *= s;
+                    emissive[1] *= s;
+                    emissive[2] *= s;
+                    material->setEmissiveFactor(ux3d::math::dvec3(emissive[0], emissive[1], emissive[2]));
+                    modified = true;
+                }
+            }
+            ImGui::PopFont();
         }
 
         // Emissive Strength Extension

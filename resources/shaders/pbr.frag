@@ -605,6 +605,15 @@ void main()
 #endif
 
     f_emissive = u_EmissiveFactor;
+    if (u_AsoboEmissiveActive != 0) {
+        f_emissive *= u_MsfsEmissiveScale;
+        if (u_AsoboMaterialEmissiveApplied != 0) {
+            float dayNightMult = (u_TimeOfDay == 1) ? u_EmissiveNightMultiplier : u_EmissiveDayMultiplier;
+            f_emissive *= dayNightMult;
+        }
+    } else {
+        f_emissive = clamp(f_emissive, vec3(0.0), vec3(1.0));
+    }
 #ifdef MATERIAL_EMISSIVE_STRENGTH
     f_emissive *= u_EmissiveStrength;
 #endif

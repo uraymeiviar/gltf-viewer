@@ -410,6 +410,8 @@ private:
     // P8.3: --disable-instancing draws every drawable separately (the P8.1 path) as an A/B reference.
     bool s_disableInstancing = false;
     bool s_disableWireframeCache = false;
+    // --msfs-emissive off: ASOBO assets use the clamped core emissive factor (A/B reference).
+    bool s_disableMsfsEmissive = false;
     // --disable-shared-traversal: every viewport traverses the scene itself (A/B reference).
     bool s_disableSharedTraversal = false;
     uint64_t s_pickCulledTotal = 0;

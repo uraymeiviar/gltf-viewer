@@ -16,7 +16,7 @@ CODE = "ASOBO_EXTENSIONS_NOT_RENDERED"
 METADATA = {"ASOBO_unique_id", "ASOBO_tags", "ASOBO_animation_retargeting", "ASOBO_softbody_mesh"}
 EXCLUDED = METADATA | {"ASOBO_asset_optimized", "ASOBO_material_invisible", "ASOBO_material_environment_occluder",
                        "ASOBO_material_disable_motion_blur", "ASOBO_material_fake_terrain",
-                       "ASOBO_normal_map_convention", "ASOBO_material_draw_order", "MSFT_texture_dds"}
+                       "ASOBO_normal_map_convention", "ASOBO_material_draw_order", "ASOBO_material_emissive", "MSFT_texture_dds"}
 failures = []
 
 
@@ -84,7 +84,7 @@ def main():
             status = "Metadata" if name in METADATA else "Not yet supported"
             if name in ("ASOBO_asset_optimized", "ASOBO_material_invisible", "ASOBO_material_environment_occluder",
                         "ASOBO_normal_map_convention",
-                        "ASOBO_material_draw_order", "MSFT_texture_dds"):
+                        "ASOBO_material_draw_order", "ASOBO_material_emissive", "MSFT_texture_dds"):
                 status = "Rendered"
             elif name in ("ASOBO_material_geometry_decal", "ASOBO_material_blend_gbuffer",
                           "ASOBO_material_windshield_v3", "ASOBO_material_glass_v2"):

@@ -180,6 +180,7 @@ private:
 
     // Set by updateGltf from the asset's declared ASOBO_normal_map_convention (A1.2).
     bool m_assetNormalMapConventionDirectX = false;
+    bool m_assetHasAsoboExtensions = false; // A1.6: extensionsUsed contains ASOBO_*
     // Set by updateGltf when extensionsUsed declares ASOBO_material_draw_order (A1.4).
     bool m_assetDrawOrderDeclared = false;
     // A2.1: set by updateGltf when at least one material carries
@@ -237,6 +238,7 @@ public:
     // A1.2: the asset's ASOBO_normal_map_convention is "DirectX". Whether the viewport
     // applies it is a separate AsoboOptions switch, so the shader flag combines both.
     bool usesDirectXNormalMaps() const { return m_assetNormalMapConventionDirectX; }
+    bool declaresAsoboExtensions() const { return m_assetHasAsoboExtensions; }
 
     // A2.1: the loaded file contains at least one decal material.
     bool hasDecalMaterials() const { return m_assetHasDecalMaterials; }

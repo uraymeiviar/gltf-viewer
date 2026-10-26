@@ -210,11 +210,11 @@ GltfResult Material::setEmissiveFactor(const math::dvec3& _emissiveFactor)
     // emissiveFactor = colour * emissiveScale (e.g. [3000,3000,3000]); rejecting it lost the
     // emissive entirely. KHR_materials_emissive_strength keeps its own factor. The loader
     // logs the original value once per material (MaterialsFromJson); negatives clamp to 0.
-    math::dvec3 clamped;
+    math::dvec3 unclamped;
     for (int i = 0; i < _emissiveFactor.length(); ++i) {
-        clamped[i] = std::clamp(_emissiveFactor[i], 0.0, 1.0);
+        unclamped[i] = std::max(_emissiveFactor[i], 0.0);
     }
-    m_emissiveFactor.emplace(clamped);
+    m_emissiveFactor.emplace(unclamped);
     return GltfResult::Success;
 }
 

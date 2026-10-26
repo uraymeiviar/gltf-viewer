@@ -734,6 +734,13 @@ void Application::drawViewports(FrameContext& frame)
             // the active viewport has a filled decal buffer to read.
             commandGenerator->setAsoboDecalReceiver(decalActive);
             commandGenerator->setDecalDepthTolerance(vp->settings.decalDepthToleranceMm * 0.001f);
+            commandGenerator->setAsoboEmissiveActive(
+                gltfLayer->declaresAsoboExtensions() &&
+                vp->settings.asobo.enabled && !s_disableMsfsEmissive);
+            commandGenerator->setMsfsEmissiveScale(activeEnvironment.msfsEmissiveScale);
+            commandGenerator->setTimeOfDay(activeEnvironment.timeOfDay);
+            commandGenerator->setAsoboMaterialEmissiveApplied(
+                vp->settings.asobo.applies("ASOBO_material_emissive"));
 
             const auto commandGenerationStart = ux3d::imgui::profiling::Clock::now();
             const uint64_t programHitsBefore = commandGenerator->getCommandMapping().getProgramCacheHits();

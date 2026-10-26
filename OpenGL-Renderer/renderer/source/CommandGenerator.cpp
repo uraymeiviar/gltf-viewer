@@ -33,6 +33,10 @@ ux3d::renderer::CommandGenerator::CommandGenerator(gl::GL* gl, const filesystem:
     , m_asoboDecalReceiverUniform("u_AsoboDecalReceiver")
     , m_asoboGlassCopyValidUniform("u_AsoboGlassCopyValid")
     , m_decalDepthToleranceUniform("u_DecalDepthTolerance")
+    , m_asoboEmissiveActiveUniform("u_AsoboEmissiveActive")
+    , m_msfsEmissiveScaleUniform("u_MsfsEmissiveScale")
+    , m_timeOfDayUniform("u_TimeOfDay")
+    , m_asoboMaterialEmissiveAppliedUniform("u_AsoboMaterialEmissiveApplied")
     , m_lights(gl)
 {
     setEnvironmentMapRotation(0.0f);
@@ -43,6 +47,10 @@ ux3d::renderer::CommandGenerator::CommandGenerator(gl::GL* gl, const filesystem:
     setAsoboWindshieldVertexColorMask(false);
     setAsoboDecalReceiver(false);
     setDecalDepthTolerance(0.0012f);
+    setAsoboEmissiveActive(false);
+    setMsfsEmissiveScale(0.001f);
+    setTimeOfDay(0);
+    setAsoboMaterialEmissiveApplied(false);
 
     // A2.2: stable borrowed wrappers for the six accumulation targets. Nearest filtering
     // keeps texelFetch exact; clamp-to-edge is irrelevant for texelFetch but explicit.
@@ -108,9 +116,11 @@ void ux3d::renderer::CommandGenerator::bindFrameBlocks()
     }
     // EnvironmentBlock: mat3 u_EnvRotation as three 16-byte columns, then u_EnvIntensity
     // at 48, u_EnvBlurNormalized at 52, int u_MipCount at 56, u_Exposure at 60,
-    // int u_AsoboNormalMapDirectX at 64, int u_AsoboWindshieldVertexColorMask at 68 and
-    // int u_AsoboDecalReceiver at 72 and float u_DecalDepthTolerance at 76 (80 bytes).
-    uint8_t environment[80] = {};
+    // int u_AsoboNormalMapDirectX at 64, int u_AsoboWindshieldVertexColorMask at 68,
+    // int u_AsoboDecalReceiver at 72, float u_DecalDepthTolerance at 76,
+    // int u_AsoboEmissiveActive at 80, float u_MsfsEmissiveScale at 84,
+    // int u_TimeOfDay at 88, int u_AsoboMaterialEmissiveApplied at 92 (96 bytes).
+    uint8_t environment[96] = {};
     if (m_environmentMapRotationUniform.byteSize() == 36) {
         for (size_t column = 0; column < 3; ++column) {
             std::memcpy(environment + column * 16, m_environmentMapRotationUniform.bytes() + column * 12, 12);
@@ -126,6 +136,10 @@ void ux3d::renderer::CommandGenerator::bindFrameBlocks()
     place(environment, 68, 4, m_asoboWindshieldVertexColorMaskUniform);
     place(environment, 72, 4, m_asoboDecalReceiverUniform);
     place(environment, 76, 4, m_decalDepthToleranceUniform);
+    place(environment, 80, 4, m_asoboEmissiveActiveUniform);
+    place(environment, 84, 4, m_msfsEmissiveScaleUniform);
+    place(environment, 88, 4, m_timeOfDayUniform);
+    place(environment, 92, 4, m_asoboMaterialEmissiveAppliedUniform);
     uploadFrameBlock(m_environmentBlock, gl::kEnvironmentBlockBinding, environment, sizeof(environment));
 }
 
@@ -270,6 +284,26 @@ void ux3d::renderer::CommandGenerator::setAsoboDecalReceiver(bool enabled)
 void ux3d::renderer::CommandGenerator::setDecalDepthTolerance(float metres)
 {
     m_decalDepthToleranceUniform.write(std::clamp(metres, 0.0f, 0.01f));
+}
+
+void ux3d::renderer::CommandGenerator::setAsoboEmissiveActive(bool active)
+{
+    m_asoboEmissiveActiveUniform.write(static_cast<int>(active ? 1 : 0));
+}
+
+void ux3d::renderer::CommandGenerator::setMsfsEmissiveScale(float scale)
+{
+    m_msfsEmissiveScaleUniform.write(scale);
+}
+
+void ux3d::renderer::CommandGenerator::setTimeOfDay(int timeOfDay)
+{
+    m_timeOfDayUniform.write(timeOfDay);
+}
+
+void ux3d::renderer::CommandGenerator::setAsoboMaterialEmissiveApplied(bool applied)
+{
+    m_asoboMaterialEmissiveAppliedUniform.write(static_cast<int>(applied ? 1 : 0));
 }
 
 void ux3d::renderer::CommandGenerator::setDecalTargets(GLuint a0, GLuint a1, GLuint a2, GLuint a3, GLuint a4,

@@ -19,4 +19,10 @@ layout(std140) uniform EnvironmentBlock
     // cache independent of which viewport draws them.
     int u_AsoboDecalReceiver;
     float u_DecalDepthTolerance; // metres along the receiver geometric normal (A2.2)
+
+    // A1.6 / A2.2 MSFS emissive pipeline
+    int u_AsoboEmissiveActive;
+    float u_MsfsEmissiveScale;
+    int u_TimeOfDay;
+    int u_AsoboMaterialEmissiveApplied;
 };

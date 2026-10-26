@@ -35,6 +35,9 @@ struct SceneEnvironmentState {
     bool iblEnabled = true;
     bool punctualLightsEnabled = true;
 
+    float msfsEmissiveScale = 0.001f; // default 1/1000
+    int timeOfDay = 0; // 0 = Day (default), 1 = Night
+
     bool operator==(const SceneEnvironmentState&) const = default;
 };
 

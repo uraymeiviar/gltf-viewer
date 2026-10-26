@@ -38,6 +38,7 @@ REPO = Path(__file__).resolve().parents[1]
 EXE = REPO / "build" / "bin" / "Release" / "Glider.exe"
 OUT = REPO / "build" / "a2_2"
 COMMON = ["--isolated", "--window-size", "1280x800", "--aa", "none",
+          "--msfs-emissive-scale", "1.0",
           "--fixed-frame-time", "0.05", "--vsync", "off",
           "--select-node", "Receiver", "--camera-target", "0,0,0",
           "--camera-projection", "ortho", "--camera-yaw", "0", "--camera-pitch", "0",
