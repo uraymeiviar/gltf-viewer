@@ -80,6 +80,7 @@ struct FrameCounters {
     uint64_t applyAnimationCalls = 0;
     uint64_t cacheRebuilds = 0;
     uint64_t sceneBuilds = 0;
+    uint64_t wireframeMaterialCopies = 0;
     uint64_t sceneDrawables = 0;
     uint64_t sceneNodesVisited = 0;
     uint64_t pickingBuilds = 0;

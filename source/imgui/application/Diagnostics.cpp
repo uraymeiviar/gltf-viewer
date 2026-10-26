@@ -777,6 +777,16 @@ bool Application::writeScenarioReport(const std::string& reportPath, const std::
     out << "    \"forceDoubleSided\": " << (settings.forceDoubleSided ? "true" : "false") << ",\n";
     out << "    \"invertWinding\": " << (settings.invertWinding ? "true" : "false") << ",\n";
     out << "    \"wireframeOverlay\": " << (settings.wireframeOverlay ? "true" : "false") << ",\n";
+    out << "    \"wireframeColor\": [";
+    writeJsonNumber(out, settings.wireframeColor.r);
+    out << ", ";
+    writeJsonNumber(out, settings.wireframeColor.g);
+    out << ", ";
+    writeJsonNumber(out, settings.wireframeColor.b);
+    out << ", ";
+    writeJsonNumber(out, settings.wireframeColor.a);
+    out << "],\n";
+    out << "    \"wireframeBlend\": " << static_cast<int>(settings.wireframeBlend) << ",\n";
     out << "    \"showSceneBoundingBox\": " << (settings.showSceneBoundingBox ? "true" : "false") << ",\n";
     out << "    \"showSelectedBoundingBox\": " << (settings.showSelectedBoundingBox ? "true" : "false") << ",\n";
     out << "    \"showNodeCoordinateGizmo\": " << (settings.showNodeCoordinateGizmo ? "true" : "false") << ",\n";

@@ -70,6 +70,8 @@ private:
     std::optional<GLenum> m_blendSrcFactor = std::nullopt;
     std::optional<GLenum> m_blendDstFactor = std::nullopt;
     std::optional<GLenum> m_blendEquation = std::nullopt;
+    std::optional<bool> m_logicOpEnabled = std::nullopt;
+    std::optional<GLenum> m_logicOp = std::nullopt;
     std::optional<bool> m_polygonOffsetEnabled = std::nullopt;
     std::optional<GLfloat> m_polygonOffsetFactor = std::nullopt;
     std::optional<GLfloat> m_polygonOffsetUnits = std::nullopt;

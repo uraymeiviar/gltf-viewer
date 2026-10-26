@@ -58,6 +58,12 @@ public:
     bool blendingEnabled = false;
     bool premultipliedAlpha = false;
     bool overrideBlend = false;
+    bool customBlend = false;
+    GLenum blendSrcFactor = GL_SRC_ALPHA;
+    GLenum blendDstFactor = GL_ONE_MINUS_SRC_ALPHA;
+    GLenum blendEquation = GL_FUNC_ADD;
+    bool logicOpEnabled = false;
+    GLenum logicOp = GL_XOR;
     bool depthTestEnabled = false;
     // A1.4: covered transparent draws (decals, glass, windshield) do not write depth while
     // ASOBO_material_draw_order is active, so their order decides what is on top.

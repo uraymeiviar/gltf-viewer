@@ -63,6 +63,14 @@ public:
     // A2.2: the viewport applies ASOBO_material_geometry_decal, so decal-class draws get their
     // depth bias. Set per viewport next to drawOrderActive; off renders the file as without ASOBO.
     bool decalBiasActive = false;
+    bool overrideBlend = false;
+    bool customBlend = false;
+    bool blendingEnabled = false;
+    GLenum blendSrcFactor = GL_SRC_ALPHA;
+    GLenum blendDstFactor = GL_ONE_MINUS_SRC_ALPHA;
+    GLenum blendEquation = GL_FUNC_ADD;
+    bool logicOpEnabled = false;
+    GLenum logicOp = GL_XOR;
     RenderPass* renderPass = nullptr;
     RenderSettings renderSettings;
     std::string fragmentShader;

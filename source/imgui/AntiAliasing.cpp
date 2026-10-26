@@ -251,7 +251,7 @@ vec3 applyToneMap(vec3 color) {
 
 void main() {
     vec4 hdr = texture(u_HdrTexture, v_TexCoord);
-    if (u_RawMode != 0) {
+    if (u_RawMode == 1 || (u_RawMode == 2 && hdr.a > 1.5)) {
         FragColor = vec4(clamp(hdr.rgb, 0.0, 1.0), 1.0);
         return;
     }
@@ -1255,7 +1255,8 @@ void AntiAliasing::renderPostProcess(GLuint inputHdrTexture,
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
     // Phase 3: Exposure metering (HDR after TAA resolve)
-    const float effectiveEv = updateAutoExposure(inputHdrTexture, width, height, params);
+    const float effectiveEv = updateAutoExposure(params.exposureHdrTexture != 0 ? params.exposureHdrTexture : inputHdrTexture,
+                                                  width, height, params);
 
     // Phase 2: Physically based bloom (Jimenez 2014)
     const GLuint bloomTex = renderBloom(inputHdrTexture, width, height, params);
@@ -1276,7 +1277,7 @@ void AntiAliasing::renderPostProcess(GLuint inputHdrTexture,
     const float exposureLinear = std::pow(2.0f, effectiveEv);
     glUniform1f(m_tmExposureLoc, exposureLinear);
     glUniform1i(m_tmToneMapModeLoc, params.toneMappingMode);
-    glUniform1i(m_tmRawModeLoc, params.rawPassThrough ? 1 : 0);
+    glUniform1i(m_tmRawModeLoc, params.rawPassThrough ? 1 : (params.ssrDebugOverlay ? 2 : 0));
     glUniform1i(m_tmHasClearColorLoc, params.hasClearColor ? 1 : 0);
     glUniform3f(m_tmClearColorLoc, params.clearColor.r, params.clearColor.g, params.clearColor.b);
     glUniform1i(m_tmBloomEnabledLoc, (bloomTex != 0) ? 1 : 0);

@@ -8,12 +8,20 @@
 #include "renderer/gltf/GltfRenderLayer.h"
 #include "renderer/editor/EditorRenderLayer.h"
 #include <functional>
+#include <glm/vec4.hpp>
 
 namespace ux3d::editor {
 class CameraActor;
 }
 
 namespace ux3d::imgui {
+
+enum class WireframeBlendMode : int {
+    Normal = 0,
+    Additive = 1,
+    Invert = 2,
+    XOR = 3
+};
 
 struct ViewportSettingsState {
     ux3d::renderer::RenderMode renderMode = ux3d::renderer::RenderMode::None;
@@ -39,6 +47,8 @@ struct ViewportSettingsState {
 
     // Visual Inspection & Diagnostics
     bool wireframeOverlay = false;         // Overlay wireframe mesh edges on top of shaded model
+    glm::vec4 wireframeColor = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+    WireframeBlendMode wireframeBlend = WireframeBlendMode::Normal;
     bool showSceneBoundingBox = false;     // Yellow AABB box for entire scene
     bool showSelectedBoundingBox = true;   // Orange OBB box for selected node (matching Blender)
     bool showNodeCoordinateGizmo = true;   // 3D coordinate axis gizmo at selected node origin

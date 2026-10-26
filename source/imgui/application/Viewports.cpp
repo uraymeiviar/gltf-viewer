@@ -493,7 +493,12 @@ void Application::drawViewports(FrameContext& frame)
             const bool decalDebugView =
                 mode == ux3d::renderer::RenderMode::DecalPrepassDepth ||
                 mode == ux3d::renderer::RenderMode::DecalPrepassNormal;
+            const bool ssrDebugOverlay = mode == ux3d::renderer::RenderMode::SSR ||
+                mode == ux3d::renderer::RenderMode::SSRRay;
             const auto shadingMode = decalDebugView ? ux3d::renderer::RenderMode::None : mode;
+            const bool isWireframeMode = shadingMode == ux3d::renderer::RenderMode::Wireframe;
+            const bool hasWireframeOverlay = vp->settings.wireframeOverlay && !isWireframeMode;
+            const bool drawWireframe = isWireframeMode || hasWireframeOverlay;
 
             // Persistent overrides (double-sidedness, winding) are rewritten only when
             // this viewport's overrides or the layer changed (P4.5). The DEBUG define
@@ -568,13 +573,71 @@ void Application::drawViewports(FrameContext& frame)
             // Keep source materials intact for shaded views and other viewports. The
             // dedicated line shader neither samples alpha nor discards MASK fragments,
             // and emits alpha 1 even for a transparent forward pass.
-            std::vector<std::unique_ptr<ux3d::renderer::Material>> wireMaterials;
-            const auto wireMaterial = [&wireMaterials](ux3d::renderer::Material* material) {
-                auto copy = std::make_unique<ux3d::renderer::Material>(*material);
-                copy->fragmentShader = "wireframe_material.frag";
-                auto* result = copy.get();
-                wireMaterials.push_back(std::move(copy));
-                return result;
+            const auto wireSettingsRevision = sceneRevisions.revision(ux3d::imgui::SceneChange::RenderSettings);
+            if (vp->wireMaterialLayer != gltfLayer.get() ||
+                vp->wireMaterialGeneration != gltfLayer->getGltfGeneration() ||
+                vp->wireRenderSettingsRevision != wireSettingsRevision ||
+                !(vp->wireMaterialSettings == vp->settings)) {
+                vp->wireMaterials.clear();
+                vp->wireMaterialLayer = gltfLayer.get();
+                vp->wireMaterialGeneration = gltfLayer->getGltfGeneration();
+                vp->wireRenderSettingsRevision = wireSettingsRevision;
+                vp->wireMaterialSettings = vp->settings;
+            }
+            std::vector<std::unique_ptr<ux3d::renderer::Material>> uncachedWireMaterials;
+            const auto wireMaterial = [this, &vp, &uncachedWireMaterials](ux3d::renderer::Material* material) {
+                auto configureMaterial = [&vp](ux3d::renderer::Material* copy) {
+                    copy->fragmentShader = "wireframe_material.frag";
+                    copy->overrideBlend = true;
+                    copy->customBlend = true;
+                    const auto blendMode = vp->settings.wireframeBlend;
+                    const auto& col = vp->settings.wireframeColor;
+                    if (blendMode == ux3d::imgui::WireframeBlendMode::XOR) {
+                        copy->logicOpEnabled = true;
+                        copy->logicOp = GL_XOR;
+                        copy->blendingEnabled = false;
+                        copy->setUniform("u_WireframeColor", ux3d::math::vec4(col.r * col.a, col.g * col.a, col.b * col.a, 0.0f));
+                    } else if (blendMode == ux3d::imgui::WireframeBlendMode::Invert) {
+                        copy->logicOpEnabled = false;
+                        copy->blendingEnabled = true;
+                        copy->blendSrcFactor = GL_ONE_MINUS_DST_COLOR;
+                        copy->blendDstFactor = GL_ONE_MINUS_SRC_ALPHA;
+                        copy->blendEquation = GL_FUNC_ADD;
+                        copy->setUniform("u_WireframeColor", ux3d::math::vec4(col.r * col.a, col.g * col.a, col.b * col.a, col.a));
+                    } else if (blendMode == ux3d::imgui::WireframeBlendMode::Additive) {
+                        copy->logicOpEnabled = false;
+                        copy->blendingEnabled = true;
+                        copy->blendSrcFactor = GL_SRC_ALPHA;
+                        copy->blendDstFactor = GL_ONE;
+                        copy->blendEquation = GL_FUNC_ADD;
+                        copy->setUniform("u_WireframeColor", ux3d::math::vec4(col.r, col.g, col.b, col.a));
+                    } else { // Normal
+                        copy->logicOpEnabled = false;
+                        copy->blendingEnabled = true;
+                        copy->blendSrcFactor = GL_SRC_ALPHA;
+                        copy->blendDstFactor = GL_ONE_MINUS_SRC_ALPHA;
+                        copy->blendEquation = GL_FUNC_ADD;
+                        copy->setUniform("u_WireframeColor", ux3d::math::vec4(col.r, col.g, col.b, col.a));
+                    }
+                };
+
+                if (s_disableWireframeCache) {
+                    auto copy = std::make_unique<ux3d::renderer::Material>(*material);
+                    configureMaterial(copy.get());
+                    auto* result = copy.get();
+                    uncachedWireMaterials.push_back(std::move(copy));
+                    if (ux3d::imgui::profiling::countingEnabled())
+                        ++ux3d::imgui::profiling::frameCounters().wireframeMaterialCopies;
+                    return result;
+                }
+                auto& copy = vp->wireMaterials[material];
+                if (!copy || copy->defines.contentHash() != material->defines.contentHash()) {
+                    copy = std::make_unique<ux3d::renderer::Material>(*material);
+                    configureMaterial(copy.get());
+                    if (ux3d::imgui::profiling::countingEnabled())
+                        ++ux3d::imgui::profiling::frameCounters().wireframeMaterialCopies;
+                }
+                return copy.get();
             };
 
             auto cubeTuple = gltfLayer->getResourceManager().getCubeMapTuple();
@@ -582,18 +645,14 @@ void Application::drawViewports(FrameContext& frame)
             auto* cubeMaterial = std::get<1>(cubeTuple);
             for (auto& [mesh, material] : scene.drawables) {
                 if (mesh != nullptr && mesh != cubeMesh) {
-                    mesh->polygonMode = (shadingMode == ux3d::renderer::RenderMode::Wireframe)
-                                            ? ux3d::renderer::gl::PolygonMode::Line
-                                            : ux3d::renderer::gl::PolygonMode::Fill;
+                    mesh->polygonMode = ux3d::renderer::gl::PolygonMode::Fill;
                     mesh->defines.define("DEBUG", static_cast<int>(shadingMode));
                 }
                 if (material != nullptr && material != cubeMaterial) {
                     material->defines.define("DEBUG", static_cast<int>(shadingMode));
+                    material->defines.defineIf(ssrDebugOverlay, "RAW_SSR_OVERLAY");
                     if (vp->settings.forceDoubleSided) {
                         material->isDoubleSided = true;
-                    }
-                    if (shadingMode == ux3d::renderer::RenderMode::Wireframe) {
-                        material = wireMaterial(material);
                     }
                 }
             }
@@ -679,7 +738,20 @@ void Application::drawViewports(FrameContext& frame)
             const auto commandGenerationStart = ux3d::imgui::profiling::Clock::now();
             const uint64_t programHitsBefore = commandGenerator->getCommandMapping().getProgramCacheHits();
             const uint64_t programMissesBefore = commandGenerator->getCommandMapping().getProgramCacheMisses();
-            commandGenerator->update(scene);
+            if (isWireframeMode) {
+                // Keep camera, lights and environment; only the sky is drawn into the HDR target,
+                // the wire lines follow after tone mapping.
+                decltype(scene) skyScene = scene;
+                skyScene.drawables.clear();
+                for (const auto& [mesh, material] : scene.drawables) {
+                    if (mesh == cubeMesh) {
+                        skyScene.drawables.emplace_back(mesh, material);
+                    }
+                }
+                commandGenerator->update(skyScene);
+            } else {
+                commandGenerator->update(scene);
+            }
             frame.markStage("commands.generate", commandGenerationStart);
             ux3d::imgui::profiling::countCommandGeneration();
             if (s_profilingEnabled) {
@@ -704,6 +776,48 @@ void Application::drawViewports(FrameContext& frame)
             const bool floatCopy = scene.asoboGlassCopy && vp->sceneFbo.isValid() && vp->sceneFbo.isLinearFloat();
             transmissionDestination = floatCopy ? &vp->sceneFbo : nullptr;
             transmissionSource = &vp->sceneFbo;
+            GLuint exposureHdrTexture = 0;
+            if (ssrDebugOverlay && activeEnvironment.autoExposure) {
+                // Meter the same radiance as Shaded, including windshield reflections.
+                // Only these diagnostic modes pay for the extra draw and TAA history.
+                for (auto [mesh, material] : scene.drawables) {
+                    if (!currentReverseMapping.contains(mesh) || material == nullptr) continue;
+                    mesh->defines.define("DEBUG", static_cast<int>(ux3d::renderer::RenderMode::None));
+                    material->defines.define("DEBUG", static_cast<int>(ux3d::renderer::RenderMode::None));
+                    material->defines.undefine("RAW_SSR_OVERLAY");
+                }
+                commandGenerator->update(scene);
+                glRenderer->setGpuFrameContext(frame.number, vp->id, "ssr-exposure");
+                glRenderer->draw({commandGenerator.get()});
+                vp->sceneFbo.unbind();
+                vp->ssrExposureFbo.resize(vpW, vpH, 1, true);
+                glBindFramebuffer(GL_READ_FRAMEBUFFER, vp->sceneFbo.getResolveFbo());
+                glBindFramebuffer(GL_DRAW_FRAMEBUFFER, vp->ssrExposureFbo.getFbo());
+                glBlitFramebuffer(0, 0, vpW, vpH, 0, 0, vpW, vpH, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+                exposureHdrTexture = vp->ssrExposureFbo.getColorTexture();
+                if (isTaa) {
+                    if (!vp->ssrExposureAa) {
+                        vp->ssrExposureAa = std::make_unique<ux3d::imgui::AntiAliasing>();
+                        vp->ssrExposureAa->init();
+                    }
+                    exposureHdrTexture = vp->ssrExposureAa->render(
+                        aaMode, exposureHdrTexture, vpW, vpH, proj * view, frameSceneDirty);
+                }
+                for (auto [mesh, material] : scene.drawables) {
+                    if (!currentReverseMapping.contains(mesh) || material == nullptr) continue;
+                    mesh->defines.define("DEBUG", static_cast<int>(shadingMode));
+                    material->defines.define("DEBUG", static_cast<int>(shadingMode));
+                    material->defines.define("RAW_SSR_OVERLAY");
+                }
+                vp->sceneFbo.bind();
+                glViewport(0, 0, vpW, vpH);
+                commandGenerator->update(scene);
+                commandGenerator->setAsoboGlassCopyValid(false);
+                glRenderer->setGpuFrameContext(frame.number, vp->id, "main");
+            } else {
+                vp->ssrExposureAa.reset();
+                if (vp->ssrExposureFbo.isValid()) vp->ssrExposureFbo = ux3d::imgui::Framebuffer();
+            }
             glRenderer->draw({commandGenerator.get()});
             transmissionSource = nullptr;
             transmissionDestination = nullptr;
@@ -776,7 +890,8 @@ void Application::drawViewports(FrameContext& frame)
             // [bloom] -> tone map -> FXAA (LDR) -> overlays -> ImGui.
             vp->sceneFbo.unbind();
             GLuint hdrTexture = vp->sceneFbo.getColorTexture();
-            const bool isDebugView = mode != ux3d::renderer::RenderMode::None;
+            const bool isDebugView = mode != ux3d::renderer::RenderMode::None &&
+                                     mode != ux3d::renderer::RenderMode::Wireframe;
             vp->antiAliasing.setRawMode(isDebugView);
             if (isTaa) {
                 const auto aaStart = ux3d::imgui::profiling::Clock::now();
@@ -793,14 +908,16 @@ void Application::drawViewports(FrameContext& frame)
             vp->overlayFbo.resize(vpW, vpH, overlaySamples, false);
 
             ux3d::imgui::HdrPostProcessParams postParams;
-            postParams.rawPassThrough = isDebugView;
+            postParams.rawPassThrough = isDebugView && !ssrDebugOverlay;
+            postParams.ssrDebugOverlay = ssrDebugOverlay;
+            postParams.exposureHdrTexture = exposureHdrTexture;
             postParams.exposureEv = activeEnvironment.exposureEV;
             postParams.toneMappingMode = activeEnvironment.toneMappingIdx;
             postParams.hasClearColor = !activeEnvironment.showBackground;
             postParams.clearColor = glm::vec3(activeEnvironment.clearColor.r,
                                               activeEnvironment.clearColor.g,
                                               activeEnvironment.clearColor.b);
-            postParams.bloomEnabled = activeEnvironment.bloomEnabled;
+            postParams.bloomEnabled = activeEnvironment.bloomEnabled && !ssrDebugOverlay;
             postParams.bloomIntensity = activeEnvironment.bloomIntensity;
             postParams.bloomRadius = activeEnvironment.bloomRadius;
             postParams.autoExposure = activeEnvironment.autoExposure;
@@ -827,15 +944,13 @@ void Application::drawViewports(FrameContext& frame)
                 }
             }
 
-            const bool hasWireframeOverlay =
-                vp->settings.wireframeOverlay && shadingMode != ux3d::renderer::RenderMode::Wireframe;
             const bool hasSceneBbox =
                 vp->settings.showSceneBoundingBox && activeScene != nullptr && !activeScene->getNodes().empty();
             const bool hasSelectedBbox =
                 vp->settings.showSelectedBoundingBox && selection.type == ux3d::imgui::SelectionType::Node &&
                 selection.selectedNode != nullptr;
             const bool hasOverlays =
-                vp->settings.showGrid || hasSceneBbox || hasSelectedBbox || hasWireframeOverlay;
+                vp->settings.showGrid || hasSceneBbox || hasSelectedBbox || drawWireframe;
 
             if (hasOverlays) {
                 if (isTaa) {
@@ -844,25 +959,27 @@ void Application::drawViewports(FrameContext& frame)
                     glClear(GL_DEPTH_BUFFER_BIT);
                     // Rebuild opaque depth with the unjittered camera. Reusing jittered
                     // scene depth would still make grid/box occlusion flicker at edges.
-                    auto [depthScene, depthMapping] = gltfLayer->createScene(activeScene);
-                    for (auto it = depthScene.drawables.begin(); it != depthScene.drawables.end();) {
-                        auto [mesh, material] = *it;
-                        if (!material || !material->renderPass ||
-                            material->renderPass->getId() != ux3d::renderer::RenderPassType::Opaque ||
-                            !currentReverseMapping.contains(mesh)) {
-                            it = depthScene.drawables.erase(it);
-                        } else ++it;
+                    if (!isWireframeMode) {
+                        auto [depthScene, depthMapping] = gltfLayer->createScene(activeScene);
+                        for (auto it = depthScene.drawables.begin(); it != depthScene.drawables.end();) {
+                            auto [mesh, material] = *it;
+                            if (!material || !material->renderPass ||
+                                material->renderPass->getId() != ux3d::renderer::RenderPassType::Opaque ||
+                                !currentReverseMapping.contains(mesh)) {
+                                it = depthScene.drawables.erase(it);
+                            } else ++it;
+                        }
+                        auto& depthLayer = vp->overlayDepthLayer;
+                        depthLayer.pickingOnly = true;
+                        depthLayer.prePass = [&] { vp->overlayFbo.bind(); };
+                        depthLayer.postPass = [] {};
+                        depthScene = depthLayer.applyLayer(std::move(depthScene));
+                        commandGenerator->update(depthScene);
+                        glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+                        glRenderer->setGpuFrameContext(frame.number, vp->id, "overlay-depth");
+                        glRenderer->draw({commandGenerator.get()});
+                        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
                     }
-                    auto& depthLayer = vp->overlayDepthLayer;
-                    depthLayer.pickingOnly = true;
-                    depthLayer.prePass = [&] { vp->overlayFbo.bind(); };
-                    depthLayer.postPass = [] {};
-                    depthScene = depthLayer.applyLayer(std::move(depthScene));
-                    commandGenerator->update(depthScene);
-                    glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
-                    glRenderer->setGpuFrameContext(frame.number, vp->id, "overlay-depth");
-                    glRenderer->draw({commandGenerator.get()});
-                    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
                 } else {
                     glDisable(GL_SCISSOR_TEST);
                     glBindFramebuffer(GL_READ_FRAMEBUFFER, vp->sceneFbo.getFbo());
@@ -872,12 +989,15 @@ void Application::drawViewports(FrameContext& frame)
                 vp->overlayFbo.bind();
             }
 
-            if (hasWireframeOverlay) {
+            if (drawWireframe) {
                 const auto wireframeStart = ux3d::imgui::profiling::Clock::now();
                 glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-                glEnable(GL_POLYGON_OFFSET_LINE);
-                glPolygonOffset(-1.0f, -1.0f);
+                if (hasWireframeOverlay) {
+                    glEnable(GL_POLYGON_OFFSET_LINE);
+                    glPolygonOffset(-1.0f, -1.0f);
+                }
                 glLineWidth(1.0f);
+                glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
                 gltfLayer->frustumCulling = !s_disableCulling;
                 gltfLayer->asoboOptions = vp->settings.asobo;
                 auto [wireScene, _] = gltfLayer->createScene(activeScene);
@@ -890,11 +1010,12 @@ void Application::drawViewports(FrameContext& frame)
                     if (passId == ux3d::renderer::RenderPassType::TransmissiveBlit ||
                         passId == ux3d::renderer::RenderPassType::Opaque2 ||
                         passId == ux3d::renderer::RenderPassType::Grid2 ||
-                        passId == ux3d::renderer::RenderPassType::Transparent2) {
+                        passId == ux3d::renderer::RenderPassType::Transparent2 ||
+                        mesh == cubeMesh) {
                         it = wireScene.drawables.erase(it);
                         continue;
                     }
-                    if (mesh != nullptr && mesh != cubeMesh) {
+                    if (mesh != nullptr) {
                         mesh->polygonMode = ux3d::renderer::gl::PolygonMode::Line;
                         if (material != nullptr) {
                             material = wireMaterial(material);
@@ -907,9 +1028,13 @@ void Application::drawViewports(FrameContext& frame)
                 glRenderer->draw({commandGenerator.get()});
                 vp->lastExecutedPasses = glRenderer->getLastExecutedPasses();
                 ++vp->renderCount;
-                glDisable(GL_POLYGON_OFFSET_LINE);
+                glDisable(GL_COLOR_LOGIC_OP);
+                if (hasWireframeOverlay) {
+                    glDisable(GL_POLYGON_OFFSET_LINE);
+                }
                 glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-                frame.markStage("scene.wireframeOverlay", wireframeStart);
+                glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+                frame.markStage(isWireframeMode ? "scene.wireframe" : "scene.wireframeOverlay", wireframeStart);
             }
         } else if (redrawScene) {
             currentReverseMapping.clear();

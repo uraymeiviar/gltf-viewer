@@ -182,6 +182,24 @@ void ux3d::renderer::CommandGenerator::emitCommands()
             desc->command.depthWriteEnabled = false;
         }
 
+        // Debug windshield pixels replace colour and carry alpha 2 as a post-pass tag.
+        if (material != nullptr && material->defines.isDefined("RAW_SSR_OVERLAY") &&
+            material->defines.isDefined("ASOBO_WINDSHIELD_SSR")) {
+            desc->command.overrideBlend = true;
+            desc->command.blendingEnabled = false;
+        }
+
+        if (material != nullptr && (material->overrideBlend || material->customBlend)) {
+            desc->command.overrideBlend = true;
+            desc->command.customBlend = material->customBlend;
+            desc->command.blendingEnabled = material->blendingEnabled;
+            desc->command.blendSrcFactor = material->blendSrcFactor;
+            desc->command.blendDstFactor = material->blendDstFactor;
+            desc->command.blendEquation = material->blendEquation;
+            desc->command.logicOpEnabled = material->logicOpEnabled;
+            desc->command.logicOp = material->logicOp;
+        }
+
         float sortKey = desc->distanceSortKey;
         if (covered && material->drawOrderClass == DrawOrderClass::Glass) {
             // MSFS SDK: for glass and windshield the value is added to the distance used for

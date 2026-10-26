@@ -298,6 +298,7 @@ json countersToJson(const FrameCounters& counters)
         { "cacheRebuilds", counters.cacheRebuilds },
         { "sceneBuilds", counters.sceneBuilds },
         { "sceneDrawables", counters.sceneDrawables },
+        { "wireframeMaterialCopies", counters.wireframeMaterialCopies },
         { "sceneNodesVisited", counters.sceneNodesVisited },
         { "pickingBuilds", counters.pickingBuilds },
         { "commandGenerations", counters.commandGenerations },

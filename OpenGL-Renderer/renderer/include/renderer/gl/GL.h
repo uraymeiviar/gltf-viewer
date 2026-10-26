@@ -59,6 +59,7 @@ public:
                                     GLenum dfactorAlpha) = 0;
     virtual void blendEquation(GLenum mode) = 0;
     virtual void blendEquationi(GLuint buffer, GLenum mode) = 0;
+    virtual void logicOp(GLenum opcode) = 0;
     virtual void depthFunc(GLenum func) = 0;
     // A2.2: decal draws bias their depth towards the camera.
     virtual void polygonOffset(GLfloat factor, GLfloat units) = 0;

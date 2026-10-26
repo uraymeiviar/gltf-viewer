@@ -29,10 +29,13 @@ void ux3d::renderer::CommandExecutor::init()
     m_blendSrcFactor.reset();
     m_blendDstFactor.reset();
     m_blendEquation.reset();
+    m_logicOpEnabled.reset();
+    m_logicOp.reset();
     m_polygonOffsetEnabled.reset();
     m_polygonOffsetFactor.reset();
     m_polygonOffsetUnits.reset();
     m_gl->disable(GL_POLYGON_OFFSET_FILL);
+    m_gl->disable(GL_COLOR_LOGIC_OP);
 }
 
 void ux3d::renderer::CommandExecutor::resetState()
@@ -50,6 +53,8 @@ void ux3d::renderer::CommandExecutor::resetState()
     m_blendSrcFactor.reset();
     m_blendDstFactor.reset();
     m_blendEquation.reset();
+    m_logicOpEnabled.reset();
+    m_logicOp.reset();
     m_polygonOffsetEnabled.reset();
     m_polygonOffsetFactor.reset();
     m_polygonOffsetUnits.reset();
@@ -58,6 +63,7 @@ void ux3d::renderer::CommandExecutor::resetState()
     m_gl->depthMask(GL_TRUE);
     // A2.2 decals may have left a polygon offset enabled; the UI must not inherit it.
     m_gl->disable(GL_POLYGON_OFFSET_FILL);
+    m_gl->disable(GL_COLOR_LOGIC_OP);
 }
 
 void ux3d::renderer::CommandExecutor::unbindSamplers()
@@ -111,6 +117,8 @@ void ux3d::renderer::CommandExecutor::execute(const Command& command)
         m_blendSrcFactor.reset();
         m_blendDstFactor.reset();
         m_blendEquation.reset();
+    m_logicOpEnabled.reset();
+    m_logicOp.reset();
         m_polygonOffsetEnabled.reset();
         m_polygonOffsetFactor.reset();
         m_polygonOffsetUnits.reset();
@@ -254,26 +262,53 @@ void ux3d::renderer::CommandExecutor::setupVertexArray(const Command& command)
 
 void ux3d::renderer::CommandExecutor::setupBlendFunc(const Command& command)
 {
-    if (command.blendingEnabled) {
-        if (!m_blendEnabled.has_value() || !m_blendEnabled.value()) {
-            m_blendEnabled = true;
-            m_gl->enable(GL_BLEND);
-        }
-        const GLenum sourceFactor = command.premultipliedAlpha ? GL_ONE : GL_SRC_ALPHA;
-        if (!m_blendSrcFactor.has_value() || !m_blendDstFactor.has_value() ||
-            m_blendSrcFactor.value() != sourceFactor || m_blendDstFactor.value() != GL_ONE_MINUS_SRC_ALPHA) {
-            m_blendSrcFactor = sourceFactor;
-            m_blendDstFactor = GL_ONE_MINUS_SRC_ALPHA;
-            m_gl->blendFunc(sourceFactor, GL_ONE_MINUS_SRC_ALPHA);
-        }
-        if (!m_blendEquation.has_value() || m_blendEquation.value() != GL_FUNC_ADD) {
-            m_blendEquation = GL_FUNC_ADD;
-            m_gl->blendEquation(GL_FUNC_ADD);
-        }
-    } else {
+    if (command.logicOpEnabled) {
         if (!m_blendEnabled.has_value() || m_blendEnabled.value()) {
             m_blendEnabled = false;
             m_gl->disable(GL_BLEND);
+        }
+        if (!m_logicOpEnabled.has_value() || !m_logicOpEnabled.value()) {
+            m_logicOpEnabled = true;
+            m_gl->enable(GL_COLOR_LOGIC_OP);
+        }
+        if (!m_logicOp.has_value() || m_logicOp.value() != command.logicOp) {
+            m_logicOp = command.logicOp;
+            m_gl->logicOp(command.logicOp);
+        }
+    } else {
+        if (!m_logicOpEnabled.has_value() || m_logicOpEnabled.value()) {
+            m_logicOpEnabled = false;
+            m_gl->disable(GL_COLOR_LOGIC_OP);
+        }
+        if (command.blendingEnabled) {
+            if (!m_blendEnabled.has_value() || !m_blendEnabled.value()) {
+                m_blendEnabled = true;
+                m_gl->enable(GL_BLEND);
+            }
+            const GLenum sourceFactor = command.customBlend
+                ? command.blendSrcFactor
+                : (command.premultipliedAlpha ? GL_ONE : GL_SRC_ALPHA);
+            const GLenum dstFactor = command.customBlend
+                ? command.blendDstFactor
+                : GL_ONE_MINUS_SRC_ALPHA;
+            const GLenum equation = command.customBlend
+                ? command.blendEquation
+                : GL_FUNC_ADD;
+            if (!m_blendSrcFactor.has_value() || !m_blendDstFactor.has_value() ||
+                m_blendSrcFactor.value() != sourceFactor || m_blendDstFactor.value() != dstFactor) {
+                m_blendSrcFactor = sourceFactor;
+                m_blendDstFactor = dstFactor;
+                m_gl->blendFunc(sourceFactor, dstFactor);
+            }
+            if (!m_blendEquation.has_value() || m_blendEquation.value() != equation) {
+                m_blendEquation = equation;
+                m_gl->blendEquation(equation);
+            }
+        } else {
+            if (!m_blendEnabled.has_value() || m_blendEnabled.value()) {
+                m_blendEnabled = false;
+                m_gl->disable(GL_BLEND);
+            }
         }
     }
 

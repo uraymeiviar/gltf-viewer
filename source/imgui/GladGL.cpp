@@ -289,6 +289,12 @@ void GladGL::blendEquationi(GLuint buffer, GLenum mode)
     glBlendEquationi(buffer, mode);
 }
 
+void GladGL::logicOp(GLenum opcode)
+{
+    ux3d::imgui::profiling::countGlCall();
+    glLogicOp(opcode);
+}
+
 void GladGL::depthFunc(GLenum func)
 {
     ux3d::imgui::profiling::countGlCall();

@@ -13,6 +13,7 @@
 #include <array>
 #include <string>
 #include <memory>
+#include <unordered_map>
 
 namespace ux3d::gltf {
 class Node;
@@ -71,6 +72,18 @@ struct ViewportInstance {
     Framebuffer overlayFbo; // TAA display composite; never fed back into history
     ux3d::renderer::PickingRenderLayer overlayDepthLayer;
     AntiAliasing antiAliasing;
+    // SSR overlays meter a normally shaded scene, so diagnostic colours never drive EV.
+    Framebuffer ssrExposureFbo;
+    std::unique_ptr<AntiAliasing> ssrExposureAa;
+
+    // Material variants live as long as this viewport. The model generation covers
+    // full reloads and material-only Inspector/ASOBO syncs; viewport settings cover
+    // per-view defines and render policy. Shared source materials have one variant.
+    const ux3d::renderer::GltfRenderLayer* wireMaterialLayer = nullptr;
+    uint64_t wireMaterialGeneration = 0;
+    uint64_t wireRenderSettingsRevision = 0;
+    ViewportSettingsState wireMaterialSettings;
+    std::unordered_map<ux3d::renderer::Material*, std::unique_ptr<ux3d::renderer::Material>> wireMaterials;
 
     // Viewport camera
     ux3d::renderer::Camera rendererCamera;

@@ -396,6 +396,31 @@ std::optional<int> Application::configure(int argc, char** argv)
             edit.param = argv[++i];
             edit.value = argv[++i];
             setAsoboParamArgs.push_back(std::move(edit));
+        } else if (arg == "--disable-wireframe-cache") {
+            s_disableWireframeCache = true;
+        } else if (arg == "--wireframe-overlay") {
+            activeViewport->settings.wireframeOverlay = true;
+        } else if (arg == "--wireframe-color" && i + 1 < argc) {
+            float r = 1.0f, g = 1.0f, b = 1.0f, a = 1.0f;
+            const char* val = argv[++i];
+            int count = std::sscanf(val, "%f,%f,%f,%f", &r, &g, &b, &a);
+            if (count < 3) return 1;
+            if (count == 3) a = 1.0f;
+            activeViewport->settings.wireframeColor = glm::vec4(r, g, b, a);
+        } else if (arg == "--wireframe-blend" && i + 1 < argc) {
+            std::string modeStr = toLowerAscii(argv[++i]);
+            if (modeStr == "normal") {
+                activeViewport->settings.wireframeBlend = ux3d::imgui::WireframeBlendMode::Normal;
+            } else if (modeStr == "additive") {
+                activeViewport->settings.wireframeBlend = ux3d::imgui::WireframeBlendMode::Additive;
+            } else if (modeStr == "invert") {
+                activeViewport->settings.wireframeBlend = ux3d::imgui::WireframeBlendMode::Invert;
+            } else if (modeStr == "xor") {
+                activeViewport->settings.wireframeBlend = ux3d::imgui::WireframeBlendMode::XOR;
+            } else {
+                std::fprintf(stderr, "Invalid --wireframe-blend: %s\n", modeStr.c_str());
+                return 1;
+            }
         } else if (arg == "--disable-instancing") {
             s_disableInstancing = true;
             commandGenerator->getCommandMapping().setInstancingEnabled(false);
@@ -425,7 +450,8 @@ std::optional<int> Application::configure(int argc, char** argv)
             scenarioReportPath = argv[++i];
         } else if (arg == "--scenario-name" && i + 1 < argc) {
             scenarioName = argv[++i];
-        } else if (arg == "--camera-yaw" && i + 1 < argc) {
+        }
+        if (arg == "--camera-yaw" && i + 1 < argc) {
             cameraYawArg = std::stof(argv[++i]);
             cameraYawProvided = true;
         } else if (arg == "--camera-pitch" && i + 1 < argc) {

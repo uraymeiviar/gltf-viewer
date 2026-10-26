@@ -64,6 +64,7 @@ public:
                                     GLenum dfactorAlpha) override;
     virtual void blendEquation(GLenum mode) override;
     virtual void blendEquationi(GLuint buffer, GLenum mode) override;
+    virtual void logicOp(GLenum opcode) override;
     virtual void depthFunc(GLenum func) override;
     virtual void polygonOffset(GLfloat factor, GLfloat units) override;
     virtual void depthMask(GLboolean flag) override { glDepthMask(flag); }

@@ -167,6 +167,18 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
                 revisions.mark(SceneChange::ViewportSettings);
             }
             ImGui::TextDisabled("Superimposes wireframe mesh edges on top of shaded materials.");
+            if (ImGui::ColorEdit3("Line Color", &state.wireframeColor.x)) {
+                revisions.mark(SceneChange::ViewportSettings);
+            }
+            if (ImGui::SliderFloat("Line Opacity", &state.wireframeColor.w, 0.0f, 1.0f, "%.2f")) {
+                revisions.mark(SceneChange::ViewportSettings);
+            }
+            const char* wireframeBlendNames[] = { "Normal", "Additive", "Invert", "XOR" };
+            int currentWireBlend = static_cast<int>(state.wireframeBlend);
+            if (ImGui::Combo("Blend Mode", &currentWireBlend, wireframeBlendNames, IM_ARRAYSIZE(wireframeBlendNames))) {
+                state.wireframeBlend = static_cast<WireframeBlendMode>(currentWireBlend);
+                revisions.mark(SceneChange::ViewportSettings);
+            }
 
             // Material Variants (KHR_materials_variants)
             if (gltfModel != nullptr && gltfModel->hasMaterialVariants()) {

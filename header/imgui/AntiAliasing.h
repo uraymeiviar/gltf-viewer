@@ -20,6 +20,8 @@ enum class AntiAliasingMode {
 };
 
 struct HdrPostProcessParams {
+    GLuint exposureHdrTexture = 0; // optional normally shaded input for debug-overlay metering
+    bool ssrDebugOverlay = false; // alpha > 1 marks raw windshield debug pixels
     bool rawPassThrough = false; // true for debug render modes (--debug-view)
     float exposureEv = 0.0f;     // manual exposure EV
     int toneMappingMode = 1;     // 0 = PBR Neutral, 1 = ACES Hill, 2 = ACES Narkowicz

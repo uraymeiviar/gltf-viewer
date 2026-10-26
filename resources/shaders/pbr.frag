@@ -825,13 +825,13 @@ vec3 specularTexture = vec3(1.0);
 #endif
 #if DEBUG == DEBUG_SSR && defined(ASOBO_WINDSHIELD_SSR)
     vec4 ssrDebug = traceWindshield(n, v, normalInfo.ng, v_Position);
-    g_finalColor = vec4(ssrDebug.xy, ssrDebug.a, 1.0); // R/G hit UV; B confidence; black miss
+    g_finalColor = vec4(ssrDebug.xy, ssrDebug.a, 2.0); // R/G hit UV; B confidence; black miss
 #endif
 #if DEBUG == DEBUG_SSR_RAY && defined(ASOBO_WINDSHIELD_SSR)
     vec3 ng = dot(normalInfo.ng,v) >= 0.0 ? normalInfo.ng : -normalInfo.ng;
     vec3 reflected = reflect(-v,n);
-    g_finalColor = vec4(normalize(mat3(u_ViewMatrix)*reflected)*0.5+0.5, 1.0);
-    if (dot(reflected,ng) <= 0.02) g_finalColor = vec4(1,0,1,1); // invalid pane hemisphere
+    g_finalColor = vec4(normalize(mat3(u_ViewMatrix)*reflected)*0.5+0.5, 2.0);
+    if (dot(reflected,ng) <= 0.02) g_finalColor = vec4(1,0,1,2); // invalid pane hemisphere
 #endif
 
 }

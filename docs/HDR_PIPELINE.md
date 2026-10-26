@@ -41,10 +41,13 @@ Each open viewport in `Application::drawViewports` (`source/imgui/application/Vi
    - Composites bloom in linear HDR space before tone mapping:
      $$C_{\text{hdr}} = \text{mix}(C_{\text{scene}},\, C_{\text{bloom}},\, \text{bloomIntensity})$$
    - Applies linear exposure $2^{\text{EV}}$, the selected tone mapper (**Khronos PBR Neutral**, **ACES Hill**, or **ACES Narkowicz**), and linear-to-sRGB ($\gamma = 1/2.2$) into `vp->overlayFbo` (`GL_RGBA8`).
-   - Debug Render Modes (`--debug-view`) bypass bloom and tone mapping (`u_RawMode = 1`).
+   - Debug Render Modes (`--debug-view`) bypass bloom and tone mapping (`u_RawMode = 1`). The overlay debug modes (`ssr` and `ssrray`) use `u_RawMode = 2`: windshield diagnostic pixels carry an alpha tag (>1.5) to bypass tone mapping and bloom as raw values, while the shaded surroundings and background are tone mapped normally.
 7. **Post-Tone-Map FXAA & Overlays (`Viewports.cpp`)**:
    - When Post AA is `FXAA`, runs FXAA on the LDR `vp->overlayFbo` and blits back.
-   - Renders unjittered overlays (ground grid, wireframe overlay, scene/node bounding boxes, coordinate gizmo) into `vp->overlayFbo` and resolves to the display texture for Dear ImGui.
+   - Renders unjittered overlays (ground grid, wireframe, scene/node bounding boxes, coordinate gizmo) into `vp->overlayFbo` and resolves to the display texture for Dear ImGui. Both Wireframe shading mode and the Wireframe Overlay draw lines into `vp->overlayFbo` after tone mapping and FXAA, using unjittered projection:
+     - They never feed into bloom, auto-exposure metering, or TAA history.
+     - Depth testing against the resolved scene depth keeps hidden lines occluded.
+     - Blend modes: Normal (alpha), Additive, Invert (mix(dst, 1-dst, alpha)), and XOR (logic op). Destination alpha is protected via glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE).
 
 ---
 
