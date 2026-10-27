@@ -101,6 +101,7 @@ public:
     void setMsfsEmissiveScale(float scale);
     void setTimeOfDay(int timeOfDay);
     void setAsoboMaterialEmissiveApplied(bool applied);
+    void setAsoboOcclusionStrengthApplied(bool applied);
     void setSsrOptions(bool enabled, int quality, float sky) {
         m_ssrOptions.write(math::vec3(enabled ? 1.0f : 0.0f, quality == 0 ? 256.0f : quality == 2 ? 1024.0f : 512.0f, sky));
     }
@@ -166,6 +167,7 @@ protected:
     gl::Uniform m_asoboMaterialEmissiveAppliedUniform;
     gl::Uniform m_asoboDetailMapUniform;
     gl::Uniform m_windshieldIcingUniform;
+    gl::Uniform m_asoboOcclusionStrengthUniform;
     // A2.2: six borrowed views of the shared accumulation targets and their samplers. The
     // wrappers live as long as the generator; setDecalTargets refreshes only the handles.
     std::array<std::unique_ptr<gl::Texture>, 6> m_decalTextures;

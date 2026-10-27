@@ -447,6 +447,10 @@ private:
     static constexpr uint32_t kTaaSettleRenders = 64;
     uint64_t s_sceneRenderTotal = 0;
     uint64_t s_sceneSkipTotal = 0;
+    // Instancing counters of the last forward scene pass. Later passes (overlay depth, picking)
+    // reuse the command generator and reset its counters, so reports read these instead.
+    uint64_t s_sceneInstancedDraws = 0;
+    uint64_t s_sceneInstancedMembers = 0;
     // P5.4: when nothing needs a new frame, the loop blocks in waitForEvents (IdleWait.h)
     // instead of polling. Input and window events wake it at once; the timeout is a
     // catch-all. --disable-idle-wait polls every frame (the pre-P5.4 loop).

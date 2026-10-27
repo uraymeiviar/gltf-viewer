@@ -10,12 +10,15 @@ emissive glow.
 
 ## Tasks
 
-- [ ] **A4.1 — `ASOBO_material_glass_v2` (R3). Owner: Claude.** MSFS glass mapped onto Glider's transmission path:
+- [x] **A4.1 — `ASOBO_material_glass_v2` (R3). Owner: Claude (done in A4 parts 1–4, ticked 2026-10-28).** MSFS glass mapped onto Glider's transmission path:
   refraction and reflection, with blending as MSFS does it. Glider's transmission path samples a mipmapped copy
   of the opaque scene (fixed in `51266d3`).
   - **Open:** what `glassWidth` controls (thickness, tint or refraction) comes from A0.6.
   - **Covers:** the cockpit's glass and the exterior's three materials (`MAT_GLASS`, `_bluish`, `_red`).
   - **Tests:** refraction through a slab of known width; tint; reflection at grazing angles.
+  - **Result:** opacity-independent GGX reflection, screen-space slab refraction with roughness blur and editable
+    `glassWidth` (A4 first part, part 4; `scripts/validate_asobo_glass.py`). Support stays **Partial**: the
+    `glassWidth` units are inferred and glass seen through other glass is not refracted.
 - [x] **A4.2 — `ASOBO_material_windshield_v3` and v1 layers (R4). Owner: worker (completed 2026-10-27), reviewed by Claude.**
   - **Today:** windshields render reflection + SSR only (A4 parts 2–3); the support table says "no refraction,
     masks, wipers or icing". Since `99de26c` the generic detail map (A5.1) is deliberately **not** applied to
@@ -133,11 +136,15 @@ emissive glow.
       (`isExplicit`) windshield `UVScale` overrides the detail map's (`GltfRenderLayer.cpp`). The DA62 shows many
       small fingerprints on the side window and fine repeated scratches forward, as in MSFS; the E195 (explicit
       `UVScale` 5) is unaffected. Windshield-layer, detail-map and MSFS 2020 checks pass.
-- [ ] **A4.3 — Emissive glow (bloom) (R3). Owner: Claude.** A bloom post-process (threshold, downsample chain,
+- [x] **A4.3 — Emissive glow (bloom) (R3). Owner: Claude (done in the HDR pipeline work, ticked 2026-10-28).** A bloom post-process (threshold, downsample chain,
   intensity) so emissive panels and lights glow as in MSFS.
   - A user setting, on by default for ASOBO files only.
   - Applied before TAA and FXAA; the order is tested.
   - **Tests:** energy and threshold on a fixture of emissive patches; stable under TAA.
+  - **Result:** physically based bloom (Jimenez 13-tap downsample, tent upsample, five-level average) in linear HDR
+    with the MSFS emissive scale (`docs/HDR_PIPELINE.md`, `scripts/validate_hdr.py`). Deviations from the plan: it
+    is a scene setting on by default for every file (Scene Inspector → Environment, `--bloom`), not ASOBO-only, and
+    it runs after TAA on the resolved HDR image (TAA history stays bloom-free), before tone mapping and FXAA.
 - [ ] **A4.4 — `ASOBO_material_fresnel_fade` and `ASOBO_material_ghost_effect` (R2). Owner: GPT Astra.**
   View-angle-dependent opacity, using the A0.6 formulas.
   - **Test:** opacity on a sphere at normal and grazing incidence matches the formula.

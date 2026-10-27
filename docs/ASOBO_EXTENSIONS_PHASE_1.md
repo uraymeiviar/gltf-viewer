@@ -66,6 +66,14 @@ emissive and normals close to MSFS (user priority 1), and the explicit draw orde
     looks the same in this dark frame.
 - [ ] **A1.5 — `ASOBO_occlusion_strength` and `ASOBO_extra_occlusion_texture` (R2). Owner: Claude.** An occlusion
   strength override, and a second occlusion map combined by the A0.6 rule.
+  - **`ASOBO_occlusion_strength` done (2026-10-28):** the exporter writes the material occlusion strength only here,
+    never as `occlusionTexture.strength`, so Glider uses it in the core strength's place with the core operator
+    (`mix(1, ao, strength)`, inferred); strengths above 1 (UI range 0–2; the DA62 uses 1.62/1.7) deepen the
+    occlusion, clamped at 0. Without an occlusion map it has no effect (as in core glTF). On windshields the same
+    key is the reflection-mask strength and acts through the same occlusion term. Per-viewport switch; check
+    `scripts/validate_asobo_occlusion_strength.py` (7 checks, part of the quick regression).
+  - **`ASOBO_extra_occlusion_texture` open:** no sample. No glTF under `F:\msfs-addons` (third-party packaged
+    aircraft) or the DA62/E195 uses it (searched 2026-10-28); it stays unsupported until one turns up.
 - [x] **A1.6 — Emissive (R2). Owner: Claude.**
   - `ASOBO_material_emissive` day/night multipliers applied via scene environment setting *Time of day: Day (default) / Night*
     and CLI `--time-of-day day|night`.

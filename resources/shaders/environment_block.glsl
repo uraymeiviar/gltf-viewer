@@ -31,4 +31,7 @@ layout(std140) uniform EnvironmentBlock
     int u_AsoboDetailMapEnabled;
     // Windshield icing factor 0..1 (A4.2). Coverage = detailColorTexture.g * vertexColor.a * u_WindshieldIcing.
     float u_WindshieldIcing;
+    // Non-zero when the viewport applies ASOBO_occlusion_strength (A1.5); materials that
+    // declare it compile ASOBO_OCCLUSION_STRENGTH and read u_AsoboOcclusionStrength.
+    int u_AsoboOcclusionStrengthApplied;
 };

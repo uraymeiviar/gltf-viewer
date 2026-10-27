@@ -39,6 +39,7 @@ ux3d::renderer::CommandGenerator::CommandGenerator(gl::GL* gl, const filesystem:
     , m_asoboMaterialEmissiveAppliedUniform("u_AsoboMaterialEmissiveApplied")
     , m_asoboDetailMapUniform("u_AsoboDetailMapEnabled")
     , m_windshieldIcingUniform("u_WindshieldIcing")
+    , m_asoboOcclusionStrengthUniform("u_AsoboOcclusionStrengthApplied")
     , m_lights(gl)
 {
     setEnvironmentMapRotation(0.0f);
@@ -55,6 +56,7 @@ ux3d::renderer::CommandGenerator::CommandGenerator(gl::GL* gl, const filesystem:
     setTimeOfDay(0);
     setAsoboMaterialEmissiveApplied(false);
     setAsoboDetailMap(false);
+    setAsoboOcclusionStrengthApplied(false);
 
     // A2.2: stable borrowed wrappers for the six accumulation targets. Nearest filtering
     // keeps texelFetch exact; clamp-to-edge is irrelevant for texelFetch but explicit.
@@ -124,7 +126,8 @@ void ux3d::renderer::CommandGenerator::bindFrameBlocks()
     // int u_AsoboDecalReceiver at 72, float u_DecalDepthTolerance at 76,
     // int u_AsoboEmissiveActive at 80, float u_MsfsEmissiveScale at 84,
     // int u_TimeOfDay at 88, int u_AsoboMaterialEmissiveApplied at 92,
-    // int u_AsoboDetailMapEnabled at 96 (112 bytes, std140 rounds the block up to 16).
+    // int u_AsoboDetailMapEnabled at 96, float u_WindshieldIcing at 100,
+    // int u_AsoboOcclusionStrengthApplied at 104 (112 bytes, std140 rounds the block up to 16).
     uint8_t environment[112] = {};
     if (m_environmentMapRotationUniform.byteSize() == 36) {
         for (size_t column = 0; column < 3; ++column) {
@@ -147,6 +150,7 @@ void ux3d::renderer::CommandGenerator::bindFrameBlocks()
     place(environment, 92, 4, m_asoboMaterialEmissiveAppliedUniform);
     place(environment, 96, 4, m_asoboDetailMapUniform);
     place(environment, 100, 4, m_windshieldIcingUniform);
+    place(environment, 104, 4, m_asoboOcclusionStrengthUniform);
     uploadFrameBlock(m_environmentBlock, gl::kEnvironmentBlockBinding, environment, sizeof(environment));
 }
 
@@ -321,6 +325,11 @@ void ux3d::renderer::CommandGenerator::setTimeOfDay(int timeOfDay)
 void ux3d::renderer::CommandGenerator::setAsoboMaterialEmissiveApplied(bool applied)
 {
     m_asoboMaterialEmissiveAppliedUniform.write(static_cast<int>(applied ? 1 : 0));
+}
+
+void ux3d::renderer::CommandGenerator::setAsoboOcclusionStrengthApplied(bool applied)
+{
+    m_asoboOcclusionStrengthUniform.write(static_cast<int>(applied ? 1 : 0));
 }
 
 void ux3d::renderer::CommandGenerator::setDecalTargets(GLuint a0, GLuint a1, GLuint a2, GLuint a3, GLuint a4,

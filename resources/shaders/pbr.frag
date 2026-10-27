@@ -529,11 +529,27 @@ void main()
     // it in the same occlusion path, so it needs a material occlusion target to act on.
     ao = applyAsoboDetailOcclusion(getAsoboDetailWeight(), ao);
 #endif
-    f_diffuse = mix(f_diffuse, f_diffuse * ao, u_OcclusionStrength);
+    float occlusionStrength = u_OcclusionStrength;
+#ifdef ASOBO_OCCLUSION_STRENGTH
+    // A1.5: the MSFS exporter writes the material occlusion strength only as
+    // ASOBO_occlusion_strength (never occlusionTexture.strength), so it takes the core
+    // strength's place with the core operator (inferred). Strengths above 1 deepen the
+    // occlusion; the factor is clamped at 0 below.
+    if (u_AsoboOcclusionStrengthApplied != 0) {
+        occlusionStrength = u_AsoboOcclusionStrength;
+    }
+#endif
+    f_diffuse = mix(f_diffuse, f_diffuse * ao, occlusionStrength);
     // apply ambient occlusion to all lighting that is not punctual
-    f_specular = mix(f_specular, f_specular * ao, u_OcclusionStrength);
-    f_sheen = mix(f_sheen, f_sheen * ao, u_OcclusionStrength);
-    f_clearcoat = mix(f_clearcoat, f_clearcoat * ao, u_OcclusionStrength);
+    f_specular = mix(f_specular, f_specular * ao, occlusionStrength);
+    f_sheen = mix(f_sheen, f_sheen * ao, occlusionStrength);
+    f_clearcoat = mix(f_clearcoat, f_clearcoat * ao, occlusionStrength);
+#ifdef ASOBO_OCCLUSION_STRENGTH
+    f_diffuse = max(f_diffuse, vec3(0.0));
+    f_specular = max(f_specular, vec3(0.0));
+    f_sheen = max(f_sheen, vec3(0.0));
+    f_clearcoat = max(f_clearcoat, vec3(0.0));
+#endif
 #endif
 #ifdef ASOBO_DECAL_RECEIVER
     // A2.2: the decal AO multiplies the IBL terms with strength 1, also when the receiver

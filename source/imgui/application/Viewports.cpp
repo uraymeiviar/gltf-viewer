@@ -770,6 +770,8 @@ void Application::drawViewports(FrameContext& frame)
             commandGenerator->setTimeOfDay(activeEnvironment.timeOfDay);
             commandGenerator->setAsoboMaterialEmissiveApplied(
                 vp->settings.asobo.applies("ASOBO_material_emissive"));
+            commandGenerator->setAsoboOcclusionStrengthApplied(
+                vp->settings.asobo.applies("ASOBO_occlusion_strength"));
 
             const auto commandGenerationStart = ux3d::imgui::profiling::Clock::now();
             const uint64_t programHitsBefore = commandGenerator->getCommandMapping().getProgramCacheHits();
@@ -788,6 +790,8 @@ void Application::drawViewports(FrameContext& frame)
             } else {
                 commandGenerator->update(scene);
             }
+            s_sceneInstancedDraws = commandGenerator->getCommandMapping().getInstancedDraws();
+            s_sceneInstancedMembers = commandGenerator->getCommandMapping().getInstancedMembers();
             frame.markStage("commands.generate", commandGenerationStart);
             ux3d::imgui::profiling::countCommandGeneration();
             if (s_profilingEnabled) {
@@ -1061,6 +1065,11 @@ void Application::drawViewports(FrameContext& frame)
                     ++it;
                 }
                 commandGenerator->update(wireScene);
+                if (isWireframeMode) {
+                    // Wireframe mode draws its geometry here; the earlier pass held only the sky.
+                    s_sceneInstancedDraws = commandGenerator->getCommandMapping().getInstancedDraws();
+                    s_sceneInstancedMembers = commandGenerator->getCommandMapping().getInstancedMembers();
+                }
                 glRenderer->setGpuFrameContext(frame.number, vp->id, "wireframe");
                 glRenderer->draw({commandGenerator.get()});
                 vp->lastExecutedPasses = glRenderer->getLastExecutedPasses();

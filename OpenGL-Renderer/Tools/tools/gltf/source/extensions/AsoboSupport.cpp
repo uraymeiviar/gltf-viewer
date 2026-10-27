@@ -45,7 +45,7 @@ const std::vector<SupportInfo>& supportTable()
         {"ASOBO_material_windshield", Support::Partial, "A4.2", "MSFS 2020 reflection/SSR, lit scratch/fingerprint scattering, detail reflection, secondary details, icing; wipers and rain out of scope"},
         {"ASOBO_material_windshield_v3", Support::Partial, "A4.2", "reflection/SSR, lit scratch/fingerprint scattering, detail reflection, secondary details, micro-scratches, icing; wipers, insects, rain and refraction out of scope"},
         {"ASOBO_normal_map_convention", Support::Rendered, "A1.2", "DirectX convention flips normal-map green"},
-        {"ASOBO_occlusion_strength", Support::NotYetSupported, "A1", ""},
+        {"ASOBO_occlusion_strength", Support::Rendered, "A1.5", "Replaces the core occlusion strength (core operator; >1 deepens AO, clamped at 0)"},
         {"ASOBO_property_animation", Support::NotYetSupported, "A7", ""},
         {"ASOBO_softbody_mesh", Support::Metadata, "A7", ""},
         {"ASOBO_tags", Support::Metadata, "A7", ""},

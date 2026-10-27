@@ -25,6 +25,9 @@ uniform mat3 u_EmissiveUVTransform;
 uniform sampler2D u_OcclusionSampler;
 uniform int u_OcclusionUVSet;
 uniform float u_OcclusionStrength;
+#ifdef ASOBO_OCCLUSION_STRENGTH
+uniform float u_AsoboOcclusionStrength;
+#endif
 uniform mat3 u_OcclusionUVTransform;
 
 

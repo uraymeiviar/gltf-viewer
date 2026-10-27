@@ -978,6 +978,17 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
         // detail OMR = detail reflection, detail normal = icing normal. Icing is a weather state
         // and the detail layers belong to the windshield shading (A4), so the generic A5.1
         // operators never apply to windshield v3, windshield v1 or material code "Windshield".
+        // A1.5: ASOBO_occlusion_strength replaces the core occlusion strength (on windshields it is
+        // the reflection-mask strength, which acts through the same occlusion term).
+        if (const gltf::asobo::ExtensionData* occlusionStrength = material->asobo != nullptr
+                ? material->asobo->find("ASOBO_occlusion_strength") : nullptr) {
+            if (occlusionStrength->number("strength").has_value()) {
+                material->defines.define("ASOBO_OCCLUSION_STRENGTH");
+                material->setUniform<float>("u_AsoboOcclusionStrength",
+                                            static_cast<float>(*occlusionStrength->number("strength")));
+            }
+        }
+
         const bool windshieldMaterial = material->asoboMaterialCode == Material::AsoboMaterialCode::Windshield
             || (material->asobo != nullptr && (material->asobo->find("ASOBO_material_windshield_v3") != nullptr
                                                || material->asobo->find("ASOBO_material_windshield") != nullptr));
