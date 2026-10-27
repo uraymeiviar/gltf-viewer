@@ -40,7 +40,8 @@ public:
                        bool& showStatistics,
                        bool& showValidation,
                        const LogSeverityCounts& logCounts,
-                       AntiAliasing* antiAliasing = nullptr);
+                       AntiAliasing* antiAliasing = nullptr,
+                       const std::string& agentScript = "");
 };
 
 } // namespace ux3d::imgui

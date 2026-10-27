@@ -35,13 +35,14 @@ public:
     void changeUserCameraType(renderer::Camera::Type _type);
     renderer::Camera* getUserCamera() const;
 
-    void presentFocusNode(const renderer::GltfRenderLayer* _scene, const gltf::Node* _node, const gltf::Gltf* _gltf);
+    void presentFocusNode(const renderer::GltfRenderLayer* _scene, const gltf::Node* _node, const gltf::Gltf* _gltf, float margin = 1.0f);
     void changeCamSpeed(float _increment);
     void fitCameraToScene(const gltf::Scene& _scene, const gltf::Gltf* _gltf);
     void updateClippingPlanes(const gltf::Extends& extents);
     void updateUserCameraTransform();
     void rotateCamera(int32_t _deltaX, int32_t _deltaY);
     void setCameraRotation(float _x, float _y);
+    void setCameraEyeAndTarget(const math::vec3& eye, const math::vec3& target);
     void orientUserCamera(CameraOrientation orientation);
     void panCamera(int32_t _deltaX, int32_t _deltaY);
     void zoomCamera(float _delta);

@@ -94,6 +94,11 @@ emissive and normals close to MSFS (user priority 1), and the explicit draw orde
     - the pattern is stable under TAA jitter;
     - coverage scales with alpha;
     - no sorting and no blending.
+  - **Samples (survey 2026-10-28):** 106 materials, all with core `alphaMode: OPAQUE` (no `"DITHER"` string seen;
+    103 with an empty extension `{}`, 3 with `{enabled: true}`): PMDG 737-900 VC (14) and 777-300ER VC (17) in
+    `F:\msfs-addons`, MSFS 2020 characters (53) and LSZH (19) in `E:\msfs-pkgs\Official\Steam`, the 2024 SDK
+    LFPG scenery sample, and the 2020 SDK `GLTFMaterials\SampleMaterials.gltf`.
+  - **Semantics:** §6 (pattern unspecified). Brief: `C:\Users\uray\.claude\codex-runs\gltf-viewer\dither.brief.md`.
 - [x] **A1.8 — `MSFT_texture_dds` (R2). Owner: Gemini 3.8 Flash (High).** Use the DDS image the extension points to, with the
   core `source` as fallback.
   - **Mechanism:** `gltf::Texture` parses `MSFT_texture_dds` extension pointing to a DDS image; `pickImageForTexture()` prefers the DDS image when `MSFT_texture_dds` is declared in `extensionsUsed` and the DDS is loaded, falling back to BasisU -> WebP -> core `source`. Fixed `Dds.cpp` pixel format header offset (offset 76 vs 80).

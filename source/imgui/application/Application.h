@@ -188,7 +188,13 @@ private:
                                                      const ux3d::renderer::GltfRenderLayer* gltfLayer);
     void focusCameraOnNode(ux3d::gltf::Node* node, ux3d::gltf::Gltf& gltfModel,
                            ux3d::renderer::GltfRenderLayer* gltfLayer, ux3d::editor::CameraActor& cameraActor,
-                           ux3d::imgui::AntiAliasing& antiAliasing, ux3d::imgui::SceneRevisions& revisions);
+                           ux3d::imgui::AntiAliasing& antiAliasing, ux3d::imgui::SceneRevisions& revisions,
+                           float margin = 1.0f);
+    ux3d::gltf::Node* findNode(const std::string& spec, std::vector<std::string>* outCandidates = nullptr);
+    nlohmann::json computeNodeScreenRect(const ux3d::gltf::Node* node, const ux3d::imgui::ViewportInstance* vp);
+    nlohmann::json performPickAtPixel(int x, int y, ux3d::imgui::ViewportInstance* vp);
+    nlohmann::json getCameraJson(const ux3d::imgui::ViewportInstance* vp);
+    static std::optional<ux3d::editor::CameraOrientation> parseCameraOrientation(const std::string& str);
     std::vector<std::string> loadRecentFiles();
     void saveRecentFiles(const std::vector<std::string>& files);
     void addRecentFile(std::vector<std::string>& files, const std::string& path);
@@ -378,6 +384,12 @@ private:
     uint64_t s_glErrorTotal = 0;
     std::string uiScriptPath;
     std::string uiReportPath;
+    std::string uiScriptFollowPath;
+    std::string frameNodeArg;
+    std::optional<ux3d::editor::CameraOrientation> frameViewArg;
+    float frameMarginArg = 1.0f;
+    std::vector<std::string> reportNodeArgs;
+    std::vector<std::pair<int, int>> reportPickArgs;
     ux3d::imgui::UiScenario uiScenario;
     int dumpFrameCountdown = -1;
     bool exitAfterDump = false;

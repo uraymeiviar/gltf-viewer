@@ -25,7 +25,8 @@ void StatusBar::render(ux3d::gltf::Gltf& gltfModel,
                        bool& showStatistics,
                        bool& showValidation,
                        const LogSeverityCounts& logCounts,
-                       AntiAliasing* antiAliasing)
+                       AntiAliasing* antiAliasing,
+                       const std::string& agentScript)
 {
     const ImGuiViewport* mainViewport = ImGui::GetMainViewport();
     float statusBarHeight = ImGui::GetFrameHeight() + 8.0f;
@@ -339,6 +340,11 @@ void StatusBar::render(ux3d::gltf::Gltf& gltfModel,
 
         // (D) glTF Valid Status
         ValidationPanel::renderStatusBarIndicator(&showValidation);
+
+        if (!agentScript.empty()) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("Agent script: %s", agentScript.c_str());
+        }
     }
     ImGui::End();
     ImGui::PopStyleColor(2);

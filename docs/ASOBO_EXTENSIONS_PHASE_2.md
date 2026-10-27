@@ -214,6 +214,18 @@ Run one at a time; each lands, is reviewed and committed before the next. Owners
   `decalChan0–2`, support-table notes. `ASOBO_material_blend_gbuffer` and `normalOverrideFactor` already use the
   A2.2 default path; A2.3 verifies their equivalence.
   **Tests:** fixtures per mode; ramp endpoints; blend_gbuffer renders like the equivalent default decal.
+  - **Samples (survey 2026-10-28):** the MSFS 2024 SDK DA62 exterior is the only source of both modes, in
+    source and packaged form (`DA62\PackageSources\...\attachments\asobo\` and `DA62\Packages\...`):
+    `Asset_Exterior_Nose_Default|Long`, `Part_Exterior_Airframe`, `Part_Exterior_Engine_L|R`, `Part_Exterior_Tail`,
+    `Part_Exterior_Wing_L|R`. 47 `blendMasked` materials (e.g. `Insects`: `blendMaskTexture`, `blendSharpnessFactor`
+    1.0, `normalOverrideFactor` 0, `underClearcoat` false) and 50 `frosted` (e.g. `Frost`: base colour/metallic/
+    roughness factors 0.99, normal 0.81, emissive/occlusion 0), all `alphaMode: BLEND`, per tree. One `frosted` decal
+    in the FSS E175 project. Shared textures: `DA62\Sources\Art\Max\textures` as a search path. Some attachments
+    hold decals without their receiver surface (A5.2 review: the Nose file); review views need a file that holds
+    both.
+  - **Semantics:** §7 of the semantics doc (the `blendMasked` preview ramp is verified from the exporter graph;
+    `frosted` has no exported frost keys; the per-channel blend operator is inferred). Brief:
+    `C:\Users\uray\.claude\codex-runs\gltf-viewer\decal-modes.brief.md`.
 - [x] **A2.4 — Environment occluder and fake terrain. Done 2026-10-25 (occluder hidden; fake terrain not yet recorded).** Was: Owner: GPT Astra (small).** Per study §4a, neither has
   anything to render in a viewer:
   - `ASOBO_material_environment_occluder` only hides MSFS weather and vegetation inside the cabin, which Glider does

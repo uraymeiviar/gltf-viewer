@@ -19,6 +19,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <nlohmann/json.hpp>
 
 namespace ux3d::imgui {
 
@@ -84,6 +85,20 @@ struct UiScenarioFrame {
     std::function<bool(bool)> setAnimationPlaying;
     std::function<bool(uint32_t)> splitViewport;
     std::function<bool(const std::string&, const std::string&, const std::string&, const std::string&)> setAsoboParam;
+    std::function<nlohmann::json(const std::string&, const std::string&, float)> frameNode;
+    std::function<bool(const std::string&)> selectNode;
+    // Names close to an unmatched node query, for error messages (ambiguous or missing).
+    std::function<std::string(const std::string&)> nodeCandidates;
+    std::function<bool(const std::string&, bool)> isolateNode;
+    std::function<bool()> exitIsolate;
+    std::function<bool(const std::string&)> setView;
+    std::function<bool(const glm::vec3&, const glm::vec3&, const std::optional<float>&, const std::optional<float>&, const std::optional<float>&)> setCamera;
+    std::function<bool(const std::string&)> captureViewport;
+    std::function<nlohmann::json(const std::string&)> getNodeRect;
+    std::function<nlohmann::json(int, int)> pickPixel;
+    std::function<bool(const std::string&)> setDebugView;
+    std::function<nlohmann::json()> getState;
+    std::function<nlohmann::json()> getCameraState;
 };
 
 // Drives real ImGui frames from a text script (--ui-script) by queueing mouse,
@@ -95,6 +110,7 @@ class UiScenario {
 public:
     bool active() const { return m_active; }
     bool failed() const { return m_failed; }
+    bool isFollowMode() const { return m_followMode; }
 
     bool configure(const std::string& scriptPath, const std::string& reportPath)
     {
@@ -106,7 +122,9 @@ public:
             return false;
         }
         std::string line;
+        uint64_t lineNum = 0;
         while (std::getline(input, line)) {
+            ++lineNum;
             if (!line.empty() && line.back() == '\r') {
                 line.pop_back();
             }
@@ -115,9 +133,32 @@ public:
                 continue;
             }
             m_commands.push_back(line.substr(first));
+            m_commandLines.push_back(lineNum);
         }
         m_active = true;
         UiProbe::enabled() = true;
+        return true;
+    }
+
+    bool configureFollow(const std::string& scriptPath, const std::string& reportPath)
+    {
+        m_followMode = true;
+        m_followPath = scriptPath;
+        m_outJsonlPath = scriptPath + ".out.jsonl";
+        m_reportPath = reportPath;
+        m_active = true;
+        UiProbe::enabled() = true;
+        m_followFileOffset = 0;
+        m_fileLinesRead = 0;
+
+        // Truncate out.jsonl for new session
+        {
+            std::ofstream out(m_outJsonlPath, std::ios::trunc);
+        }
+        // Ensure script file exists
+        {
+            std::ofstream touch(m_followPath, std::ios::app);
+        }
         return true;
     }
 
@@ -146,7 +187,7 @@ public:
     void endFrame(GLFWwindow* window, UiScenarioFrame& frame)
     {
         ++m_frame;
-        if (m_frame > kMaxFrames) {
+        if (!m_followMode && m_frame > kMaxFrames) {
             fail("script did not finish within the frame limit");
             finish(window);
             return;
@@ -175,8 +216,65 @@ public:
             stepScroll();
             return;
         }
+
+        // Read newly appended lines in follow mode
+        if (m_followMode) {
+            std::ifstream input(m_followPath, std::ios::binary);
+            if (input.is_open()) {
+                input.seekg(0, std::ios::end);
+                std::streampos endPos = input.tellg();
+                if (endPos > m_followFileOffset) {
+                    input.seekg(m_followFileOffset);
+                    std::string chunk;
+                    chunk.resize(static_cast<size_t>(endPos - m_followFileOffset));
+                    input.read(&chunk[0], chunk.size());
+                    size_t lastNewline = chunk.rfind('\n');
+                    if (lastNewline != std::string::npos) {
+                        std::string completeLines = chunk.substr(0, lastNewline + 1);
+                        m_followFileOffset += static_cast<std::streampos>(lastNewline + 1);
+                        std::istringstream stream(completeLines);
+                        std::string line;
+                        while (std::getline(stream, line)) {
+                            ++m_fileLinesRead;
+                            if (!line.empty() && line.back() == '\r') {
+                                line.pop_back();
+                            }
+                            const size_t first = line.find_first_not_of(" \t");
+                            if (first == std::string::npos || line[first] == '#') {
+                                continue;
+                            }
+                            m_commands.push_back(line.substr(first));
+                            m_commandLines.push_back(m_fileLinesRead);
+                        }
+                    }
+                }
+            }
+        }
+
         if (m_waitFrames > 0) {
             --m_waitFrames;
+            if (m_waitFrames == 0 && !m_pendingCapturePath.empty()) {
+                bool ok = frame.captureViewport && frame.captureViewport(m_pendingCapturePath);
+                if (ok) {
+                    nlohmann::json res;
+                    res["path"] = m_pendingCapturePath;
+                    res["camera"] = frame.getCameraState ? frame.getCameraState() : nlohmann::json::object();
+                    writeResult(m_pendingCaptureLine, "capture", true, "", res);
+                } else {
+                    reportError(m_pendingCaptureLine, "capture", "capture failed: " + m_pendingCapturePath);
+                }
+                m_pendingCapturePath.clear();
+            }
+            if (m_waitFrames == 0 && !m_pendingOpenPath.empty()) {
+                nlohmann::json res;
+                res["path"] = m_pendingOpenPath;
+                res["loaded"] = true;
+                if (frame.getState) {
+                    res["state"] = frame.getState();
+                }
+                writeResult(m_pendingOpenLine, "open", true, "", res);
+                m_pendingOpenPath.clear();
+            }
             return;
         }
         if (!m_queue.empty()) {
@@ -187,14 +285,18 @@ public:
         }
 
         while (m_next < m_commands.size() && !m_failed) {
-            const std::string command = m_commands[m_next++];
-            execute(command, window, frame);
+            const std::string command = m_commands[m_next];
+            const uint64_t cmdLine = m_commandLines[m_next];
+            ++m_next;
+            execute(command, cmdLine, window, frame);
             if (m_scroll.active || m_waitFrames > 0 || !m_queue.empty()
                 || m_waitUntil > std::chrono::steady_clock::now()) {
                 return;
             }
         }
-        finish(window);
+        if (!m_followMode) {
+            finish(window);
+        }
     }
 
 private:
@@ -220,6 +322,49 @@ private:
     std::chrono::steady_clock::time_point m_waitUntil{};
     size_t m_next = 0;
     int m_appendSerial = 0;
+    bool m_followMode = false;
+    std::string m_followPath;
+    std::string m_outJsonlPath;
+    std::streampos m_followFileOffset = 0;
+    uint64_t m_fileLinesRead = 0;
+    std::vector<uint64_t> m_commandLines;
+
+    std::string m_pendingCapturePath;
+    uint64_t m_pendingCaptureLine = 0;
+    std::string m_pendingOpenPath;
+    uint64_t m_pendingOpenLine = 0;
+
+    void writeResult(uint64_t lineNum, const std::string& cmd, bool ok, const std::string& error, const nlohmann::json& result)
+    {
+        if (!m_followMode || m_outJsonlPath.empty()) {
+            return;
+        }
+        nlohmann::json out;
+        out["line"] = lineNum;
+        out["cmd"] = cmd;
+        out["ok"] = ok;
+        if (!ok || !error.empty()) {
+            out["error"] = error;
+        } else {
+            out["error"] = nullptr;
+        }
+        out["result"] = result;
+        std::ofstream file(m_outJsonlPath, std::ios::app);
+        if (file.is_open()) {
+            file << out.dump() << "\n";
+            file.flush();
+        }
+    }
+
+    void reportError(uint64_t lineNum, const std::string& cmd, const std::string& msg)
+    {
+        if (m_followMode) {
+            writeResult(lineNum, cmd, false, msg, nullptr);
+        } else {
+            fail(msg);
+        }
+    }
+
     std::string m_reportPath;
     std::vector<std::string> m_commands;
     std::vector<std::string> m_errors;
@@ -417,7 +562,7 @@ private:
         return text;
     }
 
-    void execute(const std::string& line, GLFWwindow* window, UiScenarioFrame& frame)
+    void execute(const std::string& line, uint64_t cmdLine, GLFWwindow* window, UiScenarioFrame& frame)
     {
         std::vector<std::string> args = tokens(line);
         if (args.empty()) {
@@ -432,17 +577,17 @@ private:
                 std::replace(args[1].begin(), args[1].end(), '_', ' ');
         }
         try {
-            executeCommand(cmd, args, line, window, frame);
-        } catch (const std::exception&) {
-            fail("malformed command: " + line);
+            executeCommand(cmd, args, line, cmdLine, window, frame);
+        } catch (const std::exception& e) {
+            reportError(cmdLine, cmd, std::string("malformed command: ") + e.what());
         }
     }
 
-    void executeCommand(const std::string& cmd, const std::vector<std::string>& args, const std::string& line, GLFWwindow* window, UiScenarioFrame& frame)
+    void executeCommand(const std::string& cmd, const std::vector<std::string>& args, const std::string& line, uint64_t cmdLine, GLFWwindow* window, UiScenarioFrame& frame)
     {
         auto need = [&](size_t count) {
             if (args.size() < count) {
-                fail("missing arguments: " + line);
+                reportError(cmdLine, cmd, "missing arguments: " + line);
                 return false;
             }
             return true;
@@ -551,7 +696,13 @@ private:
             glfwSetClipboardString(window, "UI_SCENARIO_CLIPBOARD_SENTINEL");
             m_waitFrames = 2;
         } else if (cmd == "shot") {
-            if (need(2) && (!frame.saveFrame || !frame.saveFrame(args[1]))) fail("frame capture failed: " + args[1]);
+            if (need(2)) {
+                if (frame.saveFrame && frame.saveFrame(args[1])) {
+                    if (m_followMode) writeResult(cmdLine, "shot", true, "", nlohmann::json{{"path", args[1]}});
+                } else {
+                    reportError(cmdLine, "shot", "frame capture failed: " + args[1]);
+                }
+            }
         } else if (cmd == "reloadwithouttextures") {
             if (need(2)) {
                 if (!frame.loadModelWithoutTextures || !frame.loadModelWithoutTextures(pathArgument(line))) fail("model load failed: " + line);
@@ -633,9 +784,168 @@ private:
                 m_waitFrames = 8;
             }
         } else if (cmd == "snap") {
-            if (need(2)) snap(args, window, frame);
+            if (need(2)) {
+                snap(args, window, frame);
+                if (m_followMode) writeResult(cmdLine, "snap", true, "", args.size() > 1 ? args[1] : "snap");
+            }
+        } else if (cmd == "frame") {
+            if (need(2)) {
+                std::string spec = args[1];
+                std::string viewPreset = args.size() > 2 ? args[2] : "";
+                float margin = 1.0f;
+                if (args.size() > 3) {
+                    try { margin = std::stof(args[3]); } catch (...) {}
+                }
+                if (frame.frameNode) {
+                    nlohmann::json res = frame.frameNode(spec, viewPreset, margin);
+                    if (!res.is_null() && !res.empty()) {
+                        writeResult(cmdLine, "frame", true, "", res);
+                    } else {
+                        reportError(cmdLine, "frame", "node not found: " + spec + (frame.nodeCandidates ? frame.nodeCandidates(spec) : std::string()));
+                    }
+                }
+            }
+        } else if (cmd == "select") {
+            if (need(2)) {
+                if (frame.selectNode && frame.selectNode(args[1])) {
+                    writeResult(cmdLine, "select", true, "", args[1]);
+                } else {
+                    reportError(cmdLine, "select", "node not found: " + args[1] + (frame.nodeCandidates ? frame.nodeCandidates(args[1]) : std::string()));
+                }
+            }
+        } else if (cmd == "isolate") {
+            if (need(2)) {
+                bool children = (args.size() > 2 && (args[2] == "children" || args[2] == "with_children" || args[2] == "1" || args[2] == "true"));
+                if (frame.isolateNode && frame.isolateNode(args[1], children)) {
+                    writeResult(cmdLine, "isolate", true, "", args[1]);
+                } else {
+                    reportError(cmdLine, "isolate", "node not found: " + args[1] + (frame.nodeCandidates ? frame.nodeCandidates(args[1]) : std::string()));
+                }
+            }
+        } else if (cmd == "exitisolate") {
+            if (frame.exitIsolate && frame.exitIsolate()) {
+                writeResult(cmdLine, "exitisolate", true, "", "none");
+            } else {
+                reportError(cmdLine, "exitisolate", "exit isolate failed");
+            }
+        } else if (cmd == "view") {
+            if (need(2)) {
+                if (frame.setView && frame.setView(args[1])) {
+                    writeResult(cmdLine, "view", true, "", args[1]);
+                } else {
+                    reportError(cmdLine, "view", "unknown view: " + args[1]);
+                }
+            }
+        } else if (cmd == "camera") {
+            // camera <eye x,y,z> <target x,y,z> [fov]
+            glm::vec3 eye(0.0f), target(0.0f);
+            std::optional<float> fov;
+            bool parsed = false;
+            std::optional<float> nearPlane, farPlane;
+            if (args.size() >= 3 && args[1].find(',') != std::string::npos && args[2].find(',') != std::string::npos) {
+                float ex = 0, ey = 0, ez = 0, tx = 0, ty = 0, tz = 0;
+                char c1, c2, c3, c4;
+                std::istringstream s1(args[1]);
+                std::istringstream s2(args[2]);
+                if ((s1 >> ex >> c1 >> ey >> c2 >> ez) && (s2 >> tx >> c3 >> ty >> c4 >> tz)) {
+                    eye = glm::vec3(ex, ey, ez);
+                    target = glm::vec3(tx, ty, tz);
+                    if (args.size() > 3) {
+                        try { fov = std::stof(args[3]); } catch (...) {}
+                    }
+                    if (args.size() > 4 && args[4].find(',') != std::string::npos) {
+                        float zn = 0, zf = 0;
+                        char c5;
+                        std::istringstream s4(args[4]);
+                        if (s4 >> zn >> c5 >> zf) {
+                            nearPlane = zn;
+                            farPlane = zf;
+                        }
+                    }
+                    parsed = true;
+                }
+            } else if (args.size() >= 7) {
+                try {
+                    eye = glm::vec3(std::stof(args[1]), std::stof(args[2]), std::stof(args[3]));
+                    target = glm::vec3(std::stof(args[4]), std::stof(args[5]), std::stof(args[6]));
+                    if (args.size() > 7) {
+                        fov = std::stof(args[7]);
+                    }
+                    if (args.size() > 9) {
+                        nearPlane = std::stof(args[8]);
+                        farPlane = std::stof(args[9]);
+                    }
+                    parsed = true;
+                } catch (...) {}
+            }
+            if (parsed && frame.setCamera && frame.setCamera(eye, target, fov, nearPlane, farPlane)) {
+                writeResult(cmdLine, "camera", true, "", frame.getCameraState ? frame.getCameraState() : nlohmann::json::object());
+            } else {
+                reportError(cmdLine, "camera", "invalid camera arguments: " + line);
+            }
+        } else if (cmd == "capture") {
+            if (need(2)) {
+                m_pendingCapturePath = args[1];
+                m_pendingCaptureLine = cmdLine;
+                int settle = 8;
+                if (args.size() > 2) {
+                    try { settle = std::stoi(args[2]); } catch (...) {}
+                }
+                m_waitFrames = settle;
+            }
+        } else if (cmd == "noderect") {
+            if (need(2)) {
+                if (frame.getNodeRect) {
+                    nlohmann::json res = frame.getNodeRect(args[1]);
+                    if (!res.is_null() && !res.empty()) {
+                        writeResult(cmdLine, "noderect", true, "", res);
+                    } else {
+                        reportError(cmdLine, "noderect", "node not found: " + args[1] + (frame.nodeCandidates ? frame.nodeCandidates(args[1]) : std::string()));
+                    }
+                }
+            }
+        } else if (cmd == "pick") {
+            if (need(3)) {
+                if (frame.pickPixel) {
+                    int x = 0, y = 0;
+                    try {
+                        x = std::stoi(args[1]);
+                        y = std::stoi(args[2]);
+                        nlohmann::json res = frame.pickPixel(x, y);
+                        writeResult(cmdLine, "pick", true, "", res);
+                    } catch (...) {
+                        reportError(cmdLine, "pick", "invalid coordinates: " + line);
+                    }
+                }
+            }
+        } else if (cmd == "debugview") {
+            if (need(2)) {
+                if (frame.setDebugView && frame.setDebugView(args[1])) {
+                    writeResult(cmdLine, "debugview", true, "", args[1]);
+                } else {
+                    reportError(cmdLine, "debugview", "unknown debug view: " + args[1]);
+                }
+            }
+        } else if (cmd == "state") {
+            if (frame.getState) {
+                writeResult(cmdLine, "state", true, "", frame.getState());
+            }
+        } else if (cmd == "open") {
+            if (need(2)) {
+                std::string path = pathArgument(line);
+                if (frame.loadModel && frame.loadModel(path)) {
+                    m_pendingOpenPath = path;
+                    m_pendingOpenLine = cmdLine;
+                    m_waitFrames = kSettleFrames;
+                } else {
+                    reportError(cmdLine, "open", "failed to open: " + path);
+                }
+            }
+        } else if (cmd == "quit") {
+            writeResult(cmdLine, "quit", true, "", "quitting");
+            glfwSetWindowShouldClose(window, GLFW_TRUE);
         } else {
-            fail("unknown command: " + line);
+            reportError(cmdLine, cmd, "unknown command: " + line);
         }
     }
 
@@ -846,12 +1156,14 @@ private:
             out << (i ? ",\n" : "\n") << m_snaps[i];
         }
         out << "\n]}\n";
-        std::ofstream report(m_reportPath, std::ios::binary | std::ios::trunc);
-        report << out.str();
-        report.flush();
-        if (!report) {
-            std::fprintf(stderr, "UiScenario: report write failed: %s\n", m_reportPath.c_str());
-            m_failed = true;
+        if (!m_reportPath.empty()) {
+            std::ofstream report(m_reportPath, std::ios::binary | std::ios::trunc);
+            report << out.str();
+            report.flush();
+            if (!report) {
+                std::fprintf(stderr, "UiScenario: report write failed: %s\n", m_reportPath.c_str());
+                m_failed = true;
+            }
         }
         glfwSetWindowShouldClose(window, GLFW_TRUE);
     }

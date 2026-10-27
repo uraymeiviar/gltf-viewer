@@ -90,7 +90,8 @@ void Application::runFrame()
     const auto statusBarStart = ux3d::imgui::profiling::Clock::now();
     ux3d::imgui::StatusBar::render(gltfModel, gltfLayer.get(), animationPlayer, sceneRevisions, showLogger,
                                    showStatistics, showValidation, s_consoleLogs.counts(),
-                                   activeViewport ? &activeViewport->antiAliasing : nullptr);
+                                   activeViewport ? &activeViewport->antiAliasing : nullptr,
+                                   uiScriptFollowPath);
     frame.markStage("ui.statusBar", statusBarStart);
 
     // Rendering main window

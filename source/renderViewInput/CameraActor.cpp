@@ -1,12 +1,43 @@
 #include "renderViewInput/CameraActor.h"
+#include "gltf/mesh/Attribute.h"
+#include "gltf/Mesh.h"
+#include "gltf/Node.h"
+#include "gltf/mesh/Primitive.h"
 #include "gltf/Scene.h"
 #include "gltf/Utils.h"
 #include "math/VectorFunctions.h"
 #include "math/VectorTypes.h"
 #include "renderer/gltf/GltfRenderLayer.h"
+#include <algorithm>
+#include <cmath>
 
 using namespace ux3d;
 using namespace ux3d::editor;
+
+namespace {
+bool nodeHasGeometry(const gltf::Node* node)
+{
+    if (node == nullptr) {
+        return false;
+    }
+    const auto* mesh = node->getMesh();
+    if (mesh != nullptr) {
+        for (const auto& prim : mesh->getPrimitives()) {
+            for (const auto& attr : prim.getAttributes()) {
+                if (attr.getName() == "POSITION") {
+                    return true;
+                }
+            }
+        }
+    }
+    for (const auto* child : node->getChildren()) {
+        if (nodeHasGeometry(child)) {
+            return true;
+        }
+    }
+    return false;
+}
+} // namespace
 
 void CameraActor::setCamera(renderer::Camera* _camera)
 {
@@ -39,7 +70,7 @@ void CameraActor::changeCamSpeed(float _increment)
     m_freeCamSpeed *= 1.f + _increment;
 }
 
-void CameraActor::presentFocusNode(const renderer::GltfRenderLayer* renderLayer, const gltf::Node* _node, const gltf::Gltf* _gltf)
+void CameraActor::presentFocusNode(const renderer::GltfRenderLayer* renderLayer, const gltf::Node* _node, const gltf::Gltf* _gltf, float margin)
 {
     if (_node == nullptr || _gltf == nullptr) {
         return;
@@ -56,13 +87,25 @@ void CameraActor::presentFocusNode(const renderer::GltfRenderLayer* renderLayer,
         extends.max = extends.center + math::dvec3(1, 1, 1);
     }
 
-    m_zoom = static_cast<float>(gltf::utils::getFittingCameraZoom(extends, yFov, aspectRatio));
+    const bool hasGeom = nodeHasGeometry(_node);
+    float targetZoom = 2.0f;
+    if (!hasGeom) {
+        math::dmat4 worldTransform = (renderLayer != nullptr) ? math::dmat4(renderLayer->getWorldTransform(_node)) : math::dmat4(_node->getTransformMatrix());
+        math::dvec3 nodeWorldPos(worldTransform[3][0], worldTransform[3][1], worldTransform[3][2]);
+        extends.center = nodeWorldPos;
+        extends.min = nodeWorldPos - math::dvec3(0.5, 0.5, 0.5);
+        extends.max = nodeWorldPos + math::dvec3(0.5, 0.5, 0.5);
+        targetZoom = 2.0f * (margin > 0.0f ? margin : 1.0f);
+    } else {
+        targetZoom = static_cast<float>(gltf::utils::getFittingCameraZoom(extends, yFov, aspectRatio)) * (margin > 0.0f ? margin : 1.0f);
+    }
+    m_zoom = targetZoom;
     updateClippingPlanes(extends);
 
+    updateCameraSpeeds(extends, yFov, aspectRatio);
+    setZoom(targetZoom);
     m_lookTarget = extends.center;
     updateUserCameraTransform();
-
-    updateCameraSpeeds(extends, yFov, aspectRatio);
 
     if (m_pUserCamera != nullptr && m_pUserCamera->getType() == renderer::Camera::Type::Orthographic) {
         auto* camera = m_pUserCamera;
@@ -179,6 +222,21 @@ void CameraActor::rotateCamera(int32_t _deltaX, int32_t _deltaY)
     m_rotationY = math::clamp(m_rotationY, -yRotationMax, yRotationMax);
 
     updateUserCameraTransform();
+}
+
+void CameraActor::setCameraEyeAndTarget(const math::vec3& eye, const math::vec3& target)
+{
+    const math::vec3 offset = eye - target;
+    const float dist = math::length(offset);
+    if (dist <= 0.00001f) {
+        return;
+    }
+    const math::vec3 dir = offset / dist;
+    const float pitch = -std::asinf(std::clamp(dir.y, -1.0f, 1.0f));
+    const float yaw = std::atan2(dir.x, dir.z);
+    m_lookTarget = target;
+    setZoom(dist);
+    setCameraRotation(yaw, pitch);
 }
 
 void CameraActor::setCameraRotation(float _x, float _y)

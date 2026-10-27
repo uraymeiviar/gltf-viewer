@@ -255,6 +255,12 @@ build/bin/Release/Glider.exe
 - `--msaa <0|2|4|8>` and `--post-aa <none|fxaa|taa>`: Independent per-viewport geometry and post AA overrides, applied after `--aa` regardless of argument order. New viewports default to MSAA Off + TAA.
 - `--isolate-node <name>`: Isolate a node (without descendants), select it and frame the camera on startup.
 - `--select-node <name>`: Automatically selects a node by name and frames camera on startup.
+- `--frame-node <name|#index>`: Frame a node on startup using the same bounds and distance logic as **Object -> Focus (`F`)**. Selects the node. Node lookup matches exact, case-insensitive, unique substring, or `#index` (`--select-node`/`--isolate-node` keep exact names). Nodes with empty geometry bounds frame their world position at a default distance without error.
+- `--frame-view <front|back|left|right|top|bottom|iso>`: Preset viewing direction for `--frame-node`.
+- `--frame-margin <x>`: Distance multiplier for `--frame-node` (default 1.0; 2.0 frames twice as far away).
+- `--report-node <name|#index>`: Repeatable. Adds `nodes` array to `--profile-report` with `index`, `name`, `visible`, `screenRect` `[x0, y0, x1, y1]` in capture-image coordinates, `onScreen`, `clipped`, `behindCamera`, and world-space `center`.
+- `--report-pick <x,y>`: Repeatable. Adds `picks` array to `--profile-report` with GPU-picked node, mesh, primitive, and material under pixel `(x, y)` in capture-image coordinates (or `null` if background).
+- `--ui-script-follow <file>`: Watches `<file>` for appended commands, executes them between frames on the main thread, and writes structured JSONL results to `<file>.out.jsonl`. Wakes at least every 250 ms when idle. Enforces non-persistent isolated mode and displays `Agent script: <file>` in the status bar. See [`docs/LIVE_SCRIPT_CONTROL.md`](docs/LIVE_SCRIPT_CONTROL.md).
 - `--debug-view <name>`: Selects a viewport Render Mode at startup, using the View menu's names with spaces,
   underscores and hyphens ignored (`occlusion`, `roughness`, `shadingnormal`, `geometrybitangent`,
   `normaltexture`, `decalprepassdepth`, `decalprepassnormal`, `ssr`, `ssrray`, ...).

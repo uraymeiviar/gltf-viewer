@@ -42,6 +42,8 @@ int Application::run(int argc, char** argv)
         std::string arg = argv[i];
         if (arg == "--isolated" || arg == "--no-persist") {
             isolatedArg = true;
+        } else if (arg == "--ui-script-follow") {
+            isolatedArg = true;
         } else if (arg == "--profile") {
             profileArg = true;
         } else if (arg == "--no-profile") {
@@ -282,7 +284,13 @@ int Application::run(int argc, char** argv)
         glRenderer->setGpuProfilingEnabled(s_profilingEnabled);
     }
 
-    if (!uiScriptPath.empty()) {
+    if (!uiScriptFollowPath.empty()) {
+        if (!uiScenario.configureFollow(uiScriptFollowPath, uiReportPath)) {
+            std::fprintf(stderr, "--ui-script-follow requires a valid script path\n");
+            s_outputFailed = true;
+            glfwSetWindowShouldClose(window, GLFW_TRUE);
+        }
+    } else if (!uiScriptPath.empty()) {
         if (uiReportPath.empty() || !uiScenario.configure(uiScriptPath, uiReportPath)) {
             std::fprintf(stderr, "--ui-script requires a readable script and --ui-report\n");
             s_outputFailed = true;
@@ -310,7 +318,7 @@ int Application::run(int argc, char** argv)
     while (!glfwWindowShouldClose(window)) {
         // Automation (UI scripts, benchmarks, captures, dumps, reports) runs on frame
         // counts, so it always polls.
-        const bool automationPending = uiScenario.active() || s_benchmarkEnabled || !dumpFramePath.empty() ||
+        const bool automationPending = (uiScenario.active() && !uiScenario.isFollowMode()) || s_benchmarkEnabled || !dumpFramePath.empty() ||
                                        !s_decalPrepassCheckPath.empty() ||
                                        (!s_captureViewportPath.empty() && !s_captureAttempted) ||
                                        (!s_profileReportPath.empty() && !s_profileReportAttempted) ||

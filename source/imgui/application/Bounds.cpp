@@ -141,10 +141,18 @@ const ux3d::gltf::Extends& Application::getCachedSceneExtents(const ux3d::gltf::
 
 void Application::focusCameraOnNode(ux3d::gltf::Node* node, ux3d::gltf::Gltf& gltfModel,
                                     ux3d::renderer::GltfRenderLayer* gltfLayer, ux3d::editor::CameraActor& cameraActor,
-                                    ux3d::imgui::AntiAliasing& antiAliasing, ux3d::imgui::SceneRevisions& revisions)
+                                    ux3d::imgui::AntiAliasing& antiAliasing, ux3d::imgui::SceneRevisions& revisions,
+                                    float margin)
 {
     if (node == nullptr) return;
-    cameraActor.presentFocusNode(gltfLayer, node, &gltfModel);
+    // Uncached: filling the OBB cache here, before the first frame, would change when the selection box first draws.
+    const NodeOBB obb = getNodeOBB(node, gltfLayer);
+    if (!obb.valid) {
+        std::string name = node->hasName() ? node->getName() : ("Node #" + std::to_string(node->m_ID));
+        std::fprintf(stderr, "Node '%s' has empty bounds; framing world position at default distance\n", name.c_str());
+        logMessage("Node '" + name + "' has empty bounds; framing world position at default distance");
+    }
+    cameraActor.presentFocusNode(gltfLayer, node, &gltfModel, margin);
     antiAliasing.resetHistory();
     revisions.mark(ux3d::imgui::SceneChange::ViewCamera);
 }

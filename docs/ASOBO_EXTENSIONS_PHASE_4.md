@@ -148,6 +148,14 @@ emissive glow.
 - [ ] **A4.4 — `ASOBO_material_fresnel_fade` and `ASOBO_material_ghost_effect` (R2). Owner: GPT Astra.**
   View-angle-dependent opacity, using the A0.6 formulas.
   - **Test:** opacity on a sphere at normal and grazing incidence matches the formula.
+  - **Samples (survey 2026-10-28):** `ASOBO_material_fresnel_fade` on 600+ materials: MSFS 2020 official aircraft
+    in `E:\msfs-pkgs\Official\Steam` (C172 G1000 16, XCub 15, Extra 330 and liveries 12 each; 545 of them
+    `{fresnelFactor: 0.5, fresnelOpacityOffset: 0.789}`, BLEND), the PMDG 737-900 exterior `LIGHTS`
+    (`{fresnelOpacityOffset: 0}`), 20 OPAQUE ones. `ASOBO_material_ghost_effect` only on the MSFS 2020 VR controllers
+    (`asobo-simobjects-misc\SimObjects\Misc\L_VR_Controller|R_VR_Controller`: `{bias: 0.2, power: 0.5}` and
+    `{bias: 1.0, scale: 0.0}`, BLEND).
+  - **Semantics:** §13 (no formula in the exporter; both are open). Brief:
+    `C:\Users\uray\.claude\codex-runs\gltf-viewer\fresnel-ghost.brief.md`.
 
 **Exit gate:**
 - Glass and windshield are reviewed against the reference screenshots.

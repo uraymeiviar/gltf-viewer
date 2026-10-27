@@ -578,7 +578,7 @@ bool writeProfileReport(const std::string& path, const ProfileReport& report)
         };
     }
 
-    const json document{
+    json document{
         { "schema", "glider.profile.v1" },
         { "build", report.build },
         { "scenarioName", report.scenarioName },
@@ -627,6 +627,16 @@ bool writeProfileReport(const std::string& path, const ProfileReport& report)
         { "capture", captureToJson(report.capture) }
     };
 
+    if (!report.camera.is_null() && !report.camera.empty()) {
+        document["camera"] = report.camera;
+    }
+    if (!report.nodes.empty()) {
+        document["nodes"] = report.nodes;
+    }
+    if (!report.picks.empty()) {
+        document["picks"] = report.picks;
+    }
+
     return writeJsonFile(path, document);
 }
 
@@ -659,7 +669,7 @@ bool writeBenchmarkReport(const std::string& path, const BenchmarkReport& report
         };
     }
 
-    const json document{
+    json document{
         { "schema", "glider.benchmark.v1" },
         { "build", report.build },
         { "scenarioName", report.scenarioName },
@@ -699,6 +709,7 @@ bool writeBenchmarkReport(const std::string& path, const BenchmarkReport& report
         { "measuredFrames", measuredFrames },
         { "gpu", gpuToJson(report.gpu) }
     };
+
 
     return writeJsonFile(path, document);
 }

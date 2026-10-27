@@ -3,6 +3,7 @@
 #pragma once
 
 #include <glad/glad.h>
+#include <nlohmann/json.hpp>
 
 #include <chrono>
 #include <cstdint>
@@ -528,6 +529,9 @@ struct ProfileReport {
     bool hasFirstFrameCapture = false;
     CaptureRecord firstFrameCapture;
     CaptureRecord capture;
+    std::vector<nlohmann::json> nodes;
+    std::vector<nlohmann::json> picks;
+    nlohmann::json camera;
 };
 
 struct BenchmarkReport {

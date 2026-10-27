@@ -75,6 +75,116 @@ std::string Application::toLowerAscii(std::string text)
     return text;
 }
 
+std::optional<ux3d::editor::CameraOrientation> Application::parseCameraOrientation(const std::string& str)
+{
+    std::string s = toLowerAscii(str);
+    if (s == "front") return ux3d::editor::CameraOrientation::Front;
+    if (s == "back") return ux3d::editor::CameraOrientation::Back;
+    if (s == "left") return ux3d::editor::CameraOrientation::Left;
+    if (s == "right") return ux3d::editor::CameraOrientation::Right;
+    if (s == "top") return ux3d::editor::CameraOrientation::Top;
+    if (s == "bottom") return ux3d::editor::CameraOrientation::Bottom;
+    if (s == "iso" || s == "isometric") return ux3d::editor::CameraOrientation::Isometric;
+    return std::nullopt;
+}
+
+ux3d::gltf::Node* Application::findNode(const std::string& spec, std::vector<std::string>* outCandidates)
+{
+    if (spec.empty()) {
+        return nullptr;
+    }
+
+    // 1. #index
+    if (spec.front() == '#' && spec.size() > 1) {
+        bool allDigits = true;
+        for (size_t i = 1; i < spec.size(); ++i) {
+            if (!std::isdigit(static_cast<unsigned char>(spec[i]))) {
+                allDigits = false;
+                break;
+            }
+        }
+        if (allDigits) {
+            try {
+                uint32_t id = static_cast<uint32_t>(std::stoul(spec.substr(1)));
+                for (auto& node : gltfModel.getNodes()) {
+                    if (node.m_ID == id) {
+                        return &node;
+                    }
+                }
+            } catch (...) {}
+        }
+    }
+
+    // 2. Exact match
+    for (auto& node : gltfModel.getNodes()) {
+        if (node.hasName() && node.getName() == spec) {
+            return &node;
+        }
+    }
+
+    // 3. Case-insensitive match
+    std::string lowerSpec = toLowerAscii(spec);
+    ux3d::gltf::Node* ciMatch = nullptr;
+    size_t ciCount = 0;
+    for (auto& node : gltfModel.getNodes()) {
+        if (node.hasName() && toLowerAscii(node.getName()) == lowerSpec) {
+            if (!ciMatch) ciMatch = &node;
+            ++ciCount;
+        }
+    }
+    if (ciCount >= 1) {
+        return ciMatch;
+    }
+
+    // 4. Unique substring match
+    ux3d::gltf::Node* subMatch = nullptr;
+    size_t subCount = 0;
+    std::vector<std::string> subCandidates;
+    for (auto& node : gltfModel.getNodes()) {
+        if (node.hasName()) {
+            std::string nName = node.getName();
+            if (toLowerAscii(nName).find(lowerSpec) != std::string::npos) {
+                if (!subMatch) subMatch = &node;
+                ++subCount;
+                if (subCandidates.size() < 10) {
+                    subCandidates.push_back(nName);
+                }
+            }
+        }
+    }
+    if (subCount == 1) {
+        return subMatch;
+    }
+
+    // 5. Failure: log up to 10 candidates
+    std::vector<std::string> candidates;
+    if (!subCandidates.empty()) {
+        candidates = std::move(subCandidates);
+    } else {
+        for (const auto& node : gltfModel.getNodes()) {
+            if (node.hasName()) {
+                candidates.push_back(node.getName());
+                if (candidates.size() >= 10) break;
+            }
+        }
+    }
+
+    std::string candStr;
+    for (size_t i = 0; i < candidates.size(); ++i) {
+        if (i > 0) candStr += ", ";
+        candStr += candidates[i];
+    }
+    std::fprintf(stderr, "Node not found for '%s'. Candidates (%zu): %s\n",
+                 spec.c_str(), candidates.size(), candStr.c_str());
+    logMessage("Node not found for '" + spec + "'. Candidates: " + candStr,
+               ImVec4(1.0f, 0.8f, 0.2f, 1.0f));
+
+    if (outCandidates) {
+        *outCandidates = candidates;
+    }
+    return nullptr;
+}
+
 namespace {
 nlohmann::json asoboValueToJson(const ux3d::gltf::asobo::Value& value)
 {
@@ -497,6 +607,27 @@ std::optional<int> Application::configure(int argc, char** argv)
             uiReportPath = argv[++i];
         } else if (arg == "--isolated" || arg == "--no-persist") {
             s_isolatedState = true; // Also applied by the pre-scan.
+        } else if (arg == "--ui-script-follow" && i + 1 < argc) {
+            uiScriptFollowPath = argv[++i];
+            s_isolatedState = true;
+        } else if (arg == "--frame-node" && i + 1 < argc) {
+            frameNodeArg = argv[++i];
+        } else if (arg == "--frame-view" && i + 1 < argc) {
+            frameViewArg = parseCameraOrientation(argv[++i]);
+        } else if (arg == "--frame-margin" && i + 1 < argc) {
+            frameMarginArg = std::stof(argv[++i]);
+        } else if (arg == "--report-node" && i + 1 < argc) {
+            reportNodeArgs.emplace_back(argv[++i]);
+        } else if (arg == "--report-pick" && i + 1 < argc) {
+            std::string xyStr = argv[++i];
+            int px = 0, py = 0;
+            char comma = ',';
+            std::istringstream stream(xyStr);
+            if (stream >> px >> comma >> py) {
+                reportPickArgs.push_back({ px, py });
+            } else {
+                std::fprintf(stderr, "Invalid --report-pick '%s' (expected X,Y)\n", xyStr.c_str());
+            }
         } else if (arg == "--isolate-node" && i + 1 < argc) {
             isolateNodeArg = argv[++i];
         } else if (arg == "--select-node" && i + 1 < argc) {
@@ -1024,25 +1155,45 @@ std::optional<int> Application::configure(int argc, char** argv)
             renameNamedElement(gltfModel.getElements<ux3d::gltf::Material>(), renameMaterialArg, "material");
         }
 
+        // --select-node and --isolate-node keep their exact-name matching: existing scripts rely on a
+        // non-matching name selecting nothing. Fuzzy matching is for --frame-node and live commands.
+        auto findNodeExact = [this](const std::string& name) -> ux3d::gltf::Node* {
+            for (auto& candidate : gltfModel.getNodes()) {
+                if (candidate.hasName() && candidate.getName() == name) return &candidate;
+            }
+            return nullptr;
+        };
         if (!isolateNodeArg.empty()) {
-            for (auto& node : gltfModel.getNodes()) {
-                if (node.hasName() && node.getName() == isolateNodeArg.c_str()) {
-                    gltfLayer->setIsolation(&node, false);
-                    sceneRevisions.mark(ux3d::imgui::SceneChange::Visibility);
-                    selectNodeArg = isolateNodeArg;
-                    break;
-                }
+            ux3d::gltf::Node* node = findNodeExact(isolateNodeArg);
+            if (node != nullptr) {
+                gltfLayer->setIsolation(node, false);
+                sceneRevisions.mark(ux3d::imgui::SceneChange::Visibility);
+                // Select and frame it through the --select-node path below, as before.
+                selectNodeArg = isolateNodeArg;
             }
         }
         if (!selectNodeArg.empty()) {
-            for (auto& node : gltfModel.getNodes()) {
-                if (node.hasName() && node.getName() == selectNodeArg.c_str()) {
-                    selection.selectNode(&node);
-                    if (activeViewport) {
-                        focusCameraOnNode(&node, gltfModel, gltfLayer.get(), activeViewport->cameraActor,
-                                          activeViewport->antiAliasing, sceneRevisions);
+            ux3d::gltf::Node* node = findNodeExact(selectNodeArg);
+            if (node != nullptr) {
+                selection.selectNode(node);
+                ux3d::imgui::SceneHierarchyPanel::requestScrollToSelectedNode();
+                if (activeViewport) {
+                    focusCameraOnNode(node, gltfModel, gltfLayer.get(), activeViewport->cameraActor,
+                                      activeViewport->antiAliasing, sceneRevisions);
+                }
+            }
+        }
+        if (!frameNodeArg.empty()) {
+            ux3d::gltf::Node* node = findNode(frameNodeArg);
+            if (node != nullptr) {
+                selection.selectNode(node);
+                ux3d::imgui::SceneHierarchyPanel::requestScrollToSelectedNode();
+                if (activeViewport) {
+                    if (frameViewArg.has_value()) {
+                        activeViewport->cameraActor.orientUserCamera(frameViewArg.value());
                     }
-                    break;
+                    focusCameraOnNode(node, gltfModel, gltfLayer.get(), activeViewport->cameraActor,
+                                      activeViewport->antiAliasing, sceneRevisions, frameMarginArg);
                 }
             }
         }
