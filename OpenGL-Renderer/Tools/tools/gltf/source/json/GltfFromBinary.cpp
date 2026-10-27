@@ -156,7 +156,7 @@ ux3d::gltf::ConversionResult ux3d::gltf::GltfFromBinary::setBufferData(core::Bin
         return ConversionError::AllocationFailure;
     }
 
-    GltfResult loadDataToMemory = m_gltf.loadBinaryDataToMemory({ /* no base directory needed for glb */ }, {});
+    GltfResult loadDataToMemory = m_gltf.loadBinaryDataToMemory({ /* no base directory needed for glb */ }, {}, false, m_importOptions.loadImages);
 
     if (loadDataToMemory == GltfError::ObjectAlreadyExists) {
         // ToDo: We should avoid trying to fill the buffer again.

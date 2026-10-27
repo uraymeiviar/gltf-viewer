@@ -25,6 +25,8 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <future>
+#include <thread>
 #include <chrono>
 #include <memory>
 #include <limits>
@@ -813,6 +815,7 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
         // Creates a sampler with a given name from one glTF texture. It is only created if
         // the texture and its image are present. Returns true if it was actually created.
         auto createSamplerFromTexture = [this, material, gl](const std::string& baseName, const gltf::Texture* gltfTexture, uint32_t texCoord, bool isLinear) -> bool {
+            if (m_syncingGltf != nullptr && m_syncingGltf->imagesOmitted()) return false;
             std::string capitalized;
             for (size_t i = 0; i < baseName.length(); ++i) {
                 char c = baseName[i];
@@ -1492,11 +1495,20 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
         // materials without a normal map are left untouched. A2.2: the buffer is generated
         // once per loaded model and reused by later mesh updates; the key includes the
         // normal map's UV set.
-        if (vertexCount > 0u && mesh->attributes.size() < 16u) {
+        // Omitted normal maps do not need generated tangent frames. Retain authored
+        // attributes, but avoid this CPU work and its extra GPU buffer for this open.
+        if (!m_modelImagesOmitted && vertexCount > 0u && mesh->attributes.size() < 16u) {
             const GeneratedTangentKey tangentKey { gltfPrimitive, generatedTangentUvSet(*gltfPrimitive) };
             auto tangentIt = m_generatedTangentBuffers.find(tangentKey);
             if (tangentIt == m_generatedTangentBuffers.end()) {
-                std::vector<glm::vec4> generated = generateMikkTangents(*gltfPrimitive);
+                auto prepared = m_preparedTangents.find(tangentKey);
+                std::vector<glm::vec4> generated;
+                if (prepared != m_preparedTangents.end()) {
+                    generated = std::move(prepared->second);
+                    m_preparedTangents.erase(prepared);
+                } else {
+                    generated = generateMikkTangents(*gltfPrimitive);
+                }
                 if (generated.size() == vertexCount) {
                     auto tangentBuffer = std::make_unique<gl::Buffer>(m_resourceManager.m_gl);
                     tangentBuffer->write(core::makeRange(
@@ -1970,6 +1982,8 @@ void GltfRenderLayer::updateScene(const gltf::Gltf& gltf, const gltf::Scene& sce
 
     updateLights(scene.getNodes());
     updateMeshes(scene.getNodes());
+    // Unused meshes may have been prepared as well; do not retain their CPU copies.
+    m_preparedTangents.clear();
     updateCameras(scene.getNodes());
     updateAudioEmitters(scene.getNodes());
     updateSkins(scene.getNodes());
@@ -1983,6 +1997,7 @@ void GltfRenderLayer::updateGltf(const gltf::Gltf& gltf)
 {
     ++m_gltfGeneration;
     m_syncingGltf = &gltf;
+    m_modelImagesOmitted = gltf.imagesOmitted();
 
     // A1.2: the asset-level convention applies to every normal map of the asset. Only a
     // declared DirectX convention flips green; missing, OpenGL and unknown values do not.
@@ -2041,8 +2056,8 @@ void GltfRenderLayer::updateGltf(const gltf::Gltf& gltf)
     // where the second element of bool type is true if the texture has linear format.
     std::set<std::tuple<gltf::Image*, bool>> images; // use a set to avoid duplicates
     const bool ddsDeclaredForImages = gltf.isExtensionDeclared("MSFT_texture_dds");
-    auto insertTextureImage = [&images, ddsDeclaredForImages](const gltf::Texture* gltfTexture, bool isLinear) {
-        if (gltfTexture == nullptr) {
+    auto insertTextureImage = [&images, &gltf, ddsDeclaredForImages](const gltf::Texture* gltfTexture, bool isLinear) {
+        if (gltf.imagesOmitted() || gltfTexture == nullptr) {
             // in gltf this is not allowed but the renderer should be able to handle this state
             return;
         }
@@ -2272,7 +2287,56 @@ bool GltfRenderLayer::updateMaterialStates(const gltf::Gltf& gltf)
 void GltfRenderLayer::clearGeneratedTangents()
 {
     m_generatedTangentBuffers.clear();
+    m_preparedTangents.clear();
     m_materialNormalUvSets.clear();
+}
+
+void GltfRenderLayer::releaseModelTextures()
+{
+    // A reset can reuse Image addresses and encodedMapID values. Those are useful
+    // within one model, but must not preserve another file's uploaded texels.
+    for (const auto& [key, texture] : m_textureMapping.map)
+        m_textureMapping.destroyRendererobjectFromGltf(key, texture);
+    m_textureMapping.map.clear();
+}
+
+void GltfRenderLayer::prepareGeneratedTangents(const gltf::Gltf& gltf)
+{
+    m_preparedTangents.clear();
+    if (gltf.imagesOmitted()) return;
+    struct Work {
+        const gltf::Primitive* primitive;
+        std::vector<glm::vec4> tangents;
+    };
+    std::vector<Work> work;
+    uint64_t largestTemporary = 1;
+    for (const auto& mesh : gltf.getMeshes()) for (const auto& primitive : mesh.getPrimitives()) {
+        const auto* material = primitive.getMaterial();
+        if (!material || !material->getNormalTextureInfo().has_value()
+            || !material->getNormalTextureInfo()->getTexture()
+            || gltf::GltfUtils::getAttributeAccessor(primitive, "TANGENT")) continue;
+        work.push_back({&primitive, {}});
+        if (const auto* positions = gltf::GltfUtils::getAttributeAccessor(primitive, "POSITION"))
+            largestTemporary = std::max(largestTemporary, uint64_t(positions->getCount())*256);
+    }
+    core::loading::begin(core::loading::Tangents, static_cast<uint32_t>(work.size()));
+    core::loading::Timer timer(core::loading::Tangents);
+    const uint64_t freeRam = core::loading::state.availableRam;
+    const size_t memoryWorkers = freeRam ? std::max<uint64_t>(1, freeRam/8/largestTemporary) : 1;
+    const size_t workers = std::min({work.size(), memoryWorkers,
+        size_t(std::max(1u, std::min(4u, std::thread::hardware_concurrency())))});
+    std::atomic<size_t> next{0};
+    // Futures die before captured work/next, including if starting a worker throws.
+    std::vector<std::future<void>> futures;
+    for (size_t i = 0; i < workers; ++i) futures.push_back(std::async(std::launch::async, [&] {
+        for (size_t index = next++; index < work.size(); index = next++) {
+            work[index].tangents = generateMikkTangents(*work[index].primitive);
+            ++core::loading::state.completed;
+        }
+    }));
+    for (auto& future : futures) future.get();
+    for (auto& item : work)
+        m_preparedTangents.emplace(GeneratedTangentKey{item.primitive, generatedTangentUvSet(*item.primitive)}, std::move(item.tangents));
 }
 
 void GltfRenderLayer::updateMaterials(const core::LinkedList<gltf::Material>& materials)

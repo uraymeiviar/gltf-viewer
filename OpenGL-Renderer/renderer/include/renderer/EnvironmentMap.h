@@ -6,6 +6,7 @@
 #include "core/Vector.h"
 #include "renderer/gl/Sampler.h"
 #include "renderer/gl/Uniform.h"
+#include <atomic>
 
 namespace ux3d::renderer::gl {
 struct SamplerState;
@@ -16,6 +17,7 @@ namespace ux3d::renderer {
 class EnvironmentMap {
 public:
     EnvironmentMap(gl::GL*);
+    uint64_t generation() const { return m_generation; }
 
     void setDiffuse(const gl::Texture* texture, const gl::SamplerState* samplerState);
     const gl::Sampler& getDiffuseSampler() const { return m_diffuseSampler; }
@@ -39,6 +41,8 @@ public:
     const gl::Uniform& getSheenMipCount() const { return m_sheenMipCount; }
 
 private:
+    inline static std::atomic<uint64_t> s_nextGeneration{0};
+    const uint64_t m_generation = ++s_nextGeneration;
     gl::Sampler m_diffuseSampler;
     gl::Sampler m_specularSampler;
     gl::Sampler m_sheenSampler;

@@ -20,6 +20,8 @@ namespace fs = std::filesystem;
 
 namespace ux3d::imgui {
 
+static constexpr const char* kDefaultSearchPath = "../texture*";
+
 AppSettings& AppSettings::instance()
 {
     static AppSettings s_instance;
@@ -57,7 +59,7 @@ static bool stringEqualsIgnoreCase(const std::string& a, const std::string& b)
 AppSettings::AppSettings()
 {
     // Default search paths when no config exists
-    m_searchPaths = { "../texture" };
+    m_searchPaths = { kDefaultSearchPath };
 }
 
 std::string AppSettings::normalizePath(const std::string& path) const
@@ -201,7 +203,7 @@ bool AppSettings::loadSettings()
     if (!settings.load()) {
         // Persistence is disabled (--isolated): keep the built-in defaults.
         std::lock_guard<std::mutex> lock(m_mutex);
-        m_searchPaths = { "../texture" };
+        m_searchPaths = { kDefaultSearchPath };
         m_hierarchyOptions = HierarchyDisplayOptions{};
         m_resourceOptions = ResourceDisplayOptions{};
         return false;
@@ -240,7 +242,7 @@ bool AppSettings::loadSettings()
             }
         }
     } else {
-        m_searchPaths = { "../texture" };
+        m_searchPaths = { kDefaultSearchPath };
     }
 
     const HierarchyDisplayOptions hierarchyDefaults;
@@ -257,7 +259,7 @@ bool AppSettings::loadSettings()
 
     // Drop values that equal the defaults so a legacy file is consolidated without
     // re-writing defaults into the new one.
-    const std::vector<std::string> defaultSearchPaths = { "../texture" };
+    const std::vector<std::string> defaultSearchPaths = { kDefaultSearchPath };
     if (m_searchPaths == defaultSearchPaths) {
         settings.removeSection("SearchPaths");
     }
@@ -284,7 +286,7 @@ bool AppSettings::saveSettings()
     std::vector<SettingsEntry> searchPathEntries;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        const std::vector<std::string> defaults = { "../texture" };
+        const std::vector<std::string> defaults = { kDefaultSearchPath };
         if (m_searchPaths != defaults) {
             if (m_searchPaths.empty()) {
                 // Keep an explicit empty list distinct from "no value stored".

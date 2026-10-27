@@ -10,9 +10,9 @@
 // Shared by the CPU importer and the GL owner. No UI or GL calls on importer threads.
 namespace ux3d::core::loading {
 using Clock = std::chrono::steady_clock;
-enum Stage { Json, Buffers, Images, Upload, Mips, Ibl, Validation, Shaders, StageCount };
+enum Stage { Json, Buffers, Images, Upload, Mips, Ibl, Validation, Shaders, Tangents, ShaderLink, StageCount };
 inline constexpr const char* names[] = { "JSON parse", "Buffer read", "Image decode", "GPU upload",
-    "Mip generation", "IBL filtering", "Validation", "Shader compile" };
+    "Mip generation", "IBL filtering", "Validation", "Shader compile", "Tangent generation", "Shader link" };
 struct State {
     std::mutex mutex;
     std::array<double, StageCount> milliseconds{};
@@ -28,6 +28,11 @@ struct State {
     // True while a preset change re-decodes and re-uploads the retained images.
     std::atomic<bool> textureRefresh{false};
     std::atomic<uint32_t> requestedTextureLimit{0};
+    std::atomic<bool> imagesOmitted{false};
+    // Main-thread progress presentation cost, including memory sampling and swaps.
+    double uiMilliseconds = 0;
+    double wallMilliseconds = 0;
+    double firstModelFrameMilliseconds = 0;
     // Installed and invoked exclusively by the GL thread, between complete work items.
     std::function<void()> yield;
 };
@@ -40,6 +45,8 @@ inline void reset()
     state.reductions = 0; state.estimatedTextureBytes = 0;
     state.progressFrames = 0; state.allocationFailures = 0; state.peakGpuUsage = 0;
     state.unlimitedTextures = false; state.textureRefresh = false;
+    state.imagesOmitted = false; state.uiMilliseconds = 0; state.wallMilliseconds = 0;
+    state.firstModelFrameMilliseconds = 0;
 }
 inline void begin(Stage stage, uint32_t total = 0)
 {

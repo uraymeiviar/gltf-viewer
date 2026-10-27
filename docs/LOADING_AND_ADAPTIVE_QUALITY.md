@@ -13,6 +13,14 @@ decode lease bounds estimated temporary allocations. Validation runs in another 
 future after renderer synchronization. Workers never access ImGui or issue GL commands.
 Console writers are serialized, and the loading UI does not read the model or console.
 
+CPU MikkTSpace tangent generation is also prepared before uploads, with at most four
+workers and a conservative RAM-based concurrency bound. Each primitive uses the same
+algorithm and UV-set cache key as before; the main thread uploads its prepared vector.
+Unused prepared vectors are released after scene synchronization. Texture-free opening
+skips images and generated normal-map tangents entirely, while retaining material records
+and their scalar/vector values. Details and measurements are in
+[Loading speed and texture-free opening](LOADING_SPEED_AND_TEXTURE_FREE_OPEN.md).
+
 The main thread services GLFW and renders an ImGui progress overlay while waiting for the
 worker. Loading owns a separate ImGui context/font atlas and GL backend; GLFW callbacks are
 temporarily attached to that context and restored afterward. Loading text therefore cannot
@@ -26,9 +34,11 @@ joins outstanding CPU work before releasing the GL context; a codec call is not 
 interrupted. Resize callbacks cannot recursively enter the load.
 
 GL uploads stay on the context-owning main thread. Texture rows and large buffers transfer
-in chunks of at most 8 MiB. At complete work-item/chunk boundaries a soft 8 ms budget yields
-to another progress frame. GL allocation and individual driver/compiler calls are indivisible,
-so this is a cooperative budget, not a guarantee of an 8 ms maximum frame interval. The
+in chunks of at most 8 MiB. At complete work-item/chunk boundaries a soft 8 ms budget polls
+window events; progress presentation is separately limited to 20 Hz and memory queries to
+4 Hz. Loading swaps temporarily disable VSync and restore the requested interval afterward.
+GL allocation and individual driver/compiler calls are indivisible,
+so this is cooperative scheduling, not a guarantee of an 8 ms maximum frame interval. The
 progress renderer preserves the GL framebuffer/viewport, and ImGui restores its render state.
 Loading frames are excluded from ordinary capture frame counts and UI-script execution.
 

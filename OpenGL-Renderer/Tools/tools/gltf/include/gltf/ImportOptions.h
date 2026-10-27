@@ -12,5 +12,7 @@ struct ImportOptions {
     ConversionUsage conversionUsage = ConversionUsage::ValidGltf;
     std::optional<filesystem::Dir> imageDir = std::nullopt;
     std::optional<std::unordered_set<std::string>> skipExtensions = std::nullopt;
+    // Keep material/texture metadata, but intentionally omit image payloads.
+    bool loadImages = true;
 };
 }

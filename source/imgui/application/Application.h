@@ -210,7 +210,7 @@ private:
                        std::vector<std::unique_ptr<ux3d::imgui::ViewportInstance>>& viewports,
                        ux3d::renderer::GltfRenderLayer* gltfLayer, ux3d::imgui::AnimationPlayer& animPlayer,
                        ux3d::imgui::SceneRevisions& revisions,
-                       std::vector<ux3d::imgui::SceneEnvironmentState>& sceneEnvironments, bool texturesOnly = false);
+                       std::vector<ux3d::imgui::SceneEnvironmentState>& sceneEnvironments, bool texturesOnly = false, bool withoutTextures = false);
     void newEmptyGltf(ux3d::gltf::Gltf& gltfModel, ux3d::gltf::Scene*& activeScene,
                       ux3d::imgui::SelectionState& selection, std::string& currentFilePath,
                       ux3d::editor::CameraActor& cameraActor, ux3d::renderer::GltfRenderLayer* gltfLayer,
@@ -335,11 +335,14 @@ private:
     ux3d::imgui::IdleWaitStats idleWaitStats;
     bool frameInProgress = false;
     bool loadingActive = false;
+    bool pendingLoadFirstFrame = false;
+    ux3d::imgui::profiling::Clock::time_point pendingLoadStarted;
     uint32_t loadedTextureCap = 0;
     GLuint textureRefreshSnapshot = 0;
     int textureRefreshSnapshotWidth = 0;
     int textureRefreshSnapshotHeight = 0;
     std::string queuedLoadPath;
+    bool queuedLoadWithoutTextures = false;
     std::string loadingCapturePath;
     bool queuedLoadTestUsed = false;
     std::mutex consoleWriteMutex;

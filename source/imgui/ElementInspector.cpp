@@ -159,7 +159,7 @@ static ImageHeaderDetails parseImageHeader(const uint8_t* data, size_t size)
 
 static ImageHeaderDetails getImageHeaderDetails(const ux3d::gltf::Image* img)
 {
-    if (!img) return {};
+    if (!img || img->payloadOmitted()) return {};
     if (img->getEncodedBytes() != nullptr && img->getEncodedBytes()->size() >= 26) {
         ux3d::imageformats::KTX2ImageInfo ktx2Info;
         if (ux3d::imageformats::getKTX2ImageInfo(*img->getEncodedBytes(), ktx2Info)) {
@@ -231,7 +231,7 @@ static bool isPackagedNormalMap(const ux3d::gltf::Gltf& gltfModel, const ux3d::g
 
 static void ensureImageDataDecoded(const ux3d::gltf::Image* img)
 {
-    if (!img) return;
+    if (!img || img->payloadOmitted()) return;
     auto* mutableImg = const_cast<ux3d::gltf::Image*>(img);
 
     // If pixels are already loaded, we are good
@@ -282,7 +282,7 @@ static GLuint getOrCreateImagePreviewTexture(const ux3d::gltf::Image* img,
                                              ux3d::renderer::GltfRenderLayer* gltfLayer,
                                              bool signedSquareNormal)
 {
-    if (!img) return 0;
+    if (!img || img->payloadOmitted()) return 0;
 
     // 1. Check local cache
     auto cacheIt = s_previewCache.find(img);
@@ -432,6 +432,10 @@ static void renderImagePreview(const ux3d::gltf::Image* img, ux3d::renderer::Glt
                                bool signedSquareNormal)
 {
     if (!img) return;
+    if (img->payloadOmitted()) {
+        ImGui::TextDisabled("Image intentionally omitted (opened without textures)");
+        return;
+    }
 
     ensureImageDataDecoded(img);
 

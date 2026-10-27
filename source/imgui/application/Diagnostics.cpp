@@ -1181,6 +1181,12 @@ void Application::finishFrame(FrameContext& frame, int displayW, int displayH)
             updateWindowTitle(window, currentFilePath);
             return loaded;
         };
+        uiFrame.loadModelWithoutTextures = [&](const std::string& path) {
+            const bool loaded = loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports,
+                gltfLayer.get(), animationPlayer, sceneRevisions, sceneEnvironments, false, true);
+            updateWindowTitle(window, currentFilePath);
+            return loaded;
+        };
         uiFrame.pickNode = [&](int id) {
             for (const auto& node : gltfModel.getNodes()) {
                 if (static_cast<int>(node.m_ID) == id) {

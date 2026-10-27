@@ -58,10 +58,11 @@ class GpuSampler:
             self.query = ctypes.c_void_p()
 
 
-def run(exe, model, label, auto="off", vram=None):
+def run(exe, model, label, auto="off", vram=None, without_textures=False, search_paths=None, quality_preset=None):
     out = ROOT / "build/review/loading"
     out.mkdir(parents=True, exist_ok=True)
-    name = f"{label}_{'heavy' if model.stem == 'heavy' else 'e195'}"
+    model_name = "heavy" if model.stem == "heavy" else "e195" if model == COCKPIT else model.stem
+    name = f"{label}_{model_name}"
     report, png, log = (out / f"{name}.{ext}" for ext in ("json", "png", "log"))
     args = [str(exe), str(model), "--isolated", "--vsync", "off", "--window-size", "1600x900",
             "--capture-viewport", str(png), *( ["--capture-time", "6"] if auto == "on" else ["--capture-frame", "12"] ),
@@ -70,7 +71,16 @@ def run(exe, model, label, auto="off", vram=None):
     if "baselines" not in str(exe):
         args += ["--auto-quality", auto] if auto != "legacy" else []
         args += ["--capture-loading", str(out/f"{name}_progress.png")]
-    if model != ROOT/"build/review/heavy/heavy.gltf":
+    if without_textures:
+        if "baselines" in str(exe):
+            raise ValueError("The old baseline does not support --without-textures")
+        args += ["--without-textures"]
+    if quality_preset is not None:
+        args += ["--quality-preset", quality_preset]
+    if search_paths is not None:
+        for folder in search_paths:
+            args += ["--search-path", folder]
+    elif model != ROOT/"build/review/heavy/heavy.gltf":
         for folder in TEXTURE_FOLDERS:
             args += ["--search-path", "../"+folder]
     env = os.environ.copy()
@@ -112,10 +122,14 @@ if __name__ == "__main__":
     p.add_argument("--label", required=True)
     p.add_argument("--auto", choices=("on", "off", "legacy"), default="off")
     p.add_argument("--vram", type=int)
+    p.add_argument("--without-textures", action="store_true")
+    p.add_argument("--model-path", type=Path, help="Explicit model instead of --model choices")
+    p.add_argument("--search-path", action="append", help="Texture search folders/patterns relative to the model")
+    p.add_argument("--quality-preset", choices=("auto", "low", "med", "mid", "high", "ultra"))
     p.add_argument("--model", choices=("both", "heavy", "e195"), default="both")
     a = p.parse_args()
-    for model in ((COCKPIT, ROOT/"build/review/heavy/heavy.gltf") if a.model == "both" else
+    for model in ((a.model_path,) if a.model_path else (COCKPIT, ROOT/"build/review/heavy/heavy.gltf") if a.model == "both" else
                   (COCKPIT,) if a.model == "e195" else (ROOT/"build/review/heavy/heavy.gltf",)):
         if not model.exists():
             raise FileNotFoundError(model)
-        run(a.exe.resolve(), model, a.label, a.auto, a.vram)
+        run(a.exe.resolve(), model, a.label, a.auto, a.vram, a.without_textures, a.search_path, a.quality_preset)

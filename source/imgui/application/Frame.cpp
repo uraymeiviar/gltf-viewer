@@ -1,6 +1,7 @@
 // Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
 
 #include "Application.h"
+#include "core/LoadProgress.h"
 #include "imgui/RenderQuality.h"
 #include "imgui/RuntimeTelemetry.h"
 #include "imgui/ObjectActions.h"
@@ -17,7 +18,7 @@ void Application::runFrame()
         // A texture-only refresh keeps the current screen and shows the progress on a
         // status-bar strip. If the profile does not change the texture cap there is
         // nothing to re-decode, so the pending snapshot (if any) is simply dropped.
-        if (loadedTextureCap != ux3d::imgui::RenderQuality::textureMaxSize() && !currentFilePath.empty()) {
+        if (!gltfModel.imagesOmitted() && loadedTextureCap != ux3d::imgui::RenderQuality::textureMaxSize() && !currentFilePath.empty()) {
             loadGltfModel(currentFilePath, gltfModel, activeScene, selection, currentFilePath, viewports,
                 gltfLayer.get(), animationPlayer, sceneRevisions, sceneEnvironments, true);
         }
@@ -25,8 +26,9 @@ void Application::runFrame()
     }
     if (!queuedLoadPath.empty()) {
         const std::string path = std::exchange(queuedLoadPath, {});
+        const bool withoutTextures = std::exchange(queuedLoadWithoutTextures, false);
         modelLoaded = loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports,
-            gltfLayer.get(), animationPlayer, sceneRevisions, sceneEnvironments);
+            gltfLayer.get(), animationPlayer, sceneRevisions, sceneEnvironments, false, withoutTextures);
         updateWindowTitle(window, currentFilePath);
     }
     auto& io = ImGui::GetIO();
@@ -118,6 +120,16 @@ void Application::runFrame()
         loadedTextureCap != ux3d::imgui::RenderQuality::textureMaxSize() &&
         !currentFilePath.empty()) {
         captureTextureRefreshSnapshot(displayW, displayH);
+    }
+    if (pendingLoadFirstFrame && s_sceneRenderTotal != sceneRendersAtFrameStart) {
+        auto& progress = ux3d::core::loading::state;
+        progress.firstModelFrameMilliseconds = ux3d::imgui::profiling::elapsedMs(pendingLoadStarted);
+        pendingLoadFirstFrame = false;
+        if (!ux3d::imgui::RenderQuality::legacyCaptureUi()) {
+            ux3d::core::logInfo("[Loading] first model frame ready after %.3f s (shader compile %.3f s, program link %.3f s)",
+                progress.firstModelFrameMilliseconds/1000, progress.milliseconds[ux3d::core::loading::Shaders]/1000,
+                progress.milliseconds[ux3d::core::loading::ShaderLink]/1000);
+        }
     }
     finishFrame(frame, displayW, displayH);
     glfwSwapBuffers(window);

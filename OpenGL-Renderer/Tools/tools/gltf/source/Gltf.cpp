@@ -532,6 +532,7 @@ bool Gltf::merge(const Gltf& _other)
 
 void Gltf::reset()
 {
+    m_imagesOmitted = false;
     ++m_revision;
     m_scenes.clear();
     m_nodes.clear();
@@ -628,9 +629,11 @@ void Gltf::addRequiredUnknownExtension(const core::string& _extensionName)
     m_requiredUnknownExtensions.insert(_extensionName);
 }
 
-GltfResult Gltf::loadBinaryDataToMemory(const std::optional<filesystem::Dir>& gltfDir, const std::optional<filesystem::Dir>& resourceDir, bool imagesOnly)
+GltfResult Gltf::loadBinaryDataToMemory(const std::optional<filesystem::Dir>& gltfDir, const std::optional<filesystem::Dir>& resourceDir, bool imagesOnly, bool loadImages)
 {
     GltfResult result;
+    m_imagesOmitted = !loadImages;
+    for (auto& image : m_images) image.setPayloadOmitted(!loadImages);
 
     {
         // Captured worker context must outlive the futures even if starting a
@@ -667,9 +670,9 @@ GltfResult Gltf::loadBinaryDataToMemory(const std::optional<filesystem::Dir>& gl
         if (!results.reserve(m_images.size())) {
             return GltfError::AllocationFailure;
         }
-        core::loading::begin(core::loading::Images, static_cast<uint32_t>(m_images.size()));
+        core::loading::begin(core::loading::Images, loadImages ? static_cast<uint32_t>(m_images.size()) : 0);
         core::loading::Timer imagesTimer(core::loading::Images);
-        if (core::loading::state.memoryAware) {
+        if (loadImages && core::loading::state.memoryAware) {
             // Read encoded headers first. Choose one power-of-two limit for the model,
             // accounting for a full RGBA mip chain (or the compressed mip payload).
             const auto directory = resourceDir.has_value() ? resourceDir : gltfDir;
@@ -704,7 +707,7 @@ GltfResult Gltf::loadBinaryDataToMemory(const std::optional<filesystem::Dir>& gl
                     double(estimate(limit))/(1024*1024), double(budget)/(1024*1024), limit);
             }
         }
-        for (auto& image : m_images) pendingImages.push_back(&image);
+        if (loadImages) for (auto& image : m_images) pendingImages.push_back(&image);
         const size_t workers = std::min<size_t>(pendingImages.size(), std::max(1u, std::min(16u, std::thread::hardware_concurrency())));
         for (size_t worker = 0; worker < workers; ++worker) {
             results.emplace_back(std::async(std::launch::async, [&]() {

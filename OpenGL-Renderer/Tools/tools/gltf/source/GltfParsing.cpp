@@ -210,7 +210,7 @@ GltfFromFileResult GltfParsing::fromString(
         return GltfFromFileError::InvalidGltf;
     }
 
-    gltf::GltfResult dataResult = _outGltf.loadBinaryDataToMemory(_gltfDir, _importOptions.imageDir);
+    gltf::GltfResult dataResult = _outGltf.loadBinaryDataToMemory(_gltfDir, _importOptions.imageDir, false, _importOptions.loadImages);
 
     if (!dataResult) {
         return GltfFromFileError::ReadFileFailure;

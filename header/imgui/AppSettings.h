@@ -31,7 +31,8 @@ public:
     bool loadSettings();
     bool saveSettings();
 
-    // Search paths (relative to active glTF model folder)
+    // Search paths (relative to active glTF model folder). The editable default
+    // is ../texture*; an explicitly empty saved list suppresses that default.
     std::vector<std::string> getSearchPaths() const;
     std::vector<std::string> getExpandedSearchPaths() const;
     void setSearchPaths(const std::vector<std::string>& paths);

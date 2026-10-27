@@ -74,6 +74,7 @@ struct UiScenarioFrame {
     std::function<void(const std::string&, int)> appendLog;
     std::function<bool(const std::string&)> saveFrame;
     std::function<bool(const std::string&)> loadModel;
+    std::function<bool(const std::string&)> loadModelWithoutTextures;
     std::function<bool(int)> pickNode;
     std::function<bool()> createViewport;
     std::function<bool(const std::string&, uint32_t)> setAaMode;
@@ -319,6 +320,18 @@ private:
         return out;
     }
 
+    // Reload takes one path, which may contain spaces (e.g. PMDG aircraft folders).
+    static std::string pathArgument(const std::string& line)
+    {
+        const size_t separator = line.find_first_of(" \t");
+        if (separator == std::string::npos) return {};
+        const size_t start = line.find_first_not_of(" \t", separator);
+        if (start == std::string::npos) return {};
+        std::string path = line.substr(start);
+        if (path.size() >= 2 && path.front() == '"' && path.back() == '"') path = path.substr(1,path.size()-2);
+        return path;
+    }
+
     static ImGuiWindow* findWindow(const std::string& substring)
     {
         ImGuiContext* context = ImGui::GetCurrentContext();
@@ -412,7 +425,11 @@ private:
         }
         const std::string& cmd = args[0];
         if (args.size() > 1 && (cmd == "hoverp" || cmd == "clickp" || cmd == "dclickp" || cmd == "rclickp" || cmd == "clickarrowp" || cmd == "clickrow" || cmd == "dclickrow" || cmd == "hoverrow" || cmd == "clickarrowrow")) {
-            std::replace(args[1].begin(), args[1].end(), '_', ' '); // tags such as "Material Variants" are written with underscores
+            // Prefer a literal registered tag. Legacy scripts encode spaces as
+            // underscores, but newer tags can contain real underscores themselves.
+            const auto& entries = UiProbe::entries();
+            if (std::none_of(entries.begin(), entries.end(), [&](const UiProbeEntry& entry) { return entry.tag == args[1]; }))
+                std::replace(args[1].begin(), args[1].end(), '_', ' ');
         }
         try {
             executeCommand(cmd, args, line, window, frame);
@@ -535,10 +552,15 @@ private:
             m_waitFrames = 2;
         } else if (cmd == "shot") {
             if (need(2) && (!frame.saveFrame || !frame.saveFrame(args[1]))) fail("frame capture failed: " + args[1]);
+        } else if (cmd == "reloadwithouttextures") {
+            if (need(2)) {
+                if (!frame.loadModelWithoutTextures || !frame.loadModelWithoutTextures(pathArgument(line))) fail("model load failed: " + line);
+                m_waitFrames = kSettleFrames;
+            }
         } else if (cmd == "reload") {
             // reload <path>: goes through the application's loadGltfModel, as File > Open does.
             if (need(2)) {
-                if (!frame.loadModel || !frame.loadModel(args[1])) fail("model load failed: " + args[1]);
+                if (!frame.loadModel || !frame.loadModel(pathArgument(line))) fail("model load failed: " + pathArgument(line));
                 m_waitFrames = kSettleFrames;
             }
         } else if (cmd == "picknode") {

@@ -33,6 +33,7 @@
 namespace ux3d::gltf {
 class Gltf : public GltfObject {
     Scene* m_pDefaultScene = nullptr;
+    bool m_imagesOmitted = false;
 
     core::LinkedList<Scene> m_scenes;
     core::LinkedList<Node> m_nodes;
@@ -139,7 +140,8 @@ public:
     template <typename TChildOfRoot>
     const TChildOfRoot* getByID(uint32_t _id) const;
 
-    GltfResult loadBinaryDataToMemory(const std::optional<filesystem::Dir>& gltfDir, const std::optional<filesystem::Dir>& resourceDir, bool imagesOnly = false);
+    GltfResult loadBinaryDataToMemory(const std::optional<filesystem::Dir>& gltfDir, const std::optional<filesystem::Dir>& resourceDir, bool imagesOnly = false, bool loadImages = true);
+    bool imagesOmitted() const { return m_imagesOmitted; }
 
     GltfResult deleteNode(Node& _node);
     GltfResult deleteScene(Scene& _scene);

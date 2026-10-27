@@ -51,14 +51,18 @@ bool Application::loadGltfModel(const std::string& filePath, ux3d::gltf::Gltf& g
                                 std::vector<std::unique_ptr<ux3d::imgui::ViewportInstance>>& viewports,
                                 ux3d::renderer::GltfRenderLayer* gltfLayer, ux3d::imgui::AnimationPlayer& animPlayer,
                                 ux3d::imgui::SceneRevisions& revisions,
-                                std::vector<ux3d::imgui::SceneEnvironmentState>& sceneEnvironments, bool texturesOnly)
+                                std::vector<ux3d::imgui::SceneEnvironmentState>& sceneEnvironments, bool texturesOnly, bool withoutTextures)
 {
     // Menu commands only enqueue. The next outer frame owns the load, so neither
     // ImGui nor the model/renderer is ever re-entered from an unfinished menu frame.
     if (frameInProgress || loadingActive) {
         queuedLoadPath = filePath;
+        queuedLoadWithoutTextures = withoutTextures;
         return true;
     }
+    const auto wholeLoadStart = ux3d::core::loading::Clock::now();
+    bool loadSucceeded = false;
+    if (!texturesOnly) pendingLoadFirstFrame = false;
     loadingActive = true;
     ImGuiContext* mainContext = ImGui::GetCurrentContext();
     const ImGuiStyle loadingStyle = ImGui::GetStyle();
@@ -82,8 +86,13 @@ bool Application::loadGltfModel(const std::string& filePath, ux3d::gltf::Gltf& g
         GLFWwindow* window;
         ImGuiContext* mainContext;
         ImGuiContext* loadingContext;
+        bool vsync;
+        ux3d::core::loading::Clock::time_point start;
+        bool& succeeded;
+        bool logTiming;
         ~LoadGuard() {
             ux3d::core::loading::state.yield = {};
+            glfwSwapInterval(vsync ? 1 : 0);
             if (loadingContext != nullptr) {
                 ImGui_ImplOpenGL3_Shutdown();
                 ImGui_ImplGlfw_Shutdown();
@@ -94,12 +103,28 @@ bool Application::loadGltfModel(const std::string& filePath, ux3d::gltf::Gltf& g
                 ImGui::GetIO().ClearInputMouse();
             }
             active = false;
+            auto& progress = ux3d::core::loading::state;
+            progress.wallMilliseconds = std::chrono::duration<double, std::milli>(ux3d::core::loading::Clock::now()-start).count();
+            if (succeeded && logTiming) {
+                ux3d::core::logInfo("[Loading] finished in %.3f s (images %.3f s, tangents %.3f s, GL submission %.3f s, progress UI %.3f s)",
+                    progress.wallMilliseconds/1000, progress.milliseconds[ux3d::core::loading::Images]/1000,
+                    progress.milliseconds[ux3d::core::loading::Tangents]/1000,
+                    progress.milliseconds[ux3d::core::loading::Upload]/1000, progress.uiMilliseconds/1000);
+            }
         }
-    } guard{loadingActive, window, mainContext, loadingContext};
+    } guard{loadingActive, window, mainContext, loadingContext, s_vsyncEnabled, wholeLoadStart,
+        loadSucceeded, !ux3d::imgui::RenderQuality::legacyCaptureUi()};
+    // Loading redraws must not pace imports/uploads at the monitor's refresh rate.
+    glfwSwapInterval(0);
     try {
     logMessage("Opening file: " + filePath);
     ux3d::core::loading::reset();
     auto& progress = ux3d::core::loading::state;
+    progress.imagesOmitted = withoutTextures;
+    if (!texturesOnly && gltfLayer) {
+        if (commandGenerator) commandGenerator->getCommandMapping().clearCommandCache();
+        gltfLayer->releaseModelTextures();
+    }
     auto memory = ux3d::imgui::queryMemoryInfo();
     progress.memoryAware = true;
     progress.textureRefresh = texturesOnly;
@@ -135,17 +160,25 @@ bool Application::loadGltfModel(const std::string& filePath, ux3d::gltf::Gltf& g
         std::to_string(memory.availableRam/(1024*1024)) + " MiB");
     const auto loadingStart = ux3d::core::loading::Clock::now();
     auto lastProgress = loadingStart - std::chrono::seconds(1);
+    auto lastEvents = lastProgress;
+    auto lastMemory = lastProgress;
     auto pump = [&]() {
         const auto now = ux3d::core::loading::Clock::now();
-        if (now-lastProgress < std::chrono::milliseconds(8)) return;
+        // Poll independently of presentation: responsive window/menu input does not
+        // require submitting a full GL frame for each upload checkpoint.
+        if (now-lastEvents >= std::chrono::milliseconds(8)) {
+            glfwPollEvents();
+            lastEvents = now;
+        }
+        if (now-lastProgress < std::chrono::milliseconds(50)) return;
         lastProgress = now;
+        const auto uiStart = ux3d::core::loading::Clock::now();
         // ImGui's renderer restores program/VAO/buffer/texture state. Preserve the
         // framebuffer and viewport too, as this can run between GL upload items.
         GLint drawFbo = 0, readFbo = 0, viewport[4]{};
         glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &drawFbo);
         glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &readFbo);
         glGetIntegerv(GL_VIEWPORT, viewport);
-        glfwPollEvents();
         ImGui_ImplOpenGL3_NewFrame(); ImGui_ImplGlfw_NewFrame(); ImGui::NewFrame();
         const int stage = progress.stage;
         const unsigned total = progress.total, completed = progress.completed;
@@ -195,18 +228,19 @@ bool Application::loadGltfModel(const std::string& filePath, ux3d::gltf::Gltf& g
             ImGui::PopStyleColor(2);
             ImGui::PopStyleVar(4);
         } else {
-            bool open = false;
+            bool open = false, openWithoutTextures = false;
             if (ImGui::BeginMainMenuBar()) {
                 if (ImGui::BeginMenu("File")) {
                     open = ImGui::MenuItem("Open ... (queue after this load)", "Ctrl+O");
+                    openWithoutTextures = ImGui::MenuItem("Open without texture ... (queue after this load)");
                     if (ImGui::MenuItem("Exit")) glfwSetWindowShouldClose(window, GLFW_TRUE);
                     ImGui::EndMenu();
                 }
                 ImGui::EndMainMenuBar();
             }
-            if (open || (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_O))) {
+            if (open || openWithoutTextures || (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_O))) {
                 const auto paths = pfd::open_file("Queue glTF / GLB", "", {"glTF files", "*.gltf *.glb"}).result();
-                if (!paths.empty()) queuedLoadPath = paths[0];
+                if (!paths.empty()) { queuedLoadPath = paths[0]; queuedLoadWithoutTextures = openWithoutTextures; }
             }
             const auto* vp = ImGui::GetMainViewport();
             ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x*.5f, vp->WorkPos.y + vp->WorkSize.y*.5f), ImGuiCond_Always, ImVec2(.5f,.5f));
@@ -215,11 +249,13 @@ bool Application::loadGltfModel(const std::string& filePath, ux3d::gltf::Gltf& g
             if (!queuedLoadTestUsed && stage == ux3d::core::loading::Images) {
                 if (const char* path = std::getenv("GLIDER_TEST_QUEUE_LOAD")) {
                     queuedLoadPath = path;
+                    queuedLoadWithoutTextures = false;
                     queuedLoadTestUsed = true;
                     logMessage("[Loading] queued a model during image decode: " + queuedLoadPath);
                 }
             }
             ImGui::TextWrapped("%s", filePath.c_str());
+            if (withoutTextures) ImGui::TextDisabled("Textures intentionally omitted; material values retained.");
             ImGui::Text("%s: %u / %u", ux3d::core::loading::names[stage], completed, total);
             ImGui::ProgressBar(fraction, ImVec2(-1, 0));
             ImGui::Text("Elapsed: %.1f seconds", std::chrono::duration<double>(now-loadingStart).count());
@@ -249,8 +285,12 @@ bool Application::loadGltfModel(const std::string& filePath, ux3d::gltf::Gltf& g
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, drawFbo); glBindFramebuffer(GL_READ_FRAMEBUFFER, readFbo);
         glViewport(viewport[0],viewport[1],viewport[2],viewport[3]);
         ++progress.progressFrames;
-        const auto sampled = ux3d::imgui::queryMemoryInfo();
-        progress.peakGpuUsage = std::max(progress.peakGpuUsage.load(), sampled.gpuUsage);
+        if (now-lastMemory >= std::chrono::milliseconds(250)) {
+            const auto sampled = ux3d::imgui::queryMemoryInfo();
+            progress.peakGpuUsage = std::max(progress.peakGpuUsage.load(), sampled.gpuUsage);
+            lastMemory = now;
+        }
+        progress.uiMilliseconds += std::chrono::duration<double, std::milli>(ux3d::core::loading::Clock::now()-uiStart).count();
     };
     progress.yield = pump;
     pump();
@@ -259,6 +299,8 @@ bool Application::loadGltfModel(const std::string& filePath, ux3d::gltf::Gltf& g
     if (!texturesOnly) releaseDecalBuffer();
     ux3d::imgui::AppSettings::instance().setCurrentModelPath(filePath);
     ux3d::gltf::ImportOptions importOptions;
+    importOptions.loadImages = !withoutTextures;
+    if (withoutTextures) logMessage("[Loading] opening without textures: image reads, decode and GPU texture uploads skipped");
     auto& startupProfile = ux3d::imgui::profiling::startupProfile();
     const auto loadStart = ux3d::imgui::profiling::Clock::now();
     ux3d::filesystem::File file = ux3d::imgui::StdFileSystem::instance().toFile(filePath.c_str());
@@ -285,7 +327,10 @@ bool Application::loadGltfModel(const std::string& filePath, ux3d::gltf::Gltf& g
             return decoded ? ux3d::gltf::GltfFromFileResult(ux3d::gltf::GltfFromFileResult::Success)
                 : ux3d::gltf::GltfFromFileResult(ux3d::gltf::GltfFromFileError::ReadFileFailure);
         }
-        return ux3d::gltf::GltfParsing::fromFile(gltfModel, file, importOptions);
+        const auto imported = ux3d::gltf::GltfParsing::fromFile(gltfModel, file, importOptions);
+        if (imported == ux3d::gltf::GltfFromFileResult::Success && gltfLayer && !withoutTextures)
+            gltfLayer->prepareGeneratedTangents(gltfModel);
+        return imported;
     });
     while (parsing.wait_for(std::chrono::milliseconds(4)) != std::future_status::ready) pump();
     const auto result = parsing.get();
@@ -296,6 +341,7 @@ bool Application::loadGltfModel(const std::string& filePath, ux3d::gltf::Gltf& g
         revisions.mark(ux3d::imgui::SceneChange::ViewCamera);
         for (auto& vp : viewports) vp->antiAliasing.resetHistory();
         logMessage("[Loading] texture quality refreshed from retained source images");
+        loadSucceeded = true;
         return true;
     }
     startupProfile.loadDecodeMs = ux3d::imgui::profiling::elapsedMs(loadStart);
@@ -320,7 +366,7 @@ bool Application::loadGltfModel(const std::string& filePath, ux3d::gltf::Gltf& g
         const auto uploadStart = ux3d::imgui::profiling::Clock::now();
         if (const char* fault = std::getenv("GLIDER_TEST_LOAD_FAILURE"); fault && std::string(fault) == "upload") throw std::bad_alloc();
         ux3d::core::loading::begin(ux3d::core::loading::Upload,
-            static_cast<uint32_t>(gltfModel.getAccessors().size() + gltfModel.getImages().size()));
+            static_cast<uint32_t>(gltfModel.getAccessors().size() + (withoutTextures ? 0 : gltfModel.getImages().size())));
         if (gltfLayer != nullptr) {
             gltfLayer->updateGltf(gltfModel);
             if (activeScene != nullptr) {
@@ -329,6 +375,15 @@ bool Application::loadGltfModel(const std::string& filePath, ux3d::gltf::Gltf& g
             }
         }
         startupProfile.rendererUploadMs = ux3d::imgui::profiling::elapsedMs(uploadStart);
+        startupProfile.residentModelTextureBytes = 0;
+        startupProfile.encodedImageBytes = startupProfile.decodedImageBytes = 0;
+        if (gltfLayer) for (const auto& entry : gltfLayer->m_textureMapping.map) {
+            if (entry.second) startupProfile.residentModelTextureBytes += entry.second->residentBytes;
+        }
+        for (const auto& image : gltfModel.getImages()) {
+            startupProfile.encodedImageBytes += image.getEncodedBytes()->size();
+            startupProfile.decodedImageBytes += image.getData().getPixels().size();
+        }
         startupProfile.peakWorkingSetAfterUpload = ux3d::imgui::processPeakWorkingSetBytes();
 
         animPlayer.setModel(gltfModel, gltfLayer);
@@ -431,6 +486,9 @@ bool Application::loadGltfModel(const std::string& filePath, ux3d::gltf::Gltf& g
         if (filePath != "resources/sampleGltf/HelloCube.glb" && !filePath.empty()) {
             addRecentFile(s_recentFiles, filePath);
         }
+        loadSucceeded = true;
+        pendingLoadFirstFrame = true;
+        pendingLoadStarted = wholeLoadStart;
         return true;
     } else {
         logMessage("Failed to load: " + filePath, ImVec4(1.0f, 0.3f, 0.3f, 1.0f));

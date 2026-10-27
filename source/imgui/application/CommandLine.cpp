@@ -165,6 +165,7 @@ std::optional<int> Application::configure(int argc, char** argv)
     auto& startupProfile = ux3d::imgui::profiling::startupProfile();
     modelToLoad = resolveSampleModelPath();
     std::string reloadModelArg;
+    bool withoutTextures = false;
     std::string asoboReportPath;
     struct AsoboParamEditArg {
         std::string material;
@@ -297,6 +298,8 @@ std::optional<int> Application::configure(int argc, char** argv)
             s_disableRedrawSkip = true;
         } else if (arg == "--capture-viewport" && i + 1 < argc) {
             s_captureViewportPath = argv[++i];
+        } else if (arg == "--without-textures") {
+            withoutTextures = true;
         } else if (arg == "--capture-loading" && i + 1 < argc) {
             loadingCapturePath = argv[++i];
         } else if (arg == "--capture-frame" && i + 1 < argc) {
@@ -987,7 +990,7 @@ std::optional<int> Application::configure(int argc, char** argv)
     if (ux3d::imgui::StdFileSystem::instance().isFile(
             ux3d::imgui::StdFileSystem::instance().toFile(modelToLoad.c_str()))) {
         modelLoaded = loadGltfModel(modelToLoad, gltfModel, activeScene, selection, currentFilePath, viewports,
-                                    gltfLayer.get(), animationPlayer, sceneRevisions, sceneEnvironments);
+                                    gltfLayer.get(), animationPlayer, sceneRevisions, sceneEnvironments, false, withoutTextures);
         updateWindowTitle(window, currentFilePath);
 
         auto renameNamedElement = [](auto& elements, const std::string& assignment, const char* label) {
@@ -1139,7 +1142,7 @@ std::optional<int> Application::configure(int argc, char** argv)
 
     if (!reloadModelArg.empty()) {
         modelLoaded = loadGltfModel(reloadModelArg, gltfModel, activeScene, selection, currentFilePath, viewports,
-                                    gltfLayer.get(), animationPlayer, sceneRevisions, sceneEnvironments);
+                                    gltfLayer.get(), animationPlayer, sceneRevisions, sceneEnvironments, false, withoutTextures);
         updateWindowTitle(window, currentFilePath);
         std::printf("Reloaded model: %s\n", reloadModelArg.c_str());
     }

@@ -83,6 +83,7 @@ static void renderSearchPathsContent(bool* pOpen, std::function<void()> onReload
                 // Column 0: Path and status badge
                 ImGui::TableSetColumnIndex(0);
                 ImGui::Text(ICON_MDI_FOLDER_OUTLINE " %s", paths[i].c_str());
+                UiProbe::item("settings.search.path",static_cast<long long>(i));
 
                 // If a model is loaded, check if the folder exists on disk
                 if (!currentModelDir.empty()) {
@@ -137,6 +138,7 @@ static void renderSearchPathsContent(bool* pOpen, std::function<void()> onReload
                 if (ImGui::SmallButton(ICON_MDI_DELETE_OUTLINE "##Del")) {
                     itemToDelete = static_cast<int>(i);
                 }
+                UiProbe::item("settings.search.remove",static_cast<long long>(i));
                 ImGui::PopStyleColor();
 
                 ImGui::PopID();
@@ -175,6 +177,7 @@ static void renderSearchPathsContent(bool* pOpen, std::function<void()> onReload
                 }
             }
         }
+        UiProbe::item("settings.search.add",0);
 
         ImGui::SameLine();
         if (ImGui::Button(ICON_MDI_FOLDER_OPEN " Browse...")) {

@@ -86,6 +86,9 @@ CommandMapping::CommandSignature CommandMapping::makeSignature(const Mesh& mesh,
     CommandSignature sig;
     sig.renderPass = material.renderPass;
     sig.environment = m_scene.m_activeEnvironmentMap;
+    // Re-filtering may reuse the EnvironmentMap address, but its sampler/uniform
+    // storage has been replaced. Reject cached pointers from that earlier instance.
+    sig.environmentGeneration = m_scene.m_activeEnvironmentMap ? m_scene.m_activeEnvironmentMap->generation() : 0;
     const auto& lightUniforms = m_scene.m_lights.getUniforms();
     sig.lightUniforms = lightUniforms.data();
     sig.lightUniformCount = lightUniforms.size();
@@ -722,26 +725,30 @@ std::optional<CmdDesc> CommandMapping::makeCommand(MeshMaterialTuple meshMat)
         command->uniforms.push_back(&m_scene.m_activeCamera->getViewportResolutionUniform());
     }
 
-    if (m_scene.m_activeEnvironmentMap == nullptr) {
+    // Low/early Auto deliberately skip HDR loading. Unlit/debug and punctual-only
+    // draws still work without an environment; only IBL draws require its maps.
+    if (m_scene.m_activeEnvironmentMap == nullptr && m_scene.m_useIBL) {
         return std::nullopt;
     }
 
     command->uniforms.push_back(&m_scene.m_environmentMapRotationUniform);
     command->uniforms.push_back(&m_scene.m_environmentMapIntensityUniform);
     command->uniforms.push_back(&m_scene.m_environmentMapBlurNormalizedUniform);
-    command->uniforms.push_back(&m_scene.m_activeEnvironmentMap->getMipCount());
+    if (m_scene.m_activeEnvironmentMap != nullptr) {
+        command->uniforms.push_back(&m_scene.m_activeEnvironmentMap->getMipCount());
 
-    if (m_scene.m_useIBL) {
-        command->uniforms.push_back(&m_scene.m_activeEnvironmentMap->getSheenMipCount());
+        if (m_scene.m_useIBL) {
+            command->uniforms.push_back(&m_scene.m_activeEnvironmentMap->getSheenMipCount());
+        }
+
+        command->samplers.push_back(&m_scene.m_activeEnvironmentMap->getDiffuseSampler());
+        command->samplers.push_back(&m_scene.m_activeEnvironmentMap->getSpecularSampler());
+        command->samplers.push_back(&m_scene.m_activeEnvironmentMap->getSheenSampler());
+
+        command->samplers.push_back(&m_scene.m_activeEnvironmentMap->getGGXLUTSampler());
+        command->samplers.push_back(&m_scene.m_activeEnvironmentMap->getCharieLUTSampler());
+        command->samplers.push_back(&m_scene.m_activeEnvironmentMap->getSheenLUTSampler());
     }
-
-    command->samplers.push_back(&m_scene.m_activeEnvironmentMap->getDiffuseSampler());
-    command->samplers.push_back(&m_scene.m_activeEnvironmentMap->getSpecularSampler());
-    command->samplers.push_back(&m_scene.m_activeEnvironmentMap->getSheenSampler());
-
-    command->samplers.push_back(&m_scene.m_activeEnvironmentMap->getGGXLUTSampler());
-    command->samplers.push_back(&m_scene.m_activeEnvironmentMap->getCharieLUTSampler());
-    command->samplers.push_back(&m_scene.m_activeEnvironmentMap->getSheenLUTSampler());
 
     for (const auto& uniform : m_scene.m_lights.getUniforms()) {
         command->uniforms.push_back(&uniform);

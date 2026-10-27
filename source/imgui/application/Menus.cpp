@@ -3,11 +3,24 @@
 #include "Application.h"
 #include "imgui/ObjectActions.h"
 #include "imgui/Theme.h"
+#include "imgui/UiProbe.h"
 #include <portable-file-dialogs.h>
+#include <cstdlib>
 
 namespace ux3d::imgui::application {
 
 namespace {
+
+std::vector<std::string> chooseOpenModel(const char* title, bool scripted)
+{
+    // Exercise the real menu dispatch headlessly; ordinary sessions always use
+    // the native dialog, even if this environment variable happens to be set.
+    if (scripted) {
+        if (const char* path = std::getenv("GLIDER_TEST_OPEN_FILE"))
+            return *path ? std::vector<std::string>{path} : std::vector<std::string>{};
+    }
+    return pfd::open_file(title, "", {"glTF files (*.gltf *.glb)", "*.gltf *.glb"}).result();
+}
 
 struct ShadingModeInfo {
     const char* label;
@@ -582,7 +595,7 @@ void Application::drawMenus(FrameContext& frame)
     if (!io.WantTextInput && io.KeyCtrl && !io.KeyShift && !io.KeyAlt) {
         if (ImGui::IsKeyPressed(ImGuiKey_O)) {
             auto openResult =
-                pfd::open_file("Open glTF / GLB", "", {"glTF files (*.gltf *.glb)", "*.gltf *.glb"}).result();
+                chooseOpenModel("Open glTF / GLB", uiScenario.active());
             if (!openResult.empty()) {
                 loadGltfModel(openResult[0], gltfModel, activeScene, selection, currentFilePath, viewports,
                               gltfLayer.get(), animationPlayer, sceneRevisions, sceneEnvironments);
@@ -618,13 +631,22 @@ void Application::drawMenus(FrameContext& frame)
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem(ICON_MDI_FOLDER_OPEN " Open ...", "Ctrl+O")) {
                 auto openResult =
-                    pfd::open_file("Open glTF / GLB", "", {"glTF files (*.gltf *.glb)", "*.gltf *.glb"}).result();
+                    chooseOpenModel("Open glTF / GLB", uiScenario.active());
                 if (!openResult.empty()) {
                     loadGltfModel(openResult[0], gltfModel, activeScene, selection, currentFilePath, viewports,
                                   gltfLayer.get(), animationPlayer, sceneRevisions, sceneEnvironments);
                     updateWindowTitle(window, currentFilePath);
                 }
             }
+            UiProbe::item("file.open",0);
+            if (ImGui::MenuItem(ICON_MDI_FOLDER_OPEN " Open without texture ...")) {
+                const auto paths = chooseOpenModel("Open glTF / GLB without textures", uiScenario.active());
+                if (!paths.empty()) {
+                    loadGltfModel(paths[0], gltfModel, activeScene, selection, currentFilePath, viewports,
+                        gltfLayer.get(), animationPlayer, sceneRevisions, sceneEnvironments, false, true);
+                }
+            }
+            UiProbe::item("file.open_without_textures",0);
             if (ImGui::BeginMenu(ICON_MDI_HISTORY " Open Recent")) {
                 if (s_recentFiles.empty()) {
                     ImGui::MenuItem("(No Recent Files)", nullptr, false, false);

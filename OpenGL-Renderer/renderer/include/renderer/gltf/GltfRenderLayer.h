@@ -106,6 +106,9 @@ public:
     // A2.2: drops the cached MikkTSpace tangent buffers. Call when the model is replaced;
     // the cache is otherwise kept for the lifetime of the loaded model.
     void clearGeneratedTangents();
+    void releaseModelTextures();
+    // CPU-only import preparation. Call while no renderer/model operations run.
+    void prepareGeneratedTangents(const gltf::Gltf& gltf);
     void applyAnimationTime(const std::optional<float>& animationTime);
     void updateCameras(const core::Vector<gltf::Node*>& cameraNodes);
 
@@ -195,6 +198,7 @@ private:
     // tool stores TEXCOORD_n/COLOR_0 as half-floats in SHORT/USHORT and NORMAL/TANGENT as
     // signed bytes; the vertex attributes are fed to GL with the matching type.
     bool m_assetOptimized = false;
+    bool m_modelImagesOmitted = false;
 
 public:
     GltfToRendererMapping<std::tuple<const gltf::Image*, bool>, renderer::gl::Texture*> m_textureMapping;
@@ -345,6 +349,8 @@ private:
     };
     std::unordered_map<GeneratedTangentKey, std::unique_ptr<gl::Buffer>, GeneratedTangentKeyHash>
         m_generatedTangentBuffers;
+    std::unordered_map<GeneratedTangentKey, std::vector<glm::vec4>, GeneratedTangentKeyHash>
+        m_preparedTangents;
     // A2.2: the normal-map UV set the tangents were last synced for, per glTF material. A
     // material-only sync compares it to decide whether the meshes need a rebuild.
     std::unordered_map<const gltf::Material*, uint32_t> m_materialNormalUvSets;

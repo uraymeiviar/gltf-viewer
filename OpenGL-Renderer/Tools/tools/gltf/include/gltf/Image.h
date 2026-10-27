@@ -89,11 +89,14 @@ public:
     void loadAsErrorImage();
     bool isLoaded() const { return !m_isErrorImage && !m_data.getPixels().empty(); }
     bool isErrorImage() const { return m_isErrorImage; }
+    bool payloadOmitted() const { return m_payloadOmitted; }
+    void setPayloadOmitted(bool omitted) { m_payloadOmitted = omitted; }
 
     static bool isValidEncoding(imageformats::ImageEncoding _encoding);
 
 public:
     image::Image m_data = image::Image();
+    bool m_payloadOmitted = false;
 
     // yes this is a crude hack, for until we remove the gltf module alltogether.
     // Reason: we somehow need to track if the data has changed to be able to only

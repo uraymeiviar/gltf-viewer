@@ -444,6 +444,9 @@ struct StartupProfile {
     uint64_t materialCount = 0;
     uint64_t imageCount = 0;
     uint64_t textureCount = 0;
+    uint64_t residentModelTextureBytes = 0;
+    uint64_t encodedImageBytes = 0;
+    uint64_t decodedImageBytes = 0;
     uint64_t environmentLoads = 0;
 
     std::vector<StageSample> stages;

@@ -223,6 +223,7 @@ auto ux3d::renderer::gl::ShaderCache::getProgram(GLuint vertex, GLuint fragment)
         return nullptr;
     }
 
+    const ux3d::core::loading::Timer linkTimer(ux3d::core::loading::ShaderLink);
     m_gl->linkProgram(program);
     GLint status;
     m_gl->getProgramiv(program, GL_LINK_STATUS, &status);

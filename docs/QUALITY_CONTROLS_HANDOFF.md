@@ -1,5 +1,12 @@
 # Quality controls handoff — 2026-10-27
 
+Later continuation note: the underscore probe failure was traced to `UiScenarioHarness`
+converting every underscore in a tag to a space. It now prefers exact registered tags,
+then falls back to legacy space aliases. The newer texture-free File-menu checks exercise
+that correction. The older persistence script was not rerun here; current storage is the
+single `settings.ini` described in AGENTS, rather than this historical journal's JSON file.
+See `LOADING_SPEED_AND_TEXTURE_FREE_OPEN.md` for the later loading follow-up and verification.
+
 This is a continuation journal for the loading/adaptive-quality task and its later UI requests. All changes are uncommitted. Never commit; use only `git status`, `git diff`, or `git log`. Never copy/rename executables or delete `build`. The user will run regressions: **do not run regression suites**. Do not touch the unrelated existing `scratch/` directory.
 
 ## Current state

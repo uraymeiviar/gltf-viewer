@@ -119,6 +119,7 @@ protected:
     struct CommandSignature {
         const void* renderPass = nullptr;
         const void* environment = nullptr;
+        uint64_t environmentGeneration = 0;
         const void* lightUniforms = nullptr;
         size_t lightUniformCount = 0;
         const void* meshUniforms = nullptr;

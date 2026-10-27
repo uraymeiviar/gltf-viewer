@@ -305,6 +305,11 @@ void Application::drawViewports(FrameContext& frame)
             viewportPos = ImGui::GetCursorScreenPos();
             viewportSize = ImGui::GetContentRegionAvail();
         }
+        if (gltfModel.imagesOmitted()) {
+            ImGui::TextDisabled("Opened without textures - material values only");
+            viewportPos = ImGui::GetCursorScreenPos();
+            viewportSize = ImGui::GetContentRegionAvail();
+        }
         if (ux3d::imgui::RenderQuality::autoActive() && !ux3d::imgui::RenderQuality::qualityReached()) {
             ImGui::TextDisabled("%s", ux3d::imgui::RenderQuality::autoStatus().c_str());
             viewportPos = ImGui::GetCursorScreenPos();
