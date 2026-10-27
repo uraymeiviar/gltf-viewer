@@ -2,6 +2,7 @@
 
 #include "Application.h"
 #include "imgui/RenderQuality.h"
+#include "imgui/GlCaps.h"
 #include "imgui/ExtensionInspector.h"
 #include "imgui/stb_image_write.h"
 #include "imgui/SceneHierarchyPanel.h"
@@ -975,6 +976,10 @@ void Application::finishFrame(FrameContext& frame, int displayW, int displayH)
         const auto* glVendor = reinterpret_cast<const char*>(glGetString(GL_VENDOR));
         const auto* glRendererName = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
         report.glVersion = glVersion != nullptr ? glVersion : "";
+        report.glMajor = ux3d::imgui::glCaps().major;
+        report.glMinor = ux3d::imgui::glCaps().minor;
+        report.glCompute = ux3d::imgui::glCaps().compute;
+        report.glMaxComputeWorkGroupInvocations = ux3d::imgui::glCaps().maxComputeWorkGroupInvocations;
         report.gpuVendor = glVendor != nullptr ? glVendor : "";
         report.gpuRenderer = glRendererName != nullptr ? glRendererName : "";
         report.isolated = s_isolatedState;
@@ -1052,6 +1057,10 @@ void Application::finishFrame(FrameContext& frame, int displayW, int displayH)
         const auto* glVendor = reinterpret_cast<const char*>(glGetString(GL_VENDOR));
         const auto* glRendererName = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
         report.glVersion = glVersion != nullptr ? glVersion : "";
+        report.glMajor = ux3d::imgui::glCaps().major;
+        report.glMinor = ux3d::imgui::glCaps().minor;
+        report.glCompute = ux3d::imgui::glCaps().compute;
+        report.glMaxComputeWorkGroupInvocations = ux3d::imgui::glCaps().maxComputeWorkGroupInvocations;
         report.gpuVendor = glVendor != nullptr ? glVendor : "";
         report.gpuRenderer = glRendererName != nullptr ? glRendererName : "";
         report.isolated = s_isolatedState;

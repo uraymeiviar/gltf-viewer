@@ -3,6 +3,7 @@
 #include "Application.h"
 #include "imgui/Application.h"
 #include "imgui/EmbeddedVFS.h"
+#include "imgui/GlCaps.h"
 #include "imgui/RenderQuality.h"
 #include "imgui/Theme.h"
 #include "imgui/ElementInspector.h"
@@ -106,9 +107,8 @@ int Application::run(int argc, char** argv)
         winState.maximized = false;
     }
 
-    // Target OpenGL 4.1 Core Profile
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
+    // Target OpenGL 4.6 Core Profile (compute shaders, SSBOs, image load/store); fall back to 4.5, 4.3 and
+    // finally 4.1. Every existing shader stays at #version 410, so rendering does not depend on the version.
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_MAXIMIZED, winState.maximized ? GLFW_TRUE : GLFW_FALSE);
     if (noFocusRequested()) {
@@ -121,7 +121,13 @@ int Application::run(int argc, char** argv)
 #endif
 
     // Create GLFW window (starts at restored or default size)
-    window = glfwCreateWindow(winState.width, winState.height, "Glider - glTF 2.0 Viewer", nullptr, nullptr);
+    static constexpr int kContextVersions[][2] = { { 4, 6 }, { 4, 5 }, { 4, 3 }, { 4, 1 } };
+    for (const auto& version : kContextVersions) {
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, version[0]);
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, version[1]);
+        window = glfwCreateWindow(winState.width, winState.height, "Glider - glTF 2.0 Viewer", nullptr, nullptr);
+        if (window) break;
+    }
     if (!window) {
         std::fprintf(stderr, "Failed to create GLFW window\n");
         glfwTerminate();
@@ -149,6 +155,14 @@ int Application::run(int argc, char** argv)
 
     logMessage(std::string("OpenGL Version: ") + reinterpret_cast<const char*>(glGetString(GL_VERSION)));
     logMessage(std::string("Renderer: ") + reinterpret_cast<const char*>(glGetString(GL_RENDERER)));
+    ux3d::imgui::initGlCaps();
+    {
+        const auto& caps = ux3d::imgui::glCaps();
+        logMessage("OpenGL context " + std::to_string(caps.major) + "." + std::to_string(caps.minor) + " core obtained" +
+                   (caps.compute ? "; compute shaders available (max work group invocations " +
+                                       std::to_string(caps.maxComputeWorkGroupInvocations) + ")"
+                                 : "; compute features are unavailable below OpenGL 4.3"));
+    }
 
     // Initialize GladGL abstraction
     gladGL = std::make_unique<ux3d::renderer::GladGL>();

@@ -46,7 +46,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 EXE = REPO / "build" / "bin" / "Release" / "Glider.exe"
 OUT = REPO / "build" / "regression"
-SELFCHECKS = ("revision-selfcheck", "blend-selfcheck", "aa-target-selfcheck", "cache-invalidation-selfcheck")
+SELFCHECKS = ("revision-selfcheck", "blend-selfcheck", "aa-target-selfcheck", "cache-invalidation-selfcheck",
+              "compute-selfcheck")
 FIXTURES = (("build/p8/fixtures/many_1600.gltf", "40", "none"), ("build/p8/fixtures/many_10000.gltf", "100", "none"),
             ("build/p8/fixtures/many_leaf.gltf", "40", "leaf"), ("build/p8/fixtures/many_root.gltf", "40", "root"))
 

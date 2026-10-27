@@ -14,6 +14,7 @@
 #include "imgui/CullWindingTest.h"
 #include "imgui/DepthTest.h"
 #include "imgui/BlendTest.h"
+#include "imgui/ComputeTest.h"
 #include "imgui/Theme.h"
 #include "imageformats/imageformats.h"
 #include "gltf/GltfParsing.h"
@@ -325,6 +326,7 @@ std::optional<int> Application::configure(int argc, char** argv)
     std::string cullWindingSelfCheckCase = "all";
     std::string depthSelfCheckOutputPath;
     std::string depthSelfCheckCase = "all";
+    std::string computeSelfCheckOutputPath;
     std::string blendSelfCheckOutputPath;
     std::string blendSelfCheckCase = "all";
     bool selfCheckForceFailure = false;
@@ -695,6 +697,8 @@ std::optional<int> Application::configure(int argc, char** argv)
             } else {
                 ux3d::imgui::ValidationPanel::setSeverityFilter(true, true, true);
             }
+        } else if (arg == "--compute-selfcheck" && i + 1 < argc) {
+            computeSelfCheckOutputPath = argv[++i];
         } else if (arg == "--conflict-selfcheck" && i + 1 < argc) {
             conflictSelfCheckOutputPath = argv[++i];
         } else if (arg == "--validation-cache-selfcheck" && i + 1 < argc) {
@@ -1000,6 +1004,11 @@ std::optional<int> Application::configure(int argc, char** argv)
     if (!revisionSelfCheckOutputPath.empty()) {
         return writeSelfCheckReport(ux3d::imgui::SceneRevisions::runSelfCheck(selfCheckForceFailure),
                                     revisionSelfCheckOutputPath, "scene revision");
+    }
+
+    if (!computeSelfCheckOutputPath.empty()) {
+        return writeSelfCheckReport(ux3d::imgui::runComputeSelfCheck(selfCheckForceFailure),
+                                    computeSelfCheckOutputPath, "compute");
     }
 
     if (!aaTargetSelfCheckOutputPath.empty()) {

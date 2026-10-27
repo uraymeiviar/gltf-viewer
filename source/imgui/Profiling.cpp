@@ -588,6 +588,10 @@ bool writeProfileReport(const std::string& path, const ProfileReport& report)
         { "vsyncRequested", report.vsyncRequested },
         { "gl", json{
             { "version", report.glVersion },
+            { "major", report.glMajor },
+            { "minor", report.glMinor },
+            { "compute", report.glCompute },
+            { "maxComputeWorkGroupInvocations", report.glMaxComputeWorkGroupInvocations },
             { "vendor", report.gpuVendor },
             { "renderer", report.gpuRenderer }
         } },
@@ -687,6 +691,10 @@ bool writeBenchmarkReport(const std::string& path, const BenchmarkReport& report
         } },
         { "gl", json{
             { "version", report.glVersion },
+            { "major", report.glMajor },
+            { "minor", report.glMinor },
+            { "compute", report.glCompute },
+            { "maxComputeWorkGroupInvocations", report.glMaxComputeWorkGroupInvocations },
             { "vendor", report.gpuVendor },
             { "renderer", report.gpuRenderer }
         } },

@@ -507,6 +507,10 @@ struct ProfileReport {
     std::string gpuVendor;
     std::string gpuRenderer;
     std::string glVersion;
+    int glMajor = 0;
+    int glMinor = 0;
+    bool glCompute = false;
+    int glMaxComputeWorkGroupInvocations = 0;
 
     bool isolated = false;
     bool instrumentationEnabled = false;
@@ -541,6 +545,10 @@ struct BenchmarkReport {
     std::string gpuVendor;
     std::string gpuRenderer;
     std::string glVersion;
+    int glMajor = 0;
+    int glMinor = 0;
+    bool glCompute = false;
+    int glMaxComputeWorkGroupInvocations = 0;
 
     bool isolated = false;
     bool vsyncRequested = true;
