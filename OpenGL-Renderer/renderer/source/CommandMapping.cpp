@@ -103,6 +103,7 @@ CommandMapping::CommandSignature CommandMapping::makeSignature(const Mesh& mesh,
     sig.indexBuffer = mesh.indexBuffer;
     sig.indexCount = mesh.indexCount;
     sig.indexByteOffset = mesh.indexByteOffset;
+    sig.baseVertex = static_cast<uint64_t>(mesh.baseVertex);
     sig.vertexCount = mesh.vertexCount;
     sig.meshDefines = mesh.defines.contentHash();
     sig.materialDefines = material.defines.contentHash();
@@ -236,6 +237,9 @@ size_t CommandMapping::InstanceKeyHash::operator()(const InstanceKey& key) const
     h = mix(h, key.meshDefines);
     h = mix(h, static_cast<uint64_t>(key.indexByteOffset) ^ (static_cast<uint64_t>(key.primitiveCount) << 32));
     h = mix(h, static_cast<uint64_t>(key.primitiveOffset));
+    if (key.baseVertex != 0) {
+        h = mix(h, static_cast<uint64_t>(key.baseVertex));
+    }
     h = mix(h, key.topology | key.indexFormat << 8 | key.culling << 16 | key.winding << 20 | static_cast<uint64_t>(key.polygonMode) << 32);
     return static_cast<size_t>(h);
 }
@@ -278,6 +282,7 @@ void CommandMapping::prepareInstancing(CmdDesc& desc) const
     key.attributes = attributes;
     key.meshDefines = desc.mesh->defines.contentHash();
     key.indexByteOffset = command.indexByteOffset;
+    key.baseVertex = command.baseVertex;
     key.primitiveCount = command.primitiveCount;
     key.primitiveOffset = command.primitiveOffset;
     key.topology = static_cast<uint32_t>(command.primitiveTopology);
@@ -677,6 +682,7 @@ std::optional<CmdDesc> CommandMapping::makeCommand(MeshMaterialTuple meshMat)
         command->primitiveCount = static_cast<GLsizei>(mesh->indexCount);
         command->indexFormat = mesh->indexFormat;
         command->indexByteOffset = static_cast<GLint>(mesh->indexByteOffset);
+        command->baseVertex = mesh->baseVertex;
     } else {
         command->primitiveCount = mesh->vertexCount;
     }

@@ -932,6 +932,20 @@ void GladGL::drawArraysInstanced(GLenum mode, GLint first, GLsizei count, GLsize
     glDrawArraysInstanced(mode, first, count, instanceCount);
 }
 
+void GladGL::drawElementsBaseVertex(GLenum mode, GLsizei count, GLenum type, const void* indices, GLint baseVertex)
+{
+    ux3d::imgui::profiling::countGlCall();
+    ux3d::imgui::profiling::countRendererDrawCall();
+    glDrawElementsBaseVertex(mode, count, type, indices, baseVertex);
+}
+
+void GladGL::drawElementsInstancedBaseVertex(GLenum mode, GLsizei count, GLenum type, const void* indices, GLsizei instanceCount, GLint baseVertex)
+{
+    ux3d::imgui::profiling::countGlCall();
+    ux3d::imgui::profiling::countRendererDrawCall();
+    glDrawElementsInstancedBaseVertex(mode, count, type, indices, instanceCount, baseVertex);
+}
+
 void GladGL::drawElementsInstanced(GLenum mode, GLsizei count, GLenum type, const void* indices, GLsizei instanceCount)
 {
     ux3d::imgui::profiling::countGlCall();

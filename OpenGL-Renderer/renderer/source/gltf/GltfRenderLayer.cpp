@@ -27,6 +27,7 @@
 #include <functional>
 #include <chrono>
 #include <memory>
+#include <limits>
 #include <vector>
 #include <variant>
 
@@ -64,7 +65,7 @@ DrawOrderClass asoboDrawOrderClass(const gltf::asobo::ExtensionSet& extensions)
     if (decalEnabled("ASOBO_material_geometry_decal") || decalEnabled("ASOBO_material_blend_gbuffer")) {
         return DrawOrderClass::Decal;
     }
-    if (has("ASOBO_material_glass_v2") || has("ASOBO_material_glass")
+    if (has("ASOBO_material_glass_v2") || has("ASOBO_material_glass") || has("ASOBO_material_kitty_glass")
         || has("ASOBO_material_windshield_v3") || has("ASOBO_material_windshield")) {
         return DrawOrderClass::Glass;
     }
@@ -89,7 +90,8 @@ constexpr std::string_view kAsoboMaterialTypeExtensions[] = {
     "ASOBO_material_geometry_decal", "ASOBO_material_blend_gbuffer", "ASOBO_material_clear_coat",
     "ASOBO_material_clear_coat_v2", "ASOBO_material_iridescent", "ASOBO_material_pearlescent",
     "ASOBO_material_anisotropic", "ASOBO_material_anisotropic_v2", "ASOBO_material_detail_map",
-    "ASOBO_material_glass_v2", "ASOBO_material_windshield", "ASOBO_material_windshield_v3",
+    "ASOBO_material_glass_v2", "ASOBO_material_glass", "ASOBO_material_kitty_glass",
+    "ASOBO_material_windshield", "ASOBO_material_windshield_v3",
     "ASOBO_material_fresnel_fade", "ASOBO_material_ghost_effect", "ASOBO_material_SSS",
     "ASOBO_material_sail", "ASOBO_material_parallax_window", "ASOBO_material_wind_flex",
     "ASOBO_material_fake_terrain",
@@ -732,6 +734,18 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
             return false;
         }
         material->asobo.reset();
+        material->asoboMaterialCode = Material::AsoboMaterialCode::None;
+        const auto extras = nlohmann::json::parse(gltfMaterial->getExtras(), nullptr, false);
+        if (extras.is_object()) {
+            const auto code = extras.find("ASOBO_material_code");
+            if (code != extras.end() && code->is_string()) {
+                if (*code == "Glass") {
+                    material->asoboMaterialCode = Material::AsoboMaterialCode::Glass;
+                } else if (*code == "Windshield") {
+                    material->asoboMaterialCode = Material::AsoboMaterialCode::Windshield;
+                }
+            }
+        }
         if (m_syncingGltf != nullptr) {
             auto extensions = gltf::asobo::parseExtensions(*m_syncingGltf, *gltfMaterial, gltf::asobo::Scope::Material);
             if (!extensions.empty()) {
@@ -741,6 +755,10 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
         material->invisible = material->asobo != nullptr && isAsoboInvisible(*material->asobo);
         material->environmentOccluder = material->asobo != nullptr && isAsoboEnvironmentOccluder(*material->asobo);
         material->drawOrderClass = material->asobo != nullptr ? asoboDrawOrderClass(*material->asobo) : DrawOrderClass::None;
+        if (material->drawOrderClass == DrawOrderClass::None
+            && material->asoboMaterialCode != Material::AsoboMaterialCode::None) {
+            material->drawOrderClass = DrawOrderClass::Glass;
+        }
         material->drawOrderOffset = material->asobo != nullptr ? asoboDrawOrderOffset(*material->asobo) : 0;
         material->drawOrderActive = false;
         material->decalBiasActive = false;
@@ -750,7 +768,8 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
         // A2.2: only OPAQUE materials of a file that carries decals, and only the five
         // receiver classes, compile the decal-reader variant. The per-viewport uniform
         // guards the actual reads, so the define itself is asset-level and cache-stable.
-        if (m_assetHasDecalMaterials && isAsoboDecalReceiver(*gltfMaterial, material->asobo.get(),
+        if (m_assetHasDecalMaterials && material->asoboMaterialCode == Material::AsoboMaterialCode::None
+            && isAsoboDecalReceiver(*gltfMaterial, material->asobo.get(),
                                                             material->drawOrderClass)) {
             material->defines.define("ASOBO_DECAL_RECEIVER");
         }
@@ -1190,11 +1209,65 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
 
         const gltf::Accessor* indexAccessor = gltfPrimitive->getIndicesAccessor();
         mesh->primitiveTopology = renderer::gl::PrimitiveTopology(gltfPrimitive->getPrimitiveMode());
+        mesh->baseVertex = 0;
 
         if (indexAccessor != nullptr) {
             mesh->indexFormat = renderer::gl::PrimitiveType(indexAccessor->getComponentType());
             mesh->indexCount = indexAccessor->getCount();
             mesh->indexByteOffset = 0u; // offset is already resolved in accessor
+
+            // MSFS 2020 packages share an index accessor between material primitives.
+            // ASOBO_primitive selects a slice: StartIndex is an index (not a byte or
+            // triangle offset), PrimitiveCount counts triangles. Without the slice,
+            // every material paints the whole mesh, superimposing unrelated atlases.
+            // A4 legacy package audit: PMDG 4.4; ordinary glTF stays accessor-based.
+            if (m_assetOptimized && gltfPrimitive->getPrimitiveMode() == gltf::PrimitiveMode::Triangles) {
+                const auto extras = nlohmann::json::parse(gltfPrimitive->getExtras(), nullptr, false);
+                const auto meta = extras.is_object() ? extras.find("ASOBO_primitive") : extras.end();
+                if (extras.is_object() && meta != extras.end() && meta->is_object() && meta->contains("PrimitiveCount")) {
+                    const auto start = meta->value("StartIndex", nlohmann::json(0));
+                    const auto& count = (*meta)["PrimitiveCount"];
+                    const auto base = meta->value("BaseVertexIndex", nlohmann::json(0));
+                    const size_t componentSize = gltf::Accessor::getByteLengthFrom(indexAccessor->getComponentType());
+                    const auto nonnegativeInteger = [](const nlohmann::json& value) {
+                        return value.is_number_unsigned() || (value.is_number_integer() && value.get<int64_t>() >= 0);
+                    };
+                    if (componentSize == 0 || !nonnegativeInteger(start) || !nonnegativeInteger(count)
+                        || !nonnegativeInteger(base) || base.get<uint64_t>() > static_cast<uint64_t>(std::numeric_limits<GLint>::max())
+                        || start.get<uint64_t>() > indexAccessor->getCount()
+                        || count.get<uint64_t>() > (indexAccessor->getCount() - start.get<uint64_t>()) / 3u
+                        || count.get<uint64_t>() > static_cast<uint64_t>(std::numeric_limits<GLsizei>::max()) / 3u
+                        || start.get<uint64_t>() > static_cast<uint64_t>(std::numeric_limits<GLint>::max())
+                            / componentSize) {
+                        core::logWarning("[ASOBO_primitive] Invalid triangle index range; skipping primitive");
+                        return false;
+                    }
+                    mesh->indexCount = static_cast<uint32_t>(count.get<uint64_t>() * 3u);
+                    mesh->indexByteOffset = static_cast<uint32_t>(start.get<uint64_t>() * componentSize);
+                    if (base.get<uint64_t>() != 0) {
+                        uint64_t vertexLimit = std::numeric_limits<uint32_t>::max();
+                        for (const auto& attribute : gltfPrimitive->getAttributes()) {
+                            if (attribute.getAccessor() != nullptr) {
+                                vertexLimit = std::min<uint64_t>(vertexLimit, attribute.getAccessor()->getCount());
+                            }
+                        }
+                        if (base.get<uint64_t>() >= vertexLimit) {
+                            core::logWarning("[ASOBO_primitive] Base vertex exceeds attributes; skipping primitive");
+                            return false;
+                        }
+                        const uint64_t localLimit = vertexLimit - base.get<uint64_t>();
+                        for (uint32_t i = 0; i < mesh->indexCount; ++i) {
+                            const auto value = gltf::GltfUtils::getElementAtIndex(indexAccessor, static_cast<uint32_t>(start.get<uint64_t>()) + i, false);
+                            const auto* index = std::get_if<uint32_t>(&value);
+                            if (index == nullptr || *index >= localLimit) {
+                                core::logWarning("[ASOBO_primitive] Rebased index exceeds attributes; skipping primitive");
+                                return false;
+                            }
+                        }
+                        mesh->baseVertex = static_cast<GLint>(base.get<uint64_t>());
+                    }
+                }
+            }
 
             auto bufferIt = m_bufferMapping.map.find(indexAccessor);
             if (bufferIt != m_bufferMapping.map.end()) {
@@ -2418,19 +2491,39 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
             && asoboOptions.applies("ASOBO_material_draw_order");
         if (entry.material != nullptr) {
             const auto* extensions = entry.material->asobo.get();
-            const auto* glass = extensions != nullptr ? extensions->find("ASOBO_material_glass_v2") : nullptr;
-            const bool refract = glass != nullptr && asoboOptions.applies("ASOBO_material_glass_v2");
-            const bool reflect = refract || (extensions != nullptr
-                && extensions->find("ASOBO_material_windshield_v3") != nullptr
-                && asoboOptions.applies("ASOBO_material_windshield_v3"));
+            const auto active = [&](const char* name) -> const gltf::asobo::ExtensionData* {
+                const auto* ext = extensions != nullptr ? extensions->find(name) : nullptr;
+                return ext != nullptr && asoboOptions.applies(name) ? ext : nullptr;
+            };
+            const auto* glass = active("ASOBO_material_glass_v2");
+            const auto* legacyGlass = active("ASOBO_material_glass");
+            if (legacyGlass == nullptr) legacyGlass = active("ASOBO_material_kitty_glass");
+            const auto* windshieldV3 = active("ASOBO_material_windshield_v3");
+            const bool legacyWindshield = active("ASOBO_material_windshield") != nullptr;
+            // An explicit type takes precedence over extras, including when its display
+            // switch is off. Otherwise extras alone identifies old packaged windshields.
+            const bool explicitType = extensions != nullptr && (extensions->find("ASOBO_material_glass_v2")
+                || extensions->find("ASOBO_material_glass") || extensions->find("ASOBO_material_kitty_glass")
+                || extensions->find("ASOBO_material_windshield_v3") || extensions->find("ASOBO_material_windshield"));
+            const bool codeActive = !explicitType && asoboOptions.applies("ASOBO_material_code");
+            const bool codeGlass = codeActive && entry.material->asoboMaterialCode == Material::AsoboMaterialCode::Glass;
+            const bool codeWindshield = codeActive && entry.material->asoboMaterialCode == Material::AsoboMaterialCode::Windshield;
+            const bool refract = glass != nullptr || legacyGlass != nullptr || codeGlass;
+            const bool reflect = refract || windshieldV3 != nullptr || legacyWindshield || codeWindshield;
             const bool windshield = reflect && !refract;
+            entry.material->defines.defineIf(windshield && windshieldV3 == nullptr, "ASOBO_MATERIAL_WINDSHIELD_LEGACY");
+            entry.material->defines.defineIf(legacyGlass != nullptr, "ASOBO_GLASS_LEGACY");
+            if (legacyGlass != nullptr) {
+                entry.material->setUniform<float>("u_AsoboGlassReflectionMask",
+                    static_cast<float>(std::clamp(legacyGlass->number("glassReflectionMaskFactor").value_or(0.0), 0.0, 1.0)));
+            }
             entry.material->defines.defineIf(windshield, "ASOBO_WINDSHIELD_SSR");
             if (windshield) {
                 scene.windshieldSsr = true;
                 containsTransmissiveMaterial = true;
                 scene.asoboGlassCopy = true;
-                const auto* ext = extensions->find("ASOBO_material_windshield_v3");
-                entry.material->setUniform<float>("u_SsrAttenuation", static_cast<float>(ext->number("ssrAttenuation").value_or(1.0)));
+                entry.material->setUniform<float>("u_SsrAttenuation", static_cast<float>(windshieldV3 != nullptr
+                    ? windshieldV3->number("ssrAttenuation").value_or(1.0) : 1.0));
                 entry.material->setUniform<int>("u_HasInteriorVolume", traversal.hasInteriorVolume ? 1 : 0);
                 entry.material->setUniform<math::vec3>("u_InteriorMin", traversal.interiorMin);
                 entry.material->setUniform<math::vec3>("u_InteriorMax", traversal.interiorMax);
@@ -2445,9 +2538,15 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
                 // (E2 screen glass: UI 2 mm -> 0.02), so metres = stored value / 10. A 2 mm
                 // slab matches the subtle refraction in MSFS; reading 0.02 as metres smears it.
                 entry.material->setUniform<float>("u_AsoboGlassWidth",
-                    static_cast<float>(std::max(0.0, glass->number("glassWidth").value_or(0.0)) * 0.1));
+                    glass != nullptr ? static_cast<float>(std::max(0.0, glass->number("glassWidth").value_or(0.0)) * 0.1) : 0.0f);
             }
-            entry.material->drawOrderActive = drawOrderActive;
+            // Kitty glass and extras had no glass draw-order class before this mapping.
+            // Turning their display switch off must restore that core depth/sort path.
+            const bool oldGlassClass = extensions != nullptr && (extensions->find("ASOBO_material_glass_v2")
+                || extensions->find("ASOBO_material_glass") || extensions->find("ASOBO_material_windshield_v3")
+                || extensions->find("ASOBO_material_windshield"));
+            entry.material->drawOrderActive = drawOrderActive
+                && (entry.material->drawOrderClass != DrawOrderClass::Glass || oldGlassClass || reflect);
             entry.material->decalBiasActive = asoboOptions.applies("ASOBO_material_geometry_decal");
             if (drawOrderActive && entry.material->drawOrderClass != DrawOrderClass::None) {
                 if (entry.bounded) {

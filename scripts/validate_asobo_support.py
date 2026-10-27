@@ -77,9 +77,13 @@ def main():
     rep = report(model)
     check(rep is not None, "support report written")
     if rep is not None:
-        check(rep.get("specCount") == len(names) == 40, "specCount matches all 40 generated extension specs")
+        check(rep.get("specCount") == len(names) == 42, "specCount matches all 42 generated extension specs (including two MSFS 2020 glass schemas)")
         support = rep.get("support", {})
-        check(set(support) == expected, "every spec plus MSFT_texture_dds has a status, with no extra entries")
+        check(set(support) == expected | {"ASOBO_material_code"},
+              "every spec plus MSFT_texture_dds and the extras material-code switch has a status, with no extra entries")
+        check(support.get("ASOBO_material_code") == "Partial", "extras material-code mapping: Partial")
+        check({"ASOBO_material_glass", "ASOBO_material_kitty_glass"} <= names,
+              "both legacy glass schemas have typed specs")
         for name in sorted(expected):
             status = "Metadata" if name in METADATA else "Not yet supported"
             if name in ("ASOBO_asset_optimized", "ASOBO_material_invisible", "ASOBO_material_environment_occluder",
@@ -87,7 +91,8 @@ def main():
                         "ASOBO_material_draw_order", "ASOBO_material_emissive", "MSFT_texture_dds"):
                 status = "Rendered"
             elif name in ("ASOBO_material_geometry_decal", "ASOBO_material_blend_gbuffer",
-                          "ASOBO_material_windshield_v3", "ASOBO_material_glass_v2"):
+                          "ASOBO_material_windshield_v3", "ASOBO_material_glass_v2",
+                          "ASOBO_material_windshield", "ASOBO_material_glass", "ASOBO_material_kitty_glass"):
                 status = "Partial"
             elif name in ("ASOBO_material_disable_motion_blur", "ASOBO_material_fake_terrain"):
                 status = "Not applicable"

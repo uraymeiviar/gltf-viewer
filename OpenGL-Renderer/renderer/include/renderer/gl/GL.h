@@ -173,8 +173,10 @@ public:
     // Enqueuing work:
     virtual void drawArrays(GLenum mode, GLint first, GLsizei count) = 0;
     virtual void drawElements(GLenum mode, GLsizei count, GLenum type, const void* indices) = 0;
+    virtual void drawElementsBaseVertex(GLenum mode, GLsizei count, GLenum type, const void* indices, GLint baseVertex) = 0;
     virtual void drawArraysInstanced(GLenum mode, GLint first, GLsizei count, GLsizei instanceCount) = 0;
     virtual void drawElementsInstanced(GLenum mode, GLsizei count, GLenum type, const void* indices, GLsizei instanceCount) = 0;
+    virtual void drawElementsInstancedBaseVertex(GLenum mode, GLsizei count, GLenum type, const void* indices, GLsizei instanceCount, GLint baseVertex) = 0;
     virtual void vertexAttribDivisor(GLuint index, GLuint divisor) = 0;
 };
 }

@@ -40,6 +40,7 @@ public:
         uint64_t attributes = 0;
         uint64_t meshDefines = 0;
         int64_t indexByteOffset = 0;
+        int64_t baseVertex = 0;
         int64_t primitiveCount = 0;
         int64_t primitiveOffset = 0;
         uint32_t topology = 0;
@@ -134,6 +135,7 @@ protected:
         const void* indexBuffer = nullptr;
         uint64_t indexCount = 0;
         uint64_t indexByteOffset = 0;
+        uint64_t baseVertex = 0;
         uint64_t vertexCount = 0;
         uint64_t meshDefines = 0;
         uint64_t materialDefines = 0;

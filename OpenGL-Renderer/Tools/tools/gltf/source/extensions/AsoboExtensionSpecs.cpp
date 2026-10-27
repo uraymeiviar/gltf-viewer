@@ -134,6 +134,10 @@ const std::vector<ExtensionSpec>& extensionSpecs()
             {"scale", ValueType::Number, Value{1.0}, DefaultSource::Exporter, std::nullopt, std::nullopt, 0, 0, ""},
             {"power", ValueType::Number, Value{1.0}, DefaultSource::Exporter, std::nullopt, std::nullopt, 0, 0, ""},
         }},
+        {"ASOBO_material_glass", Scope::Material, "ASOBO_material_glass/gltf.ASOBO_material_glass.schema.json", {
+            {"glassReflectionMaskFactor", ValueType::Number, Value{}, DefaultSource::None, std::nullopt, std::nullopt, 0, 0, ""},
+            {"glassDeformationFactor", ValueType::Number, Value{}, DefaultSource::None, std::nullopt, std::nullopt, 0, 0, ""},
+        }},
         {"ASOBO_material_glass_v2", Scope::Material, "ASOBO_material_glass_v2/gltf.ASOBO_material_glass_v2.schema.json", {
             {"glassWidth", ValueType::Number, Value{0.0}, DefaultSource::Exporter, std::nullopt, std::nullopt, 0, 0, ""},
         }},
@@ -145,6 +149,9 @@ const std::vector<ExtensionSpec>& extensionSpecs()
             {"iridescentMinThickness", ValueType::Number, Value{10.0}, DefaultSource::Schema, 10.0, std::nullopt, 0, 0, ""},
             {"iridescentMaxThickness", ValueType::Number, Value{400.0}, DefaultSource::Schema, 10.0, std::nullopt, 0, 0, ""},
             {"iridescentBrightness", ValueType::Number, Value{1.0}, DefaultSource::Schema, std::nullopt, std::nullopt, 0, 0, ""},
+        }},
+        {"ASOBO_material_kitty_glass", Scope::Material, "ASOBO_material_kitty_glass/gltf.ASOBO_material_kitty_glass.schema.json", {
+            {"glassReflectionMaskFactor", ValueType::Number, Value{}, DefaultSource::None, std::nullopt, std::nullopt, 0, 0, ""},
         }},
         {"ASOBO_material_parallax_window", Scope::Material, "ASOBO_material_parallax_window/gltf.ASOBO_material_parallax_window.schema.json", {
             {"parallaxScale", ValueType::Number, Value{0.5}, DefaultSource::Exporter, std::nullopt, std::nullopt, 0, 0, ""},

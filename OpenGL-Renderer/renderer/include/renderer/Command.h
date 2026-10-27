@@ -80,6 +80,7 @@ public:
 
     gl::PrimitiveType indexFormat = gl::PrimitiveType::UnsignedShort;
     GLint indexByteOffset = 0u;
+    GLint baseVertex = 0;
     // P8.3: > 0 draws this many instances (glDraw*Instanced); 0 is an ordinary draw.
     GLsizei instanceCount = 0;
     const gl::Buffer* indexBuffer = nullptr;

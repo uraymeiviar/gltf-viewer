@@ -26,6 +26,7 @@ Run: python scripts/validate_asobo_decal.py
 import base64
 import hashlib
 import json
+import re
 import struct
 import sys
 import zlib
@@ -276,6 +277,11 @@ def capture(model, view, label, extra=()):
                              "--exit-after-profile"], cwd=REPO, capture_output=True, text=True, timeout=300)
     if result.returncode != 0 or not png.is_file():
         check(False, f"{label}_{view}: capture failed ({result.returncode}) {result.stderr[-200:]}")
+        return None
+    log = result.stdout + result.stderr
+    png.with_suffix(".log").write_text(log, encoding="utf-8")
+    if "GL automation errors: 0" not in log or re.search(r"GL error (?:0x|during)|GL error \(0x", log):
+        check(False, f"{label}_{view}: GL diagnostics failed; see capture log")
         return None
     return png
 

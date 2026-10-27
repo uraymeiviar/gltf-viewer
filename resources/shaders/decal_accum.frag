@@ -167,7 +167,9 @@ void main()
 
     g_DecalBaseColor = vec4(baseColor.rgb * wBase, wBase);
     g_DecalNormal = vec4(decalNormal * wNormal, wNormal);
-    g_DecalEmissive = vec4(emissive * wEmissive, wEmissive);
+    // Bound the unweighted radiance, then premultiply: over-composition stays
+    // within the half-float target even for partially covered, stacked decals.
+    g_DecalEmissive = vec4(fitHalfFloatHdr(emissive) * wEmissive, wEmissive);
     // A3/A4 store V in red and T in green; the source green must be 0 so the blend yields
     // T' = T * (1 - w). The output alpha carries w for the blend factors.
     g_DecalMetallic = vec4(metallic * wMetallic, 0.0, 0.0, wMetallic);

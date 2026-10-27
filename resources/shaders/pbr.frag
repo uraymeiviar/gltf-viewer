@@ -35,6 +35,10 @@ precision highp float;
 
 out vec4 g_finalColor;
 
+#ifdef ASOBO_GLASS_LEGACY
+uniform float u_AsoboGlassReflectionMask;
+#endif
+
 #if defined(ASOBO_GLASS_REFRACTION) || defined(ASOBO_WINDSHIELD_SSR)
 uniform int u_AsoboGlassCopyValid;
 #endif
@@ -667,6 +671,11 @@ void main()
     // Existing GGX IBL and punctual terms already include Fresnel. Coverage applies
     // only to the base layer, never to the reflection. Keep debug views unchanged.
     float coverage = clamp(baseColor.a, 0.0, 1.0);
+#ifdef ASOBO_GLASS_LEGACY
+    // MSFS 2020's baked cockpit reflection is approximated by Glider's GGX IBL.
+    // Its deformation factor is not a physical slab width.
+    f_specular *= u_AsoboGlassReflectionMask;
+#endif
 #ifdef MATERIAL_UNLIT
     color = baseColor.rgb * coverage;
 #else
@@ -685,7 +694,7 @@ void main()
 #endif
 
 #ifdef LINEAR_OUTPUT
-    g_finalColor = vec4(color.rgb, baseColor.a);
+    g_finalColor = vec4(fitHalfFloatHdr(color.rgb), baseColor.a);
 #else
     g_finalColor = vec4(toneMap(color), baseColor.a);
 #endif

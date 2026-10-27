@@ -183,8 +183,10 @@ public:
     // Enqueuing work:
     virtual void drawArrays(GLenum mode, GLint first, GLsizei count) override;
     virtual void drawElements(GLenum mode, GLsizei count, GLenum type, const void* indices) override;
+    virtual void drawElementsBaseVertex(GLenum mode, GLsizei count, GLenum type, const void* indices, GLint baseVertex) override;
     virtual void drawArraysInstanced(GLenum mode, GLint first, GLsizei count, GLsizei instanceCount) override;
     virtual void drawElementsInstanced(GLenum mode, GLsizei count, GLenum type, const void* indices, GLsizei instanceCount) override;
+    virtual void drawElementsInstancedBaseVertex(GLenum mode, GLsizei count, GLenum type, const void* indices, GLsizei instanceCount, GLint baseVertex) override;
     virtual void vertexAttribDivisor(GLuint index, GLuint divisor) override;
 
 private:

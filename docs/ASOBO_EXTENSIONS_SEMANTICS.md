@@ -1,6 +1,6 @@
-# ASOBO Extension Semantics (from the MSFS 2024 Blender exporter)
+# ASOBO Extension Semantics (MSFS 2024 and legacy MSFS 2020)
 
-Exporter **8.4.1** (`__init__.py:26`), SDK **1.8.1** build **2603316** (`C:\MSFS 2024 Flighting SDK\version.txt:1-2`), addon folder timestamps 2026-10-08; schemas read from `resources/schemas/asobo/` (identical to the SDK `Schemas/` files).
+Exporter **8.4.1** (`__init__.py:26`), SDK **1.8.1** build **2603316** (`C:\MSFS 2024 Flighting SDK\version.txt:1-2`), addon folder timestamps 2026-10-08; the original 2024 schemas in `resources/schemas/asobo/` match that SDK. Section 16 documents the additional 2020 SDK glass schema and the observed-property kitty-glass schema.
 
 **Conventions.** **V** = verified by reading the code, schema, or asset; **I** = inferred by combining verified pieces. `SDK` means `C:\MSFS 2024 Flighting SDK\Tools\Blender\addons\io_scene_gltf2_msfs_2024\`; paths without a prefix are relative to it. `repo:` is relative to the Glider repository. `asset:` refers to read-only checks against the E195 cockpit/exterior/cabin `.gltf` files under `F:\new-fss-aircraft-ejet\msfs24-projects\fss-aircraft-e195\`; the cited material or file name identifies the exact file. **Coverage** is *complete* when the source answers every requested category (residual questions are engine-side only), and *partial* when the exporter does not define a requested meaning; the missing piece is always listed under **Open questions**. Line numbers are from the installed files.
 
@@ -524,7 +524,7 @@ None in the extension. The glass material uses the standard core base color/OMR/
 
 1. What unit does the exported `glassWidth` use? Export divides by 100; the UI says mm; a 100x factor corresponds to cm if the glTF unit is metres.
 2. What is the glass shading model: refraction through a slab of `glassWidth`, tint, Fresnel reflection, roughness, and how does it use the standard OMR/base-color maps?
-3. Is there a glass v1 in MSFS 2024 assets, and if so what are its keys? This exporter and the repo schema only cover v2; the project note says MSFS 2020 had a v1 predecessor.
+3. Is there a glass v1 in MSFS 2024 assets? This exporter only covers v2. The legacy 2020 keys and compatibility behavior are documented in section 16.
 
 ## 12. `ASOBO_material_windshield_v3` (and earlier versions)
 
@@ -822,3 +822,151 @@ The extension has no texture references. It applies to the material's main UV se
 2. What do `roomNumberXY`, `roomSizeXScale`, and `roomSizeYScale` mean together (grid counts vs physical room sizes), and how does `corridor` change the layout?
 3. Which channels of `behindWindowMapTexture` are used (RGB only, A as mask, or depth)?
 4. Is the extension expected to work with alpha `MASK`, and does the room layer write depth or only shade the window surface?
+
+## 16. MSFS 2020 glass, windshield and material-code compatibility (2026-10-27)
+
+**Sources and confidence.** **V** below means directly checked in SDK 0.24.6.0
+(`C:/MSFS SDK/version.txt`), its installed exporter, schema, or the PMDG asset.
+**I** identifies Glider approximations or conclusions that the source cannot prove.
+`MAX20` denotes `C:/MSFS SDK/Tools/3dsmax/glTF-Exporter/3ds Max/Max2Babylon/FlightSim/FlightSimMaterialExporter.cs`.
+The 2024 exporter observations above do not establish 2020 package encoding.
+
+| Item | Meaning and static viewer behavior | Evidence |
+| --- | --- | --- |
+| `ASOBO_material_glass` | **V** Legacy schema has numeric `glassReflectionMaskFactor` and `glassDeformationFactor`, with no schema defaults. The exporter defaults both to zero. **I** Glider approximates the legacy cockpit reflection with its existing GGX reflection scaled by the clamped reflection mask; deformation is not converted into physical thickness. Slab width is zero. | SDK `Schemas/ASOBO_material_glass/gltf.ASOBO_material_glass.schema.json:6-12`; `MAX20:291-302` |
+| `ASOBO_material_kitty_glass` | **V** Six PMDG materials declare it, including `Standby Glass`; observed reflection masks are 0.8 or 1.0. No matching installed SDK schema was found. **I** Compatibility alias for legacy glass; minimal observed-property schema, zero width, same reflection-mask interpretation. An omitted mask uses the legacy-glass default zero. | PMDG materials 9, 125, 151, 185, 246, 247; extensionsUsed; local SDK schema inventory |
+| `ASOBO_material_windshield` | **V** v1 fields are rain scale, four wiper states and a wiper texture; exporter defaults rain scale to 1 and states to 0. **I** Reuse the v3 static reflection/SSR path and vertex-mask interpretation. Weather values do not alter a static dry render. | SDK windshield schema; `MAX20:242-260` |
+| `extras.ASOBO_material_code = "Windshield"` | **V** The exporter emits the material type independently of the optional windshield parameters. It is sufficient to identify PMDG material 223, which has no windshield extension. **I** Glider applies the same static path as v1. | `MAX20:315-340,742-779,2024-2028`; PMDG material 223 |
+| `"Glass"` material code | **V** Glass is a deprecated material type; the exporter's `AsoboGlass` material-code line is commented out and its code enum has no Glass member. **I** Glider accepts exact `"Glass"` as a defensive legacy compatibility alias, not as an observed SDK emission. | `MAX20:320-331,347-355,781-782` |
+| `"Porthole"`, `"GeoDecalFrosted"`, `"ClearCoat"` | **V** Separate material codes, not generic glass. Porthole uses parallax; GeoDecalFrosted uses decals. Glider does not reinterpret these as glass. `GeoDecal` is a material type implemented by an extension, not a member of this material-code enum. | `MAX20:320-326,768-779`; [MSFS 2020 material types](https://docs.flightsimulator.com/html/Asset_Creation/3DS_Max_Plugin/Materials.htm#Material_Types) |
+
+**Verified SDK documentation.** Glass and Windshield share a rendering layer; the
+Windshield type adds rain behavior. The documented reflection/deformation factors
+control the simulator's fixed cockpit image, rather than specifying a slab width.
+The reflection mask does not control the simulator's sky cubemap or SSR. Glider's
+mask-scaled GGX reflection is therefore an **approximation**, not a claim to reproduce
+that unavailable baked image. See [material parameters](https://docs.flightsimulator.com/html/Asset_Creation/3DS_Max_Plugin/Materials.htm)
+and [translucent cockpit elements](https://docs.flightsimulator.com/html/mergedProjects/How_To_Make_An_Aircraft/Contents/Modelling/Cockpit/Texturing/Translucent_Elements.htm).
+
+**Precedence and switches.** Explicit declared glass/windshield type extensions take
+precedence over extras, including when their own viewport switch is off. Undeclared
+extensions remain ignored. Extras need no extensionsUsed entry; the independent
+`ASOBO_material_code` display switch controls the exact Glass/Windshield fallback.
+No material-name heuristics, simulator configuration files, or external cockpit image
+are consulted. The static paths retain the A4 limitations (no glass-behind-glass
+solution, animated rain, icing or wipers).
+
+### 16.1 PMDG overhead investigation: facts versus hypotheses
+
+- **V** PMDG declares `ASOBO_asset_optimized` MajorVersion 4 / MinorVersion 4;
+  the paired E-Jet packages audited in §2.9 of `ASOBO_VERTEX_COLOR_AND_PACKAGING.md`
+  are version 4.8. No PMDG source PNGs were supplied. COMP texel histograms cannot
+  distinguish an authored AO image from its square root without a paired reference.
+- **V** `MAX20:2662-2667,2861-2895` defines all six geometry/decal blend defaults
+  as **1.0** and omits default-valued properties. Thus an empty legacy
+  `ASOBO_material_blend_gbuffer` is not evidence for zero blend weights.
+  The review variant with all six values explicit renders identically.
+- **V** Material 155 (`VC39f`) has base-color and COMP textures, but no normal
+  texture, dither, SSS or detail-map extension. Of 49 blend-gbuffer materials,
+  only materials 50 and 66 have normal textures. The only detail-map material is
+  windshield 223. Dither/SSS are present on other materials and remain unsupported.
+- **V** At baseline `8e932ca`, DDS BC5S is decoded to RGBA8 with reconstructed Z
+  (`imageformats/source/Dds.cpp`); the signed-square GLSL helper is selected only
+  for compressed KTX2 BC5 SNORM (`GltfRenderLayer.cpp`, `NORMAL_TEXTURE_RG_SNORM`).
+  Consequently that normal helper does **not** sign-square these PMDG DDS maps.
+  AO R is squared for both containers by the asset-optimized shader define.
+- **V** `scripts/audit_msfs2020_materials.py` records original DDS RGB quantiles,
+  R and R-squared means, triangle winding, and two review variants in
+  `build/review/pmdg/m2020_texture_audit.json`. The identity-AO variant compensates
+  only R with sqrt before the existing shader square; it is an ablation, not a
+  declaration that identity is the simulator's encoding. No version-based texture
+  decode change is justified by these histograms alone.
+
+### 16.2 Verified panel cause: shared index accessor, per-material index slices
+
+**V (asset and controlled rendering).** PMDG 4.4 reuses one index accessor across
+several material primitives. `extras.ASOBO_primitive.PrimitiveCount` is a triangle
+count and optional `StartIndex` is an **index-element** offset (default zero).
+Glider previously ignored both and drew the entire accessor for every material.
+This paints unrelated atlases over the same triangles, including opaque textures
+and decal masks. It explains the dirty/overprinted labels; AO transfer functions
+and empty decal defaults cannot repair those incorrect material assignments.
+
+For example, mesh `bl_OVHD_lower` has five primitives all referencing accessor
+7798 (7,398 indices). Their material/start/count-in-indices triples are:
+`121/0/702`, `122/702/120`, `123/822/6051`, `124/6873/513`, `71/7386/12`.
+They exactly partition the accessor. Before the fix each material drew all 7,398
+indices. Across the asset, 1,070 primitives need a slice; those draws shrink from
+1,953,414 to 789,522 indices, with every declared slice within its accessor.
+
+**Implementation.** Only a declared optimized asset, triangle-list topology and
+an object containing `ASOBO_primitive.PrimitiveCount` use the range. The index
+buffer is already accessor-relative, so byte offset is `StartIndex * componentSize`
+and draw count is `PrimitiveCount * 3`. Negative/fractional values, ranges beyond
+the accessor and sizes beyond the draw API's signed limits are rejected before
+conversion; the primitive is skipped with a warning. Vertex decoding, texture
+decoding, AO and decal defaults are unchanged. The same mesh range reaches all
+draw passes, including picking and instancing.
+
+**Checks.** `scripts/validate_asobo_primitive_ranges.py` compares shared-accessor
+fixtures against separate explicit accessor slices byte-for-byte for 16-bit and
+32-bit indices and checks malformed metadata. The PMDG review variant
+`vc_explicit_index_slices.gltf` makes the slices explicit for the old executable;
+comparison with the new executable isolates the index-range correction from the
+glass mappings. The packaged E195 has zero nontrivial slices, so this change
+does not alter its draw ranges. See the task report for final capture hashes.
+
+### 16.3 PMDG 777: `BaseVertexIndex` and extreme authored emission
+
+**V (2026-10-27):** The supplied 777-300ER cockpit is another optimized 4.4
+package. It has 1,091 primitives with nontrivial index ranges. Five primitives of
+`Center_OVHD` additionally specify `BaseVertexIndex: 65530`; all share 108,547
+vertices. The last primitive's largest local index is 43,016, so its final index
+is 108,546 (the last valid vertex). Applying the slice without the base fetches
+unrelated vertices and produces stretched triangles.
+
+Glider now carries the nonnegative base vertex through the mesh, command cache
+signature and instancing key. Indexed draws with nonzero bases use OpenGL 3.2+
+`glDrawElementsBaseVertex` / `glDrawElementsInstancedBaseVertex` (available in the
+required 4.1 profile). The zero-base path uses the previous calls. Base type,
+signed API capacity and every rebased index against the attribute counts are
+checked on synchronization. Picking uses the same command field. Synthetic
+16-/32-bit fixtures compare against explicit uint32 indices, including vertices
+past 65535 and mixed-base instancing; malformed bases are rejected.
+
+**V:** Material 28 `CB_Labels` literally authors positive
+`emissiveFactor: [1600000000,1600000000,1600000000]`. This is not a parser wrap of
+`-1`: float32 1.6e9 has bits `0x4EBEBC20`, while -1 has `0xBF800000` and integer
+-1 has `0xFFFFFFFF`. The installed exporter's emission path writes colour times
+the `EMISSIVEMUL` value (`MAX20:1845-1853,1953-1972`); there is no sentinel
+reinterpretation in that path.
+
+**V:** This material has only an empty `ASOBO_material_blend_gbuffer`, no extras,
+no `ASOBO_material_emissive`, no `KHR_materials_emissive_strength`, and no glTF
+material-animation control. Its alpha-masked albedo is white lettering; the
+64x64 emissive texture is the constant sRGB colour `(90,115,21)`. At the default
+MSFS scale of 0.001 this gives approximately `(163587,274306,11998)` before
+coverage. R/G exceed the largest finite half-float, 65504. Overflow in the
+RGBA16F scene/decal targets or additive bloom can therefore contaminate the
+image independently of the mesh error.
+
+**Implementation:** `fitHalfFloatHdr` preserves channel ratios and leaves peaks
+at or below 13000 unchanged. Above that it scales to 13000, an exactly
+representable value with headroom for the five-level additive bloom chain
+(`5 * 13000 = 65000 < 65504`). It applies before decal-emissive premultiplication
+and at the forward linear-HDR output. It prevents invalid numeric values; it
+does not infer the intended brightness or replace the authored glTF factor.
+`scripts/validate_extreme_emissive.py` compares extreme forward, decal and
+stacked-decal fixtures with finite hue-preserving references under bloom/TAA.
+
+**I (unproven for this aircraft):** The factor may be intended to be replaced at
+runtime. The SDK's [2020 emissive behavior templates](https://docs.flightsimulator.com/html/Content_Configuration/Models/ModelBehaviors/TemplateExplorer/Asobo/Generic/Emissive.html)
+can drive emission from code or simulator variables and override the base
+emissive value. That behavior is outside the supplied glTF. No aircraft config
+was read, and no additional glTF extension was found that recovers that state.
+
+**Static preview:** Material Inspector already supports in-memory Emissive
+Intensity edits. For `CB_Labels`, 1000 produces an effective factor of 1 under
+the default scene scale, retaining the warm texture colour and readable labels.
+It is an explicit preview choice, not a verified simulator brightness or an
+automatic per-aircraft rule. The original file stays unchanged.

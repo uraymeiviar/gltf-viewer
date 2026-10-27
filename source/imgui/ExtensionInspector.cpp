@@ -71,6 +71,8 @@ void ExtensionInspector::loadAllSchemas()
         "ASOBO_material_geometry_decal",
         "ASOBO_material_ghost_effect",
         "ASOBO_material_glass_v2",
+        "ASOBO_material_glass",
+        "ASOBO_material_kitty_glass",
         "ASOBO_material_invisible",
         "ASOBO_material_iridescent",
         "ASOBO_material_parallax_window",

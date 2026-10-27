@@ -47,6 +47,9 @@ public:
     // The material's declared ASOBO_* extensions, parsed with their defaults (A0.1). Shared, so the
     // per-frame material copies of the transmission path stay cheap; null when it has none.
     std::shared_ptr<const gltf::asobo::ExtensionSet> asobo;
+    // Legacy MSFS material type in extras; exact SDK values only (no name guessing).
+    enum class AsoboMaterialCode { None, Glass, Windshield };
+    AsoboMaterialCode asoboMaterialCode = AsoboMaterialCode::None;
     // ASOBO_material_invisible with "enabled" true (the schema default): the material is
     // not rendered, e.g. MSFS collision geometry. GltfRenderLayer leaves it out of scenes
     // when the viewport does not apply ASOBO_material_invisible (GltfRenderLayer::asoboOptions).

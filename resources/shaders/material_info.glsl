@@ -196,6 +196,10 @@ vec4 getBaseColor()
     baseColor *= texture(u_BaseColorSampler, getBaseColorUV());
 #endif
 
+#ifdef ASOBO_MATERIAL_WINDSHIELD_LEGACY
+    // MSFS 2020 uses vertex channels for windshield weather/detail masks too.
+    return baseColor;
+#endif
 #ifdef ASOBO_MATERIAL_WINDSHIELD_V3
     // COLOR_0 on a windshield v3 material is a set of masks (scratch, detail, fingerprint,
     // icing), not a colour. The viewport switch decides; the masks themselves are A4.

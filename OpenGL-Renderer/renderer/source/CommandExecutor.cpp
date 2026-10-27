@@ -208,7 +208,13 @@ void ux3d::renderer::CommandExecutor::draw(const Command& command)
     if (command.indexBuffer != nullptr) {
         m_gl->bindBuffer(GL_ELEMENT_ARRAY_BUFFER, command.indexBuffer->handle);
         const auto* offset = reinterpret_cast<const void*>(static_cast<size_t>(command.indexByteOffset));
-        if (command.instanceCount > 0) {
+        if (command.instanceCount > 0 && command.baseVertex != 0) {
+            m_gl->drawElementsInstancedBaseVertex(static_cast<GLenum>(command.primitiveTopology), command.primitiveCount,
+                                                   static_cast<GLenum>(command.indexFormat), offset, command.instanceCount, command.baseVertex);
+        } else if (command.baseVertex != 0) {
+            m_gl->drawElementsBaseVertex(static_cast<GLenum>(command.primitiveTopology), command.primitiveCount,
+                                          static_cast<GLenum>(command.indexFormat), offset, command.baseVertex);
+        } else if (command.instanceCount > 0) {
             m_gl->drawElementsInstanced(static_cast<GLenum>(command.primitiveTopology), command.primitiveCount,
                                         static_cast<GLenum>(command.indexFormat), offset, command.instanceCount);
         } else {

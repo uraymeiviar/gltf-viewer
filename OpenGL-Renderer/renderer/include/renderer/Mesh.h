@@ -73,6 +73,8 @@ public:
     std::vector<gl::UniformBlock> uniformBlocks;
     uint32_t indexCount = 0;
     uint32_t indexByteOffset = 0;
+    // Packaged MSFS primitives may address a later vertex block with 16-bit indices.
+    GLint baseVertex = 0;
     uint32_t vertexCount = 0;
     gl::PolygonMode polygonMode = gl::PolygonMode::Fill;
     // Winding of the node's geometry after the mirrored-node rule and a viewport's

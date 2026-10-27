@@ -1,5 +1,14 @@
 const float M_PI = 3.141592653589793;
 
+// Scene/decal attachments and the five-level additive bloom chain are RGBA16F.
+// 13000 is exactly representable and leaves room for all five levels (65000 <
+// 65504). Scale channels together to preserve hue; ordinary values are untouched.
+vec3 fitHalfFloatHdr(vec3 color)
+{
+    float peak = max(max(color.r, color.g), color.b);
+    return peak > 13000.0 ? color * (13000.0 / peak) : color;
+}
+
 
 in vec3 v_Position;
 

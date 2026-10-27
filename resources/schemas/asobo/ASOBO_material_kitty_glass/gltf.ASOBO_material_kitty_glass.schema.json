@@ -1,0 +1,11 @@
+{
+    "$schema": "http://json-schema.org/draft-04/schema",
+    "title": "ASOBO_material_kitty_glass glTF extension (observed MSFS 2020 legacy alias)",
+    "type": "object",
+    "allOf": [{ "$ref": "glTFChildOfRootProperty.schema.json" }],
+    "properties": {
+        "glassReflectionMaskFactor": { "type": "number" },
+        "extensions": {},
+        "extras": {}
+    }
+}
