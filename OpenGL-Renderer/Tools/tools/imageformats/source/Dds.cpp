@@ -21,7 +21,9 @@ enum class DdsFormat {
     BC2,
     BC3,
     BC4,
+    BC4S,
     BC5,
+    BC5S,
     BC6H_UF16,
     BC6H_SF16,
     BC7,
@@ -30,6 +32,40 @@ enum class DdsFormat {
     RGB8,
     BGR8
 };
+
+// Signed BC4 block (BC4_SNORM / "BC4S", one channel of BC5_SNORM / "BC5S"), the same math as
+// bcdec's precise signed path: int8 endpoints / 127 (-128 clamps to -1), 8 or 6+2 levels.
+void decodeSignedBc4Block(const uint8_t* block, float out[16])
+{
+    uint64_t bits = 0;
+    for (int i = 7; i >= 0; --i) {
+        bits = (bits << 8) | block[i];
+    }
+    float levels[8];
+    levels[0] = std::max(-1.0f, static_cast<float>(static_cast<int8_t>(block[0])) / 127.0f);
+    levels[1] = std::max(-1.0f, static_cast<float>(static_cast<int8_t>(block[1])) / 127.0f);
+    if (levels[0] > levels[1]) {
+        for (int i = 1; i <= 6; ++i) {
+            levels[i + 1] = (static_cast<float>(7 - i) * levels[0] + static_cast<float>(i) * levels[1]) / 7.0f;
+        }
+    } else {
+        for (int i = 1; i <= 4; ++i) {
+            levels[i + 1] = (static_cast<float>(5 - i) * levels[0] + static_cast<float>(i) * levels[1]) / 5.0f;
+        }
+        levels[6] = -1.0f;
+        levels[7] = 1.0f;
+    }
+    uint64_t indices = bits >> 16;
+    for (int i = 0; i < 16; ++i) {
+        out[i] = levels[indices & 0x07];
+        indices >>= 3;
+    }
+}
+
+uint8_t signedToUnorm8(float v)
+{
+    return static_cast<uint8_t>(std::clamp((v * 0.5f + 0.5f) * 255.0f, 0.0f, 255.0f));
+}
 
 inline uint32_t readU32LE(const uint8_t* p) {
     return static_cast<uint32_t>(p[0]) |
@@ -106,13 +142,17 @@ ImageDecodingResult decodeDDS(const core::Vector<uint8_t>& _buffer, image::Image
             break;
         case 79: // DXGI_FORMAT_BC4_TYPELESS
         case 80: // DXGI_FORMAT_BC4_UNORM
-        case 81: // DXGI_FORMAT_BC4_SNORM
             format = DdsFormat::BC4;
+            break;
+        case 81: // DXGI_FORMAT_BC4_SNORM
+            format = DdsFormat::BC4S;
             break;
         case 82: // DXGI_FORMAT_BC5_TYPELESS
         case 83: // DXGI_FORMAT_BC5_UNORM
-        case 84: // DXGI_FORMAT_BC5_SNORM
             format = DdsFormat::BC5;
+            break;
+        case 84: // DXGI_FORMAT_BC5_SNORM
+            format = DdsFormat::BC5S;
             break;
         case 94: // DXGI_FORMAT_BC6H_TYPELESS
         case 95: // DXGI_FORMAT_BC6H_UF16
@@ -149,10 +189,14 @@ ImageDecodingResult decodeDDS(const core::Vector<uint8_t>& _buffer, image::Image
             format = DdsFormat::BC2;
         } else if (pfFourCC == 0x34545844 || pfFourCC == 0x35545844) { // "DXT4" or "DXT5"
             format = DdsFormat::BC3;
-        } else if (pfFourCC == 0x31495441 || pfFourCC == 0x55344342 || pfFourCC == 0x53344342) { // "ATI1" / "BC4U" / "BC4S"
+        } else if (pfFourCC == 0x31495441 || pfFourCC == 0x55344342) { // "ATI1" / "BC4U"
             format = DdsFormat::BC4;
-        } else if (pfFourCC == 0x32495441 || pfFourCC == 0x55354342 || pfFourCC == 0x53354342) { // "ATI2" / "BC5U" / "BC5S"
+        } else if (pfFourCC == 0x53344342) { // "BC4S"
+            format = DdsFormat::BC4S;
+        } else if (pfFourCC == 0x32495441 || pfFourCC == 0x55354342) { // "ATI2" / "BC5U"
             format = DdsFormat::BC5;
+        } else if (pfFourCC == 0x53354342) { // "BC5S" (MSFS 2020 packaged normal maps)
+            format = DdsFormat::BC5S;
         } else if (pfFourCC == 0x55374342 || pfFourCC == 0x20374342 || pfFourCC == 0x00374342) { // "BC7U" / "BC7 "
             format = DdsFormat::BC7;
         } else if (pfFlags & 0x00000040) { // DDPF_RGB
@@ -217,7 +261,7 @@ ImageDecodingResult decodeDDS(const core::Vector<uint8_t>& _buffer, image::Image
         }
     } else {
         // Block compressed formats
-        size_t blockSize = (format == DdsFormat::BC1 || format == DdsFormat::BC4) ? 8 : 16;
+        size_t blockSize = (format == DdsFormat::BC1 || format == DdsFormat::BC4 || format == DdsFormat::BC4S) ? 8 : 16;
         size_t numBlocksX = (width + 3) / 4;
         size_t numBlocksY = (height + 3) / 4;
 
@@ -280,6 +324,43 @@ ImageDecodingResult decodeDDS(const core::Vector<uint8_t>& _buffer, image::Image
                             pix[0] = r;
                             pix[1] = g;
                             pix[2] = b;
+                            pix[3] = 255;
+                        }
+                    }
+                    break;
+                }
+                case DdsFormat::BC4S: {
+                    float rVals[16];
+                    decodeSignedBc4Block(pBlock, rVals);
+                    for (int py = 0; py < 4; ++py) {
+                        for (int px = 0; px < 4; ++px) {
+                            const uint8_t r = signedToUnorm8(rVals[py * 4 + px]);
+                            uint8_t* pix = pDst + py * pitch + px * 4;
+                            pix[0] = r;
+                            pix[1] = r;
+                            pix[2] = r;
+                            pix[3] = 255;
+                        }
+                    }
+                    break;
+                }
+                case DdsFormat::BC5S: {
+                    // Signed X/Y normal (as the KTX2 BC5_SNORM path): stored as x * 0.5 + 0.5 with
+                    // Z rebuilt. Decoding it as unsigned BC5 flipped negative components and
+                    // turned every normal-mapped surface into sparkling noise.
+                    float xVals[16];
+                    float yVals[16];
+                    decodeSignedBc4Block(pBlock, xVals);
+                    decodeSignedBc4Block(pBlock + 8, yVals);
+                    for (int py = 0; py < 4; ++py) {
+                        for (int px = 0; px < 4; ++px) {
+                            const float nx = xVals[py * 4 + px];
+                            const float ny = yVals[py * 4 + px];
+                            const float nz = std::sqrt(std::max(0.0f, 1.0f - nx * nx - ny * ny));
+                            uint8_t* pix = pDst + py * pitch + px * 4;
+                            pix[0] = signedToUnorm8(nx);
+                            pix[1] = signedToUnorm8(ny);
+                            pix[2] = signedToUnorm8(nz);
                             pix[3] = 255;
                         }
                     }
