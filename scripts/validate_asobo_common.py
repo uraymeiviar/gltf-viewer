@@ -13,7 +13,11 @@ Run on its own, it checks A0.4 (docs/ASOBO_EXTENSIONS_PHASE_0.md):
     --asobo off render (--baseline-exe; run_regression.py passes it). Up to 11681d8 this was checked against
     the build before ASOBO support (167a5e0 with --show-invisible-materials; still selectable with
     --pre-asobo-exe), which A1.11's generated tangents no longer match;
-  * supported extensions off: --asobo-disable of all rendered extensions gives the same result;
+  * supported extensions off: the current support report supplies all Rendered/Partial
+    extensions; the support table excludes entries without a viewport switch. Asset
+    decoding is always on under both master states. MSFS emissive scaling follows the
+    master ASOBO switch, independently of ASOBO_material_emissive, so the equivalent
+    individual-switch control also uses --msfs-emissive off;
   * defaults: an extension written as {} renders like the same extension with its defaults written out;
   * files without ASOBO extensions render identically with ASOBO on and off.
 """
@@ -134,7 +138,7 @@ if __name__ == "__main__":
     elif args.baseline_exe is not None:
         pre, pre_flags = Path(args.baseline_exe), ["--asobo", "off"]
     else:
-        pre, pre_flags = PRE_ASOBO_EXE, ["--show-invisible-materials"]
+        pre, pre_flags = EXE, ["--asobo", "off"]
 
     print("[reference views]")
     check(len(views()) >= 11, f"{len(views())} reference views parsed from docs/ASOBO_REFERENCE_VIEWS.md")
@@ -159,7 +163,23 @@ if __name__ == "__main__":
         share = magenta(textured)
         check(share < 0.001, f"isolated render of the original file with --search-path is textured ({share:.2%} magenta)")
 
-    print("[everything off versus the build before ASOBO support]")
+    # The machine-readable statuses come from the running binary; only the explicit
+    # non-switchable flags come from its source table (support reports predate them).
+    support_report = OUT / "switch_support.json"
+    support_report.unlink(missing_ok=True)
+    result = subprocess.run([str(EXE), str(PLAIN_FIXTURE), "--isolated", "--asobo-report", str(support_report)],
+                            cwd=REPO, capture_output=True, timeout=120)
+    check(result.returncode == 0 and support_report.exists(), "current extension support report generated")
+    support = json.loads(support_report.read_text(encoding="utf-8"))["support"]
+    table = (REPO / "OpenGL-Renderer/Tools/tools/gltf/source/extensions/AsoboSupport.cpp").read_text(encoding="utf-8")
+    unswitchable = set(re.findall(r'\{"([^"]+)"[^\n]+, false\}', table))
+    extensions = sorted(name for name, status in support.items()
+                        if status in ("Rendered", "Partial") and name not in unswitchable)
+    check(bool(extensions), f"{len(extensions)} rendered/partial viewport switches discovered")
+    disable_flags = [flag for name in extensions for flag in ("--asobo-disable", name)]
+    disable_flags += ["--msfs-emissive", "off"]
+
+    print("[everything off versus the current rendering baseline]")
     if not pre.exists():
         print(f"  SKIP {pre.name} not found")
     elif not all(p.exists() for p in REAL_ASSETS.values()):
@@ -169,14 +189,7 @@ if __name__ == "__main__":
             entry = view(name)
             reference = render_view(pre, entry, f"{name}_pre", pre_flags)
             all_off = render_view(EXE, entry, f"{name}_off", ["--asobo", "off"])
-            one_off = render_view(EXE, entry, f"{name}_supported_off",
-                                  ["--asobo-disable", "ASOBO_material_invisible",
-                                   "--asobo-disable", "ASOBO_normal_map_convention",
-                                   "--asobo-disable", "ASOBO_material_draw_order",
-                                   "--asobo-disable", "ASOBO_material_windshield_v3",
-                                   "--asobo-disable", "ASOBO_material_environment_occluder",
-                                   "--asobo-disable", "ASOBO_material_geometry_decal",
-                                   "--asobo-disable", "ASOBO_material_blend_gbuffer"])
+            one_off = render_view(EXE, entry, f"{name}_supported_off", disable_flags)
             share = magenta(reference)
             check(share < 0.001, f"{name}: the {pre.stem} reference is fully textured ({share:.2%} magenta)")
             check(reference is not None and same(all_off, reference), f"{name}: --asobo off is byte-identical to {pre.stem}")

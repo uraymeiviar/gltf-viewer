@@ -238,6 +238,7 @@ public:
     // Which ASOBO (MSFS) extensions createScene applies; set per viewport (A0.4). With
     // ASOBO_material_invisible not applied, materials it marks invisible are drawn.
     AsoboOptions asoboOptions;
+    MaterialExtensionOptions materialExtensionOptions;
 
     // A1.2: the asset's ASOBO_normal_map_convention is "DirectX". Whether the viewport
     // applies it is a separate AsoboOptions switch, so the shader flag combines both.
@@ -290,6 +291,7 @@ private:
         bool containsTransmissiveMaterial = false;
         const gltf::Scene* scene = nullptr;
         AsoboOptions asoboOptions;
+        MaterialExtensionOptions materialExtensionOptions;
         std::optional<uint32_t> materialVariantID;
         const gltf::Node* isolationRoot = nullptr;
         bool isolationIncludeChildren = false;

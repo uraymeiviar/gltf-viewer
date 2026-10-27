@@ -6,6 +6,7 @@
 #include "imgui/ResourcesPanel.h"
 #include "imgui/TextureUtils.h"
 #include "imgui/UiProbe.h"
+#include "imgui/ViewportInstance.h"
 #include "imgui/IconsMaterialDesignIcons.h"
 #include "imgui/Theme.h"
 #include "renderer/gltf/GltfRenderLayer.h"
@@ -307,6 +308,25 @@ bool MaterialInspector::render(ux3d::gltf::Material* material,
     }
 
     bool modified = false;
+    auto extensionHeader = [&](const char* extension) {
+        ImGui::PushID(extension);
+        ImGui::TextUnformatted(extension);
+        UiProbe::item((std::string("khr.header.") + extension).c_str(), material->m_ID);
+        ImGui::SameLine();
+        auto* viewport = ExtensionInspector::instance().getActiveViewport();
+        bool applied = viewport == nullptr || viewport->settings.materialExtensions.applies(material->m_ID, extension);
+        ImGui::BeginDisabled(viewport == nullptr);
+        if (ImGui::Checkbox("##viewportToggle", &applied)) {
+            viewport->settings.materialExtensions.setApplied(material->m_ID, extension, applied);
+            revisions.mark(SceneChange::ViewportSettings);
+        }
+        UiProbe::item((std::string("khr.display.") + extension).c_str(), material->m_ID, false, applied);
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+            ImGui::SetTooltip("Display only: turns this extension off for this material in the active viewport; the file is unchanged.");
+        }
+        ImGui::PopID();
+    };
 
     // Header: Name and ID
     ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Material ID: %u", material->m_ID);
@@ -320,38 +340,14 @@ bool MaterialInspector::render(ux3d::gltf::Material* material,
         modified = true;
     }
 
-    // Convert Specular Glossiness to Metallic Roughness button
-    if (material->getPbrSpecularGlossiness().has_value()) {
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.45f, 0.3f, 1.0f));
-        if (ImGui::Button("Convert Specular Glossiness to Metallic Roughness")) {
-            auto& sg = material->getPbrSpecularGlossiness().value();
-            material->createPbrMetallicRoughness();
-            auto& mr = material->getPbrMetallicRoughness().value();
-
-            // Set base color from diffuse factor
-            mr.setBaseColorFactor(sg.getDiffuseFactorOrDefault());
-            if (sg.getDiffuseTextureInfo().has_value()) {
-                mr.createBaseColorTextureInfo();
-                if (mr.getBaseColorTextureInfo().has_value()) {
-                    mr.getBaseColorTextureInfo()->setTexture(*sg.getDiffuseTextureInfo()->getTexture());
-                }
-            }
-            // Approximation for metallic / roughness
-            mr.setMetallicFactor(0.0);
-            mr.setRoughnessFactor(1.0 - sg.getGlossinessFactorOrDefault());
-
-            material->destroyPbrSpecularGlossiness();
-            modified = true;
-        }
-        ImGui::PopStyleColor();
-    }
-
     ImGui::Separator();
 
     // -----------------------------------------------------------------
     // General Material Settings
     // -----------------------------------------------------------------
-    if (ImGui::CollapsingHeader("General Properties", ImGuiTreeNodeFlags_DefaultOpen)) {
+    const bool generalOpen = ImGui::CollapsingHeader("General Properties", ImGuiTreeNodeFlags_DefaultOpen);
+    UiProbe::item("material.section.general", material->m_ID);
+    if (generalOpen) {
         // Double Sided
         bool doubleSided = material->isDoubleSidedOrDefault();
         if (ImGui::Checkbox("Double Sided", &doubleSided)) {
@@ -409,6 +405,7 @@ bool MaterialInspector::render(ux3d::gltf::Material* material,
 
         // Emissive Strength Extension
         if (material->getEmissiveStrength().has_value()) {
+            extensionHeader("KHR_materials_emissive_strength");
             ImGui::PushFont(getMonoFont());
             float strength = static_cast<float>(material->getEmissiveStrength()->getEmissiveStrengthOrDefault());
             if (ImGui::DragFloat("Emissive Strength", &strength, 0.1f, 0.0f, 1000.0f, "%.1f")) {
@@ -438,7 +435,9 @@ bool MaterialInspector::render(ux3d::gltf::Material* material,
     // PBR Metallic Roughness
     // -----------------------------------------------------------------
     if (material->getPbrMetallicRoughness().has_value()) {
-        if (ImGui::CollapsingHeader("PBR Metallic Roughness", ImGuiTreeNodeFlags_DefaultOpen)) {
+        const bool pbrOpen = ImGui::CollapsingHeader("PBR Metallic Roughness", ImGuiTreeNodeFlags_DefaultOpen);
+        UiProbe::item("material.section.pbr", material->m_ID);
+        if (pbrOpen) {
             auto& mr = material->getPbrMetallicRoughness().value();
 
             // Base Color Factor
@@ -453,6 +452,8 @@ bool MaterialInspector::render(ux3d::gltf::Material* material,
                 mr.setBaseColorFactor(ux3d::math::dvec4(baseColor[0], baseColor[1], baseColor[2], baseColor[3]));
                 modified = true;
             }
+
+            UiProbe::item("material.base.color.factor", material->m_ID);
 
             // Base Color Texture Slot
             if (renderTextureSlot("Base Color Texture", mr.getBaseColorTextureInfo(), gltfModel, material, selection, gltfLayer)) {
@@ -487,6 +488,7 @@ bool MaterialInspector::render(ux3d::gltf::Material* material,
     // -----------------------------------------------------------------
     if (material->getPbrSpecularGlossiness().has_value()) {
         if (ImGui::CollapsingHeader("PBR Specular Glossiness", ImGuiTreeNodeFlags_DefaultOpen)) {
+            extensionHeader("KHR_materials_pbrSpecularGlossiness");
             auto& sg = material->getPbrSpecularGlossiness().value();
 
             auto diffD = sg.getDiffuseFactorOrDefault();
@@ -543,26 +545,17 @@ bool MaterialInspector::render(ux3d::gltf::Material* material,
                          material->getVolume().has_value() ||
                          material->getIor().has_value() ||
                          material->getSpecular().has_value() ||
-                         material->getSheen().has_value();
+                         material->getSheen().has_value() ||
+                         material->getIridescence().has_value();
 
     std::string khronosHeader = "Khronos Extensions" + std::string(hasKhronosExt ? " (Active)" : "");
     if (ImGui::CollapsingHeader(khronosHeader.c_str(), hasKhronosExt ? ImGuiTreeNodeFlags_DefaultOpen : 0)) {
         // KHR_materials_unlit
-        bool hasUnlit = material->isUnlit();
-        if (ImGui::Checkbox("Unlit (KHR_materials_unlit)", &hasUnlit)) {
-            if (hasUnlit) material->createUnlit();
-            else material->destroyUnlit();
-            modified = true;
-        }
+        if (material->isUnlit()) extensionHeader("KHR_materials_unlit");
 
         // KHR_materials_clearcoat
-        bool hasClearcoat = material->getClearcoat().has_value();
-        if (ImGui::Checkbox("Clearcoat (KHR_materials_clearcoat)", &hasClearcoat)) {
-            if (hasClearcoat) material->createClearcoat();
-            else material->destroyClearcoat();
-            modified = true;
-        }
         if (material->getClearcoat().has_value()) {
+            extensionHeader("KHR_materials_clearcoat");
             ImGui::Indent(15.0f);
             auto& cc = material->getClearcoat().value();
             float ccFactor = static_cast<float>(cc.getClearcoatFactorOrDefault());
@@ -570,6 +563,7 @@ bool MaterialInspector::render(ux3d::gltf::Material* material,
                 cc.setClearcoatFactor(static_cast<double>(ccFactor));
                 modified = true;
             }
+            UiProbe::item("khr.KHR_materials_clearcoat.clearcoatFactor", material->m_ID);
             float ccRoughness = static_cast<float>(cc.getClearcoatRoughnessFactorOrDefault());
             if (ImGui::SliderFloat("Clearcoat Roughness", &ccRoughness, 0.0f, 1.0f, "%.2f")) {
                 cc.setClearcoatRoughnessFactor(static_cast<double>(ccRoughness));
@@ -582,13 +576,8 @@ bool MaterialInspector::render(ux3d::gltf::Material* material,
         }
 
         // KHR_materials_transmission
-        bool hasTransmission = material->getTransmission().has_value();
-        if (ImGui::Checkbox("Transmission (KHR_materials_transmission)", &hasTransmission)) {
-            if (hasTransmission) material->createTransmission();
-            else material->destroyTransmission();
-            modified = true;
-        }
         if (material->getTransmission().has_value()) {
+            extensionHeader("KHR_materials_transmission");
             ImGui::Indent(15.0f);
             auto& trans = material->getTransmission().value();
             float transFactor = static_cast<float>(trans.getTransmissionFactorOrDefault());
@@ -596,18 +585,14 @@ bool MaterialInspector::render(ux3d::gltf::Material* material,
                 trans.setTransmissionFactor(static_cast<double>(transFactor));
                 modified = true;
             }
+            UiProbe::item("khr.KHR_materials_transmission.transmissionFactor", material->m_ID);
             if (renderTextureSlot("Transmission Texture", trans.getTransmissionTextureInfo(), gltfModel, material, selection, gltfLayer)) modified = true;
             ImGui::Unindent(15.0f);
         }
 
         // KHR_materials_volume
-        bool hasVolume = material->getVolume().has_value();
-        if (ImGui::Checkbox("Volume (KHR_materials_volume)", &hasVolume)) {
-            if (hasVolume) material->createVolume();
-            else material->destroyVolume();
-            modified = true;
-        }
         if (material->getVolume().has_value()) {
+            extensionHeader("KHR_materials_volume");
             ImGui::Indent(15.0f);
             auto& vol = material->getVolume().value();
             float thick = static_cast<float>(vol.getThicknessFactorOrDefault());
@@ -631,13 +616,8 @@ bool MaterialInspector::render(ux3d::gltf::Material* material,
         }
 
         // KHR_materials_ior
-        bool hasIor = material->getIor().has_value();
-        if (ImGui::Checkbox("Index of Refraction (KHR_materials_ior)", &hasIor)) {
-            if (hasIor) material->createIor();
-            else material->destroyIor();
-            modified = true;
-        }
         if (material->getIor().has_value()) {
+            extensionHeader("KHR_materials_ior");
             ImGui::Indent(15.0f);
             auto& ior = material->getIor().value();
             float iorVal = static_cast<float>(ior.getIorOrDefault());
@@ -650,13 +630,8 @@ bool MaterialInspector::render(ux3d::gltf::Material* material,
         }
 
         // KHR_materials_specular
-        bool hasSpecular = material->getSpecular().has_value();
-        if (ImGui::Checkbox("Specular (KHR_materials_specular)", &hasSpecular)) {
-            if (hasSpecular) material->createSpecular();
-            else material->destroySpecular();
-            modified = true;
-        }
         if (material->getSpecular().has_value()) {
+            extensionHeader("KHR_materials_specular");
             ImGui::Indent(15.0f);
             auto& spec = material->getSpecular().value();
             float specFactor = static_cast<float>(spec.getSpecularFactorOrDefault());
@@ -676,13 +651,8 @@ bool MaterialInspector::render(ux3d::gltf::Material* material,
         }
 
         // KHR_materials_sheen
-        bool hasSheen = material->getSheen().has_value();
-        if (ImGui::Checkbox("Sheen (KHR_materials_sheen)", &hasSheen)) {
-            if (hasSheen) material->createSheen();
-            else material->destroySheen();
-            modified = true;
-        }
         if (material->getSheen().has_value()) {
+            extensionHeader("KHR_materials_sheen");
             ImGui::Indent(15.0f);
             auto& sheen = material->getSheen().value();
             auto sheenColorD = sheen.getSheenColorFactorOrDefault();
@@ -699,6 +669,32 @@ bool MaterialInspector::render(ux3d::gltf::Material* material,
             if (renderTextureSlot("Sheen Color Texture", sheen.getSheenColorTextureInfo(), gltfModel, material, selection, gltfLayer)) modified = true;
             if (renderTextureSlot("Sheen Roughness Texture", sheen.getSheenRoughnessTextureInfo(), gltfModel, material, selection, gltfLayer)) modified = true;
             ImGui::Unindent(15.0f);
+        }
+        if (material->getIridescence().has_value()) {
+            extensionHeader("KHR_materials_iridescence");
+            auto& iri = material->getIridescence().value();
+            float factor = static_cast<float>(iri.getIridescenceFactorOrDefault());
+            if (ImGui::SliderFloat("Iridescence Factor", &factor, 0.0f, 1.0f)) {
+                iri.setIridescenceFactor(factor);
+                modified = true;
+            }
+            float ior = static_cast<float>(iri.getIridescenceIorOrDefault());
+            if (ImGui::DragFloat("Iridescence IOR", &ior, 0.01f, 1.0f, 3.0f)) {
+                iri.setIridescenceIor(ior);
+                modified = true;
+            }
+            float lo = static_cast<float>(iri.getIridescenceThicknessMinimumOrDefault());
+            float hi = static_cast<float>(iri.getIridescenceThicknessMaximumOrDefault());
+            if (ImGui::DragFloat("Minimum Thickness", &lo, 1.0f, 0.0f, hi)) {
+                iri.setIridescenceThicknessMinimum(lo);
+                modified = true;
+            }
+            if (ImGui::DragFloat("Maximum Thickness", &hi, 1.0f, lo, 10000.0f)) {
+                iri.setIridescenceThicknessMaximum(hi);
+                modified = true;
+            }
+            if (renderTextureSlot("Iridescence Texture", iri.getIridescenceTextureInfo(), gltfModel, material, selection, gltfLayer)) modified = true;
+            if (renderTextureSlot("Iridescence Thickness Texture", iri.getIridescenceThicknessTextureInfo(), gltfModel, material, selection, gltfLayer)) modified = true;
         }
     }
 

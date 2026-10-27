@@ -14,6 +14,9 @@ uncommitted change alter anything since the last commit?".
 Quick tier (equivalence only: byte-identical viewport images, identical selections):
   validate_p8_1.py     9 models x 4 AA modes, plus scripted UI cases
   validate_p8_3.py     instancing grid in 11 situations (wireframe, ortho, playback, split viewports...)
+                       forces redraws and hides the ground grid so final-frame merge counters
+                       sample scene draws; TAA's overlay-depth pass otherwise replaces those
+                       counters with zero on both baseline and candidate
   validate_p8_5.py     --quick: picking clicks on the 1,600-drawable grid, the fixture (AA none), ortho,
                        wireframe and alpha masks
   validate_p8_followup.py --only traversal: three TAA viewports sharing one scene traversal
@@ -75,7 +78,8 @@ extra = [f"--extra={e}" for e in args.extra]
 ab = ["--with-ab"] if args.tier == "full" else []
 jobs = [
     ("p8_1", ["scripts/validate_p8_1.py", "--only", "equivalence", "--ref-exe", str(baseline), "--label", "regression_p8_1"] + extra),
-    ("p8_3", ["scripts/validate_p8_3.py", "--ref-exe", str(baseline)] + ab + extra),
+    ("p8_3", ["scripts/validate_p8_3.py", "--ref-exe", str(baseline), "--extra=--disable-redraw-skip",
+              "--extra=--hide-grid"] + ab + extra),
     ("p8_5", ["scripts/validate_p8_5.py", "--only", "equivalence", "--pre-exe", str(baseline)] + ab + extra
              + (["--quick"] if args.tier == "quick" else [])),
     ("p8_followup", ["scripts/validate_p8_followup.py", "--only", "traversal", "--ref-exe", str(baseline)]),
@@ -91,7 +95,7 @@ serial_jobs = [
     ("asobo_draworder", ["scripts/validate_asobo_draworder.py"]),
     ("asobo_packaged", ["scripts/validate_asobo_packaged.py"]),
     ("texture_dds", ["scripts/validate_texture_dds.py"]),
-    ("texture_ktx2", ["scripts/validate_texture_ktx2.py"]),
+    ("texture_ktx2", ["scripts/validate_texture_ktx2.py", "--baseline-exe", str(baseline)]),
 ]
 if args.tier == "full":
     jobs.append(("p5_1", ["scripts/validate_p5_1.py", "--pre-exe", str(baseline)]))

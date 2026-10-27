@@ -11,10 +11,39 @@
 #include <algorithm>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
+#include <unordered_map>
 
 namespace ux3d::renderer {
 class RenderPass;
+
+// Display policy only. Material IDs belong to the loaded document; the application
+// clears this per-viewport state when replacing that document, like isolation.
+struct MaterialExtensionOptions {
+    std::unordered_map<uint32_t, std::vector<std::string>> disabled;
+
+    bool applies(uint32_t material, std::string_view extension) const
+    {
+        const auto it = disabled.find(material);
+        return it == disabled.end()
+            || std::find(it->second.begin(), it->second.end(), extension) == it->second.end();
+    }
+
+    void setApplied(uint32_t material, std::string_view extension, bool applied)
+    {
+        if (applied) {
+            const auto it = disabled.find(material);
+            if (it == disabled.end()) return;
+            std::erase(it->second, extension);
+            if (it->second.empty()) disabled.erase(it);
+        } else if (applies(material, extension)) {
+            disabled[material].emplace_back(extension);
+        }
+    }
+
+    bool operator==(const MaterialExtensionOptions&) const = default;
+};
 
 struct RenderSettings {
     bool enableSkinning = true;
@@ -75,6 +104,9 @@ public:
     bool logicOpEnabled = false;
     GLenum logicOp = GL_XOR;
     RenderPass* renderPass = nullptr;
+    uint32_t gltfMaterialId = 0;
+    RenderPass* nonTransmissivePass = nullptr;
+    bool decalReceiverWithoutTransmission = false;
     RenderSettings renderSettings;
     std::string fragmentShader;
     std::vector<gl::Sampler> samplers;

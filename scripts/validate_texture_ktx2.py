@@ -8,9 +8,12 @@ levels) and checks that Glider uploads them compressed and with mip levels:
   - a BC5 SNORM normal map renders like the equivalent PNG normal map, with and
     without ASOBO_normal_map_convention=DirectX;
   - an unsupported vkFormat logs the file and format and does not crash;
-  - a model without KTX2 textures is byte-identical to the baseline binary.
+  - a model without KTX2 textures is byte-identical to the HEAD baseline binary
+    (--baseline-exe or GLIDER_BASELINE). The old pinned pre-HDR binary cannot test
+    texture isolation after the HDR pipeline changed.
 """
 
+import argparse
 import base64
 import json
 import math
@@ -36,7 +39,7 @@ from validate_asobo_common import COMMON, check, finish, render, same
 
 REPO = Path(__file__).resolve().parents[1]
 EXE = Path(os.environ.get("GLIDER_EXE", REPO / "build" / "bin" / "Release" / "Glider.exe"))
-BASELINE = Path(os.environ.get("GLIDER_BASELINE", REPO / "build" / "baselines" / "6af3972.exe"))
+BASELINE = Path(os.environ["GLIDER_BASELINE"]) if os.environ.get("GLIDER_BASELINE") else None
 OUT = REPO / "build" / "texture_ktx2"
 EXTENSION = "MSFT_texture_dds"
 NORMAL_EXTENSION = "ASOBO_normal_map_convention"
@@ -537,6 +540,13 @@ def main():
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--baseline-exe", type=Path, default=BASELINE)
+    BASELINE = parser.parse_args().baseline_exe
+    if BASELINE is None:
+        head = subprocess.run(["git", "log", "-1", "--format=%h"], cwd=REPO,
+                              capture_output=True, text=True, check=True).stdout.strip()
+        BASELINE = REPO / "build/baselines" / f"{head}.exe"
     try:
         main()
     except (OSError, ValueError) as error:

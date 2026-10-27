@@ -12,6 +12,9 @@ Every step drives a real UI control on resources/test_models/hierarchy_animation
     --always-pick --disable-redraw-skip (every-frame picking and scene redraw),
   * the screenshot differs from the previous state where the change is visible.
 
+Base colour and vendor-extension edits use UiProbe controls: texture-slot sections
+moved the former pixel target, and vendor values now use editable widgets.
+
 Producers covered earlier by other suites (Topology, Visibility, Transform,
 Selection, ViewCamera, AnimationSet, AnimationTime, ViewportLayout) are
 re-exercised here too so the gate is checked on one binary.
@@ -41,11 +44,11 @@ NO_SYNC = {"Selection", "ViewCamera", "AnimationTime"}
 STEPS = [
     ("variant_alt", "Material", True, ["click 110 800"]),
     ("variant_default", "Material", True, ["click 110 778"]),
-    ("material_color", "Material", True, ["click 122 866", "wait 6", "dclick 1551 484", "wait 4", "key a ctrl", "type 20", "key enter"]),
+    ("material_color", "Material", True, ["clickp Materials 0", "wait 6", "dclickp material.base.color.factor 0", "wait 4", "key a ctrl", "type 20", "key enter"]),
     ("light_intensity", "Light", True, ["click 20 734", "wait 4", "click 140 756", "wait 6", "dclick 1620 124", "wait 4",
                                         "key a ctrl", "type 400", "key enter"]),
     ("camera_fov", "SceneCamera", False, ["click 20 712", "wait 4", "click 120 734", "wait 6", "click 1700 124"]),
-    ("extension", "Extension", False, ["picknode 5", "wait 6", "click 1571 507"]),
+    ("extension", "Extension", False, ["picknode 5", "wait 6", "clickp ext.EXT_glider_test.enabled 0"]),
     ("ibl_off", "RenderSettings", True, ["clickp hier.scene 0", "wait 6", "clickp scene.ibl.on 0"]),
     ("punctual_off", "RenderSettings", True, ["clickp scene.punctual.on 0"]),
     ("lights_on", "RenderSettings", True, ["clickp scene.ibl.on 0", "wait 4", "clickp scene.punctual.on 0"]),

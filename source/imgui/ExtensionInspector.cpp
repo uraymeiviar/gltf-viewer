@@ -352,9 +352,13 @@ bool ExtensionInspector::setExtensionParameter(ux3d::gltf::GltfObject* object,
         return false;
     }
 
+    // Vendor edits may replace existing values, never introduce keys. Typed ASOBO
+    // defaults retain their established setter path.
+    if (!ux3d::gltf::asobo::isAsoboExtension(extName) && !extJson.contains(paramName)) return false;
+    if (extJson.contains(paramName) && extJson[paramName] == paramValue) return false;
     extJson[paramName] = paramValue;
     object->setUnknownExtension(extName.c_str(), extJson.dump().c_str());
-    revisions.mark(SceneChange::Material);
+    if (dynamic_cast<ux3d::gltf::Material*>(object) != nullptr) revisions.mark(SceneChange::Material);
     revisions.mark(SceneChange::Extension);
     return true;
 }
@@ -606,24 +610,54 @@ bool ExtensionInspector::renderSingleExtension(ux3d::gltf::GltfObject* object,
             return false;
         }
 
-        std::unordered_set<std::string> renderedKeys;
-        if (schema != nullptr) {
-            for (const auto& propKey : schema->orderedPropertyKeys) {
-                auto itProp = schema->properties.find(propKey);
-                if (itProp == schema->properties.end() || !extJson.contains(propKey)) {
-                    continue;
+        bool modified = false;
+        // Work on a copy and submit each changed top-level value through the same
+        // setter as ASOBO. Nested widgets cannot add or remove keys either.
+        auto editValue = [&](auto&& self, const std::string& key, nlohmann::json& value,
+                             const ExtensionSchemaProperty* definition) -> bool {
+            const bool numericArray = value.is_array() && value.size() >= 2 && value.size() <= 4
+                && std::all_of(value.begin(), value.end(), [](const auto& v) { return v.is_number(); });
+            if (value.is_boolean() || value.is_number() || numericArray
+                || (value.is_string() && definition != nullptr && !definition->enumValues.empty())) {
+                return renderAsoboPropertyWidget(extName, key, value, nullptr, definition);
+            }
+            if (value.is_object() || value.is_array()) {
+                bool changed = false;
+                if (ImGui::TreeNode(key.c_str())) {
+                    for (auto& [child, v] : value.items()) {
+                        changed |= self(self, key + "." + child, v, nullptr);
+                    }
+                    ImGui::TreePop();
                 }
-                renderedKeys.insert(propKey);
-                renderPropertyReadOnly(propKey, extJson.at(propKey), &itProp->second, gltfModel);
+                return changed;
+            }
+            renderPropertyReadOnly(key, value, definition, gltfModel);
+            return false;
+        };
+        std::vector<std::string> keys;
+        if (schema != nullptr) {
+            for (const auto& key : schema->orderedPropertyKeys) {
+                if (extJson.contains(key)) keys.push_back(key);
             }
         }
-        for (const auto& [k, v] : extJson.items()) {
-            if (renderedKeys.count(k) != 0 || k == "extensions" || k == "extras") {
-                continue;
-            }
-            renderPropertyReadOnly(k, v, nullptr, gltfModel);
+        for (const auto& [key, value] : extJson.items()) {
+            if (key != "extensions" && key != "extras"
+                && std::find(keys.begin(), keys.end(), key) == keys.end()) keys.push_back(key);
         }
-        return false;
+        for (const auto& key : keys) {
+            const ExtensionSchemaProperty* definition = nullptr;
+            if (schema != nullptr) {
+                const auto it = schema->properties.find(key);
+                if (it != schema->properties.end()) definition = &it->second;
+            }
+            auto value = extJson.at(key);
+            if (editValue(editValue, key, value, definition)
+                && setExtensionParameter(object, extName, key, value, revisions)) {
+                extJson[key] = value;
+                modified = true;
+            }
+        }
+        return modified;
     }
 
     // ASOBO extension: make every typed parameter of the ASOBO model editable.
@@ -721,7 +755,7 @@ bool ExtensionInspector::renderAsoboPropertyWidget(const std::string& extName,
     ImGui::PushID(propKey.c_str());
     bool changed = false;
     const std::string desc = propDef ? propDef->description : "";
-    const std::string probeId = "asobo." + extName + "." + propKey;
+    const std::string probeId = (ux3d::gltf::asobo::isAsoboExtension(extName) ? "asobo." : "ext.") + extName + "." + propKey;
 
     using ux3d::gltf::asobo::ValueType;
     const ValueType vtype = propSpec != nullptr ? propSpec->type : (

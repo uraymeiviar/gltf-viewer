@@ -29,6 +29,7 @@ struct ViewportSettingsState {
     bool showGrid = true;
     bool forceDoubleSided = false; // Disable backface culling globally
     ux3d::renderer::AsoboOptions asobo; // MSFS (ASOBO) extensions this viewport applies (A0.4)
+    ux3d::renderer::MaterialExtensionOptions materialExtensions;
     bool screenSpaceReflections = true;
     int ssrQuality = 1; // Low/Medium/High: 256/512/1024 pixel-step budgets
     float interiorSkyReflection = 0.5f;

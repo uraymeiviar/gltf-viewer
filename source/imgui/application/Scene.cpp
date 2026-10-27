@@ -307,6 +307,8 @@ bool Application::loadGltfModel(const std::string& filePath, ux3d::gltf::Gltf& g
 
     ux3d::imgui::ElementInspector::clearPreviewCache();
     if (!texturesOnly && gltfLayer != nullptr) {
+        for (auto& viewport : viewports) viewport->settings.materialExtensions.disabled.clear();
+        gltfLayer->materialExtensionOptions.disabled.clear();
         gltfLayer->setIsolation(nullptr, false); // the isolated node pointer is about to dangle
     }
     if (!texturesOnly) {
@@ -522,6 +524,8 @@ void Application::newEmptyGltf(ux3d::gltf::Gltf& gltfModel, ux3d::gltf::Scene*& 
                                ux3d::imgui::AnimationPlayer& animPlayer, ux3d::imgui::SceneRevisions& revisions)
 {
     if (gltfLayer != nullptr) {
+        for (auto& viewport : viewports) viewport->settings.materialExtensions.disabled.clear();
+        gltfLayer->materialExtensionOptions.disabled.clear();
         gltfLayer->setIsolation(nullptr, false);
     }
     gltfModel.reset();

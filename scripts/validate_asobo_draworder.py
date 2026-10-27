@@ -7,6 +7,14 @@ drawn first); every other material keeps the old order. The quads use opaque alp
 the colour in the overlap names the draw that ended up on top; their node pivots are
 deliberately offset from the geometry bounds in the equality case, which tells the
 bounding-box-centre sort apart from the old pivot sort.
+
+A2 decals accumulate material properties on opaque receivers, so decal cases add
+a black opaque unlit receiver within the 1.2 mm tolerance. Free-floating quads no
+longer show decal order. A4 glass has its own pass: the disabled-order reference
+keeps the glass extension and removes only draw_order (same binary). Ordinary
+quads have pivots at their geometry centres so distance order remains observable
+when A2/A4 disable depth writes; the equality case retains misleading pivots and
+compares disabled order against decals without draw_order, preserving A2.
 """
 
 import base64
@@ -37,9 +45,11 @@ def _quad_binary(quad):
     return data
 
 
-def make_base(name, quads):
+def make_base(name, quads, receiver=False):
     """Writes the shared geometry with KHR_materials_unlit and no ASOBO extensions."""
     OUT.mkdir(parents=True, exist_ok=True)
+    if receiver:
+        quads = quads + [{"name": "receiver", "color": (0.0, 0.0, 0.0), "z": -0.0006, "opaque": True}]
     binary = b""
     buffer_views = []
     accessors = []
@@ -47,6 +57,10 @@ def make_base(name, quads):
     nodes = []
     materials = []
     for index, quad in enumerate(quads):
+        # Give ordinary cases meaningful distance keys even with depth writes off.
+        # The equality case explicitly supplies misleading pivots to test bounds.
+        if "pivot" not in quad:
+            quad = dict(quad, pivot=quad["z"], z=0.0)
         base = len(binary)
         binary += _quad_binary(quad)
         buffer_views.extend([
@@ -67,7 +81,7 @@ def make_base(name, quads):
             "name": quad["name"],
             "pbrMetallicRoughness": {"baseColorFactor": [*quad["color"], 1.0],
                                      "metallicFactor": 0.0, "roughnessFactor": 1.0},
-            "alphaMode": "BLEND",
+            "alphaMode": "OPAQUE" if quad.get("opaque") else "BLEND",
             "doubleSided": True,
             "extensions": {"KHR_materials_unlit": {}},
         })
@@ -133,9 +147,9 @@ def main():
 
     # 1. Decals: the higher offset wins even when that decal is the farther one.
     base = make_base("draworder_decals_base.gltf", [
-        {"name": "decal_near", "color": RED, "z": 0.08},
-        {"name": "decal_far", "color": BLUE, "z": -0.08},
-    ])
+        {"name": "decal_near", "color": RED, "z": 0.0003},
+        {"name": "decal_far", "color": BLUE, "z": -0.0003},
+    ], receiver=True)
     decals = declared("draworder_decals", base, {
         0: {DECAL: {}, DRAW_ORDER: {"drawOrderOffset": 3}},
         1: {DECAL: {}, DRAW_ORDER: {"drawOrderOffset": 9}},
@@ -148,9 +162,9 @@ def main():
     # 2. Equal decal offsets keep the back-to-front order, by bounding-box centre: the
     #    red pivot is behind the blue one, the red geometry is in front.
     base = make_base("draworder_decals_equal_base.gltf", [
-        {"name": "decal_near", "color": RED, "z": 0.6, "pivot": -0.5},
-        {"name": "decal_far", "color": BLUE, "z": -0.65, "pivot": 0.5},
-    ])
+        {"name": "decal_near", "color": RED, "z": 0.5003, "pivot": -0.5},
+        {"name": "decal_far", "color": BLUE, "z": -0.5003, "pivot": 0.5},
+    ], receiver=True)
     equal = declared("draworder_decals_equal", base, {
         0: {DECAL: {}, DRAW_ORDER: {"drawOrderOffset": 7}},
         1: {DECAL: {}, DRAW_ORDER: {"drawOrderOffset": 7}},
@@ -160,13 +174,15 @@ def main():
     expect(on, "R", "equal offsets sort by the bounding-box centre (near quad last)")
     expect(reference, "R", "reference without the extension keeps its previous order")
     disabled = capture(equal, "draworder_decals_equal_disabled", ["--asobo-disable", DRAW_ORDER])
-    check(same(disabled, reference), "--asobo-disable keeps the old order byte-identically")
+    no_order = declared("draworder_decals_equal_no_order", base, {0: {DECAL: {}}, 1: {DECAL: {}}})
+    no_order_capture = capture(no_order, "draworder_decals_equal_no_order")
+    check(same(disabled, no_order_capture), "--asobo-disable keeps the old decal order byte-identically")
 
     # 3. Decals draw before glass, even when glass would be drawn first by distance.
     base = make_base("draworder_decal_glass_base.gltf", [
-        {"name": "decal_near", "color": RED, "z": 0.1},
-        {"name": "glass_far", "color": BLUE, "z": -0.1},
-    ])
+        {"name": "decal_near", "color": RED, "z": 0.0003},
+        {"name": "glass_far", "color": BLUE, "z": -0.0003},
+    ], receiver=True)
     mixed = declared("draworder_decal_glass", base, {
         0: {DECAL: {}, DRAW_ORDER: {"drawOrderOffset": 5}},
         1: {GLASS: {}},
@@ -190,7 +206,8 @@ def main():
         0: {GLASS: {}, DRAW_ORDER: {"drawOrderOffset": 0.02}},
         1: {GLASS: {}},
     })
-    reference = capture(base, "draworder_glass_reference")
+    glass_reference = declared("draworder_glass_no_order", base, {0: {GLASS: {}}, 1: {GLASS: {}}})
+    reference = capture(glass_reference, "draworder_glass_reference")
     expect(capture(large, "draworder_glass_large"), "B", "large positive glass offset swaps the order")
     expect(capture(small, "draworder_glass_small"), "R", "small glass offset keeps the distance order")
     expect(reference, "R", "reference glass order is back to front")
@@ -225,9 +242,9 @@ def main():
 
     # 7. Switch off, and the same material extension left undeclared, are the old order.
     base = make_base("draworder_switch_base.gltf", [
-        {"name": "decal_near", "color": RED, "z": 0.08},
-        {"name": "decal_far", "color": BLUE, "z": -0.08},
-    ])
+        {"name": "decal_near", "color": RED, "z": 0.0003},
+        {"name": "decal_far", "color": BLUE, "z": -0.0003},
+    ], receiver=True)
     switched = declared("draworder_switch", base, {
         0: {DECAL: {}, DRAW_ORDER: {"drawOrderOffset": 3}},
         1: {DECAL: {}, DRAW_ORDER: {"drawOrderOffset": 9}},

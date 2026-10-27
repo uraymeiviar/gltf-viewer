@@ -580,6 +580,7 @@ void Application::drawViewports(FrameContext& frame)
             const auto createSceneStart = ux3d::imgui::profiling::Clock::now();
             gltfLayer->frustumCulling = !s_disableCulling;
             gltfLayer->asoboOptions = vp->settings.asobo;
+            gltfLayer->materialExtensionOptions = vp->settings.materialExtensions;
             auto [scene, reverseMapping] = gltfLayer->createScene(activeScene);
             gltfLayer->frustumCulling = false;
             s_culledTotal += gltfLayer->getLastSceneStats().culled;
@@ -1035,6 +1036,7 @@ void Application::drawViewports(FrameContext& frame)
                 glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
                 gltfLayer->frustumCulling = !s_disableCulling;
                 gltfLayer->asoboOptions = vp->settings.asobo;
+                gltfLayer->materialExtensionOptions = vp->settings.materialExtensions;
                 auto [wireScene, _] = gltfLayer->createScene(activeScene);
                 gltfLayer->frustumCulling = false;
                 for (auto it = wireScene.drawables.begin(); it != wireScene.drawables.end();) {

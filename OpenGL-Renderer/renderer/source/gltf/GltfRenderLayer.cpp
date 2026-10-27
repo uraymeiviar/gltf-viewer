@@ -102,7 +102,7 @@ constexpr std::string_view kAsoboMaterialTypeExtensions[] = {
 // The five receiver classes of the SDK (Standard has no type extension). Everything else
 // ignores the decal buffer, including glass, windshields, MASK and BLEND materials.
 bool isAsoboDecalReceiver(const gltf::Material& gltfMaterial, const gltf::asobo::ExtensionSet* extensions,
-                          DrawOrderClass drawOrderClass)
+                          DrawOrderClass drawOrderClass, bool transmissionApplied = true)
 {
     if (drawOrderClass == DrawOrderClass::Decal) {
         return false;
@@ -110,7 +110,7 @@ bool isAsoboDecalReceiver(const gltf::Material& gltfMaterial, const gltf::asobo:
     if (gltfMaterial.getAlphaModeOrDefault() != gltf::AlphaMode::Opaque) {
         return false;
     }
-    if (gltfMaterial.getTransmission().has_value()) {
+    if (transmissionApplied && gltfMaterial.getTransmission().has_value()) {
         return false;
     }
     if (extensions == nullptr) {
@@ -735,6 +735,9 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
         if (gltfMaterial == nullptr) {
             return false;
         }
+        material->gltfMaterialId = gltfMaterial->m_ID;
+        material->nonTransmissivePass = gltfMaterial->getAlphaModeOrDefault() == gltf::AlphaMode::Blend
+            ? static_cast<RenderPass*>(m_resourceManager.getTransparentPass()) : m_resourceManager.getOpaquePass();
         material->asobo.reset();
         material->asoboMaterialCode = Material::AsoboMaterialCode::None;
         const auto extras = nlohmann::json::parse(gltfMaterial->getExtras(), nullptr, false);
@@ -770,9 +773,10 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
         // A2.2: only OPAQUE materials of a file that carries decals, and only the five
         // receiver classes, compile the decal-reader variant. The per-viewport uniform
         // guards the actual reads, so the define itself is asset-level and cache-stable.
-        if (m_assetHasDecalMaterials && material->asoboMaterialCode == Material::AsoboMaterialCode::None
-            && isAsoboDecalReceiver(*gltfMaterial, material->asobo.get(),
-                                                            material->drawOrderClass)) {
+        material->decalReceiverWithoutTransmission = m_assetHasDecalMaterials
+            && material->asoboMaterialCode == Material::AsoboMaterialCode::None
+            && isAsoboDecalReceiver(*gltfMaterial, material->asobo.get(), material->drawOrderClass, false);
+        if (material->decalReceiverWithoutTransmission && !gltfMaterial->getTransmission().has_value()) {
             material->defines.define("ASOBO_DECAL_RECEIVER");
         }
 
@@ -2560,7 +2564,8 @@ const GltfRenderLayer::SceneTraversal& GltfRenderLayer::traverseScene(const gltf
 {
     SceneTraversal& t = m_traversal;
     if (m_sceneFrameToken != 0 && t.frameToken == m_sceneFrameToken && t.scene == gltfScene
-        && t.asoboOptions == asoboOptions && t.materialVariantID == m_materialVariantID
+        && t.asoboOptions == asoboOptions && t.materialExtensionOptions == materialExtensionOptions
+        && t.materialVariantID == m_materialVariantID
         && t.isolationRoot == m_isolationRoot && t.isolationIncludeChildren == m_isolationIncludeChildren) {
         ++m_traversalReuses;
         return t;
@@ -2573,6 +2578,7 @@ const GltfRenderLayer::SceneTraversal& GltfRenderLayer::traverseScene(const gltf
     t.hasInteriorVolume = false;
     t.scene = gltfScene;
     t.asoboOptions = asoboOptions;
+    t.materialExtensionOptions = materialExtensionOptions;
     t.materialVariantID = m_materialVariantID;
     t.isolationRoot = m_isolationRoot;
     t.isolationIncludeChildren = m_isolationIncludeChildren;
@@ -2643,7 +2649,8 @@ const GltfRenderLayer::SceneTraversal& GltfRenderLayer::traverseScene(const gltf
                 continue;
 
             if (gltfMaterial != nullptr) {
-                if (gltfMaterial->getTransmission().has_value()) {
+                if (gltfMaterial->getTransmission().has_value()
+                    && materialExtensionOptions.applies(gltfMaterial->m_ID, "KHR_materials_transmission")) {
                     t.containsTransmissiveMaterial = true;
                 }
             }
@@ -2721,6 +2728,16 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
         const bool drawOrderActive = m_assetDrawOrderDeclared
             && asoboOptions.applies("ASOBO_material_draw_order");
         if (entry.material != nullptr) {
+            // Restore the authored pass on each viewport before applying display policy.
+            // Shared materials are configured and consumed sequentially, like ASOBO.
+            if (entry.material->defines.isDefined("MATERIAL_TRANSMISSION")) {
+                const bool transmissionApplied = materialExtensionOptions.applies(entry.material->gltfMaterialId,
+                    "KHR_materials_transmission");
+                entry.material->renderPass = transmissionApplied
+                    ? static_cast<RenderPass*>(m_resourceManager.getTransmissivePass()) : entry.material->nonTransmissivePass;
+                entry.material->defines.defineIf(!transmissionApplied && entry.material->decalReceiverWithoutTransmission,
+                    "ASOBO_DECAL_RECEIVER");
+            }
             const auto* extensions = entry.material->asobo.get();
             const auto active = [&](const char* name) -> const gltf::asobo::ExtensionData* {
                 const auto* ext = extensions != nullptr ? extensions->find(name) : nullptr;
@@ -2808,6 +2825,18 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
         mesh->polygonMode = gl::PolygonMode::Fill;
         material->fragmentShader = "pbr.frag";
         material->renderSettings = renderSettings;
+        if (!materialExtensionOptions.disabled.empty()) {
+            material->renderSettings.enableSpecularGlossiness &= materialExtensionOptions.applies(material->gltfMaterialId, "KHR_materials_pbrSpecularGlossiness");
+            material->renderSettings.enableUnlit &= materialExtensionOptions.applies(material->gltfMaterialId, "KHR_materials_unlit");
+            material->renderSettings.enableClearCoat &= materialExtensionOptions.applies(material->gltfMaterialId, "KHR_materials_clearcoat");
+            material->renderSettings.enableSheen &= materialExtensionOptions.applies(material->gltfMaterialId, "KHR_materials_sheen");
+            material->renderSettings.enableTransmission &= materialExtensionOptions.applies(material->gltfMaterialId, "KHR_materials_transmission");
+            material->renderSettings.enableVolume &= materialExtensionOptions.applies(material->gltfMaterialId, "KHR_materials_volume");
+            material->renderSettings.enableIridescence &= materialExtensionOptions.applies(material->gltfMaterialId, "KHR_materials_iridescence");
+            material->renderSettings.enableIOR &= materialExtensionOptions.applies(material->gltfMaterialId, "KHR_materials_ior");
+            material->renderSettings.enableSpecular &= materialExtensionOptions.applies(material->gltfMaterialId, "KHR_materials_specular");
+            material->renderSettings.enableEmissiveStrength &= materialExtensionOptions.applies(material->gltfMaterialId, "KHR_materials_emissive_strength");
+        }
         material->defines.define("LINEAR_OUTPUT", 1);
     }
 

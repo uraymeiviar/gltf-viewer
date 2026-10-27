@@ -46,7 +46,8 @@ public:
     ViewportInstance* getActiveViewport() const { return m_activeViewport; }
 
     // Renders all vendor and unknown extensions found on a gltfObject.
-    // ASOBO typed parameters are editable in-memory; non-ASOBO vendor extensions are read-only text.
+    // ASOBO typed parameters and existing vendor values are editable in memory.
+    // Extension membership and vendor keys are fixed; strings need a schema enum.
     // Returns true if any parameter was modified.
     bool renderExtensions(ux3d::gltf::GltfObject* object,
                           ux3d::gltf::Gltf& gltfModel,

@@ -9,7 +9,10 @@ clockwise (the Direct3D convention). This harness checks:
   - a synthetic lit, textured quad stored the packaged way with reversed
     (clockwise) indices and declaring ASOBO_asset_optimized renders like the
     float counter-clockwise quad; the same clockwise copy without the declaration
-    is culled and byte-identical to the pre-change binary;
+    is culled and byte-identical to a same-binary float clockwise control;
+  - legacy pre-HDR binary comparisons are replaced by same-binary controls: culling
+    uses a plain clockwise quad, disabled windshield uses the same material without
+    the extension, and standard vertex tint uses an explicit vertex-colour factor;
   - ASOBO_asset_optimized is not switchable: --asobo-disable changes nothing;
   - a double-sided clockwise packaged quad seen from the back is lit like the
     float counter-clockwise quad, so gl_FrontFacing agrees with the flipped
@@ -52,9 +55,6 @@ from PIL import Image, ImageChops, ImageStat
 
 REPO = Path(__file__).resolve().parents[1]
 EXE = Path(os.environ.get("GLIDER_EXE", REPO / "build" / "bin" / "Release" / "Glider.exe"))
-# The pre-A1.9 reference is fixed, not GLIDER_BASELINE: run_regression.py points that at
-# the current HEAD baseline (6285c86), which already contains A1.9. a9c0a29 predates it.
-PRE_A19_EXE = REPO / "build" / "baselines" / "a9c0a29.exe"
 OUT = REPO / "build" / "asobo_packaged"
 ASSET_OPTIMIZED = "ASOBO_asset_optimized"
 WINDSHIELD = "ASOBO_material_windshield_v3"
@@ -410,12 +410,10 @@ def main():
                 "clockwise packaged copy renders like the float counter-clockwise quad", TOLERANCE)
     check(not same(declared_capture, undeclared_capture),
           "the declaration changes the render (the clockwise copy is not culled)")
-    if PRE_A19_EXE.exists():
-        undeclared_baseline = render(PRE_A19_EXE, undeclared, "packed_undeclared_baseline", flags, OUT)
-        check(same(undeclared_capture, undeclared_baseline),
-              "clockwise copy without the declaration is culled, byte-identical to the pre-change binary")
-    else:
-        print(f"  SKIP pre-A1.9 binary {PRE_A19_EXE} not found")
+    clockwise_control = texture_quad("plain_clockwise_control", False, [], True, clockwise=True)
+    clockwise_capture = render(EXE, clockwise_control, "plain_clockwise_control", flags, OUT)
+    check(same(undeclared_capture, clockwise_capture),
+          "undeclared clockwise packed quad is culled exactly like the plain clockwise control")
     check(same(declared_capture, disabled_capture),
           "--asobo-disable ASOBO_asset_optimized does not switch the winding or the decoding off")
 
@@ -471,16 +469,17 @@ def main():
           "windshield v3 with a red COLOR_0 renders like the same quad without COLOR_0")
     check(not same(standard_capture, standard_without_capture) and not same(windshield_capture, standard_capture),
           "a standard material with the same COLOR_0 is still tinted")
-    if PRE_A19_EXE.exists():
-        disabled_baseline = render(PRE_A19_EXE, windshield, "windshield_red_disabled_baseline", quad_flags, OUT)
-        check(same(disabled, disabled_baseline),
-              "--asobo-disable ASOBO_material_windshield_v3 renders as the pre-change binary")
-        check(same(master_off, disabled_baseline), "--asobo off also renders as the pre-change binary")
-        standard_baseline = render(PRE_A19_EXE, standard, "standard_red_baseline", quad_flags, OUT)
-        check(same(standard_capture, standard_baseline),
-              "the standard material keeps its pre-change vertex-colour tint")
-    else:
-        print(f"  SKIP pre-A1.9 binary {PRE_A19_EXE} not found")
+    check(same(disabled, standard_capture),
+          "--asobo-disable windshield renders like the same material without its extension")
+    check(same(master_off, standard_capture),
+          "--asobo off renders like the same material without its extension")
+    tint_document = json.loads(standard_without.read_text(encoding="utf-8"))
+    tint_document["materials"][0]["pbrMetallicRoughness"]["baseColorFactor"] = [1.0, 0.0, 0.0, 1.0]
+    tint_path = OUT / "standard_factor_tint.gltf"
+    tint_path.write_text(json.dumps(tint_document), encoding="utf-8")
+    tint_capture = render(EXE, tint_path, "standard_factor_tint", quad_flags, OUT)
+    check(same(standard_capture, tint_capture),
+          "standard vertex colour equals the same tint applied as baseColorFactor")
 
     print("[real source/package pairs]")
     if not all(path.exists() for path in (E190_SOURCE, E190_PACKAGE, E195_SOURCE, E195_PACKAGE)):
