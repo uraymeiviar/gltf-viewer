@@ -145,7 +145,7 @@ emissive glow.
     with the MSFS emissive scale (`docs/HDR_PIPELINE.md`, `scripts/validate_hdr.py`). Deviations from the plan: it
     is a scene setting on by default for every file (Scene Inspector → Environment, `--bloom`), not ASOBO-only, and
     it runs after TAA on the resolved HDR image (TAA history stays bloom-free), before tone mapping and FXAA.
-- [ ] **A4.4 — `ASOBO_material_fresnel_fade` and `ASOBO_material_ghost_effect` (R2). Owner: GPT Astra.**
+- [x] **A4.4 — `ASOBO_material_fresnel_fade` and `ASOBO_material_ghost_effect` (R2). Owner: GPT Astra.**
   View-angle-dependent opacity, using the A0.6 formulas.
   - **Test:** opacity on a sphere at normal and grazing incidence matches the formula.
   - **Samples (survey 2026-10-28):** `ASOBO_material_fresnel_fade` on 600+ materials: MSFS 2020 official aircraft
@@ -156,6 +156,31 @@ emissive glow.
     `{bias: 1.0, scale: 0.0}`, BLEND).
   - **Semantics:** §13 (no formula in the exporter; both are open). Brief:
     `C:\Users\uray\.claude\codex-runs\gltf-viewer\fresnel-ghost.brief.md`.
+  - **Result (2026-10-28):** the SDK describes the parameters in words (2020 `Materials.htm` and the 2024
+    FlightSim Material pages, same text), so the formulas follow that text and stay inferred (semantics §13).
+    For BLEND materials alpha is multiplied by a factor of `N.V` (clamped dot of the shading normal and the view
+    vector): fresnel fade `clamp(pow(N.V, fresnelFactor) - fresnelOpacityOffset, 0, 1)` (opaque face-on,
+    transparent edge-on; "the offset is subtracted ... when the dot product is close to zero"), ghost
+    `clamp(bias + scale * pow(1 - N.V, power), 0, 1)` (`bias` face-on, opaque rim; `scale 0` = constant bias).
+    OPAQUE and MASK materials are untouched (the SDK says OPAQUE ignores alpha), which covers the 20 OPAQUE
+    samples including the PMDG 737 `LIGHTS`. Both are `Rendered` in the support table with per-viewport switches;
+    the applied flags are two ints in the frame environment block (grown from 112 to 128 bytes), the per-material
+    parameters are `ASOBO_FRESNEL_FADE` / `ASOBO_GHOST_EFFECT` defines plus `u_AsoboFresnelFade` /
+    `u_AsoboGhost` uniforms, set only for declared BLEND materials, so everything else keeps its shader variant.
+    - **Check:** `scripts/validate_asobo_fresnel_ghost.py` (quick regression, serial ASOBO list): a unit sphere
+      (unlit, BLEND, perspective camera, black clear colour, bloom/auto exposure off) is read back at four radii
+      and the tone-mapped pixel is inverted to alpha; measured alpha matches the formula within 0.013 for the
+      sample sets and edge cases (factor 0.001 and 100, offset +-1, ghost scale 0, bias 1, power 64, base alpha 0.5),
+      OPAQUE/MASK are byte-identical to no extension, `--asobo-disable` per extension and `--asobo off` are
+      byte-identical to no extension, files without the extensions are byte-identical to the baseline, and the
+      runs raise zero GL errors.
+    - **Review:** `build\review\fresnel_ghost\contact_sheet.png` (before/after). The C172 and XCub `PROPELERSIDE`
+      prop-blur fins (`{0.5, 0.789}`), which showed as opaque-looking streaks, now vanish edge-on and are a faint
+      0.2-alpha haze face-on. The VR controller body (`{bias 0.2, power 0.5}`) becomes more see-through face-on with
+      an opaque rim (a subtle change against the grey-blue review background); its arrow button (`{bias 1, scale 0}`) is unchanged. The PMDG `LIGHTS` (OPAQUE) is unchanged.
+    - **Deviations:** `Rendered` rather than `Partial` because every documented parameter acts, but the formulas
+      are inferred; no colour change (only alpha). An absent `fresnelOpacityOffset` subtracts nothing.
+      Not verified against the simulator: the 0.21 maximum opacity of the sample set, and the power-0 wording.
 
 **Exit gate:**
 - Glass and windshield are reviewed against the reference screenshots.

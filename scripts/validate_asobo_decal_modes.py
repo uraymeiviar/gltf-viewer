@@ -384,11 +384,13 @@ def main():
                     now = capture(model, view, f"switch_{name}_{flag_name}", flags)
                     before = capture(model, view, f"switch_{name}_{flag_name}_baseline", flags, exe=baseline_exe)
                     check(same(now, before), f"{name}, {' '.join(flags)}, {view or 'shaded'}: byte-identical to baseline")
-        # With the switch on, the blendMasked mask now shapes the decal (baseline: the A2.2 default path).
+        # With the switch on, the blendMasked mask shapes the decal: it differs from the same decal in
+        # mode "default" (same build; a baseline comparison only held while baselines predated A2.3).
+        default_model = write_fixture("switch_default", decal={**BASE_ONLY, "mode": "default"}, with_mask=True)
         now = capture(masked_model, "basecolor", "switch_masked_on")
-        before = capture(masked_model, "basecolor", "switch_masked_on_baseline", exe=baseline_exe)
-        check(now is not None and before is not None and not same(now, before),
-              "blendMasked with the switch on differs from the baseline default coverage")
+        plain = capture(default_model, "basecolor", "switch_default_on")
+        check(now is not None and plain is not None and not same(now, plain),
+              "blendMasked with the switch on differs from the default-mode coverage")
 
     print("=" * 60)
     if failures:

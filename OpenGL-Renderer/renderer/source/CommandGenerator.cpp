@@ -39,6 +39,8 @@ ux3d::renderer::CommandGenerator::CommandGenerator(gl::GL* gl, const filesystem:
     , m_asoboMaterialEmissiveAppliedUniform("u_AsoboMaterialEmissiveApplied")
     , m_asoboDetailMapUniform("u_AsoboDetailMapEnabled")
     , m_asoboUVOptionsUniform("u_AsoboUVOptionsEnabled")
+    , m_asoboFresnelFadeUniform("u_AsoboFresnelFadeApplied")
+    , m_asoboGhostEffectUniform("u_AsoboGhostEffectApplied")
     , m_windshieldIcingUniform("u_WindshieldIcing")
     , m_asoboOcclusionStrengthUniform("u_AsoboOcclusionStrengthApplied")
     , m_lights(gl)
@@ -58,6 +60,8 @@ ux3d::renderer::CommandGenerator::CommandGenerator(gl::GL* gl, const filesystem:
     setAsoboMaterialEmissiveApplied(false);
     setAsoboDetailMap(false);
     setAsoboUVOptions(false);
+    setAsoboFresnelFade(false);
+    setAsoboGhostEffect(false);
     setAsoboOcclusionStrengthApplied(false);
 
     // A2.2: stable borrowed wrappers for the six accumulation targets. Nearest filtering
@@ -129,8 +133,9 @@ void ux3d::renderer::CommandGenerator::bindFrameBlocks()
     // int u_AsoboEmissiveActive at 80, float u_MsfsEmissiveScale at 84,
     // int u_TimeOfDay at 88, int u_AsoboMaterialEmissiveApplied at 92,
     // int u_AsoboDetailMapEnabled at 96, float u_WindshieldIcing at 100,
-    // int u_AsoboOcclusionStrengthApplied at 104, int u_AsoboUVOptionsEnabled at 108 (112 bytes).
-    uint8_t environment[112] = {};
+    // int u_AsoboOcclusionStrengthApplied at 104, int u_AsoboUVOptionsEnabled at 108,
+    // int u_AsoboFresnelFadeApplied at 112, int u_AsoboGhostEffectApplied at 116 (128 bytes).
+    uint8_t environment[128] = {};
     if (m_environmentMapRotationUniform.byteSize() == 36) {
         for (size_t column = 0; column < 3; ++column) {
             std::memcpy(environment + column * 16, m_environmentMapRotationUniform.bytes() + column * 12, 12);
@@ -154,6 +159,8 @@ void ux3d::renderer::CommandGenerator::bindFrameBlocks()
     place(environment, 100, 4, m_windshieldIcingUniform);
     place(environment, 104, 4, m_asoboOcclusionStrengthUniform);
     place(environment, 108, 4, m_asoboUVOptionsUniform);
+    place(environment, 112, 4, m_asoboFresnelFadeUniform);
+    place(environment, 116, 4, m_asoboGhostEffectUniform);
     uploadFrameBlock(m_environmentBlock, gl::kEnvironmentBlockBinding, environment, sizeof(environment));
 }
 
@@ -293,6 +300,16 @@ void ux3d::renderer::CommandGenerator::setAsoboDetailMap(bool enabled)
 void ux3d::renderer::CommandGenerator::setAsoboUVOptions(bool enabled)
 {
     m_asoboUVOptionsUniform.write(static_cast<int>(enabled ? 1 : 0));
+}
+
+void ux3d::renderer::CommandGenerator::setAsoboFresnelFade(bool enabled)
+{
+    m_asoboFresnelFadeUniform.write(static_cast<int>(enabled ? 1 : 0));
+}
+
+void ux3d::renderer::CommandGenerator::setAsoboGhostEffect(bool enabled)
+{
+    m_asoboGhostEffectUniform.write(static_cast<int>(enabled ? 1 : 0));
 }
 
 void ux3d::renderer::CommandGenerator::setWindshieldIcing(float icing)

@@ -391,6 +391,24 @@ void main()
     vec3 b = normalInfo.b;
 
     float NdotV = clampedDot(n, v);
+#if ALPHAMODE == ALPHAMODE_BLEND
+    // A4.4: view-angle opacity. Both extensions multiply the material's alpha (base colour
+    // factor x texture x vertex colour) by a factor of N.V. The SDK documents the parameters
+    // in words only (Materials.htm, "Fresnel Parameters" / "Ghost Parameters"); the formulas
+    // below are the inferred reading of that text. OPAQUE and MASK materials are untouched.
+#ifdef ASOBO_FRESNEL_FADE
+    if (u_AsoboFresnelFadeApplied != 0) {
+        // Fresnel opacity = (N.V)^fresnelFactor, minus fresnelOpacityOffset, clamped to 0..1.
+        baseColor.a *= clamp(pow(NdotV, u_AsoboFresnelFade.x) - u_AsoboFresnelFade.y, 0.0, 1.0);
+    }
+#endif
+#ifdef ASOBO_GHOST_EFFECT
+    if (u_AsoboGhostEffectApplied != 0) {
+        // Ghost opacity = bias + scale * (1 - N.V)^power, clamped to 0..1: more opaque at grazing angles.
+        baseColor.a *= clamp(u_AsoboGhost.x + u_AsoboGhost.y * pow(1.0 - NdotV, u_AsoboGhost.z), 0.0, 1.0);
+    }
+#endif
+#endif
     float TdotV = clampedDot(t, v);
     float BdotV = clampedDot(b, v);
 

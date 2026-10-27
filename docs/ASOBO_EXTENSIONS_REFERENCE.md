@@ -111,8 +111,8 @@ the planned behavior. Exact semantics are confirmed per task against the sources
 | `ASOBO_material_glass_v2` | `glassWidth` | MSFS glass shader | Ignored | A4 |
 | `ASOBO_material_windshield` | `rainDropScale`, `wiper1–4State`, `wiperMaskTexture` | Windshield (v1) | **Partial** (reflection + SSR, details 1/2, detail reflection, secondary details, icing; wipers/rain ignored) | A4 |
 | `ASOBO_material_windshield_v3` | detail roughness/opacity, micro-scratches, `detailNormalRefractScale`, wiper lines and state, three textures | Windshield with scratches, detail reflection, micro-scratches, icing | **Partial** (reflection + SSR, details 1/2, detail reflection, micro-scratches, secondary details, icing; wipers/rain/insects ignored; refraction not applicable) | A4 |
-| `ASOBO_material_fresnel_fade` | `fresnelFactor`, `fresnelOpacityOffset` | View-angle-dependent opacity | Ignored | A4 |
-| `ASOBO_material_ghost_effect` | `bias`, `scale`, `power` | Fresnel-style ghost transparency | Ignored | A4 |
+| `ASOBO_material_fresnel_fade` | `fresnelFactor`, `fresnelOpacityOffset` | View-angle-dependent opacity | **Rendered** (BLEND alpha x `clamp(pow(N.V, fresnelFactor) - fresnelOpacityOffset, 0, 1)`, inferred; OPAQUE/MASK unchanged) | A4.4 |
+| `ASOBO_material_ghost_effect` | `bias`, `scale`, `power` | Fresnel-style ghost transparency | **Rendered** (BLEND alpha x `clamp(bias + scale * pow(1 - N.V, power), 0, 1)`, inferred; OPAQUE/MASK unchanged) | A4.4 |
 
 ### 3.5 Material: translucency and special surfaces
 

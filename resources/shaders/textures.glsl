@@ -30,6 +30,15 @@ uniform float u_AsoboOcclusionStrength;
 #endif
 uniform mat3 u_OcclusionUVTransform;
 
+// A4.4: view-angle opacity of ASOBO_material_fresnel_fade (x = fresnelFactor, y = fresnelOpacityOffset)
+// and ASOBO_material_ghost_effect (x = bias, y = scale, z = power); BLEND materials only.
+#ifdef ASOBO_FRESNEL_FADE
+uniform vec2 u_AsoboFresnelFade;
+#endif
+#ifdef ASOBO_GHOST_EFFECT
+uniform vec3 u_AsoboGhost;
+#endif
+
 
 in vec2 v_texcoord_0;
 in vec2 v_texcoord_1;

@@ -989,6 +989,26 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
             }
         }
 
+        // A4.4: view-angle opacity of BLEND materials. The SDK documents both extensions in words only
+        // (docs/ASOBO_EXTENSIONS_SEMANTICS.md section 13); values are clamped to the exporter ranges.
+        // Whether the viewport applies them is a frame-block flag, so the variant stays viewport-independent.
+        if (gltfMaterial->getAlphaModeOrDefault() == gltf::AlphaMode::Blend && material->asobo != nullptr) {
+            if (const gltf::asobo::ExtensionData* fresnel = material->asobo->find("ASOBO_material_fresnel_fade")) {
+                // fresnelFactor defaults to the exporter's 1.0; an absent offset subtracts nothing.
+                material->defines.define("ASOBO_FRESNEL_FADE");
+                material->setUniform<math::vec2>("u_AsoboFresnelFade", math::vec2(
+                    static_cast<float>(std::clamp(fresnel->number("fresnelFactor").value_or(1.0), 0.001, 100.0)),
+                    static_cast<float>(std::clamp(fresnel->number("fresnelOpacityOffset").value_or(0.0), -1.0, 1.0))));
+            }
+            if (const gltf::asobo::ExtensionData* ghost = material->asobo->find("ASOBO_material_ghost_effect")) {
+                material->defines.define("ASOBO_GHOST_EFFECT");
+                material->setUniform<math::vec3>("u_AsoboGhost", math::vec3(
+                    static_cast<float>(std::clamp(ghost->number("bias").value_or(0.0), 0.0, 1.0)),
+                    static_cast<float>(std::clamp(ghost->number("scale").value_or(1.0), 0.0, 1.0)),
+                    static_cast<float>(std::clamp(ghost->number("power").value_or(1.0), 0.001, 64.0))));
+            }
+        }
+
         // A5.2: declared, typed extension only. Defaults stay on the original shader variant.
         if (const gltf::asobo::ExtensionData* uv = material->asobo != nullptr
                 ? material->asobo->find("ASOBO_material_UV_options") : nullptr) {

@@ -35,4 +35,8 @@ layout(std140) uniform EnvironmentBlock
     // declare it compile ASOBO_OCCLUSION_STRENGTH and read u_AsoboOcclusionStrength.
     int u_AsoboOcclusionStrengthApplied;
     int u_AsoboUVOptionsEnabled; // A5.2, per-viewport main UV transform/clamp
+    // Non-zero when the viewport applies ASOBO_material_fresnel_fade / ASOBO_material_ghost_effect (A4.4);
+    // BLEND materials that declare them compile ASOBO_FRESNEL_FADE / ASOBO_GHOST_EFFECT.
+    int u_AsoboFresnelFadeApplied;
+    int u_AsoboGhostEffectApplied;
 };

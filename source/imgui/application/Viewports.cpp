@@ -774,6 +774,10 @@ void Application::drawViewports(FrameContext& frame)
                 vp->settings.asobo.applies("ASOBO_occlusion_strength"));
             commandGenerator->setAsoboUVOptions(
                 vp->settings.asobo.applies("ASOBO_material_UV_options"));
+            commandGenerator->setAsoboFresnelFade(
+                vp->settings.asobo.applies("ASOBO_material_fresnel_fade"));
+            commandGenerator->setAsoboGhostEffect(
+                vp->settings.asobo.applies("ASOBO_material_ghost_effect"));
 
             const auto commandGenerationStart = ux3d::imgui::profiling::Clock::now();
             const uint64_t programHitsBefore = commandGenerator->getCommandMapping().getProgramCacheHits();

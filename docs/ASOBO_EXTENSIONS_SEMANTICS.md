@@ -765,7 +765,18 @@ Let `uv_detail = v_texcoord_0 * UVScale` (applied once), `v_color` be the interp
 
 ## 13. `ASOBO_material_fresnel_fade` and `ASOBO_material_ghost_effect`
 
-**Coverage: partial** for both (properties are defined; no shader formula is implemented).
+**Coverage: partial** for both (properties are defined; the exporter implements no shader formula, but the SDK describes each parameter in words, and Glider renders the inferred formulas below, A4.4).
+
+**SDK text (V).** The 2020 SDK page `C:\MSFS SDK\Documentation\html\Asset_Creation\3DS_Max_Plugin\Materials.htm` (material types "FresnelFade" and "Ghost", "Fresnel Parameters", "Ghost Parameters") and the 2024 pages `C:\MSFS 2024 Flighting SDK\Documentation\public\flighting\models-and-textures\textures\materials\flightsim-materials\index.md` (`#fresnelfade`, `#ghost`) and `...\flightsim-material-parameters\index.md` (lines 451-487) carry the same wording:
+
+- *FresnelFade*: "This material will be used to make an object visible based on the camera angle."
+  - *Fresnel Factor*: "Exponent factor for the opacity of the Fresnel effect."
+  - *Fresnel Opacity Bias*: "This value is subtracted from the previous Fresnel opacity result. It's there to enforce the transparency effect when the previous dot product is close to zero."
+- *Ghost*: "designed specifically for use with UI elements in VR (for example "hands")".
+  - *Bias Factor*: "an offset to make the object less transparent, where 0 is 100% transparent and 1 is 100% opaque."
+  - *Ghost Power*: "the exponent that increase the reflection at shallow angles ... between 0 and 64 where 0 means no reflection and 64 means a very metallic reflection at shallow angles."
+  - *Ghost Scale*: "a proportional factor that changes the weight of the transparency gradient, where 0 means no reflection weight and 1 means full reflection weight."
+- The 2024 schema page (`plugins\gltf-schemas\index.md:516-585`) only repeats that the extensions "set the fresnel factor and the fresnel opacity factor properties" and "set its bias, scale, and power"; its example is `{fresnelFactor: 1.42, fresnelOpacityOffset: 0.70}`. No formula is published; the online MSFS 2024 "FlightSim Materials" pages were not consulted separately (the local copies are the same text).
 
 ### 13a. `ASOBO_material_fresnel_fade`
 
@@ -787,8 +798,11 @@ None in the extension. The core base color/OMR/normal/emissive/UV2 slots apply.
 
 **Shading meaning**
 
-- **V** No formula is implemented. The material's custom tree is exactly the standard tree (`blender/material/msfs_material_fresnel_fade.py:75-76`), and neither property is referenced in any node construction (only the attribute list and UI panel).
-- **I** The names imply a view-angle opacity ramp: a Fresnel term scaled by `fresnelFactor`, plus an opacity offset. The exact Fresnel exponent, base reflectivity, and sign of the offset are not in the source.
+- **V** No formula is implemented in the exporter. The material's custom tree is exactly the standard tree (`blender/material/msfs_material_fresnel_fade.py:75-76`), and neither property is referenced in any node construction (only the attribute list and UI panel).
+- **V** (SDK text) The factor is an exponent of the Fresnel opacity, the offset is subtracted from that result, and the offset exists "to enforce the transparency effect when the previous dot product is close to zero".
+- **I** Glider renders (A4.4, `resources/shaders/pbr.frag`), for BLEND materials only: `alpha = baseAlpha * clamp(pow(N.V, fresnelFactor) - fresnelOpacityOffset, 0, 1)`, with `N.V` the clamped dot of the shading normal (flipped for back faces) and the view vector. The reading "dot product close to zero" = grazing incidence = transparent fixes the term as `pow(N.V, factor)` (opaque face-on, transparent edge-on), not `pow(1 - N.V, factor)`. The clamp to 0..1 and multiplying into the base alpha (factor x texture x vertex colour) are inferred. An absent `fresnelFactor` is 1.0 (the exporter default); an absent `fresnelOpacityOffset` subtracts nothing (the exporter default 1.0 would hide the surface, and the exporter always writes both keys); values are clamped to the exporter ranges.
+- **I** The sample set `{0.5, 0.789}` (545 official materials, all the `PROPELERSIDE` prop-blur fins of the C172, XCub and Extra 330) gives `sqrt(N.V) - 0.789`: at most 0.21 face-on, zero beyond about 52 degrees off the normal, so the thin fins fade out edge-on instead of showing as hard lines. The large offset only makes sense with the exponent below 1, which supports the reading. Whether the engine also tints the colour is unknown; Glider changes alpha only.
+- **V** For OPAQUE materials the SDK says alpha values are ignored; the 20 OPAQUE materials (for example the PMDG 737 `LIGHTS`, `{fresnelOpacityOffset: 0}`) therefore render unchanged. MASK keeps its cutoff untouched.
 
 **Interactions**
 
@@ -797,8 +811,8 @@ None in the extension. The core base color/OMR/normal/emissive/UV2 slots apply.
 
 **Open questions**
 
-1. What is the exact Fresnel formula and the role/sign of `fresnelOpacityOffset`? The properties are never consumed by a shader in the exporter.
-2. Is `fresnelFactor` a multiplier, an exponent, or an IOR-like term, and how does it combine with the base alpha and the base color?
+1. Is the engine's term exactly `pow(N.V, factor) - offset` (no remap, no extra multiplier), clamped, and multiplied into the base alpha? Only the description above is published.
+2. Does an OPAQUE FresnelFade material really stay opaque in MSFS (as the alpha-mode text says), and does the engine use the interpolated vertex normal or the normal-mapped one for `N`?
 
 ### 13b. `ASOBO_material_ghost_effect`
 
@@ -821,8 +835,10 @@ None in the extension; core PBR textures apply.
 
 **Shading meaning**
 
-- **V** No formula is implemented. The custom tree is the standard tree (`blender/material/msfs_material_ghost.py:84-85`); the three values only appear in the attribute list and panel.
-- **I** The names (`bias`, `scale`, `power`) and the material name suggest a Fresnel-like ghost/force-field opacity: something like `alpha = bias + scale * pow(fresnel, power)`. This is a guess from names, not source; it is recorded as an open question, not semantics.
+- **V** No formula is implemented in the exporter. The custom tree is the standard tree (`blender/material/msfs_material_ghost.py:84-85`); the three values only appear in the attribute list and panel.
+- **V** (SDK text) Bias is an opacity offset (0 fully transparent, 1 fully opaque), power is the exponent that raises the effect at shallow angles, scale weights the gradient (0 = no weight).
+- **I** Glider renders (A4.4), for BLEND materials only: `alpha = baseAlpha * clamp(bias + scale * pow(1 - N.V, power), 0, 1)`, i.e. the earlier guess `bias + scale * pow(fresnel, power)` with `fresnel = 1 - N.V` (opaque rim, `bias` face-on). `scale = 0` gives the constant `bias` (the VR button `{bias 1, scale 0}` is plain opaque). The SDK sentence that power 0 means "no reflection" does not fit `pow(x, 0) = 1`; the exporter minimum is 0.001, so Glider keeps the formula. Absent keys use the exporter defaults (bias 0, scale 1, power 1); values are clamped to the exporter ranges (power 0.001..64). Colour is not touched: the SDK speaks of "reflection", but the effect is documented as a transparency gradient and the PBR specular already adds the Fresnel reflection.
+- **V** OPAQUE and MASK materials are left untouched (alpha is ignored / thresholded as usual); both VR controller materials are BLEND.
 
 **Interactions**
 
@@ -831,9 +847,9 @@ None in the extension; core PBR textures apply.
 
 **Open questions**
 
-1. What is the actual ghost opacity formula, and what do `bias`, `scale`, and `power` multiply/exponentiate?
-2. Is the effect driven by the view angle, the normal, the base alpha, or a texture (there is no texture slot in the extension)?
-3. Does the ghost material render in a special pass (e.g. after opaque, no depth write, no shadows) beyond the alpha BLEND and no-cast-shadow defaults?
+1. Is the engine's gradient exactly `bias + scale * pow(1 - N.V, power)`, or a Schlick-style reflectance with a different base?
+2. Does the effect also add a Fresnel reflection to the colour (the "reflection" wording), beyond the opacity?
+3. Does the ghost material render in a special pass (e.g. after opaque, no depth write, no shadows) beyond the alpha BLEND and no-cast-shadow defaults? Glider draws it as an ordinary BLEND material.
 
 ## 14. `ASOBO_material_detail_map`
 
