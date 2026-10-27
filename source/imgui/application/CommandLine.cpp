@@ -394,6 +394,10 @@ std::optional<int> Application::configure(int argc, char** argv)
             const float value = std::stof(argv[++i]);
             if (!std::isfinite(value) || value < 0.0f || value > 1.0f) return 1;
             activeViewport->settings.interiorSkyReflection = value;
+        } else if (arg == "--windshield-icing" && i + 1 < argc) {
+            const float value = std::stof(argv[++i]);
+            if (!std::isfinite(value) || value < 0.0f || value > 1.0f) return 1;
+            activeViewport->settings.windshieldIcing = value;
         } else if (arg == "--asobo" && i + 1 < argc) {
             activeViewport->settings.asobo.enabled = toLowerAscii(argv[++i]) != "off";
         } else if (arg == "--asobo-disable" && i + 1 < argc) {

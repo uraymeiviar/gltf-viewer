@@ -27,6 +27,7 @@ precision highp float;
 #include <ibl.glsl>
 #include <decal_receiver.glsl>
 #include <asobo_detail_map.glsl>
+#include <asobo_windshield.glsl>
 #include <material_info.glsl>
 
 #ifdef MATERIAL_IRIDESCENCE
@@ -635,6 +636,9 @@ void main()
         f_emissive = decalReceiver.emissive.rgb + decalReceiver.emissive.a * f_emissive;
     }
 #endif
+#ifdef ASOBO_MATERIAL_WINDSHIELD
+    f_emissive = vec3(0.0);
+#endif
 
     // Layer blending
 
@@ -688,6 +692,13 @@ void main()
     color = (f_emissive + diffuse) * coverage + f_specular;
     color = f_sheen + color * albedoSheenScaling;
     color = color * (1.0 - clearcoatFactor * clearcoatFresnel) + f_clearcoat;
+#endif
+#ifdef ASOBO_MATERIAL_WINDSHIELD
+#ifdef MATERIAL_UNLIT
+    color += getWindshieldDetailScattering(baseColor.rgb);
+#else
+    color += getWindshieldDetailScattering(diffuse);
+#endif
 #endif
 #ifdef ASOBO_GLASS_REFRACTION
     if (u_AsoboGlassCopyValid != 0) {

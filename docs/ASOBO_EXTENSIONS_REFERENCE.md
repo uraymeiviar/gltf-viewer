@@ -109,8 +109,8 @@ the planned behavior. Exact semantics are confirmed per task against the sources
 |---|---|---|---|---|
 | `ASOBO_material_detail_map` | `UVScale`, `blendThreshold`, `detailColorTexture`, `detailNormalTexture`, `detailMetalRoughAOTexture`, `blendMaskTexture` | Tiled detail layers blended over the base material | **Rendered** (detail colour/ORM/normal, `UVScale` + viewer-side `UVOffset`, vertex-alpha or blend-mask mode; object-attribute `scale` ignored) | A5.1 |
 | `ASOBO_material_glass_v2` | `glassWidth` | MSFS glass shader | Ignored | A4 |
-| `ASOBO_material_windshield` | `rainDropScale`, `wiper1–4State`, `wiperMaskTexture` | Windshield (v1) | Ignored | A4 |
-| `ASOBO_material_windshield_v3` | detail roughness/opacity, micro-scratches, `detailNormalRefractScale`, wiper lines and state, three textures | Windshield with scratches, detail refraction and wiper traces | Ignored | A4 |
+| `ASOBO_material_windshield` | `rainDropScale`, `wiper1–4State`, `wiperMaskTexture` | Windshield (v1) | **Partial** (reflection + SSR, details 1/2, detail reflection, secondary details, icing; wipers/rain ignored) | A4 |
+| `ASOBO_material_windshield_v3` | detail roughness/opacity, micro-scratches, `detailNormalRefractScale`, wiper lines and state, three textures | Windshield with scratches, detail reflection, micro-scratches, icing | **Partial** (reflection + SSR, details 1/2, detail reflection, micro-scratches, secondary details, icing; wipers/rain/insects ignored; refraction not applicable) | A4 |
 | `ASOBO_material_fresnel_fade` | `fresnelFactor`, `fresnelOpacityOffset` | View-angle-dependent opacity | Ignored | A4 |
 | `ASOBO_material_ghost_effect` | `bias`, `scale`, `power` | Fresnel-style ghost transparency | Ignored | A4 |
 

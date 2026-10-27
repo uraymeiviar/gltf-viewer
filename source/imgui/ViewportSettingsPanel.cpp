@@ -125,6 +125,9 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
             if (ImGui::SliderFloat("Interior sky reflection", &state.interiorSkyReflection, 0.0f, 1.0f)) {
                 revisions.mark(SceneChange::ViewportSettings);
             }
+            if (ImGui::SliderFloat("Windshield icing", &state.windshieldIcing, 0.0f, 1.0f, "%.2f")) {
+                revisions.mark(SceneChange::ViewportSettings);
+            }
             ImGui::Indent();
             for (const ux3d::gltf::asobo::SupportInfo& info : ux3d::gltf::asobo::supportTable()) {
                 if (!ux3d::gltf::asobo::isAsoboExtension(info.name)) {

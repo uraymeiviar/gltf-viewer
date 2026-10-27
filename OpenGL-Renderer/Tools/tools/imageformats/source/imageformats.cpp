@@ -23,6 +23,7 @@
 #include <mutex>
 
 #include "imageformats/imageformats.h"
+#include "Tiff.h"
 #include "core/LoadProgress.h"
 #include "core/Logger.h"
 #include <memory>
@@ -52,6 +53,13 @@ uint32_t readLE32(const core::Vector<uint8_t>& _buffer, size_t _offset)
 // parsed here (WebP, EXR: 8 bytes per encoded byte).
 uint64_t estimateDecodedBytes(const core::Vector<uint8_t>& _buffer, ImageEncoding _encoding)
 {
+    if (_encoding == ImageEncoding::TIFF) {
+        try {
+            const tiff::Reader reader(std::span<const uint8_t>(_buffer.data(), _buffer.size()));
+            const auto size = reader.dimensions();
+            return uint64_t(size[0]) * size[1] * 8u;
+        } catch (const std::exception&) { return uint64_t(_buffer.size()) * 8u; }
+    }
     if (_encoding == ImageEncoding::KTX2) {
         // KTX2 header: pixelWidth @20, pixelHeight @24, pixelDepth @28, layerCount @32,
         // faceCount @36; transcoded to RGBA32, plus mips (x4/3).
@@ -211,6 +219,9 @@ core::string imageformats::imageEncodingToString(ImageEncoding _imageEncoding)
     case ImageEncoding::DDS: {
         return "image/vnd-ms.dds";
     }
+    case ImageEncoding::TIFF: {
+        return "image/tiff";
+    }
     case ImageEncoding::EXR: {
         return "image/x-exr";
     }
@@ -222,6 +233,7 @@ core::string imageformats::imageEncodingToString(ImageEncoding _imageEncoding)
 
 ImageEncoding imageformats::imageEncodingFromString(const std::string& _mimeType)
 {
+    if (_mimeType == "image/tiff") return ImageEncoding::TIFF;
     if (_mimeType == "image/png") {
         return ImageEncoding::PNG;
     }
@@ -249,6 +261,7 @@ ImageEncoding imageformats::imageEncodingFromString(const std::string& _mimeType
 core::string imageformats::getFileExtension(ImageEncoding _imageEncoding)
 {
     switch (_imageEncoding) {
+    case ImageEncoding::TIFF: return ".tif";
     case ImageEncoding::PNG: {
         return ".png";
     }
@@ -278,6 +291,7 @@ core::string imageformats::getFileExtension(ImageEncoding _imageEncoding)
 
 ImageEncoding imageformats::getEncodingFromUri(const core::string& _inUri)
 {
+    if (core::endsWith(core::toLower(_inUri), ".tif") || core::endsWith(core::toLower(_inUri), ".tiff")) return ImageEncoding::TIFF;
     if (core::endsWith(core::toLower(_inUri), ".png")) {
         return ImageEncoding::PNG;
     }
@@ -315,6 +329,8 @@ ImageEncoding imageformats::getEncodingFromBuffer(const core::Vector<uint8_t>& _
 
 ImageEncoding imageformats::getEncodingFromBuffer(const std::vector<uint8_t>& _inBuffer)
 {
+    if (_inBuffer.size() >= 4 && ((_inBuffer[0] == 'I' && _inBuffer[1] == 'I' && (_inBuffer[2] == 42 || _inBuffer[2] == 43) && _inBuffer[3] == 0)
+        || (_inBuffer[0] == 'M' && _inBuffer[1] == 'M' && _inBuffer[2] == 0 && (_inBuffer[3] == 42 || _inBuffer[3] == 43)))) return ImageEncoding::TIFF;
     if (_inBuffer.size() >= 8) {
         // see http://www.libpng.org/pub/png/spec/1.2/PNG-Rationale.html#R.PNG-file-signature
         if (_inBuffer[0] == 137 && _inBuffer[1] == 80 && _inBuffer[2] == 78 && _inBuffer[3] == 71 && _inBuffer[4] == 13 && _inBuffer[5] == 10 && _inBuffer[6] == 26 && _inBuffer[7] == 10) {
@@ -463,7 +479,7 @@ static ImageDecodingResult decodeEXR(
 ImageDecodingResult imageformats::decodeImage(
     const core::Vector<uint8_t>& _inBuffer,
     image::Image& _outImage,
-    const uint32_t _inRequiredChannels)
+    const uint32_t _inRequiredChannels, std::string* _failureReason)
 {
     // Checking for valid buffer. stbi memory buffer size is a native int, so avoiding overflow.
     if (_inBuffer.empty() || _inBuffer.size() > INT_MAX) {
@@ -494,7 +510,18 @@ ImageDecodingResult imageformats::decodeImage(
     const ImageEncoding encoding = getEncodingFromBuffer(_inBuffer);
     // A decode holds the decoder's output and the image's copy of it at the same time.
     const DecodeLease lease(estimateDecodedBytes(_inBuffer, encoding) * 2u);
-    if (encoding == ImageEncoding::KTX2) {
+    if (encoding == ImageEncoding::TIFF) {
+        tiff::Pixels pixels;
+        std::string reason;
+        if (!tiff::decode(std::span<const uint8_t>(_inBuffer.data(), _inBuffer.size()), pixels, reason)) {
+            if (_failureReason) *_failureReason = reason;
+            else core::logWarning("TIFF: %s; using error image", reason.c_str());
+            return ImageDecodingError::LoadFailure;
+        }
+        if (!_outImage.initializeLayout(pixels.width, pixels.height, 1, 1, 1, 1, gpu::Format::R8G8B8A8_UNORM)
+            || !_outImage.initialize(std::move(pixels.rgba))) return ImageDecodingError::InitializeFailure;
+        return ImageDecodingResult::Success;
+    } else if (encoding == ImageEncoding::KTX2) {
         return decodeKTX(_inBuffer, _outImage);
     } else if (encoding == ImageEncoding::WEBP) {
         return decodeWebP(_inBuffer, _outImage);

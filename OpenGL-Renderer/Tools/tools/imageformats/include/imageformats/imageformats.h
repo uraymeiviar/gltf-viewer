@@ -33,7 +33,8 @@ namespace imageformats {
         TGA,
         WEBP,
         DDS,
-        EXR
+        EXR,
+        TIFF
     };
 
     ImageDecodingResult decodeImageFromFile(const filesystem::File& _inFile, image::Image& _outImage, core::IAllocator* _inAllocator = core::HeapAllocator::defaultInstance(), const uint32_t _inRequiredChannels = 0);
@@ -48,7 +49,7 @@ namespace imageformats {
     ImageEncoding getEncodingFromBuffer(const core::Vector<uint8_t>& _inBuffer);
     ImageEncoding getEncodingFromBuffer(const std::vector<uint8_t>& _inBuffer);
 
-    ImageDecodingResult decodeImage(const core::Vector<uint8_t>& _inBuffer, image::Image& _outImage, const uint32_t _inRequiredChannels = 0);
+    ImageDecodingResult decodeImage(const core::Vector<uint8_t>& _inBuffer, image::Image& _outImage, const uint32_t _inRequiredChannels = 0, std::string* _failureReason = nullptr);
 
     // Decode memory budget (P6.2). Images are decoded on parallel loader threads, and each
     // decode briefly holds about twice its decoded size. decodeImage estimates that from the

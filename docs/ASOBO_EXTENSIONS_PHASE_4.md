@@ -16,12 +16,123 @@ emissive glow.
   - **Open:** what `glassWidth` controls (thickness, tint or refraction) comes from A0.6.
   - **Covers:** the cockpit's glass and the exterior's three materials (`MAT_GLASS`, `_bluish`, `_red`).
   - **Tests:** refraction through a slab of known width; tint; reflection at grazing angles.
-- [ ] **A4.2 — `ASOBO_material_windshield_v3` and v1 (R4). Owner: Claude.**
-  - Detail roughness and opacity masks, micro-scratch normals, detail-normal refraction.
-  - Wiper mask, lines and state; the wiper state is a viewer setting, parked by default.
-  - Confirm the `enabled` and `UVScale` keys the E195 data carries.
-  - Rain is not simulated (A7).
-  - **Reference views:** through the cockpit windshield, and the exterior cabin windshield.
+- [x] **A4.2 — `ASOBO_material_windshield_v3` and v1 layers (R4). Owner: worker (completed 2026-10-27), reviewed by Claude.**
+  - **Today:** windshields render reflection + SSR only (A4 parts 2–3); the support table says "no refraction,
+    masks, wipers or icing". Since `99de26c` the generic detail map (A5.1) is deliberately **not** applied to
+    windshields, because on a windshield the same slots are the windshield layers.
+  - **Meaning of the slots on a windshield** (MSFS SDK
+    [FlightSim Material Textures](https://docs.flightsimulator.com/msfs2024/html/3_Models_And_Textures/Textures/Materials/FlightSim_Material_Textures.htm),
+    [Windshield And Windows](https://docs.flightsimulator.com/msfs2024/html/3_Models_And_Textures/Modeling/Aircraft/Airframe/Windshield_And_Windows.htm);
+    semantics §13–14):
+    - `ASOBO_material_detail_map.detailColorTexture` = masks: **R details 1** (scratches; roughness/opacity mask,
+      × red vertex colour), **G icing mask** (× vertex alpha), **B details 2** (fingerprints, × blue vertex colour);
+    - `detailMetalRoughAOTexture` = detail reflection (R reflection, G roughness, B metallic), tiled by the detail UV;
+    - `detailNormalTexture` = icing normal; `emissiveTexture` = "secondary details" (not emission);
+    - v3 parameters `detail1Rough`, `detail1Opacity`, `detail2Rough`, `detail2Opacity`, `microScratchesTiling`,
+      `microScratchesStrength` + `scratchesNormalTexture`, `detailNormalRefractScale`, wiper and insect keys;
+      tiling = the detail map's `UVScale` (applied once).
+  - **Reference data (2026-10-27):**
+
+    | Cockpit | Material | Layer textures | COLOR_0 on the glass |
+    | --- | --- | --- | --- |
+    | E195 (MSFS 2024, `windshield_v3` `{UVScale: 5}`) | `windshield` (10) | masks `GLASS_COMP`, detail reflection `Frost_Detail_comp`, icing normal `Frost_Detail_norm`, secondary `GLASS_DetailMap02_mask` | R 1, G 0.07, B 0.02, **A 0–1** |
+    | PMDG 737-900 (MSFS 2020, material code) | `windshield_int` (223) | masks `GLASS_DETAILMAP01_MASK`, icing normal `FROST_DETAIL_NORM` (scale 0.5), secondary `GLASS_DETAILMAP02_MASK`, MR/occlusion `GLASS_DEFAULTDIRT_COMP` | R=G=B 0.23, A 0–0.23 |
+    | PMDG 777-300ER (MSFS 2020, material code) | `windshield_int` (111) | masks `77GLASSDETMASK`, icing normal `77GLASSFROST`, secondary `77GLASSDET` | R=G=B 0.23, A 0.12–0.23 |
+    | E2 (`windshield_v3` `{wiperLines: true}`) | `WINDSHIELD` (4) | none | partly |
+
+    PMDG files: `F:\msfs-addons\pmdg-aircraft-739\SimObjects\Airplanes\PMDG 737-900\model.BW\PMDG_737-900NG_VC.gltf`,
+    `F:\msfs-addons\pmdg-aircraft-77w\SimObjects\Airplanes\PMDG 777-300ER\model.300ER\PMDG773ER_VC.gltf`.
+  - **Scope:** details 1/2 (roughness/opacity from the masks × vertex colour and the v3 parameters; the MSFS 2020
+    defaults when the material has no parameters must be researched, not guessed); detail reflection; secondary
+    details; micro-scratch normals (v3); **icing** as a viewer setting "Windshield icing" 0–1 (default 0 = clean
+    glass, so default renders change only by the always-present layers) that reveals the G mask × vertex alpha with
+    the icing normal and a frost look. Wiper lines/state, insects and rain are out of scope (wiper parked; A7).
+  - **Tests:** fixtures per layer (mask × vertex colour gating, parameter 0 = no effect, icing 0 = byte-identical
+    to no icing); E195/737/777 windshield views before/after and with icing 0/0.5/1; files without windshields
+    byte-identical.
+  - **Results (completed 2026-10-27):**
+    - Implemented in `resources/shaders/asobo_windshield.glsl`, `material_info.glsl`, `pbr.frag`, `GltfRenderLayer.cpp`, `CommandGenerator.cpp`, `ViewportSettingsPanel.cpp`, `CommandLine.cpp`.
+    - Tested by `scripts/validate_asobo_windshield_layers.py`: passes all 11 fixtures and regression tests.
+    - Review captures: `e195_*`, `pmdg737_*`, `pmdg777_*` before (`99de26c.exe`) and after (icing 0, 0.5, 1.0) saved in `build\review\windshield\` alongside `windshield_contact_sheet.png`.
+    - Non-windshield models (HelloCube, E195 exterior) verified byte-identical to `99de26c.exe`.
+    - E195 steady-state frame cost: ~0.17 ms before vs ~0.17 ms after (ice 0) and ~0.18 ms (ice 1.0) — zero measurable overhead.
+    - Deviations: wipers, rain, and insects out of scope; `detailNormalRefractScale` not applicable as Glider does not implement windshield refraction.
+    - **Review corrections (2026-10-27):** MSFS 2020 legacy windshields keep detail 1/2 rough/opacity at 0 (the
+      SDK documents no defaults; the first version guessed 1.0/0.5); micro-scratch strength defaults to 1.0 when
+      absent (exporter default). The E195 `GLASS_COMP` mask is empty in R and B (means 0.002/0.003) and only G (icing)
+      is painted, so detail 1/2 parameters have almost no effect there by design; the core metallic/roughness factors
+      do change the reflection (SDK: core OMR = reflection visibility, roughness, metalness).
+- [x] **A4.2.1 — Windshield scratches and fingerprints calibrated against the SDK DA62; TIFF images (R4). Owner:
+  worker, reviewed by Claude.**
+  - **Reference (2026-10-28):** the MSFS 2024 SDK sample DA62 cockpit
+    `C:\MSFS 2024 Flighting SDK\Samples\DevmodeProjects\SimObjects\Aircraft\DA62\PackageSources\SimObjects\Airplanes\DA62_SDK\attachments\asobo\Part_Interior_Cockpit\model\Cockpit_LOD00.gltf`,
+    with the user's in-sim MSFS 2024 screenshots in `build\review\da62\msfs2024_da62_*.webp`. It is the first
+    windshield whose scratch/fingerprint masks are actually painted, and whose in-sim look is known:
+    - material 33 `Windshield`: `windshield_v3` (`detail1Rough`/`detail2Rough` 0.05, `detail1Opacity`/`detail2Opacity`
+      0.5, `microScratchesTiling` 1.1, `microScratchesStrength` 0.05, `detailNormalRefractScale` 0.05, scratches normal
+      `MicroScratches_norm`); detail map `UVScale` 7 with masks `GLASS_DetailMap01_mask` (R scratches/wiper arcs/specks,
+      mean 0.007; G icing 0.63; B fingerprints, max 56/255) and icing normal `Frost_Detail_norm`; **no detail
+      reflection texture**; core metallic-roughness and occlusion `GLASS_DefaultDirt_Comp`; base colour 0.385 grey,
+      alpha 0.01, BLEND;
+    - COLOR_0 (float): `WINDSHIELD_Static` R mean 0.57 (0–1), B 0–1, A 0–1; front/rear side windows R 0, B up to 1.
+    - The shared library textures are in `DA62\Sources\Art\Max\textures` (use it as `--search-path`); the
+      `Lights\WarningLights_*` set ships only with the sim.
+  - **Problem:** in MSFS the scratches, wiper arcs and specks show clearly as light lines against the sky, and
+    fingerprints as light haze on the side window against the dark fuselage. In Glider (A4.2) the windshield layers on
+    vs off (`--asobo-disable ASOBO_material_windshield_v3`) differ by at most 9/255 on 28 pixels of the forward canopy
+    view. Suspected, not verified: (1) thin mask lines averaged away by mipmapping at 7× tiling; (2) the A4.2
+    operator raises opacity with the 0.385 grey base colour, which darkens a bright sky instead of scattering light;
+    (3) the windshield path may not light the base colour (diffuse) at all.
+  - **TIFF:** six DA62 textures are `.tif` (strips, little-endian, RGBA; uncompressed or LZW with horizontal
+    predictor; 8 or 16 bits per channel). Before A4.2.1 they loaded as the error image.
+  - **Scope:** decode baseline TIFF without a new heavy dependency; diagnose and fix the windshield details 1/2
+    (and secondary details if affected) so the DA62 matches the MSFS screenshots in character; keep E195/PMDG
+    windshields from getting worse; document every inferred strength.
+  - **Tests:** TIFF fixtures (each supported variant, decoded pixels exact; unsupported variants fall back to the
+    error image with one warning); DA62 forward-canopy and side-window views before/after against the MSFS shots;
+    windshield-layer fixtures still pass; files without windshields byte-identical.
+  - **Results (2026-10-28):**
+    - Added the small standalone `imageformats/source/Tiff.h` reader: strip-based II/MM, unsigned 8/16-bit
+      RGB/RGBA/grey/grey-alpha, none/LZW/PackBits, horizontal predictor 2, RGBA8 output; 16-bit uses the
+      high byte. TIFF magic, `.tif`/`.tiff`, and `image/tiff` are recognized. Unsupported variants use the
+      error image with one file/reason warning. No new runtime dependency.
+    - `scripts/validate_tiff_images.py`: 135 checks pass, including 96 combinations of byte order, channel
+      count, bit depth, compression and predictor; independent Pillow TIFFs; unsupported planar/JPEG/float/
+      tiles/BigTIFF/truncation; PNG/magic/data-URI capture parity; six actual DA62 TIFFs including Carpet and
+      the shared `Fabric_Tile_01_albd.tif` compare exactly in RGB against Pillow.
+    - Diagnosis verified with temporary GPU diagnostics, removed from the shipping shader: the sampled
+      scratch lines survive at UVScale 7 (estimated LOD mean 0.85); the windshield has nonzero diffuse
+      lighting (ROI mean RGB 0.0595/0.0732/0.0943). Raising alpha mixes that dim surface over the brighter
+      sky, rather than producing the light marks in the reference. See semantics 12.2 for ROIs/precision.
+    - Details 1/2 now add `32 * clamp(mask1*detail1Opacity + mask2*detail2Opacity,0,1) * diffuse` to the
+      premultiplied HDR radiance. Pane alpha, existing detail roughness, icing equations, secondary details,
+      reflection/SSR and E195 detail-reflection strength retain their respective paths. Gain 32 is the sole
+      new inferred appearance constant; unit gain peaked at only 2/255 in the DA62 view. No LOD bias/sharpening.
+    - Expanded windshield fixtures preserve all prior checks and thresholds, and add byte-exact mask/vertex/
+      parameter-zero controls, lightening against bright/dark backgrounds, switch-off checks, and icing-zero
+      versus textures-absent parity. They pass. DA62 same-binary opacity-on/zero peaks are +36/255 forward
+      and +24/255 side; 802 and 31,961 pixels respectively lighten by more than 2/255.
+    - Initial-current-build before captures were saved before editing. E195 cockpit, PMDG 737, HelloCube,
+      and E195 exterior remain byte-identical in the before/after views. Review artifacts and 2x crops:
+      `build/review/da62/da62_contact_sheet.png`, `other_windshields_contact_sheet.png`, `review_metrics.json`.
+    - **Deviations/limits:** the provided cockpit attachment has no exterior fuselage/airport geometry.
+      The side-window review therefore uses yaw 90, pitch 20, target 0.3/0.62/0.1, distance 0.05, FoV 55,
+      dark clear colour 0.02/0.02/0.025, captured identically before/after. It demonstrates light fingerprint
+      haze but is not a reproduction of the in-sim fuselage view. Forward marks are subtle and partially
+      masked by Glider's brighter cloudy IBL; the simulator's blue sky and longer scratch arcs differ.
+      No MSFS configuration is read. Exact simulator shading and dynamic wipers/rain remain outside this change.
+    - All requested suites pass: TIFF, windshield layers, glass, detail maps, MSFS 2020 materials,
+      support and HDR; zero GL errors. Three serial DA62 timing pairs (scattering on versus opacity-zero)
+      measured CPU medians 3.440/3.445 ms, profiled scene GPU pass sums 3.352/3.349 ms, and transparent
+      passes 3.091/3.092 ms. The ~0.003 ms GPU difference is below the observed run variation.
+    - Detailed validation logs, frame-cost samples and formulas are recorded in
+      `C:/Users/uray/.claude/codex-runs/gltf-viewer/windshield-da62.report.md`.
+    - **Review fix (2026-10-28, user report "on MSFS we see them tiled"):** the windshield layers sampled the
+      masks at ×1 instead of ×7 on the DA62. The typed model fills `windshield_v3.UVScale` with its schema default
+      (1) when the file omits it, and that default won over the detail map's `UVScale`. Now only an authored
+      (`isExplicit`) windshield `UVScale` overrides the detail map's (`GltfRenderLayer.cpp`). The DA62 shows many
+      small fingerprints on the side window and fine repeated scratches forward, as in MSFS; the E195 (explicit
+      `UVScale` 5) is unaffected. Windshield-layer, detail-map and MSFS 2020 checks pass.
 - [ ] **A4.3 — Emissive glow (bloom) (R3). Owner: Claude.** A bloom post-process (threshold, downsample chain,
   intensity) so emissive panels and lights glow as in MSFS.
   - A user setting, on by default for ASOBO files only.

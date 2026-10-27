@@ -38,6 +38,7 @@ ux3d::renderer::CommandGenerator::CommandGenerator(gl::GL* gl, const filesystem:
     , m_timeOfDayUniform("u_TimeOfDay")
     , m_asoboMaterialEmissiveAppliedUniform("u_AsoboMaterialEmissiveApplied")
     , m_asoboDetailMapUniform("u_AsoboDetailMapEnabled")
+    , m_windshieldIcingUniform("u_WindshieldIcing")
     , m_lights(gl)
 {
     setEnvironmentMapRotation(0.0f);
@@ -48,6 +49,7 @@ ux3d::renderer::CommandGenerator::CommandGenerator(gl::GL* gl, const filesystem:
     setAsoboWindshieldVertexColorMask(false);
     setAsoboDecalReceiver(false);
     setDecalDepthTolerance(0.0012f);
+    setWindshieldIcing(0.0f);
     setAsoboEmissiveActive(false);
     setMsfsEmissiveScale(0.001f);
     setTimeOfDay(0);
@@ -144,6 +146,7 @@ void ux3d::renderer::CommandGenerator::bindFrameBlocks()
     place(environment, 88, 4, m_timeOfDayUniform);
     place(environment, 92, 4, m_asoboMaterialEmissiveAppliedUniform);
     place(environment, 96, 4, m_asoboDetailMapUniform);
+    place(environment, 100, 4, m_windshieldIcingUniform);
     uploadFrameBlock(m_environmentBlock, gl::kEnvironmentBlockBinding, environment, sizeof(environment));
 }
 
@@ -278,6 +281,11 @@ void ux3d::renderer::CommandGenerator::setAsoboNormalMapConvention(bool directX)
 void ux3d::renderer::CommandGenerator::setAsoboDetailMap(bool enabled)
 {
     m_asoboDetailMapUniform.write(static_cast<int>(enabled ? 1 : 0));
+}
+
+void ux3d::renderer::CommandGenerator::setWindshieldIcing(float icing)
+{
+    m_windshieldIcingUniform.write(std::clamp(icing, 0.0f, 1.0f));
 }
 
 void ux3d::renderer::CommandGenerator::setAsoboWindshieldVertexColorMask(bool enabled)

@@ -33,6 +33,7 @@ struct ViewportSettingsState {
     int ssrQuality = 1; // Low/Medium/High: 256/512/1024 pixel-step budgets
     float interiorSkyReflection = 0.5f;
     float decalDepthToleranceMm = 1.2f; // Receiver-normal tolerance for the decal buffer
+    float windshieldIcing = 0.0f; // Windshield icing factor 0..1 (A4.2)
     bool invertWinding = false;    // Invert front/back face winding order (CW vs CCW)
     // Legacy mode remains the fallback for saved state and existing automation.
     int antiAliasingIdx = 5;       // 0=None, 1/2/3=MSAA 2/4/8x, 4=FXAA, 5=TAA

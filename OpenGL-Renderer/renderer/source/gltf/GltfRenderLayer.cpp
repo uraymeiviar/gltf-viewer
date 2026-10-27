@@ -783,12 +783,7 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
             material->defines.define("ASOBO_ASSET_OPTIMIZED");
         }
 
-        // A4 (partial): on windshield v3 materials COLOR_0 holds masks, not a colour. The
-        // material-side decision is a define; the viewport switch is a frame-block uniform
-        // so the command cache does not depend on which viewport draws the material.
-        if (material->asobo != nullptr && material->asobo->find("ASOBO_material_windshield_v3") != nullptr) {
-            material->defines.define("ASOBO_MATERIAL_WINDSHIELD_V3");
-        }
+        // A4.2: windshield defines are gated dynamically per-viewport in createScene().
 
         material->setUniform<float>("u_AlphaCutoff", gltfMaterial->getAlphaModeOrDefault() == gltf::AlphaMode::Mask ? static_cast<float>(gltfMaterial->getAlphaCutoffOrDefault()) : 0.f);
 
@@ -862,6 +857,8 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
                     } else if (baseName == "DetailNormal") {
                         // A5.1: the detail normal follows the base normal's decode exactly.
                         material->defines.define("DETAIL_NORMAL_TEXTURE_RG_SNORM");
+                    } else if (baseName == "ScratchesNormal") {
+                        material->defines.define("SCRATCHES_NORMAL_TEXTURE_RG_SNORM");
                     }
                 }
                 if (!ktx2Supported) {
@@ -1018,6 +1015,78 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
                 material->setUniform<float>("u_AsoboDetailNormalScale",
                     static_cast<float>(detailNormal != nullptr ? detailNormal->scale : 1.0));
             }
+        } else if (windshieldMaterial) {
+            const gltf::asobo::ExtensionData* windshieldV3 = material->asobo != nullptr
+                ? material->asobo->find("ASOBO_material_windshield_v3") : nullptr;
+            const gltf::asobo::ExtensionData* detailMap = material->asobo != nullptr
+                ? material->asobo->find("ASOBO_material_detail_map") : nullptr;
+
+            auto createAsoboSampler = [this, &createSamplerFromTexture](const gltf::asobo::ExtensionData* ext, const char* key, const char* baseName, bool isLinear) -> bool {
+                if (ext == nullptr) return false;
+                const gltf::asobo::TextureRef* reference = ext->texture(key);
+                if (reference == nullptr || m_syncingGltf == nullptr || reference->index < 0
+                    || static_cast<size_t>(reference->index) >= m_syncingGltf->getTextures().size()) {
+                    return false;
+                }
+                const gltf::Texture* gltfTexture =
+                    &m_syncingGltf->getTextures().at(static_cast<size_t>(reference->index));
+                return createSamplerFromTexture(baseName, gltfTexture, static_cast<uint32_t>(reference->texCoord), isLinear);
+            };
+
+            createAsoboSampler(detailMap, "detailColorTexture", "DetailColor", false);
+            createAsoboSampler(detailMap, "detailMetalRoughAOTexture", "DetailOrm", true);
+            bool hasNormal = createAsoboSampler(detailMap, "detailNormalTexture", "DetailNormal", true);
+            if (!hasNormal && windshieldV3 != nullptr) {
+                createAsoboSampler(windshieldV3, "windshieldDetailNormalTexture", "DetailNormal", true);
+            }
+            if (windshieldV3 != nullptr) {
+                createAsoboSampler(windshieldV3, "scratchesNormalTexture", "ScratchesNormal", true);
+            }
+
+            float uvScale = 1.0f;
+            // Only an authored windshield UVScale wins; its schema default (1) must not hide the detail map's tiling.
+            if (windshieldV3 != nullptr && windshieldV3->isExplicit("UVScale") && windshieldV3->number("UVScale").has_value()) {
+                uvScale = static_cast<float>(*windshieldV3->number("UVScale"));
+            } else if (detailMap != nullptr && detailMap->number("UVScale").has_value()) {
+                uvScale = static_cast<float>(*detailMap->number("UVScale"));
+            }
+            material->setUniform<float>("u_WindshieldUVScale", uvScale);
+
+            float normalScale = 1.0f;
+            if (detailMap != nullptr && detailMap->texture("detailNormalTexture") != nullptr) {
+                normalScale = static_cast<float>(detailMap->texture("detailNormalTexture")->scale);
+            } else if (windshieldV3 != nullptr && windshieldV3->texture("windshieldDetailNormalTexture") != nullptr) {
+                normalScale = static_cast<float>(windshieldV3->texture("windshieldDetailNormalTexture")->scale);
+            }
+            material->setUniform<float>("u_WindshieldDetailNormalScale", normalScale);
+
+            float detail1Rough = 0.0f;
+            float detail1Opacity = 0.0f;
+            float detail2Rough = 0.0f;
+            float detail2Opacity = 0.0f;
+            float microScratchesTiling = 1.0f;
+            float microScratchesStrength = 0.0f;
+
+            if (windshieldV3 != nullptr) {
+                detail1Rough = static_cast<float>(windshieldV3->number("detail1Rough").value_or(0.0));
+                detail1Opacity = static_cast<float>(windshieldV3->number("detail1Opacity").value_or(0.0));
+                detail2Rough = static_cast<float>(windshieldV3->number("detail2Rough").value_or(0.0));
+                detail2Opacity = static_cast<float>(windshieldV3->number("detail2Opacity").value_or(0.0));
+                microScratchesTiling = static_cast<float>(windshieldV3->number("microScratchesTiling").value_or(1.0));
+                // The exporter writes only non-default values; its strength default is 1.0
+                // (semantics §13), and it only matters when a scratches normal texture exists.
+                microScratchesStrength = static_cast<float>(windshieldV3->number("microScratchesStrength").value_or(1.0));
+            }
+            // MSFS 2020 legacy windshields (v1 / material code) carry no detail parameters and the
+            // SDK documents no defaults, so they keep the exporter's v3 defaults: detail 1/2 rough
+            // and opacity 0 (the masks change nothing) and no micro-scratch texture.
+
+            material->setUniform<float>("u_WindshieldDetail1Rough", detail1Rough);
+            material->setUniform<float>("u_WindshieldDetail1Opacity", detail1Opacity);
+            material->setUniform<float>("u_WindshieldDetail2Rough", detail2Rough);
+            material->setUniform<float>("u_WindshieldDetail2Opacity", detail2Opacity);
+            material->setUniform<float>("u_MicroScratchesTiling", microScratchesTiling);
+            material->setUniform<float>("u_MicroScratchesStrength", microScratchesStrength);
         }
 
         material->setUniform<math::vec3>("u_EmissiveFactor", gltfMaterial->getEmissiveFactorOrDefault());
@@ -2147,6 +2216,24 @@ void GltfRenderLayer::updateGltf(const gltf::Gltf& gltf)
                 insertDetailImage("blendMaskTexture", true);
             }
         }
+
+        // A4.2: windshield v3 detail normal and micro-scratches normal textures.
+        if (gltf.isExtensionDeclared("ASOBO_material_windshield_v3")) {
+            const gltf::asobo::ExtensionSet materialExtensions =
+                gltf::asobo::parseExtensions(gltf, material, gltf::asobo::Scope::Material);
+            if (const gltf::asobo::ExtensionData* windshieldV3 = materialExtensions.find("ASOBO_material_windshield_v3")) {
+                auto insertWindshieldImage = [&gltf, &insertTextureImage, windshieldV3](const char* key, bool isLinear) {
+                    const gltf::asobo::TextureRef* reference = windshieldV3->texture(key);
+                    if (reference == nullptr || reference->index < 0
+                        || static_cast<size_t>(reference->index) >= gltf.getTextures().size()) {
+                        return;
+                    }
+                    insertTextureImage(&gltf.getTextures().at(static_cast<size_t>(reference->index)), isLinear);
+                };
+                insertWindshieldImage("windshieldDetailNormalTexture", true);
+                insertWindshieldImage("scratchesNormalTexture", true);
+            }
+        }
     }
     core::LinkedList<std::tuple<gltf::Image*, bool>> imagesList; // `update` requires a core::LinkedList
     for (auto& pair : images) {
@@ -2655,6 +2742,8 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
             const bool refract = glass != nullptr || legacyGlass != nullptr || codeGlass;
             const bool reflect = refract || windshieldV3 != nullptr || legacyWindshield || codeWindshield;
             const bool windshield = reflect && !refract;
+            entry.material->defines.defineIf(windshield, "ASOBO_MATERIAL_WINDSHIELD");
+            entry.material->defines.defineIf(windshield && windshieldV3 != nullptr, "ASOBO_MATERIAL_WINDSHIELD_V3");
             entry.material->defines.defineIf(windshield && windshieldV3 == nullptr, "ASOBO_MATERIAL_WINDSHIELD_LEGACY");
             entry.material->defines.defineIf(legacyGlass != nullptr, "ASOBO_GLASS_LEGACY");
             if (legacyGlass != nullptr) {

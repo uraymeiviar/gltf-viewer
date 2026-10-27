@@ -64,7 +64,7 @@ GltfResult Image::setMimeType(imageformats::ImageEncoding _mimeType)
 
 bool Image::isValidEncoding(imageformats::ImageEncoding _encoding)
 {
-    return _encoding == imageformats::ImageEncoding::PNG || _encoding == imageformats::ImageEncoding::JPEG || _encoding == imageformats::ImageEncoding::KTX2 || _encoding == imageformats::ImageEncoding::WEBP || _encoding == imageformats::ImageEncoding::DDS;
+    return _encoding == imageformats::ImageEncoding::PNG || _encoding == imageformats::ImageEncoding::JPEG || _encoding == imageformats::ImageEncoding::KTX2 || _encoding == imageformats::ImageEncoding::WEBP || _encoding == imageformats::ImageEncoding::DDS || _encoding == imageformats::ImageEncoding::TIFF;
 }
 
 GltfResult Image::loadDataToMemory(const std::optional<filesystem::Dir>& _gltfDir)
@@ -127,8 +127,10 @@ GltfResult Image::prepareLoad(const std::optional<filesystem::Dir>& directory)
 GltfResult Image::decodePrepared()
 {
     if (!m_data.getPixels().empty()) return GltfResult::Success;
-    if (core::Failed(imageformats::decodeImage(m_encodedData, m_data))) {
-        core::logWarning("[Loading] image '%s' could not be decoded; using error image", m_uri.c_str());
+    std::string reason;
+    if (core::Failed(imageformats::decodeImage(m_encodedData, m_data, 0, &reason))) {
+        core::logWarning("[Loading] image '%s' could not be decoded (%s); using error image", m_uri.c_str(),
+            reason.empty() ? "unsupported or corrupt image" : reason.c_str());
         loadAsErrorImage();
     }
     const uint32_t limit = core::loading::state.textureLimit;

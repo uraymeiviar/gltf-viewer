@@ -753,6 +753,7 @@ void Application::drawViewports(FrameContext& frame)
                 vp->settings.asobo.applies("ASOBO_normal_map_convention"));
             commandGenerator->setAsoboWindshieldVertexColorMask(
                 vp->settings.asobo.applies("ASOBO_material_windshield_v3"));
+            commandGenerator->setWindshieldIcing(vp->settings.windshieldIcing);
             // A5.1: the detail-map define is material-level; this per-viewport flag says
             // whether the active viewport samples the detail layers.
             commandGenerator->setAsoboDetailMap(

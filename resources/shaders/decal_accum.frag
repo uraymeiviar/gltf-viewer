@@ -23,6 +23,7 @@ layout(location = 5) out vec4 g_DecalOcclusion;
 #include <textures.glsl>
 #include <functions.glsl>
 #include <asobo_detail_map.glsl>
+#include <asobo_windshield.glsl>
 #include <material_info.glsl>
 
 uniform float u_DecalBaseColorFactor;

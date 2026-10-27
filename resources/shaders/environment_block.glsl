@@ -29,4 +29,6 @@ layout(std140) uniform EnvironmentBlock
     // declare the extension compile its variant, and this switch decides whether it is
     // sampled, so the command cache stays independent of the viewport.
     int u_AsoboDetailMapEnabled;
+    // Windshield icing factor 0..1 (A4.2). Coverage = detailColorTexture.g * vertexColor.a * u_WindshieldIcing.
+    float u_WindshieldIcing;
 };

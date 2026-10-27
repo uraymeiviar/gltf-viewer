@@ -156,6 +156,9 @@ NormalInfo getNormalInfo(vec3 v)
     // normalises the whiteout sum exactly once, so a neutral detail keeps the base bytes.
     info.ntex = applyAsoboDetailNormal(info.ntex);
 #endif
+#ifdef ASOBO_MATERIAL_WINDSHIELD
+    info.ntex = applyAsoboWindshieldNormal(info.ntex);
+#endif
     info.n = normalize(mat3(t, b, ng) * info.ntex);
 #else
 #ifdef ASOBO_MATERIAL_DETAIL_MAP
@@ -172,7 +175,12 @@ NormalInfo getNormalInfo(vec3 v)
     info.n = ng;
 #endif
 #else
+#ifdef ASOBO_MATERIAL_WINDSHIELD
+    info.ntex = applyAsoboWindshieldNormal(vec3(0.0, 0.0, 1.0));
+    info.n = normalize(mat3(t, b, ng) * info.ntex);
+#else
     info.n = ng;
+#endif
 #endif
 #endif
     info.t = t;
@@ -221,6 +229,11 @@ vec4 getBaseColor()
     // material alpha) before the vertex colour and the windshield mask rules apply, exactly
     // where the exporter's base-colour group sits.
     baseColor = applyAsoboDetailColor(baseColor);
+#endif
+
+#ifdef ASOBO_MATERIAL_WINDSHIELD
+    baseColor = applyAsoboWindshieldBaseColor(baseColor);
+    return baseColor;
 #endif
 
 #ifdef ASOBO_MATERIAL_WINDSHIELD_LEGACY
@@ -277,6 +290,10 @@ MaterialInfo getMetallicRoughnessInfo(MaterialInfo info)
     // composited over them; a zero weight (or the viewport switch off) leaves them unchanged.
     applyAsoboDetailOrm(getAsoboDetailWeight(), u_MetallicFactor, u_RoughnessFactor,
                         info.metallic, info.perceptualRoughness);
+#endif
+
+#ifdef ASOBO_MATERIAL_WINDSHIELD
+    applyAsoboWindshieldOrm(info.metallic, info.perceptualRoughness, info.specularWeight);
 #endif
 
     // A2.2: the decal changes metallic and roughness before c_diff/f0 are derived here,

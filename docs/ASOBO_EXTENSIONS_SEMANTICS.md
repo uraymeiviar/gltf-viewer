@@ -594,6 +594,104 @@ Schema file for this table: `repo:resources/schemas/asobo/ASOBO_material_windshi
 5. Which earlier windshield versions exist in assets: v1 only, or also a v2? This exporter only handles v3, and the repo only has v1 + v3 schemas.
 6. Are the schema-missing keys (`UVScale`, `ssrAttenuation`, `cubemapReflectionMasking`, `windshieldInsectsTexture`, `windshieldInsectsMaskTexture`) accepted by the runtime? The exporter writes them; the schema does not describe them.
 
+### 12.1 Windshield Layers Semantics & Implementation (2026-10-27)
+
+**Coverage: completed for static layers** (Details 1 and 2, Detail reflection, Secondary details, Micro-scratches, and Icing). Dynamic rain, active wipers, and insects remain out of scope.
+
+**Sources and confidence:**
+- **V** MSFS 2024 SDK documentation: "FlightSim Material Textures", "FlightSim Material Parameters", "Windshield And Windows".
+- **V** MSFS 2020 SDK documentation: "Windshield Material", "FlightSim Materials".
+- **V** Official Khronos glTF extension schema: `repo:resources/schemas/asobo/ASOBO_material_windshield_v3/gltf.ASOBO_material_windshield_v3.schema.json`.
+- **I** Shading combinations, default fallback values for MSFS 2020 legacy materials when parameter keys are omitted, and frost tint/roughness/opacity ramps.
+
+#### Layer Semantics & Formulas
+
+Let `uv_detail = v_texcoord_0 * UVScale` (applied once), `v_color` be the interpolated vertex colour attribute (`COLOR_0`), `u_WindshieldIcing` be the per-viewport icing coverage setting ($0.0..1.0$, default 0.0).
+
+1. **Details 1 and Details 2 (Scratches & Fingerprints):**
+   - **V** Mask source: `ASOBO_material_detail_map.detailColorTexture` sampled at `uv_detail`.
+     - Channel R: Details 1 mask (scratches). Gated by vertex colour R (`v_color.r`).
+     - Channel B: Details 2 mask (fingerprints). Gated by vertex colour B (`v_color.b`).
+   - **V** Effective masks:
+     $$\text{mask}_1 = \text{detailColorTexture.r} \times v_{\text{color.r}}$$
+     $$\text{mask}_2 = \text{detailColorTexture.b} \times v_{\text{color.b}}$$
+   - **I** Glider combination (the SDK defines roles, not these equations):
+     - Roughness: `roughness = clamp(roughness + mask_1 * detail1Rough + mask_2 * detail2Rough, 0.0, 1.0)`.
+     - A4.2.1 opacity scattering: `w = clamp(mask_1 * detail1Opacity + mask_2 * detail2Opacity, 0, 1)`;
+       add `32 * w * diffuse` to the premultiplied HDR windshield radiance, leaving pane alpha unchanged.
+       `diffuse` is the existing lit base-colour radiance after IBL/punctual lighting and occlusion;
+       an unlit material uses its base colour. This is an inferred additive thin-surface approximation,
+       not the recovered MSFS shader. The old alpha increase made dark marks on a bright sky.
+       No new emission, synthetic lighting, mask remapping, LOD bias or texture sharpening is used.
+     - The sole new inferred strength is `kWindshieldDetailScatteringGain = 32.0` in
+       `asobo_windshield.glsl`. Unit gain produced only a 2/255 peak in the supplied DA62 view;
+       the gain makes its sparse subpixel lines and low-valued B fingerprints readable while preserving
+       linear mask/vertex/parameter gating. It is a visual calibration to the user's MSFS captures,
+       not a documented physical coefficient. It may need further review under different illumination.
+     - Zero masks, zero vertex gates or zero opacity controls add exactly zero scattering. Reflection,
+       SSR and detail-reflection strength retain their existing equations. Detail roughness still has
+       its independent effect when its control is nonzero. Per-viewport windshield switches remove the
+       entire treatment; no settings or new flags were added.
+   - **V** Parameter defaults (MSFS 2024 v3): Exporter defaults are `detail1Rough = 0.0`, `detail1Opacity = 0.0`, `detail2Rough = 0.0`, `detail2Opacity = 0.0`.
+   - **I** Parameter defaults (MSFS 2020 legacy / `extras.ASOBO_material_code: "Windshield"`): MSFS 2020 windshields do not declare these parameters and the SDK pages ("FlightSim Material Parameters") give no defaults. Glider keeps the exporter's v3 defaults: `detail1Rough = detail1Opacity = detail2Rough = detail2Opacity = 0`, so the masks change nothing until a value is set (Inspector or `--set-asobo-param`). Corrected in review 2026-10-27; the first implementation guessed `1.0` / `0.5`, which made scratches and fingerprints visible on every legacy windshield.
+   - **V** The windshield's core OMR texture is reflection visibility (R), global roughness (G) and global metalness (B) ("FlightSim Material Textures"); the core metallic/roughness factors therefore change the reflection, as in glTF. Secondary details are masked by vertex colour G (same page).
+   - **V** Micro-scratch strength defaults to `1.0` when the key is absent (the exporter writes only non-default values); it only acts when `scratchesNormalTexture` exists.
+
+2. **Detail Reflection:**
+   - **V** Source: `ASOBO_material_detail_map.detailMetalRoughAOTexture` sampled at `uv_detail`.
+   - **V** Channel R: Specular reflection multiplier. Scales `specularWeight` (controlling both GGX IBL reflection and SSR intensity).
+   - **I** Channel G & B: Detail roughness and metallic offsets:
+     $$\text{roughness} = \text{clamp}(\text{roughness} + (\text{dOrm.g} \times 2.0 - 1.0) \times 0.5, 0.0, 1.0)$$
+     $$\text{metallic} = \text{clamp}(\text{metallic} + (\text{dOrm.b} \times 2.0 - 1.0) \times 0.5, 0.0, 1.0)$$
+
+3. **Secondary Details:**
+   - **V** Source: Core glTF `emissiveTexture`.
+   - **V** On a windshield, this slot does **not** emit light (`f_emissive = vec3(0.0)`). It authors secondary surface grime, smudges, and tint.
+   - **V** Gated by vertex colour G (`v_color.g`).
+   - **I** Base colour modification:
+     $$\text{baseColor.rgb} = \text{mix}(\text{baseColor.rgb}, \text{secDetail.rgb}, v_{\text{color.g}} \times \text{secDetail.a})$$
+
+4. **Micro-Scratches (v3):**
+   - **V** Source: `ASOBO_material_windshield_v3.scratchesNormalTexture`.
+   - **V** Schema: "sampled multiple times at different rotations aligned to the U axis".
+   - **I** Implementation: Sampled 3 times at rotations 0°, 60° ($\pi/3$), and 120° ($2\pi/3$) of `v_texcoord_0 * microScratchesTiling`. Each sample's tangent-space perturbation is un-rotated by $-R$ to align into a shared tangent frame. The averaged normal perturbation is scaled by `microScratchesStrength` and combined with the base normal using Reoriented Normal Mapping (RNM / whiteout blending).
+   - **V** If `microScratchesStrength == 0.0` or the texture is absent, the base normal is untouched.
+
+5. **Icing:**
+   - **V** Mask source: `detailColorTexture.g`.
+   - **V** Coverage:
+     $$\text{coverage} = \text{detailColorTexture.g} \times v_{\text{color.a}} \times u_{\text{WindshieldIcing}}$$
+   - **V** Setting: CLI `--windshield-icing <0..1>`, Viewport Settings → MSFS Extensions (default 0.0). At 0.0, coverage is identically zero, rendering byte-identically to icing absent.
+   - **I** Visual effect:
+     - Normal perturbed by `detailNormalTexture` / `windshieldDetailNormalTexture` (icing frost normal).
+     - Albedo frosted: `baseColor.rgb = mix(baseColor.rgb, vec3(0.92, 0.94, 0.97), coverage)`
+     - Roughness increased: `roughness = mix(roughness, 0.9, coverage)`
+     - Opacity increased: `alpha = mix(alpha, 0.85, coverage)`
+
+6. **Refraction & Deviations:**
+   - **V** `detailNormalRefractScale`: Schema parameter for refraction distortion by the detail normal. Because Glider's current windshield shader does not implement transmission/refraction passes (it draws reflection + SSR forward over the framebuffer without transmission copy), `detailNormalRefractScale` is **not applicable**.
+   - **V** Wipers (`wiperMaskTexture`, `wiperLines`, `wiper1State..wiper4State`): Out of scope (parked).
+   - **V** Dynamic weather (rain) & insects (`windshieldInsectsTexture`): Out of scope.
+
+### 12.2 DA62 calibration measurements (A4.2.1, 2026-10-28)
+
+- **V** Temporary shader diagnostics (removed from the shipping shader) encoded effective R/B masks,
+  the derivative-based isotropic LOD estimate, alpha and diffuse radiance directly into debug captures.
+  `build/review/da62/diagnostic_shader.txt`, `*_diagnostic_raw.png`, `*_masks_raw.png` and
+  `diagnostic_measurements.json` preserve the diagnostic and measurements.
+- **V** In the forward clear-glass ROI x=115..229, y=390..539, the estimated LOD is mean 0.85,
+  range 0.63..1.63 at UVScale 7. It is a derivative estimate, not a driver-reported mip selection.
+  Thin R lines remain visible in both ordinary filtered and explicit mip-0 diagnostic stripes.
+  In x=0..114, y=390..539 the filtered effective R mask peaks at 0.084; its 99th percentile is
+  0.00392. No mip/sharpening adjustment was justified by this view.
+- **V** Alpha in the adjacent LOD ROI is mean 0.0101, peak 0.0686. Diffuse radiance is nonzero:
+  mean RGB (0.0595, 0.0732, 0.0943) at x=240..329, y=420..529. The windshield does receive
+  diffuse lighting. That dim lit colour cannot make light lines by increasing alpha over the bright sky.
+- **I** The additive scattering operator is calibrated for appearance, not simulator parity. The supplied
+  cockpit glTF lacks exterior airframe/airport content and the default IBL differs from the in-sim sun.
+  A dark-background side-window capture makes the fingerprint haze inspectable without inventing
+  external aircraft configuration or writing into the SDK. See the A4.2.1 report for visual differences.
+
 ## 13. `ASOBO_material_fresnel_fade` and `ASOBO_material_ghost_effect`
 
 **Coverage: partial** for both (properties are defined; no shader formula is implemented).
