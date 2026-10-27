@@ -34,4 +34,5 @@ layout(std140) uniform EnvironmentBlock
     // Non-zero when the viewport applies ASOBO_occlusion_strength (A1.5); materials that
     // declare it compile ASOBO_OCCLUSION_STRENGTH and read u_AsoboOcclusionStrength.
     int u_AsoboOcclusionStrengthApplied;
+    int u_AsoboUVOptionsEnabled; // A5.2, per-viewport main UV transform/clamp
 };

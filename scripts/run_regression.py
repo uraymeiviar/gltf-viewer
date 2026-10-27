@@ -21,6 +21,7 @@ Quick tier (equivalence only: byte-identical viewport images, identical selectio
   the four built-in self-checks
   then, one at a time: validate_asobo_model.py, validate_asobo_normal.py, validate_asobo_common.py,
   validate_asobo_support.py, validate_asobo_draworder.py, validate_asobo_packaged.py,
+  validate_asobo_uv_options.py
   validate_asobo_occlusion_strength.py
 Full tier adds:
   --with-ab (each feature against its own switch), validate_p5_1.py against the baseline, and
@@ -90,6 +91,7 @@ serial_jobs = [
     ("asobo_common", ["scripts/validate_asobo_common.py", "--baseline-exe", str(baseline)]),
     ("asobo_support", ["scripts/validate_asobo_support.py"]),
     ("asobo_draworder", ["scripts/validate_asobo_draworder.py"]),
+    ("asobo_uv_options", ["scripts/validate_asobo_uv_options.py"]),
     ("asobo_occlusion", ["scripts/validate_asobo_occlusion_strength.py"]),
     ("asobo_packaged", ["scripts/validate_asobo_packaged.py"]),
     ("texture_dds", ["scripts/validate_texture_dds.py"]),

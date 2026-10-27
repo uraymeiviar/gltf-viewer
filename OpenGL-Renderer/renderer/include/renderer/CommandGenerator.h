@@ -88,6 +88,7 @@ public:
     // asset-level (a material that declares the extension compiles its variant), so the
     // viewport switch is a frame-block uniform (like A1.2's normal-map convention).
     void setAsoboDetailMap(bool enabled);
+    void setAsoboUVOptions(bool enabled);
     void setWindshieldIcing(float icing);
     // A4 (partial): this viewport applies ASOBO_material_windshield_v3. Windshield v3
     // materials then keep COLOR_0 out of the base colour; it holds masks instead.
@@ -166,6 +167,7 @@ protected:
     gl::Uniform m_timeOfDayUniform;
     gl::Uniform m_asoboMaterialEmissiveAppliedUniform;
     gl::Uniform m_asoboDetailMapUniform;
+    gl::Uniform m_asoboUVOptionsUniform;
     gl::Uniform m_windshieldIcingUniform;
     gl::Uniform m_asoboOcclusionStrengthUniform;
     // A2.2: six borrowed views of the shared accumulation targets and their samplers. The

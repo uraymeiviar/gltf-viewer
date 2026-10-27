@@ -34,40 +34,75 @@ uniform mat3 u_OcclusionUVTransform;
 in vec2 v_texcoord_0;
 in vec2 v_texcoord_1;
 
+// A5.2: material main-UV transform, before each texture's KHR_texture_transform.
+// The SDK leaves order/sign/pivot unspecified; see semantics section 15.
+#ifdef ASOBO_MATERIAL_UV_OPTIONS
+uniform vec2 u_AsoboUVTiling;
+uniform vec2 u_AsoboUVOffset;
+uniform vec2 u_AsoboUVRotation; // cos(theta), sin(theta), theta in degrees in the asset
+uniform vec2 u_AsoboUVClamp;
+#endif
+
+vec2 getAsoboMainUV(vec2 uv)
+{
+#ifdef ASOBO_MATERIAL_UV_OPTIONS
+    if (u_AsoboUVOptionsEnabled != 0) {
+        vec2 p = (uv - 0.5) * u_AsoboUVTiling;
+        vec2 r = u_AsoboUVRotation;
+        return mat2(r.x, r.y, -r.y, r.x) * p + 0.5 + u_AsoboUVOffset;
+    }
+#endif
+    return uv;
+}
+
+// Clamp after all coordinate transforms, independently per axis. Half a base-level
+// texel keeps repeat samplers from wrapping at exactly 0/1 (also with linear filtering).
+vec2 clampAsoboUV(vec2 uv, int uvSet, sampler2D map)
+{
+#ifdef ASOBO_MATERIAL_UV_OPTIONS
+    if (u_AsoboUVOptionsEnabled != 0 && uvSet == 0) {
+        vec2 edge = 0.5 / vec2(textureSize(map, 0));
+        if (u_AsoboUVClamp.x > 0.5) uv.x = clamp(uv.x, edge.x, 1.0 - edge.x);
+        if (u_AsoboUVClamp.y > 0.5) uv.y = clamp(uv.y, edge.y, 1.0 - edge.y);
+    }
+#endif
+    return uv;
+}
+
 
 vec2 getNormalUV()
 {
-    vec3 uv = vec3(u_NormalUVSet < 1 ? v_texcoord_0 : v_texcoord_1, 1.0);
+    vec3 uv = vec3(u_NormalUVSet < 1 ? getAsoboMainUV(v_texcoord_0) : v_texcoord_1, 1.0);
 
 #ifdef HAS_NORMAL_UV_TRANSFORM
     uv = u_NormalUVTransform * uv;
 #endif
 
-    return uv.xy;
+    return clampAsoboUV(uv.xy, u_NormalUVSet, u_NormalSampler);
 }
 
 
 vec2 getEmissiveUV()
 {
-    vec3 uv = vec3(u_EmissiveUVSet < 1 ? v_texcoord_0 : v_texcoord_1, 1.0);
+    vec3 uv = vec3(u_EmissiveUVSet < 1 ? getAsoboMainUV(v_texcoord_0) : v_texcoord_1, 1.0);
 
 #ifdef HAS_EMISSIVE_UV_TRANSFORM
     uv = u_EmissiveUVTransform * uv;
 #endif
 
-    return uv.xy;
+    return clampAsoboUV(uv.xy, u_EmissiveUVSet, u_EmissiveSampler);
 }
 
 
 vec2 getOcclusionUV()
 {
-    vec3 uv = vec3(u_OcclusionUVSet < 1 ? v_texcoord_0 : v_texcoord_1, 1.0);
+    vec3 uv = vec3(u_OcclusionUVSet < 1 ? getAsoboMainUV(v_texcoord_0) : v_texcoord_1, 1.0);
 
 #ifdef HAS_OCCLUSION_UV_TRANSFORM
     uv = u_OcclusionUVTransform * uv;
 #endif
 
-    return uv.xy;
+    return clampAsoboUV(uv.xy, u_OcclusionUVSet, u_OcclusionSampler);
 }
 
 
@@ -86,24 +121,24 @@ uniform mat3 u_MetallicRoughnessUVTransform;
 
 vec2 getBaseColorUV()
 {
-    vec3 uv = vec3(u_BaseColorUVSet < 1 ? v_texcoord_0 : v_texcoord_1, 1.0);
+    vec3 uv = vec3(u_BaseColorUVSet < 1 ? getAsoboMainUV(v_texcoord_0) : v_texcoord_1, 1.0);
 
 #ifdef HAS_BASECOLOR_UV_TRANSFORM
     uv = u_BaseColorUVTransform * uv;
 #endif
 
-    return uv.xy;
+    return clampAsoboUV(uv.xy, u_BaseColorUVSet, u_BaseColorSampler);
 }
 
 vec2 getMetallicRoughnessUV()
 {
-    vec3 uv = vec3(u_MetallicRoughnessUVSet < 1 ? v_texcoord_0 : v_texcoord_1, 1.0);
+    vec3 uv = vec3(u_MetallicRoughnessUVSet < 1 ? getAsoboMainUV(v_texcoord_0) : v_texcoord_1, 1.0);
 
 #ifdef HAS_METALLICROUGHNESS_UV_TRANSFORM
     uv = u_MetallicRoughnessUVTransform * uv;
 #endif
 
-    return uv.xy;
+    return clampAsoboUV(uv.xy, u_MetallicRoughnessUVSet, u_MetallicRoughnessSampler);
 }
 
 #endif

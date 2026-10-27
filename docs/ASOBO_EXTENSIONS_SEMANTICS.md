@@ -828,7 +828,7 @@ Let `B = baseColorFactor.rgb * baseColorTexture.rgb` (before vertex color), `D =
 **Glider A5.1 implementation (2026-10-27).** `resources/shaders/asobo_detail_map.glsl` holds the
 renderer's operators: `applyAsoboDetailColor`, `applyAsoboDetailOrm`, `applyAsoboDetailOcclusion` and
 `applyAsoboDetailNormal`, all gated by the per-viewport `u_AsoboDetailMapEnabled`. The detail UV is
-`v_texcoord_0 * UVScale + UVOffset`; the offset is a Glider-only key (neither the schema nor exporter
+`getAsoboMainUV(v_texcoord_0) * UVScale + UVOffset` (A5.2); the offset is a Glider-only key (neither the schema nor exporter
 8.4.1 has it, see the A5.1 entry). One `getAsoboDetailWeight()` returns the shared mask (vA in detail
 mode, `1 - coverage` in blend mode). The detail normal is decoded with the same function and gating
 as the base normal and combined with the normalised whiteout operator (so a flat map is an exact
@@ -849,7 +849,7 @@ Glider therefore does not apply the generic detail map to windshield v3, windshi
 
 ## 15. `ASOBO_material_UV_options`
 
-**Coverage: complete** for the exported values and the Blender UV graph; the clamp default and V-centering are open.
+**Coverage: complete** for exported values and the Blender UV graph. A5.2 renders the extension; the SDK-silent choices below are explicitly inferred.
 
 **Written when**
 
@@ -878,7 +878,7 @@ The extension has no texture references. It applies to the material's main UV se
 - **V** At defaults (`rotation 0`, `tiling 1`, `offset 0`) this evaluates to `uv_main = (u, v - 1)`, not the identity. The V half-texel/unit centering is therefore suspect; see open question 3.
 - **I** The intended transform is the standard one: `uv' = (uv - 0.5) * tiling`, rotate, `+ 0.5`, with an offset added in UV units. The exporter's V sign is the unresolved part.
 - **V** `clampUVX/Y` is not used in the node graph at all; the graph only transforms coordinates.
-- **I** Because the schema default (`true`) and the Blender default (`false`) disagree, and the writer only emits non-default `true` values, an omitted clamp key is ambiguous.
+- **I (resolved A5.2)** An absent clamp key leaves sampler wrapping unchanged (normally repeat). E195 uses 125 × 125 without clamp keys, PMDG 737 writes true explicitly, and DA62 writes false explicitly. The schema default true does not match exporter assumptions.
 
 **Interactions**
 
@@ -887,14 +887,62 @@ The extension has no texture references. It applies to the material's main UV se
 - **V** No `KHR_texture_transform` is written; the core textures have no `texCoord` key and no transform. This extension is a parallel, non-KHR mechanism (`io/com/msfs_material_utils.py:199-201`).
 - **V** Real E195 data uses only `UVTilingU`/`UVTilingV` (125 x 125) and no offsets, clamps, or rotation (`asset`, `LCD_DETAIL`).
 
-**Open questions**
+**A5.2 researched semantics and resolutions (2026-10-28)**
 
-1. What is the effective default of `clampUVX/Y` when the keys are absent: the schema's `true` or the Blender property's `false`? The exporter cannot write `false` because false is its default, so absence is the only representation of both.
-2. Which spelling does the runtime read: `UVOffsetU/V` (exporter) or `UVOffSetU/V` (schema)? The E195 data has no offset keys to disambiguate.
-3. Is the `(0.5, -0.5)` final add intentional (a V-flip convention) or a bug? At defaults it shifts V by minus one.
-4. How does this transform compose with a `KHR_texture_transform` that might already exist on a texture? This exporter removes/does not write KHR transforms, but imported assets may have both.
-5. Are `clampUVX/Y` sampler wrap modes, shader-side `clamp()` on the final UV, or only export hints? The node graph does not implement clamping.
-6. Does the object attribute `scale` participate in the main UV transform or only the detail UV? The graph applies it only to detail UV.
+- **V, SDK documentation:** local MSFS 2020 `C:/MSFS SDK/Documentation/html/Asset_Creation/3DS_Max_Plugin/Materials.htm`,
+  **UV Options**, subsections `uv-offset`, `uv-tiling`, `uv-rotation`, `uv-clamp`, describes offsets, tiling,
+  an angle, and clamping on U and/or V. The official 2024
+  [FlightSim Materials, UV Options](https://docs.flightsimulator.com/msfs2024/retail/models-and-textures/textures/materials/flightsim-materials/)
+  gives the same descriptions. Neither specifies order, pivot, rotation direction, offset sign, or clamp
+  implementation. `C:/MSFS 2024 SDK/Documentation` is absent here; its installed Tools and the Flighting SDK
+  exporter were read only. The official 2024
+  [glTF Schemas, ASOBO_material_UV_options](https://docs.flightsimulator.com/msfs2024/retail/models-and-textures/plugins/gltf-schemas/)
+  example verifies exporter spelling `UVOffsetU/V` and includes `clampUVZ`, but supplies no transform math.
+- **V, installed exporter:** `C:/MSFS 2024 Flighting SDK/Tools/Blender/addons/io_scene_gltf2_msfs_2024/`
+  `io/com/extensions/material/asobo_material_uv_options.py`, `register()`, and
+  `blender/utils/msfs_material_utils.py:72-78` verify false clamp defaults, offset/tiling defaults, and
+  rotation in degrees (the graph converts to radians). The graph above remains evidence of its preview,
+  including the suspicious V translation; Glider does not claim to reproduce an MSFS shader.
+- **I, chosen order/sign/pivot:** `p = (uv0 - 0.5) ⊙ (UVTilingU, UVTilingV)`;
+  `uvMain = R(radians(UVRotation)) * p + 0.5 + (UVOffsetU, UVOffsetV)`.
+  Scale and rotation use the centre `(0.5,0.5)`. Positive rotation is counterclockwise in numerical `(U,V)`
+  coordinates; positive offsets increase the sampled U/V, so the visible pattern moves toward negative U/V.
+  In glTF image coordinates (+V down), +90 degrees rotates the coordinates clockwise on the image and the
+  displayed pattern counterclockwise. The default is the exact identity, unlike the suspect Blender V term.
+  This follows the task's specified standard transform, rather than the graph's rotation-before-scale.
+- **I, clamp default (question 1 closed for Glider):** false/absent leaves the texture's own sampler alone,
+  including authored repeat, mirrored repeat or clamp-to-edge. The maintainer's survey above is the evidence.
+- **V implementation / I interoperability (question 2 closed):** both offset spellings are already accepted
+  by the typed parser. Exporter `UVOffsetU/V` takes precedence over schema `UVOffSetU/V`; a conflict is logged
+  once per process. The Inspector presents one control per offset and preserves alias-only spelling on edits.
+- **I (question 3 closed for Glider):** use positive V offset and `+0.5` recentering, not the graph's V shift/sign.
+  SDK documentation cannot establish simulator parity. The CPU-reference fixtures lock this choice.
+- **I (question 4 closed for Glider):** ASOBO main transform first, then each texture's own KHR transform,
+  then per-axis clamp of the resulting sample coordinate. No surveyed asset has both transforms.
+- **V implementation / I SDK mechanism (question 5):** true clamps only that axis. Shader clamping uses
+  `[0.5/textureSize, 1-0.5/textureSize]` at base level to stretch edge texels even with a repeat sampler,
+  rather than letting the exact 0/1 endpoint wrap. No shared sampler state is modified. The SDK does not say
+  whether its runtime uses sampler state or shader math. With minified linear mip filtering this base-level
+  inset is an approximation to per-mip clamp-to-edge; nearest-filtered edge stretching is tested exactly.
+- **V (question 6 closed from graph):** the undocumented object attribute `scale` belongs only to the detail
+  path; A5.1 continues to ignore it. Generic detail UV is `uvMain * UVScale + detailUVOffset` (the last offset
+  is A5.1's existing Glider-only key); the blend mask uses `uvMain` without detail scaling.
+- **V implementation:** core base colour, metallic-roughness/COMP, normal, emissive and occlusion apply this
+  only when the effective texture UV set is TEXCOORD_0 (including KHR's texCoord override). TEXCOORD_1 and
+  extra UV2 occlusion remain untransformed/unclamped. Generic detail colour/ORM/normal and blend mask follow
+  the same UV-set rule. Core clearcoat, sheen and other Khronos extension slots are outside A5.2's scope.
+- **V, SDK texture semantics:**
+  [FlightSim Material Textures, Windshield textures](https://docs.flightsimulator.com/msfs2024/retail/models-and-textures/textures/materials/flightsim-material-textures/)
+  explicitly excludes Secondary Details from UV Options and gives reflection/icing their own detail tiling.
+  **V implementation / I scope following the brief:** Glider keeps windshield detail masks/reflection,
+  icing, scratches and repurposed emissive secondary grime on their previous UVs. Standard windshield base
+  colour and normal remain core textures; UV1 reflection-mask occlusion is unaffected.
+- **I:** `clampUVZ` has no glTF 2D coordinate axis to affect. It is ignored for rendering and retained as an
+  editable, visible unknown key in the Inspector. No MSFS configuration files are read.
+
+**Verification:** `scripts/validate_asobo_uv_options.py` generates an asymmetric 8×8 texture and compares
+spatial probes against independently CPU-baked UV coordinates, plus byte-exact identity/switch checks.
+See A5.2 in `ASOBO_EXTENSIONS_PHASE_5.md` for run results and real-asset review.
 
 ## 16. `ASOBO_material_parallax_window`
 

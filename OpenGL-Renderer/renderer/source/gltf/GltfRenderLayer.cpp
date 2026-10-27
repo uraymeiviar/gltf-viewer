@@ -989,6 +989,41 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
             }
         }
 
+        // A5.2: declared, typed extension only. Defaults stay on the original shader variant.
+        if (const gltf::asobo::ExtensionData* uv = material->asobo != nullptr
+                ? material->asobo->find("ASOBO_material_UV_options") : nullptr) {
+            const math::vec2 tiling(static_cast<float>(uv->number("UVTilingU").value_or(1.0)),
+                                    static_cast<float>(uv->number("UVTilingV").value_or(1.0)));
+            const math::vec2 offset(static_cast<float>(uv->number("UVOffsetU").value_or(0.0)),
+                                    static_cast<float>(uv->number("UVOffsetV").value_or(0.0)));
+            const float rotation = static_cast<float>(uv->number("UVRotation").value_or(0.0));
+            const bool clampU = uv->boolean("clampUVX").value_or(false);
+            const bool clampV = uv->boolean("clampUVY").value_or(false);
+            if (tiling != math::vec2(1.0f) || offset != math::vec2(0.0f) || rotation != 0.0f || clampU || clampV) {
+                material->defines.define("ASOBO_MATERIAL_UV_OPTIONS");
+                material->setUniform<math::vec2>("u_AsoboUVTiling", tiling);
+                material->setUniform<math::vec2>("u_AsoboUVOffset", offset);
+                const float angle = math::radians(rotation);
+                material->setUniform<math::vec2>("u_AsoboUVRotation", math::vec2(std::cos(angle), std::sin(angle)));
+                material->setUniform<math::vec2>("u_AsoboUVClamp", math::vec2(clampU ? 1.f : 0.f, clampV ? 1.f : 0.f));
+            }
+            // The typed parser prefers the exporter spelling. Report an authored conflict
+            // once per process, including material refreshes caused by Inspector edits.
+            static bool reportedOffsetAlias = false;
+            if (!reportedOffsetAlias) {
+                const auto& extensions = gltfMaterial->getUnknownExtensions();
+                const auto entry = extensions.find("ASOBO_material_UV_options");
+                if (entry != extensions.end()) {
+                    const auto json = nlohmann::json::parse(entry->second.c_str(), nullptr, false);
+                    if (json.is_object() && ((json.contains("UVOffsetU") && json.contains("UVOffSetU"))
+                        || (json.contains("UVOffsetV") && json.contains("UVOffSetV")))) {
+                        core::logWarning("[ASOBO UV] Both offset spellings are present; UVOffsetU/V takes precedence over UVOffSetU/V");
+                        reportedOffsetAlias = true;
+                    }
+                }
+            }
+        }
+
         const bool windshieldMaterial = material->asoboMaterialCode == Material::AsoboMaterialCode::Windshield
             || (material->asobo != nullptr && (material->asobo->find("ASOBO_material_windshield_v3") != nullptr
                                                || material->asobo->find("ASOBO_material_windshield") != nullptr));

@@ -43,6 +43,17 @@ vec2 getWindshieldDetailUV()
     return v_texcoord_0 * u_WindshieldUVScale;
 }
 
+// On windshields emissiveTexture is a secondary grime layer. Like the other
+// windshield-only textures it is outside the main UV-options group (SDK / section 15).
+vec2 getWindshieldSecondaryUV()
+{
+    vec3 uv = vec3(u_EmissiveUVSet < 1 ? v_texcoord_0 : v_texcoord_1, 1.0);
+#ifdef HAS_EMISSIVE_UV_TRANSFORM
+    uv = u_EmissiveUVTransform * uv;
+#endif
+    return uv.xy;
+}
+
 float getWindshieldIcingCoverage()
 {
     if (u_WindshieldIcing <= 0.0) {
@@ -84,7 +95,7 @@ vec4 applyAsoboWindshieldBaseColor(vec4 baseColor)
     vec4 vertColor = getVertexColor();
 
 #ifdef HAS_EMISSIVE_MAP
-    vec4 secDetail = texture(u_EmissiveSampler, getEmissiveUV());
+    vec4 secDetail = texture(u_EmissiveSampler, getWindshieldSecondaryUV());
     float secMask = vertColor.g * secDetail.a;
     baseColor.rgb = mix(baseColor.rgb, secDetail.rgb, secMask);
     baseColor.a = clamp(baseColor.a + secMask * 0.5, 0.0, 1.0);
@@ -112,7 +123,7 @@ void applyAsoboWindshieldOrm(inout float metallic, inout float perceptualRoughne
 #endif
 
 #ifdef HAS_EMISSIVE_MAP
-    vec4 secDetail = texture(u_EmissiveSampler, getEmissiveUV());
+    vec4 secDetail = texture(u_EmissiveSampler, getWindshieldSecondaryUV());
     float secMask = vertColor.g * secDetail.a;
     perceptualRoughness = clamp(perceptualRoughness + secMask * 0.3, 0.0, 1.0);
 #endif

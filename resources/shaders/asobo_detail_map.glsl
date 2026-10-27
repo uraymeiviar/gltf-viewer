@@ -10,6 +10,10 @@ uniform float u_AsoboDetailUVScale;
 uniform vec2 u_AsoboDetailUVOffset;
 uniform float u_AsoboDetailNormalScale;
 uniform float u_AsoboDetailBlendThreshold;
+uniform int u_DetailColorUVSet;
+uniform int u_DetailOrmUVSet;
+uniform int u_DetailNormalUVSet;
+uniform int u_DetailBlendMaskUVSet;
 
 #ifdef HAS_DETAIL_COLOR_MAP
 uniform sampler2D u_DetailColorSampler;
@@ -25,11 +29,12 @@ uniform sampler2D u_DetailBlendMaskSampler;
 #endif
 
 
-// TEXCOORD_0 times UVScale, then the offset. The exporter also multiplies an undocumented
+// Transformed main UV times UVScale, then the offset. The exporter also multiplies an undocumented
 // object attribute "scale" (§14 open question 1); Glider ignores it.
-vec2 getAsoboDetailUV()
+vec2 getAsoboDetailUV(int uvSet, sampler2D map)
 {
-    return v_texcoord_0 * u_AsoboDetailUVScale + u_AsoboDetailUVOffset;
+    vec2 uv = uvSet == 0 ? getAsoboMainUV(v_texcoord_0) : v_texcoord_1;
+    return clampAsoboUV(uv * u_AsoboDetailUVScale + u_AsoboDetailUVOffset, uvSet, map);
 }
 
 
@@ -45,7 +50,9 @@ float getAsoboDetailWeight()
     }
     float vA = getVertexColor().a;
 #ifdef ASOBO_DETAIL_BLEND_MASK
-    float m = texture(u_DetailBlendMaskSampler, v_texcoord_0).r;
+    vec2 uv = u_DetailBlendMaskUVSet == 0 ? getAsoboMainUV(v_texcoord_0) : v_texcoord_1;
+    float m = texture(u_DetailBlendMaskSampler,
+                      clampAsoboUV(uv, u_DetailBlendMaskUVSet, u_DetailBlendMaskSampler)).r;
     float t = max(u_AsoboDetailBlendThreshold, 1.0e-5);
     float low = clamp(m - t, 0.0, 1.0);
     float high = clamp(m + t, 0.0, 1.0);
@@ -65,7 +72,7 @@ vec4 applyAsoboDetailColor(vec4 baseColor)
     if (u_AsoboDetailMapEnabled == 0) {
         return baseColor;
     }
-    vec4 detail = texture(u_DetailColorSampler, getAsoboDetailUV());
+    vec4 detail = texture(u_DetailColorSampler, getAsoboDetailUV(u_DetailColorUVSet, u_DetailColorSampler));
     float weight = getAsoboDetailWeight();
     vec3 target = detail.rgb;
 #ifndef ASOBO_DETAIL_BLEND_MASK
@@ -84,7 +91,7 @@ vec4 applyAsoboDetailColor(vec4 baseColor)
 // sqrt(linear AO), the same gating the base occlusion map uses.
 vec3 getAsoboDetailOrm()
 {
-    vec3 orm = texture(u_DetailOrmSampler, getAsoboDetailUV()).rgb;
+    vec3 orm = texture(u_DetailOrmSampler, getAsoboDetailUV(u_DetailOrmUVSet, u_DetailOrmSampler)).rgb;
 #ifdef ASOBO_ASSET_OPTIMIZED
     orm.r *= orm.r;
 #endif
@@ -150,9 +157,9 @@ vec3 applyAsoboDetailNormal(vec3 baseTangentNormal)
         return baseTangentNormal;
     }
 #ifdef DETAIL_NORMAL_TEXTURE_RG_SNORM
-    vec3 detail = sampleTangentSpaceNormalRG(u_DetailNormalSampler, getAsoboDetailUV());
+    vec3 detail = sampleTangentSpaceNormalRG(u_DetailNormalSampler, getAsoboDetailUV(u_DetailNormalUVSet, u_DetailNormalSampler));
 #else
-    vec3 detail = sampleTangentSpaceNormal(u_DetailNormalSampler, getAsoboDetailUV());
+    vec3 detail = sampleTangentSpaceNormal(u_DetailNormalSampler, getAsoboDetailUV(u_DetailNormalUVSet, u_DetailNormalSampler));
 #endif
     detail *= vec3(u_AsoboDetailNormalScale, u_AsoboDetailNormalScale, 1.0);
     detail = normalize(detail);

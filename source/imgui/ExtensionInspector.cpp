@@ -355,8 +355,20 @@ bool ExtensionInspector::setExtensionParameter(ux3d::gltf::GltfObject* object,
     // Vendor edits may replace existing values, never introduce keys. Typed ASOBO
     // defaults retain their established setter path.
     if (!ux3d::gltf::asobo::isAsoboExtension(extName) && !extJson.contains(paramName)) return false;
-    if (extJson.contains(paramName) && extJson[paramName] == paramValue) return false;
-    extJson[paramName] = paramValue;
+    // UV offset aliases share one control. Prefer the exporter key when both exist;
+    // preserve an alias-only file's spelling when editing it.
+    std::string writeKey = paramName;
+    if (extName == "ASOBO_material_UV_options") {
+        if (const auto* spec = ux3d::gltf::asobo::findExtensionSpec(extName)) {
+            if (const auto* property = spec->findProperty(paramName)) {
+                writeKey = std::string(property->name);
+                if (!extJson.contains(writeKey) && !property->alias.empty()
+                    && extJson.contains(std::string(property->alias))) writeKey = std::string(property->alias);
+            }
+        }
+    }
+    if (extJson.contains(writeKey) && extJson[writeKey] == paramValue) return false;
+    extJson[writeKey] = paramValue;
     object->setUnknownExtension(extName.c_str(), extJson.dump().c_str());
     if (dynamic_cast<ux3d::gltf::Material*>(object) != nullptr) revisions.mark(SceneChange::Material);
     revisions.mark(SceneChange::Extension);
@@ -664,9 +676,12 @@ bool ExtensionInspector::renderSingleExtension(ux3d::gltf::GltfObject* object,
     // Build the ordered list of property keys from the schema + AsoboExtensionSpecs + extJson.
     std::vector<std::string> orderedKeys;
     std::unordered_set<std::string> seenKeys;
-    auto addKey = [&](const std::string& key) {
+    auto addKey = [&](std::string key) {
         if (key == "extensions" || key == "extras") {
             return;
+        }
+        if (extName == "ASOBO_material_UV_options" && extSpec != nullptr) {
+            if (const auto* property = extSpec->findProperty(key)) key = std::string(property->name);
         }
         if (seenKeys.insert(key).second) {
             orderedKeys.push_back(key);
@@ -717,6 +732,9 @@ bool ExtensionInspector::renderSingleExtension(ux3d::gltf::GltfObject* object,
         nlohmann::json currentVal;
         if (extJson.contains(propKey)) {
             currentVal = extJson.at(propKey);
+        } else if (propSpec != nullptr && !propSpec->alias.empty()
+                   && extJson.contains(std::string(propSpec->alias))) {
+            currentVal = extJson.at(std::string(propSpec->alias));
         } else if (propSpec != nullptr) {
             currentVal = asoboDefaultToJson(*propSpec);
             if (currentVal.is_null() && propDef != nullptr && !propDef->defaultValue.is_null()) {

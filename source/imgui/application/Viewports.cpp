@@ -772,6 +772,8 @@ void Application::drawViewports(FrameContext& frame)
                 vp->settings.asobo.applies("ASOBO_material_emissive"));
             commandGenerator->setAsoboOcclusionStrengthApplied(
                 vp->settings.asobo.applies("ASOBO_occlusion_strength"));
+            commandGenerator->setAsoboUVOptions(
+                vp->settings.asobo.applies("ASOBO_material_UV_options"));
 
             const auto commandGenerationStart = ux3d::imgui::profiling::Clock::now();
             const uint64_t programHitsBefore = commandGenerator->getCommandMapping().getProgramCacheHits();

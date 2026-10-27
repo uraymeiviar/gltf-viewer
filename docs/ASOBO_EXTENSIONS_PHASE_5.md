@@ -2,7 +2,7 @@
 
 [Journal index](ASOBO_EXTENSIONS_JOURNAL.md) · [Extension reference](ASOBO_EXTENSIONS_REFERENCE.md) · [Validation rules](RENDERER_OPTIMIZATION_VALIDATION.md)
 
-**Status:** A5.1 done (2026-10-27); A5.2–A5.4 planned.
+**Status:** A5.1 done (2026-10-27); A5.2 done (2026-10-28); A5.3–A5.4 planned.
 
 **Entry:** A2.1, the geometry pass. Material additions land in the shared material code, so they work in both
 the deferred and forward paths. **Goal:** user priority 5.
@@ -87,11 +87,41 @@ the deferred and forward paths. **Goal:** user priority 5.
     normal = icing normal. Rendering them as a detail map drew the frost/icing pattern on clear glass, so
     `GltfRenderLayer` never compiles the A5.1 variant for windshield materials; their layers belong to A4.
     The E195 windshield view is byte-identical to `8e932ca` again; the fixture checks all three windshield kinds.
-- [ ] **A5.2 — `ASOBO_material_UV_options` (R2). Owner: GPT Astra, reviewed by Claude.** UV tiling, offset,
-  rotation and clamping (`clampUVX/Y`, default true, overrides the sampler wrap).
-  - Which textures it applies to, and how it composes with `KHR_texture_transform`, come from A0.6.
-  - **Tests:** each property alone; defaults; composition.
-  - E195: one material, tiled 125 × 125.
+- [x] **A5.2 — `ASOBO_material_UV_options` (R2), 2026-10-28.** Material variant plus per-viewport
+  switch; existing Inspector edits refresh the variant. No new flag. Empty/default parameters keep the old variant.
+  - **Research / inferred formula:** local 2020 Materials / UV Options and official 2024 FlightSim Materials /
+    UV Options define the controls but omit pivot/order/sign. Use
+    `uvMain = R(radians(rotation)) * ((uv0 - 0.5) * tiling) + 0.5 + offset`.
+    Semantics §15 records sources, directions, Blender discrepancies and all six question resolutions/limits.
+  - **Scope:** core base colour, COMP/metallic-roughness, normal, emissive, UV0 occlusion, generic detail
+    layers (transformed UV × UVScale) and blend mask (transformed main UV). KHR follows ASOBO; clamp follows
+    KHR. UV1 (including KHR overrides), UV2 extra occlusion and windshield-only layers are untouched.
+    False/absent clamp leaves sampler wrapping alone (inferred from E195/DA62/PMDG and exporter defaults);
+    true clamps each axis to edge texel centres. `clampUVZ` is ignored and remains visible/editable.
+    Both offset spellings work; exporter spelling wins and conflicts log once per process.
+  - **Checks:** Release build, `validate_asobo_uv_options.py`, `validate_asobo_support.py`,
+    `validate_asobo_detail_map.py`, and `validate_asobo_common.py --baseline-exe build/baselines/d0761e7.exe`
+    pass. CPU-baked references check tiling, U/V offset, rotation, order and aliases; independent sampler
+    references check each clamp axis. Checks cover core slots, UV1, KHR/detail/blend-mask composition,
+    windshield exclusion, Inspector edit refresh and both switches. Empty/defaults and HelloCube/non-ASOBO
+    captures are byte-identical (the latter against d0761e7). Zero GL errors in the new capture suites.
+    The new check is in the serial ASOBO list; the regression runner was not run or its thresholds changed.
+  - **Review:** `scripts/review_asobo_uv_options.py` creates baseline/current captures and a contact sheet
+    under `build/review/uv_options/`, using read-only source assets and absolute-URI copies under build.
+    The contact sheet uses display gain 8× on the dark LCD crop only; raw PNGs are unmodified.
+    E195 LCD micro-close-up shows the fine RGB lattice after 125× tiling (before: broad subpixel edges).
+    Dust redistributes its mottled pattern at 1.5×. Tyre V offset 1 is visually unchanged under repeat;
+    PMDG fuselage is visually stable with only small edge differences. The source SDK tyre has a
+    pre-existing skin deformation in both binaries; an additional `da62_tyre_static` build-only copy
+    removes that node’s skin binding to review its real rest-mesh texture. Raw source captures are kept.
+    All texture URIs resolved; all ten captures report zero GL errors. Changed pixel counts (of 822,528):
+    e195_lcd 205289, da62_tyre 39, da62_tyre_static 100, da62_dust 250267, pmdg_fuselage 777.
+  - **Deviations / limits:** the surveyed E195 `asset` material is absent in current model files;
+    `LCD_DETAIL` is present at 125 × 125. The SDK Nose attachment has a Dust decal shell without its
+    receiver, so the Dust review disables geometry-decal processing identically in both binaries.
+    The base-level clamp inset approximates per-mip edge clamp with minified linear filtering; nearest
+    edge stretching is exact. Rotation/order/sign are inferred, not simulator parity. No benchmark or
+    performance improvement is claimed. No simulator config files were read and no SDK/add-on files written.
 - [ ] **A5.3 — `ASOBO_material_parallax_window` (R4). Owner: Claude.** Interior mapping: an eye ray through the
   window plane is intersected with a room grid (`roomNumberXY`, `roomSizeX/YScale`, `parallaxScale`) and samples
   `behindWindowMapTexture`.
