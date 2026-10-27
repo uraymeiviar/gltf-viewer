@@ -7,6 +7,7 @@ layout(location = 0) out vec4 g_PrepassNormal;
 #include <environment_block.glsl>
 #include <textures.glsl>
 #include <functions.glsl>
+#include <asobo_detail_map.glsl>
 #include <material_info.glsl>
 
 void main()

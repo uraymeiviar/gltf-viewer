@@ -748,6 +748,10 @@ void Application::drawViewports(FrameContext& frame)
                 vp->settings.asobo.applies("ASOBO_normal_map_convention"));
             commandGenerator->setAsoboWindshieldVertexColorMask(
                 vp->settings.asobo.applies("ASOBO_material_windshield_v3"));
+            // A5.1: the detail-map define is material-level; this per-viewport flag says
+            // whether the active viewport samples the detail layers.
+            commandGenerator->setAsoboDetailMap(
+                vp->settings.asobo.applies("ASOBO_material_detail_map"));
             // A2.2: the receiver define is asset-level; this per-viewport flag says whether
             // the active viewport has a filled decal buffer to read.
             commandGenerator->setAsoboDecalReceiver(decalActive);

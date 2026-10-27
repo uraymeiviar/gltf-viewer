@@ -84,6 +84,10 @@ public:
     // A1.2: the asset's ASOBO_normal_map_convention is DirectX and this viewport applies it;
     // the shaders invert the green channel of every normal-map sample.
     void setAsoboNormalMapConvention(bool directX);
+    // A5.1: this viewport applies ASOBO_material_detail_map. The material define is
+    // asset-level (a material that declares the extension compiles its variant), so the
+    // viewport switch is a frame-block uniform (like A1.2's normal-map convention).
+    void setAsoboDetailMap(bool enabled);
     // A4 (partial): this viewport applies ASOBO_material_windshield_v3. Windshield v3
     // materials then keep COLOR_0 out of the base colour; it holds masks instead.
     void setAsoboWindshieldVertexColorMask(bool enabled);
@@ -159,6 +163,7 @@ protected:
     gl::Uniform m_msfsEmissiveScaleUniform;
     gl::Uniform m_timeOfDayUniform;
     gl::Uniform m_asoboMaterialEmissiveAppliedUniform;
+    gl::Uniform m_asoboDetailMapUniform;
     // A2.2: six borrowed views of the shared accumulation targets and their samplers. The
     // wrappers live as long as the generator; setDecalTargets refreshes only the handles.
     std::array<std::unique_ptr<gl::Texture>, 6> m_decalTextures;

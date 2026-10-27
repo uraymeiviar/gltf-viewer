@@ -151,9 +151,29 @@ NormalInfo getNormalInfo(vec3 v)
 #endif
     info.ntex *= vec3(u_NormalScale, u_NormalScale, 1.0);
     info.ntex = normalize(info.ntex);
+#ifdef ASOBO_MATERIAL_DETAIL_MAP
+    // A5.1: the detail layer combines with the base tangent-space normal; the matrix below
+    // normalises the whiteout sum exactly once, so a neutral detail keeps the base bytes.
+    info.ntex = applyAsoboDetailNormal(info.ntex);
+#endif
     info.n = normalize(mat3(t, b, ng) * info.ntex);
 #else
+#ifdef ASOBO_MATERIAL_DETAIL_MAP
+#ifdef HAS_DETAIL_NORMAL_MAP
+    // A5.1: without a base normal map the detail layer combines with the neutral normal. The
+    // switch-off path keeps the plain geometric normal, byte for byte.
+    if (u_AsoboDetailMapEnabled != 0) {
+        info.ntex = applyAsoboDetailNormal(vec3(0.0, 0.0, 1.0));
+        info.n = normalize(mat3(t, b, ng) * info.ntex);
+    } else {
+        info.n = ng;
+    }
+#else
     info.n = ng;
+#endif
+#else
+    info.n = ng;
+#endif
 #endif
     info.t = t;
     info.b = b;
@@ -194,6 +214,13 @@ vec4 getBaseColor()
     baseColor *= texture(u_DiffuseSampler, getDiffuseUV());
 #elif defined(MATERIAL_METALLICROUGHNESS) && defined(HAS_BASE_COLOR_MAP)
     baseColor *= texture(u_BaseColorSampler, getBaseColorUV());
+#endif
+
+#ifdef ASOBO_MATERIAL_DETAIL_MAP
+    // A5.1: the detail layer blends into the base colour (and the detail alpha into the
+    // material alpha) before the vertex colour and the windshield mask rules apply, exactly
+    // where the exporter's base-colour group sits.
+    baseColor = applyAsoboDetailColor(baseColor);
 #endif
 
 #ifdef ASOBO_MATERIAL_WINDSHIELD_LEGACY
@@ -243,6 +270,13 @@ MaterialInfo getMetallicRoughnessInfo(MaterialInfo info)
     vec4 mrSample = texture(u_MetallicRoughnessSampler, getMetallicRoughnessUV());
     info.perceptualRoughness *= mrSample.g;
     info.metallic *= mrSample.b;
+#endif
+
+#ifdef ASOBO_MATERIAL_DETAIL_MAP
+    // A5.1: the detail OMR offsets blend into the material values before the decal layer is
+    // composited over them; a zero weight (or the viewport switch off) leaves them unchanged.
+    applyAsoboDetailOrm(getAsoboDetailWeight(), u_MetallicFactor, u_RoughnessFactor,
+                        info.metallic, info.perceptualRoughness);
 #endif
 
     // A2.2: the decal changes metallic and roughness before c_diff/f0 are derived here,

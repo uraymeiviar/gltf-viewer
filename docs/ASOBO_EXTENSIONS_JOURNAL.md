@@ -41,7 +41,7 @@ MSFS as practical, while still opening any glTF.
 | A2 | [Decal buffer and decals](ASOBO_EXTENSIONS_PHASE_2.md) | Designed |
 | A3 | [Sun, shadows, macro lights, SSS](ASOBO_EXTENSIONS_PHASE_3.md) | Planned |
 | A4 | [Glass, windshields, glow (bloom), fresnel and ghost opacity](ASOBO_EXTENSIONS_PHASE_4.md) | Planned |
-| A5 | [Detail map, UV options, parallax window, wind flex](ASOBO_EXTENSIONS_PHASE_5.md) | Planned |
+| A5 | [Detail map, UV options, parallax window, wind flex](ASOBO_EXTENSIONS_PHASE_5.md) | A5.1 done |
 | A6 | [Time of day: sky, dynamic environment lighting, exposure](ASOBO_EXTENSIONS_PHASE_6.md) | Planned |
 | A7 | [Remaining extensions: layered BRDFs, overlays, metadata, simulator-only](ASOBO_EXTENSIONS_PHASE_7.md) | Planned |
 

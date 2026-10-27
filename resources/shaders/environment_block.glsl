@@ -25,4 +25,8 @@ layout(std140) uniform EnvironmentBlock
     float u_MsfsEmissiveScale;
     int u_TimeOfDay;
     int u_AsoboMaterialEmissiveApplied;
+    // Non-zero when the viewport applies ASOBO_material_detail_map (A5.1). Materials that
+    // declare the extension compile its variant, and this switch decides whether it is
+    // sampled, so the command cache stays independent of the viewport.
+    int u_AsoboDetailMapEnabled;
 };

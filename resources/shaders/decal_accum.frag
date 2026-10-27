@@ -22,6 +22,7 @@ layout(location = 5) out vec4 g_DecalOcclusion;
 #include <environment_block.glsl>
 #include <textures.glsl>
 #include <functions.glsl>
+#include <asobo_detail_map.glsl>
 #include <material_info.glsl>
 
 uniform float u_DecalBaseColorFactor;
@@ -161,6 +162,10 @@ void main()
     occlusion = texture(u_OcclusionSampler, getOcclusionUV()).r;
 #ifdef ASOBO_ASSET_OPTIMIZED
     occlusion *= occlusion;
+#endif
+#ifdef ASOBO_MATERIAL_DETAIL_MAP
+    // A5.1: a decal material can carry the detail map too; its AO follows the same path.
+    occlusion = applyAsoboDetailOcclusion(getAsoboDetailWeight(), occlusion);
 #endif
 #endif
     occlusion = mix(1.0, occlusion, wOcclusion);

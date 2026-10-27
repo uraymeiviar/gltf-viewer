@@ -26,6 +26,7 @@ precision highp float;
 #include <punctual.glsl>
 #include <ibl.glsl>
 #include <decal_receiver.glsl>
+#include <asobo_detail_map.glsl>
 #include <material_info.glsl>
 
 #ifdef MATERIAL_IRIDESCENCE
@@ -521,6 +522,11 @@ void main()
 #ifdef ASOBO_ASSET_OPTIMIZED
     // A1.12: the packaged COMP texture stores AO as sqrt(linear AO).
     ao *= ao;
+#endif
+#ifdef ASOBO_MATERIAL_DETAIL_MAP
+    // A5.1: the detail OMR red channel offsets the material occlusion; the exporter applies
+    // it in the same occlusion path, so it needs a material occlusion target to act on.
+    ao = applyAsoboDetailOcclusion(getAsoboDetailWeight(), ao);
 #endif
     f_diffuse = mix(f_diffuse, f_diffuse * ao, u_OcclusionStrength);
     // apply ambient occlusion to all lighting that is not punctual

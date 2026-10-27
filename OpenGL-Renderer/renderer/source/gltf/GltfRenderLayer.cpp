@@ -810,10 +810,9 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
 
         material->isDoubleSided = gltfMaterial->isDoubleSidedOrDefault();
 
-        // Creates a sampler with a given name from the given texture.
-        // The sampler is only created if the given texture is not null.
-        // Returns true if the sampler was actually created.
-        auto createSampler = [this, gltfMaterial, material, gl](const std::string& baseName, const std::optional<gltf::TextureInfo>& texture, const char* texturePointer, bool isLinear = true) -> bool {
+        // Creates a sampler with a given name from one glTF texture. It is only created if
+        // the texture and its image are present. Returns true if it was actually created.
+        auto createSamplerFromTexture = [this, material, gl](const std::string& baseName, const gltf::Texture* gltfTexture, uint32_t texCoord, bool isLinear) -> bool {
             std::string capitalized;
             for (size_t i = 0; i < baseName.length(); ++i) {
                 char c = baseName[i];
@@ -823,13 +822,6 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
                 capitalized.push_back(std::toupper(c));
             }
             const std::string samplerEnabledDefine = "HAS_" + capitalized + "_MAP";
-
-            if (texture.has_value() == false) {
-                return false;
-            }
-
-            const gltf::TextureInfo& info = texture.value();
-            const gltf::Texture* gltfTexture = info.getTexture();
 
             if (gltfTexture == nullptr) {
                 return false;
@@ -864,6 +856,9 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
                         material->defines.define("NORMAL_TEXTURE_RG_SNORM");
                     } else if (baseName == "ClearcoatNormal") {
                         material->defines.define("CLEARCOAT_NORMAL_TEXTURE_RG_SNORM");
+                    } else if (baseName == "DetailNormal") {
+                        // A5.1: the detail normal follows the base normal's decode exactly.
+                        material->defines.define("DETAIL_NORMAL_TEXTURE_RG_SNORM");
                     }
                 }
                 if (!ktx2Supported) {
@@ -892,7 +887,25 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
             }
 
             material->samplers.emplace_back("u_" + baseName + "Sampler", glTexture, samplerState);
-            material->setUniform<uint32_t>("u_" + baseName + "UVSet", info.getEffectiveTexCoord());
+            material->setUniform<uint32_t>("u_" + baseName + "UVSet", texCoord);
+            material->defines.define(samplerEnabledDefine);
+
+            return true;
+        };
+
+        // Creates a sampler with a given name from the given textureInfo and wires its
+        // KHR_texture_transform (including animation pointer targets when the caller names
+        // the property). The sampler is only created if the given texture is not null.
+        auto createSampler = [this, gltfMaterial, material, &createSamplerFromTexture](const std::string& baseName, const std::optional<gltf::TextureInfo>& texture, const char* texturePointer, bool isLinear = true) -> bool {
+            if (texture.has_value() == false) {
+                return false;
+            }
+
+            const gltf::TextureInfo& info = texture.value();
+            if (createSamplerFromTexture(baseName, info.getTexture(), info.getEffectiveTexCoord(), isLinear) == false) {
+                return false;
+            }
+
             if (info.getTextureTransform()) {
                 std::string uniformName = "u_" + baseName + "UVTransform";
                 material->setUniform<math::mat3>(uniformName, info.calculateTransformMatrix());
@@ -929,8 +942,6 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
                 material->defines.define("HAS_" + upperBaseName + "_UV_TRANSFORM");
             }
 
-            material->defines.define(samplerEnabledDefine);
-
             return true;
         };
 
@@ -952,6 +963,59 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
             }
         }
         createSampler("Occlusion", occlusionTexture, "occlusionTexture");
+
+        // A5.1: ASOBO_material_detail_map. Its four textures are optional and each goes
+        // through the same sampler path as the core textures (DDS preference, KTX2 block
+        // upload, BC5 SNORM decode), so detail normals decode exactly like the base normal.
+        // Only a material that actually carries a detail layer compiles the variant;
+        // whether the viewport samples it is a frame-block uniform (like A1.2/A4).
+        // On a windshield the same slots are the windshield layers, not a detail map (MSFS SDK,
+        // FlightSim material textures): detail colour = masks (R details 1, G icing, B details 2),
+        // detail OMR = detail reflection, detail normal = icing normal. Icing is a weather state
+        // and the detail layers belong to the windshield shading (A4), so the generic A5.1
+        // operators never apply to windshield v3, windshield v1 or material code "Windshield".
+        const bool windshieldMaterial = material->asoboMaterialCode == Material::AsoboMaterialCode::Windshield
+            || (material->asobo != nullptr && (material->asobo->find("ASOBO_material_windshield_v3") != nullptr
+                                               || material->asobo->find("ASOBO_material_windshield") != nullptr));
+        if (const gltf::asobo::ExtensionData* detailMap = material->asobo != nullptr && !windshieldMaterial
+                ? material->asobo->find("ASOBO_material_detail_map") : nullptr) {
+            auto createDetailSampler = [this, detailMap, &createSamplerFromTexture](const char* key, const char* baseName, bool isLinear) -> bool {
+                const gltf::asobo::TextureRef* reference = detailMap->texture(key);
+                if (reference == nullptr || m_syncingGltf == nullptr || reference->index < 0
+                    || static_cast<size_t>(reference->index) >= m_syncingGltf->getTextures().size()) {
+                    return false;
+                }
+                const gltf::Texture* gltfTexture =
+                    &m_syncingGltf->getTextures().at(static_cast<size_t>(reference->index));
+                return createSamplerFromTexture(baseName, gltfTexture, static_cast<uint32_t>(reference->texCoord), isLinear);
+            };
+            const bool hasColor = createDetailSampler("detailColorTexture", "DetailColor", false);
+            const bool hasNormal = createDetailSampler("detailNormalTexture", "DetailNormal", true);
+            const bool hasOrm = createDetailSampler("detailMetalRoughAOTexture", "DetailOrm", true);
+            const bool hasBlendMask = createDetailSampler("blendMaskTexture", "DetailBlendMask", true);
+            if (hasColor || hasNormal || hasOrm) {
+                material->defines.define("ASOBO_MATERIAL_DETAIL_MAP");
+                material->defines.defineIf(hasBlendMask, "ASOBO_DETAIL_BLEND_MASK");
+                material->setUniform<float>("u_AsoboDetailUVScale", static_cast<float>(detailMap->number("UVScale").value_or(1.0)));
+                material->setUniform<float>("u_AsoboDetailBlendThreshold", static_cast<float>(detailMap->number("blendThreshold").value_or(0.001)));
+                // Neither the schema nor the exporter defines a detail UV offset; A5.1 applies
+                // one after UVScale. A number offsets both axes, a two-element array U and V.
+                math::vec2 detailUVOffset(0.0f);
+                const nlohmann::json& unknownKeys = detailMap->unknownKeys();
+                const auto offset = unknownKeys.find("UVOffset");
+                if (offset != unknownKeys.end()) {
+                    if (offset->is_number()) {
+                        detailUVOffset = math::vec2(offset->get<float>());
+                    } else if (offset->is_array() && offset->size() == 2 && (*offset)[0].is_number() && (*offset)[1].is_number()) {
+                        detailUVOffset = math::vec2((*offset)[0].get<float>(), (*offset)[1].get<float>());
+                    }
+                }
+                material->setUniform<math::vec2>("u_AsoboDetailUVOffset", detailUVOffset);
+                const gltf::asobo::TextureRef* detailNormal = detailMap->texture("detailNormalTexture");
+                material->setUniform<float>("u_AsoboDetailNormalScale",
+                    static_cast<float>(detailNormal != nullptr ? detailNormal->scale : 1.0));
+            }
+        }
 
         material->setUniform<math::vec3>("u_EmissiveFactor", gltfMaterial->getEmissiveFactorOrDefault());
         float dayMultiplier = 1.0f;
@@ -1976,28 +2040,23 @@ void GltfRenderLayer::updateGltf(const gltf::Gltf& gltf)
     // Therefore in the texture mapping the primary key is `std::tuple<gltf::Image*, bool>`
     // where the second element of bool type is true if the texture has linear format.
     std::set<std::tuple<gltf::Image*, bool>> images; // use a set to avoid duplicates
+    const bool ddsDeclaredForImages = gltf.isExtensionDeclared("MSFT_texture_dds");
+    auto insertTextureImage = [&images, ddsDeclaredForImages](const gltf::Texture* gltfTexture, bool isLinear) {
+        if (gltfTexture == nullptr) {
+            // in gltf this is not allowed but the renderer should be able to handle this state
+            return;
+        }
+        gltf::Image* gltfImage = pickImageForTexture(gltfTexture, ddsDeclaredForImages);
+        if (gltfImage != nullptr) {
+            images.insert({ gltfImage, isLinear });
+        }
+    };
     for (auto& material : gltf.getMaterials()) {
-        auto insertImage = [this, &images, &gltf](const std::optional<gltf::TextureInfo>& textureInfo, bool isLinear) {
+        auto insertImage = [&insertTextureImage](const std::optional<gltf::TextureInfo>& textureInfo, bool isLinear) {
             if (textureInfo.has_value() == false) {
                 return;
             }
-
-            const gltf::TextureInfo& info(textureInfo.value());
-            const gltf::Texture* gltfTexture = info.getTexture();
-
-            if (gltfTexture == nullptr) {
-                // in gltf this is not allowed but the renderer should be able to handle this state
-                return;
-            }
-
-            bool ddsDeclared = gltf.isExtensionDeclared("MSFT_texture_dds");
-            gltf::Image* gltfImage = pickImageForTexture(gltfTexture, ddsDeclared);
-
-            if (gltfImage == nullptr) {
-                return;
-            }
-
-            images.insert({ gltfImage, isLinear });
+            insertTextureImage(textureInfo.value().getTexture(), isLinear);
         };
 
         // now access all elements of the material and set the correct linear / sRGB format
@@ -2051,6 +2110,27 @@ void GltfRenderLayer::updateGltf(const gltf::Gltf& gltf)
         if (iridescence.has_value()) {
             insertImage(iridescence->getIridescenceTextureInfo(), true);
             insertImage(iridescence->getIridescenceThicknessTextureInfo(), true);
+        }
+
+        // A5.1: the four ASOBO_material_detail_map textures are not core slots, so register
+        // them here. The colour map is sRGB, the ORM, normal and blend-mask maps are linear.
+        if (gltf.isExtensionDeclared("ASOBO_material_detail_map")) {
+            const gltf::asobo::ExtensionSet materialExtensions =
+                gltf::asobo::parseExtensions(gltf, material, gltf::asobo::Scope::Material);
+            if (const gltf::asobo::ExtensionData* detailMap = materialExtensions.find("ASOBO_material_detail_map")) {
+                auto insertDetailImage = [&gltf, &insertTextureImage, detailMap](const char* key, bool isLinear) {
+                    const gltf::asobo::TextureRef* reference = detailMap->texture(key);
+                    if (reference == nullptr || reference->index < 0
+                        || static_cast<size_t>(reference->index) >= gltf.getTextures().size()) {
+                        return;
+                    }
+                    insertTextureImage(&gltf.getTextures().at(static_cast<size_t>(reference->index)), isLinear);
+                };
+                insertDetailImage("detailColorTexture", false);
+                insertDetailImage("detailMetalRoughAOTexture", true);
+                insertDetailImage("detailNormalTexture", true);
+                insertDetailImage("blendMaskTexture", true);
+            }
         }
     }
     core::LinkedList<std::tuple<gltf::Image*, bool>> imagesList; // `update` requires a core::LinkedList

@@ -107,7 +107,7 @@ the planned behavior. Exact semantics are confirmed per task against the sources
 
 | Extension | Schema properties | Viewer meaning | Current | Phase |
 |---|---|---|---|---|
-| `ASOBO_material_detail_map` | `UVScale`, `blendThreshold`, `detailColorTexture`, `detailNormalTexture`, `detailMetalRoughAOTexture`, `blendMaskTexture` | Tiled detail layers blended over the base material | Ignored | A5 |
+| `ASOBO_material_detail_map` | `UVScale`, `blendThreshold`, `detailColorTexture`, `detailNormalTexture`, `detailMetalRoughAOTexture`, `blendMaskTexture` | Tiled detail layers blended over the base material | **Rendered** (detail colour/ORM/normal, `UVScale` + viewer-side `UVOffset`, vertex-alpha or blend-mask mode; object-attribute `scale` ignored) | A5.1 |
 | `ASOBO_material_glass_v2` | `glassWidth` | MSFS glass shader | Ignored | A4 |
 | `ASOBO_material_windshield` | `rainDropScale`, `wiper1–4State`, `wiperMaskTexture` | Windshield (v1) | Ignored | A4 |
 | `ASOBO_material_windshield_v3` | detail roughness/opacity, micro-scratches, `detailNormalRefractScale`, wiper lines and state, three textures | Windshield with scratches, detail refraction and wiper traces | Ignored | A4 |

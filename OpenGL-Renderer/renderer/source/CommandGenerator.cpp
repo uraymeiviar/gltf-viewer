@@ -37,6 +37,7 @@ ux3d::renderer::CommandGenerator::CommandGenerator(gl::GL* gl, const filesystem:
     , m_msfsEmissiveScaleUniform("u_MsfsEmissiveScale")
     , m_timeOfDayUniform("u_TimeOfDay")
     , m_asoboMaterialEmissiveAppliedUniform("u_AsoboMaterialEmissiveApplied")
+    , m_asoboDetailMapUniform("u_AsoboDetailMapEnabled")
     , m_lights(gl)
 {
     setEnvironmentMapRotation(0.0f);
@@ -51,6 +52,7 @@ ux3d::renderer::CommandGenerator::CommandGenerator(gl::GL* gl, const filesystem:
     setMsfsEmissiveScale(0.001f);
     setTimeOfDay(0);
     setAsoboMaterialEmissiveApplied(false);
+    setAsoboDetailMap(false);
 
     // A2.2: stable borrowed wrappers for the six accumulation targets. Nearest filtering
     // keeps texelFetch exact; clamp-to-edge is irrelevant for texelFetch but explicit.
@@ -119,8 +121,9 @@ void ux3d::renderer::CommandGenerator::bindFrameBlocks()
     // int u_AsoboNormalMapDirectX at 64, int u_AsoboWindshieldVertexColorMask at 68,
     // int u_AsoboDecalReceiver at 72, float u_DecalDepthTolerance at 76,
     // int u_AsoboEmissiveActive at 80, float u_MsfsEmissiveScale at 84,
-    // int u_TimeOfDay at 88, int u_AsoboMaterialEmissiveApplied at 92 (96 bytes).
-    uint8_t environment[96] = {};
+    // int u_TimeOfDay at 88, int u_AsoboMaterialEmissiveApplied at 92,
+    // int u_AsoboDetailMapEnabled at 96 (112 bytes, std140 rounds the block up to 16).
+    uint8_t environment[112] = {};
     if (m_environmentMapRotationUniform.byteSize() == 36) {
         for (size_t column = 0; column < 3; ++column) {
             std::memcpy(environment + column * 16, m_environmentMapRotationUniform.bytes() + column * 12, 12);
@@ -140,6 +143,7 @@ void ux3d::renderer::CommandGenerator::bindFrameBlocks()
     place(environment, 84, 4, m_msfsEmissiveScaleUniform);
     place(environment, 88, 4, m_timeOfDayUniform);
     place(environment, 92, 4, m_asoboMaterialEmissiveAppliedUniform);
+    place(environment, 96, 4, m_asoboDetailMapUniform);
     uploadFrameBlock(m_environmentBlock, gl::kEnvironmentBlockBinding, environment, sizeof(environment));
 }
 
@@ -269,6 +273,11 @@ void ux3d::renderer::CommandGenerator::setExposure(float _exposure)
 void ux3d::renderer::CommandGenerator::setAsoboNormalMapConvention(bool directX)
 {
     m_asoboNormalMapDirectXUniform.write(static_cast<int>(directX ? 1 : 0));
+}
+
+void ux3d::renderer::CommandGenerator::setAsoboDetailMap(bool enabled)
+{
+    m_asoboDetailMapUniform.write(static_cast<int>(enabled ? 1 : 0));
 }
 
 void ux3d::renderer::CommandGenerator::setAsoboWindshieldVertexColorMask(bool enabled)

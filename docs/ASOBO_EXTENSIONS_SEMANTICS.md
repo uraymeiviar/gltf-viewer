@@ -727,6 +727,28 @@ Let `B = baseColorFactor.rgb * baseColorTexture.rgb` (before vertex color), `D =
 5. Does the engine use only R from `blendMaskTexture`, or G/B/A for additional masks? The preview uses R.
 6. Is the added detail normal normalized in the engine? The preview adds two tangent-space vectors without normalization.
 
+**Glider A5.1 implementation (2026-10-27).** `resources/shaders/asobo_detail_map.glsl` holds the
+renderer's operators: `applyAsoboDetailColor`, `applyAsoboDetailOrm`, `applyAsoboDetailOcclusion` and
+`applyAsoboDetailNormal`, all gated by the per-viewport `u_AsoboDetailMapEnabled`. The detail UV is
+`v_texcoord_0 * UVScale + UVOffset`; the offset is a Glider-only key (neither the schema nor exporter
+8.4.1 has it, see the A5.1 entry). One `getAsoboDetailWeight()` returns the shared mask (vA in detail
+mode, `1 - coverage` in blend mode). The detail normal is decoded with the same function and gating
+as the base normal and combined with the normalised whiteout operator (so a flat map is an exact
+identity); blend mode lerps the detail normal to the base as the graph does. **Source discrepancy:**
+in the installed exporter the OMR group scales the *base* sample (`ORM.g * RoughnessScale` at
+`blender/material/msfs_material.py:2109-2121`) and adds the unscaled detail offset, while the
+formulas above scale the offset. A5.1 follows the exporter source (`applyAsoboDetailOrm` in
+`asobo_detail_map.glsl` adds the offset unscaled); the two readings differ only for `carpetVC` (777,
+`metallicFactor` 0) and the E195 `windshield` (`metallicFactor`/`roughnessFactor` 0).
+**Windshield materials (V, MSFS SDK).** On a windshield the detail slots keep their JSON names but mean the
+windshield layers: `detailColorTexture` R = details 1 mask (roughness/opacity, × red vertex colour), G = icing mask
+(× vertex alpha), B = details 2 mask (× blue vertex colour); `detailMetalRoughAOTexture` = detail reflection
+(R reflection, G roughness, B metallic, tiled by the detail UV tiling); `detailNormalTexture` = icing normal
+([FlightSim Material Textures](https://docs.flightsimulator.com/msfs2024/html/3_Models_And_Textures/Textures/Materials/FlightSim_Material_Textures.htm),
+[Windshield And Windows](https://docs.flightsimulator.com/msfs2024/html/3_Models_And_Textures/Modeling/Aircraft/Airframe/Windshield_And_Windows.htm)).
+Glider therefore does not apply the generic detail map to windshield v3, windshield v1 or material code
+`Windshield`; icing is a weather state and the detail layers are A4 windshield work.
+
 ## 15. `ASOBO_material_UV_options`
 
 **Coverage: complete** for the exported values and the Blender UV graph; the clamp default and V-centering are open.

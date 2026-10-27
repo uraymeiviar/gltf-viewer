@@ -24,7 +24,7 @@ const std::vector<SupportInfo>& supportTable()
         {"ASOBO_material_clear_coat", Support::NotYetSupported, "A7", ""},
         {"ASOBO_material_clear_coat_v2", Support::NotYetSupported, "A7", ""},
         {"ASOBO_material_code", Support::Partial, "A4", "extras Glass/Windshield type fallback; Porthole is parallax and is not glass"},
-        {"ASOBO_material_detail_map", Support::NotYetSupported, "A5", ""},
+        {"ASOBO_material_detail_map", Support::Rendered, "A5.1", "detail colour, ORM and normal over UVScale; vertex-alpha or blend-mask mode; object-attribute scale ignored; detail AO needs a core occlusion map"},
         {"ASOBO_material_disable_motion_blur", Support::NotApplicable, "A7", "Glider has no motion blur"},
         {"ASOBO_material_draw_order", Support::Rendered, "A1.4", "decals, glass and windshield sort by drawOrderOffset"},
         {"ASOBO_material_emissive", Support::Rendered, "A1", "day/night multipliers; MSFS emissive scale"},
