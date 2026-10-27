@@ -40,13 +40,29 @@ struct ImagePreviewEntry {
     bool signedSquare = false;
 };
 
-static std::unordered_map<const ux3d::gltf::Image*, ImagePreviewEntry> s_previewCache;
+// One image can be previewed both as a regular texture and as a normal map
+// (signed-square decode). Keep one entry per interpretation so material slots
+// showing the same image in different roles do not recreate it every frame.
+struct ImagePreviewCacheEntry {
+    ImagePreviewEntry regular;
+    ImagePreviewEntry signedSquare;
+
+    ImagePreviewEntry& get(bool signedSquareNormal)
+    {
+        return signedSquareNormal ? signedSquare : regular;
+    }
+};
+
+static std::unordered_map<const ux3d::gltf::Image*, ImagePreviewCacheEntry> s_previewCache;
 
 void ElementInspector::clearPreviewCache()
 {
     for (auto& pair : s_previewCache) {
-        if (pair.second.textureId != 0) {
-            glDeleteTextures(1, &pair.second.textureId);
+        if (pair.second.regular.textureId != 0) {
+            glDeleteTextures(1, &pair.second.regular.textureId);
+        }
+        if (pair.second.signedSquare.textureId != 0) {
+            glDeleteTextures(1, &pair.second.signedSquare.textureId);
         }
     }
     s_previewCache.clear();
@@ -270,13 +286,16 @@ static GLuint getOrCreateImagePreviewTexture(const ux3d::gltf::Image* img,
 
     // 1. Check local cache
     auto cacheIt = s_previewCache.find(img);
-    if (cacheIt != s_previewCache.end() && cacheIt->second.textureId != 0) {
-        if (cacheIt->second.encodedMapID == img->encodedMapID && cacheIt->second.signedSquare == signedSquareNormal) {
-            return cacheIt->second.textureId;
+    if (cacheIt != s_previewCache.end()) {
+        ImagePreviewEntry& cached = cacheIt->second.get(signedSquareNormal);
+        if (cached.textureId != 0 && cached.encodedMapID == img->encodedMapID) {
+            return cached.textureId;
         }
-        // Stale texture, destroy it
-        glDeleteTextures(1, &cacheIt->second.textureId);
-        s_previewCache.erase(cacheIt);
+        if (cached.textureId != 0) {
+            // Stale texture, destroy it
+            glDeleteTextures(1, &cached.textureId);
+            cached = ImagePreviewEntry();
+        }
     }
 
     // 2. Block-compressed KTX2 cannot be shown by uploading its bytes as pixels. Decode a
@@ -299,7 +318,7 @@ static GLuint getOrCreateImagePreviewTexture(const ux3d::gltf::Image* img,
                 entry.textureId = texId;
                 entry.encodedMapID = img->encodedMapID;
                 entry.signedSquare = signedSquareNormal;
-                s_previewCache[img] = entry;
+                s_previewCache[img].get(signedSquareNormal) = entry;
                 return texId;
             }
         }
@@ -397,9 +416,16 @@ static GLuint getOrCreateImagePreviewTexture(const ux3d::gltf::Image* img,
     entry.textureId = texId;
     entry.encodedMapID = img->encodedMapID;
     entry.signedSquare = signedSquareNormal;
-    s_previewCache[img] = entry;
+    s_previewCache[img].get(signedSquareNormal) = entry;
 
     return texId;
+}
+
+unsigned int ElementInspector::getImagePreviewTextureId(const ux3d::gltf::Image* image,
+                                                        ux3d::renderer::GltfRenderLayer* gltfLayer,
+                                                        bool signedSquareNormal)
+{
+    return getOrCreateImagePreviewTexture(image, gltfLayer, signedSquareNormal);
 }
 
 static void renderImagePreview(const ux3d::gltf::Image* img, ux3d::renderer::GltfRenderLayer* gltfLayer,
@@ -497,6 +523,29 @@ static void renderImagePreview(const ux3d::gltf::Image* img, ux3d::renderer::Glt
     } else {
         ImGui::TextDisabled("Preview texture unavailable");
     }
+}
+
+static bool renderBackToMaterialButton(SelectionState& selection, const char* probeTag)
+{
+    if (selection.returnMaterial == nullptr) {
+        return false;
+    }
+    ux3d::gltf::Material* material = selection.returnMaterial;
+    const std::string materialName = material->hasName()
+        ? material->getName().c_str()
+        : ("Material " + std::to_string(material->m_ID));
+    if (ImGui::Button(ICON_MDI_ARROW_LEFT " Back to Material")) {
+        selection.selectMaterial(material);
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+        ImGui::SetTooltip("Return to %s", materialName.c_str());
+    }
+    UiProbe::item(probeTag, 0);
+    ImGui::SameLine();
+    ImGui::TextDisabled("%s", materialName.c_str());
+    ImGui::Separator();
+    return true;
 }
 
 void ElementInspector::render(SelectionState& selection,
@@ -782,7 +831,7 @@ void ElementInspector::render(SelectionState& selection,
             ImGui::Separator();
         }
 
-        MaterialInspector::render(selection.selectedMaterial, gltfModel, revisions);
+        MaterialInspector::render(selection.selectedMaterial, gltfModel, revisions, selection, gltfLayer);
     }
 
     // -----------------------------------------------------------------
@@ -1010,6 +1059,7 @@ void ElementInspector::render(SelectionState& selection,
     // Texture / Image Inspector
     // -----------------------------------------------------------------
     else if (selection.type == SelectionType::Texture && selection.selectedTexture != nullptr) {
+        renderBackToMaterialButton(selection, "texture.backToMaterial");
         auto* tex = selection.selectedTexture;
         // Same image the renderer binds, including MSFT_texture_dds (packaged MSFS files
         // have no core source at all).
@@ -1195,6 +1245,83 @@ void ElementInspector::render(SelectionState& selection,
 
         renderImagePreview(img, gltfLayer,
                            packagedTextures && isPackagedNormalMap(gltfModel, img, ddsDeclared));
+    }
+
+    // -----------------------------------------------------------------
+    // Accessor Inspector (TEXCOORD_n targets from the material inspector)
+    // -----------------------------------------------------------------
+    else if (selection.type == SelectionType::Accessor && selection.selectedAccessor != nullptr) {
+        renderBackToMaterialButton(selection, "accessor.backToMaterial");
+        auto* accessor = selection.selectedAccessor;
+        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Accessor ID: %u", accessor->m_ID);
+        ImGui::Separator();
+
+        const std::string typeName = ux3d::gltf::attributeTypeToString(accessor->getType()).c_str();
+        const std::string componentName = ux3d::gltf::GlTypes::componentTypeToString(accessor->getComponentType()).c_str();
+        ImGui::Text("Type: %s", typeName.empty() ? "Unknown" : typeName.c_str());
+        ImGui::Text("Component Type: %s", componentName.empty() ? "Unknown" : componentName.c_str());
+        ImGui::Text("Count: %u", accessor->getCount());
+        ImGui::Text("Normalized: %s", accessor->isNormalized() ? "Yes" : "No");
+        ImGui::Text("Size: %zu bytes", accessor->getSizeInBytes());
+
+        if (auto* bufferView = accessor->getBufferView(); bufferView != nullptr) {
+            ImGui::Text("Buffer View: %u", bufferView->m_ID);
+            if (bufferView->getBuffer() != nullptr) {
+                ImGui::Text("Buffer: %u", bufferView->getBuffer()->m_ID);
+            }
+            ImGui::Text("View Offset: %u bytes", bufferView->getByteOffset());
+            ImGui::Text("View Length: %u bytes", bufferView->getByteLength());
+            if (bufferView->getByteStride().has_value()) {
+                ImGui::Text("Byte Stride: %u bytes", bufferView->getByteStride().value());
+            }
+        }
+        ImGui::Text("Accessor Offset: %u bytes", accessor->getByteOffset());
+
+        if (!accessor->getMin().empty() || !accessor->getMax().empty()) {
+            ImGui::Spacing();
+            if (!accessor->getMin().empty()) {
+                ImGui::TextUnformatted("Min:");
+                for (double value : accessor->getMin()) {
+                    ImGui::SameLine();
+                    ImGui::Text("%.6g", value);
+                }
+            }
+            if (!accessor->getMax().empty()) {
+                ImGui::TextUnformatted("Max:");
+                for (double value : accessor->getMax()) {
+                    ImGui::SameLine();
+                    ImGui::Text("%.6g", value);
+                }
+            }
+        }
+
+        ImGui::Separator();
+        ImGui::TextDisabled("Used by");
+        int usageCount = 0;
+        for (auto& mesh : gltfModel.getElements<ux3d::gltf::Mesh>()) {
+            const std::string meshLabel = mesh.hasName()
+                ? mesh.getName().c_str()
+                : ("Mesh " + std::to_string(mesh.m_ID));
+            int primitiveIndex = 0;
+            for (auto& primitive : mesh.getPrimitives()) {
+                for (auto& attribute : primitive.getAttributes()) {
+                    if (attribute.getAccessor() != accessor) {
+                        continue;
+                    }
+                    ++usageCount;
+                    ImGui::BulletText("%s / Primitive %d: %s", meshLabel.c_str(), primitiveIndex,
+                                      attribute.getName().c_str());
+                }
+                if (primitive.getIndicesAccessor() == accessor) {
+                    ++usageCount;
+                    ImGui::BulletText("%s / Primitive %d: indices", meshLabel.c_str(), primitiveIndex);
+                }
+                ++primitiveIndex;
+            }
+        }
+        if (usageCount == 0) {
+            ImGui::TextDisabled("No mesh attribute or index references this accessor.");
+        }
     }
 
     // -----------------------------------------------------------------

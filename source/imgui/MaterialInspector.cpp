@@ -1,11 +1,17 @@
 // Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
 
 #include "imgui/MaterialInspector.h"
+#include "imgui/ElementInspector.h"
 #include "imgui/ExtensionInspector.h"
+#include "imgui/ResourcesPanel.h"
 #include "imgui/TextureUtils.h"
+#include "imgui/UiProbe.h"
 #include "imgui/IconsMaterialDesignIcons.h"
 #include "imgui/Theme.h"
+#include "renderer/gltf/GltfRenderLayer.h"
 #include <imgui.h>
+#include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <cstdio>
 #include <vector>
@@ -13,76 +19,246 @@
 
 namespace ux3d::imgui {
 
+namespace {
+
+std::string makeProbeTag(const char* prefix, const char* label)
+{
+    std::string tag = prefix;
+    bool separator = false;
+    for (const char* p = label; *p != '\0'; ++p) {
+        const unsigned char c = static_cast<unsigned char>(*p);
+        if (std::isalnum(c)) {
+            tag.push_back(static_cast<char>(std::tolower(c)));
+            separator = false;
+        } else if (!separator) {
+            tag.push_back('.');
+            separator = true;
+        }
+    }
+    while (!tag.empty() && tag.back() == '.') {
+        tag.pop_back();
+    }
+    return tag;
+}
+
+struct TexCoordAccessorUsage {
+    ux3d::gltf::Accessor* accessor = nullptr;
+    const ux3d::gltf::Mesh* mesh = nullptr;
+    int primitiveIndex = -1;
+    int usageCount = 0;
+};
+
+bool primitiveUsesMaterial(const ux3d::gltf::Primitive& primitive, const ux3d::gltf::Material* material)
+{
+    if (primitive.getMaterial() == material) {
+        return true;
+    }
+    return primitive.hasMaterialVariantsMapping()
+        && primitive.getMaterialVariantsMapping()->hasMappingForMaterial(material);
+}
+
+TexCoordAccessorUsage findTexCoordAccessor(ux3d::gltf::Gltf& gltfModel,
+                                           const ux3d::gltf::Material* material,
+                                           uint32_t texCoord)
+{
+    TexCoordAccessorUsage usage;
+    const std::string semantic = "TEXCOORD_" + std::to_string(texCoord);
+    for (auto& mesh : gltfModel.getElements<ux3d::gltf::Mesh>()) {
+        int primitiveIndex = 0;
+        for (auto& primitive : mesh.getPrimitives()) {
+            if (primitiveUsesMaterial(primitive, material)) {
+                for (auto& attribute : primitive.getAttributes()) {
+                    if (attribute.getAccessor() == nullptr || attribute.getName() != semantic.c_str()) {
+                        continue;
+                    }
+                    if (usage.accessor == nullptr) {
+                        usage.accessor = attribute.getAccessor();
+                        usage.mesh = &mesh;
+                        usage.primitiveIndex = primitiveIndex;
+                    }
+                    ++usage.usageCount;
+                }
+            }
+            ++primitiveIndex;
+        }
+    }
+    return usage;
+}
+
+std::string materialDisplayName(const ux3d::gltf::Material* material)
+{
+    if (material == nullptr) {
+        return "Material";
+    }
+    return material->hasName() ? material->getName().c_str() : ("Material " + std::to_string(material->m_ID));
+}
+
+} // namespace
+
 bool MaterialInspector::renderTextureSlot(const char* label,
                                           std::optional<ux3d::gltf::TextureInfo>& texInfo,
                                           ux3d::gltf::Gltf& gltfModel,
+                                          ux3d::gltf::Material* material,
+                                          SelectionState& selection,
+                                          ux3d::renderer::GltfRenderLayer* gltfLayer,
                                           bool showScale,
                                           bool showStrength)
 {
     bool modified = false;
     ImGui::PushID(label);
 
-    bool hasTex = texInfo.has_value() && (texInfo->getTexture() != nullptr);
-    auto& textures = gltfModel.getElements<ux3d::gltf::Texture>();
+    const bool hasTexture = texInfo.has_value() && (texInfo->getTexture() != nullptr);
+    ux3d::gltf::Texture* texture = hasTexture ? texInfo->getTexture() : nullptr;
+    ux3d::gltf::Image* source = nullptr;
+    if (texture != nullptr) {
+        source = ux3d::renderer::GltfRenderLayer::pickImageForTexture(
+            texture, gltfModel.isExtensionDeclared("MSFT_texture_dds"));
+        if (source == nullptr) {
+            source = texture->getSource();
+        }
+    }
 
     if (ImGui::TreeNodeEx(label, ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed | ImGuiTreeNodeFlags_SpanAvailWidth)) {
-        // Texture selection combo
-        std::string currentPreview = "None";
-        if (hasTex) {
-            currentPreview = getTextureDisplayName(texInfo->getTexture());
+        if (!hasTexture) {
+            ImGui::TextDisabled("None");
+            ImGui::TreePop();
+            ImGui::PopID();
+            return false;
         }
 
-        if (ImGui::BeginCombo("Texture", currentPreview.c_str())) {
-            bool isNoneSelected = !hasTex;
-            if (ImGui::Selectable("None", isNoneSelected)) {
-                if (texInfo.has_value()) {
-                    texInfo->unsetTexture();
-                    modified = true;
-                }
-            }
-            if (isNoneSelected) {
-                ImGui::SetItemDefaultFocus();
-            }
+        constexpr float previewSize = 64.0f;
+        const std::string previewProbe = makeProbeTag("material.texture.", label);
+        const unsigned int previewId = source != nullptr
+            ? ElementInspector::getImagePreviewTextureId(source, gltfLayer, showScale)
+            : 0;
 
-            for (auto& tex : textures) {
-                bool isSelected = hasTex && (texInfo->getTexture() == &tex);
-                std::string itemLabel = getTextureDisplayName(&tex);
-                if (ImGui::Selectable(itemLabel.c_str(), isSelected)) {
-                    if (!texInfo.has_value()) {
-                        texInfo.emplace();
+        const ImVec2 previewMin = ImGui::GetCursorScreenPos();
+        const ImVec2 previewMax(previewMin.x + previewSize, previewMin.y + previewSize);
+        ImGui::InvisibleButton("##TexturePreview", ImVec2(previewSize, previewSize));
+        const bool previewHovered = ImGui::IsItemHovered();
+        const bool previewClicked = ImGui::IsItemClicked();
+
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        drawList->AddRectFilled(previewMin, previewMax, IM_COL32(18, 18, 22, 255), 3.0f);
+        if (previewId != 0) {
+            ImVec2 imageMin = previewMin;
+            ImVec2 imageMax = previewMax;
+            uint32_t width = 0;
+            uint32_t height = 0;
+            if (source != nullptr) {
+                const auto& decoded = source->getData();
+                width = decoded.getWidth();
+                height = decoded.getHeight();
+                if (width == 0 || height == 0) {
+                    const auto resolution = source->getResolution();
+                    if (resolution.size() >= 2) {
+                        width = resolution[0];
+                        height = resolution[1];
                     }
-                    texInfo->setTexture(tex);
-                    modified = true;
-                }
-                if (isSelected) {
-                    ImGui::SetItemDefaultFocus();
                 }
             }
-            ImGui::EndCombo();
+            if (width > 0 && height > 0) {
+                const float fit = std::min(previewSize / static_cast<float>(width),
+                                           previewSize / static_cast<float>(height));
+                const float imageWidth = static_cast<float>(width) * fit;
+                const float imageHeight = static_cast<float>(height) * fit;
+                imageMin = ImVec2(previewMin.x + (previewSize - imageWidth) * 0.5f,
+                                  previewMin.y + (previewSize - imageHeight) * 0.5f);
+                imageMax = ImVec2(imageMin.x + imageWidth, imageMin.y + imageHeight);
+            }
+            drawList->AddImage(static_cast<ImTextureID>(previewId), imageMin, imageMax);
+        } else {
+            const char* placeholder = ICON_MDI_IMAGE_BROKEN;
+            const ImVec2 textSize = ImGui::CalcTextSize(placeholder);
+            drawList->AddText(ImVec2(previewMin.x + (previewSize - textSize.x) * 0.5f,
+                                     previewMin.y + (previewSize - textSize.y) * 0.5f),
+                              IM_COL32(125, 125, 135, 255), placeholder);
         }
+        drawList->AddRect(previewMin, previewMax,
+                          previewHovered ? IM_COL32(33, 171, 107, 255) : IM_COL32(70, 70, 78, 255),
+                          3.0f, 0, previewHovered ? 2.0f : 1.0f);
 
-        if (texInfo.has_value() && texInfo->getTexture() != nullptr) {
-            auto* t = texInfo->getTexture();
-            if (t->getSource() != nullptr) {
-                auto* src = t->getSource();
-                if (!src->getUri().empty()) {
-                    ImGui::TextDisabled("File: %s", src->getUri().c_str());
-                }
-                auto res = src->getResolution();
-                if (res.size() >= 2 && res[0] > 0 && res[1] > 0) {
-                    ImGui::SameLine();
-                    ImGui::TextDisabled("(%ux%u px)", res[0], res[1]);
-                }
+        if (previewHovered) {
+            ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+            ImGui::SetTooltip("Inspect %s", getTextureDisplayName(texture, source).c_str());
+        }
+        if (previewClicked) {
+            selection.selectTextureFromMaterial(texture, material);
+        }
+        UiProbe::item(previewProbe.c_str(), 0);
+
+        ImGui::SameLine();
+        ImGui::BeginGroup();
+        if (hasTexture) {
+            std::string textureLabel = std::string(ICON_MDI_TEXTURE " ") + getTextureDisplayName(texture, source);
+            textureLabel += "##InspectTexture";
+            const float buttonWidth = ImGui::GetContentRegionAvail().x;
+            if (ImGui::Button(textureLabel.c_str(), ImVec2(buttonWidth > 0.0f ? buttonWidth : 0.0f, 0.0f))) {
+                selection.selectTextureFromMaterial(texture, material);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+                ImGui::SetTooltip("Inspect %s", getTextureDisplayName(texture, source).c_str());
             }
 
-            // TexCoord index
-            int texCoord = static_cast<int>(texInfo->getTexCoordOrDefault());
-            const char* coordItems[] = { "TEXCOORD_0", "TEXCOORD_1" };
-            if (ImGui::Combo("TexCoord", &texCoord, coordItems, 2)) {
-                texInfo->setTexCoord(static_cast<uint32_t>(texCoord));
-                modified = true;
+            std::string sourceLine;
+            if (source != nullptr) {
+                if (!source->getUri().empty()) {
+                    const std::string uri = source->getUri().c_str();
+                    sourceLine = uri.rfind("data:", 0) == 0 ? "Embedded image" : getFilenameFromUri(uri);
+                }
+                const auto resolution = source->getResolution();
+                if (resolution.size() >= 2 && resolution[0] > 0 && resolution[1] > 0) {
+                    if (!sourceLine.empty()) {
+                        sourceLine += "  ";
+                    }
+                    sourceLine += std::to_string(resolution[0]) + " x " + std::to_string(resolution[1]) + " px";
+                }
+            }
+            if (!sourceLine.empty()) {
+                ImGui::TextDisabled("%s", sourceLine.c_str());
             }
 
+            const uint32_t texCoord = texInfo->getTexCoordOrDefault();
+            const std::string texCoordLabel = "TEXCOORD_" + std::to_string(texCoord);
+            const TexCoordAccessorUsage usage = findTexCoordAccessor(gltfModel, material, texCoord);
+            const bool canInspectTexCoord = usage.accessor != nullptr;
+            if (!canInspectTexCoord) {
+                ImGui::BeginDisabled();
+            }
+            const std::string texCoordButton = ICON_MDI_VECTOR_SQUARE " " + texCoordLabel + "##InspectTexCoord";
+            if (ImGui::Button(texCoordButton.c_str()) && canInspectTexCoord) {
+                selection.selectAccessorFromMaterial(usage.accessor, material);
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                if (canInspectTexCoord) {
+                    ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+                    std::string tooltip = "Inspect " + texCoordLabel + " (Accessor " + std::to_string(usage.accessor->m_ID) + ")";
+                    if (usage.mesh != nullptr) {
+                        tooltip += "\nMesh " + std::to_string(usage.mesh->m_ID);
+                        if (usage.mesh->hasName()) {
+                            tooltip += " \"" + std::string(usage.mesh->getName().c_str()) + "\"";
+                        }
+                        tooltip += ", Primitive " + std::to_string(usage.primitiveIndex);
+                    }
+                    if (usage.usageCount > 1) {
+                        tooltip += "\nUsed by " + std::to_string(usage.usageCount) + " primitives.";
+                    }
+                    ImGui::SetTooltip("%s", tooltip.c_str());
+                } else {
+                    ImGui::SetTooltip("No primitive using this material defines %s.", texCoordLabel.c_str());
+                }
+            }
+            UiProbe::item(makeProbeTag("material.texcoord.", label).c_str(), 0);
+            if (!canInspectTexCoord) {
+                ImGui::EndDisabled();
+            }
+        } else {
+            ImGui::TextDisabled("None");
+        }
+        ImGui::EndGroup();
+
+        if (hasTexture) {
             // Normal map scale
             if (showScale) {
                 ImGui::PushFont(getMonoFont());
@@ -119,7 +295,11 @@ bool MaterialInspector::renderTextureSlot(const char* label,
     return modified;
 }
 
-bool MaterialInspector::render(ux3d::gltf::Material* material, ux3d::gltf::Gltf& gltfModel, SceneRevisions& revisions)
+bool MaterialInspector::render(ux3d::gltf::Material* material,
+                               ux3d::gltf::Gltf& gltfModel,
+                               SceneRevisions& revisions,
+                               SelectionState& selection,
+                               ux3d::renderer::GltfRenderLayer* gltfLayer)
 {
     if (material == nullptr) {
         ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "No material selected.");
@@ -239,17 +419,17 @@ bool MaterialInspector::render(ux3d::gltf::Material* material, ux3d::gltf::Gltf&
         }
 
         // Emissive Texture Slot
-        if (renderTextureSlot("Emissive Texture", material->getEmissiveTextureInfo(), gltfModel)) {
+        if (renderTextureSlot("Emissive Texture", material->getEmissiveTextureInfo(), gltfModel, material, selection, gltfLayer)) {
             modified = true;
         }
 
         // Normal Texture Slot
-        if (renderTextureSlot("Normal Texture", material->getNormalTextureInfo(), gltfModel, true, false)) {
+        if (renderTextureSlot("Normal Texture", material->getNormalTextureInfo(), gltfModel, material, selection, gltfLayer, true, false)) {
             modified = true;
         }
 
         // Occlusion Texture Slot
-        if (renderTextureSlot("Occlusion Texture", material->getOcclusionTextureInfo(), gltfModel, false, true)) {
+        if (renderTextureSlot("Occlusion Texture", material->getOcclusionTextureInfo(), gltfModel, material, selection, gltfLayer, false, true)) {
             modified = true;
         }
     }
@@ -275,7 +455,7 @@ bool MaterialInspector::render(ux3d::gltf::Material* material, ux3d::gltf::Gltf&
             }
 
             // Base Color Texture Slot
-            if (renderTextureSlot("Base Color Texture", mr.getBaseColorTextureInfo(), gltfModel)) {
+            if (renderTextureSlot("Base Color Texture", mr.getBaseColorTextureInfo(), gltfModel, material, selection, gltfLayer)) {
                 modified = true;
             }
 
@@ -296,7 +476,7 @@ bool MaterialInspector::render(ux3d::gltf::Material* material, ux3d::gltf::Gltf&
             ImGui::PopFont();
 
             // Metallic Roughness Texture Slot
-            if (renderTextureSlot("Metallic-Roughness Texture", mr.getMetallicRoughnessTextureInfo(), gltfModel)) {
+            if (renderTextureSlot("Metallic-Roughness Texture", mr.getMetallicRoughnessTextureInfo(), gltfModel, material, selection, gltfLayer)) {
                 modified = true;
             }
         }
@@ -316,7 +496,7 @@ bool MaterialInspector::render(ux3d::gltf::Material* material, ux3d::gltf::Gltf&
                 modified = true;
             }
 
-            if (renderTextureSlot("Diffuse Texture", sg.getDiffuseTextureInfo(), gltfModel)) {
+            if (renderTextureSlot("Diffuse Texture", sg.getDiffuseTextureInfo(), gltfModel, material, selection, gltfLayer)) {
                 modified = true;
             }
 
@@ -333,7 +513,7 @@ bool MaterialInspector::render(ux3d::gltf::Material* material, ux3d::gltf::Gltf&
                 modified = true;
             }
 
-            if (renderTextureSlot("Specular-Glossiness Texture", sg.getSpecularGlossinessTextureInfo(), gltfModel)) {
+            if (renderTextureSlot("Specular-Glossiness Texture", sg.getSpecularGlossinessTextureInfo(), gltfModel, material, selection, gltfLayer)) {
                 modified = true;
             }
         }
@@ -395,9 +575,9 @@ bool MaterialInspector::render(ux3d::gltf::Material* material, ux3d::gltf::Gltf&
                 cc.setClearcoatRoughnessFactor(static_cast<double>(ccRoughness));
                 modified = true;
             }
-            if (renderTextureSlot("Clearcoat Texture", cc.getClearcoatTexture(), gltfModel)) modified = true;
-            if (renderTextureSlot("Clearcoat Roughness Texture", cc.getClearcoatRoughnessTexture(), gltfModel)) modified = true;
-            if (renderTextureSlot("Clearcoat Normal Texture", cc.getClearcoatNormalTexture(), gltfModel, true, false)) modified = true;
+            if (renderTextureSlot("Clearcoat Texture", cc.getClearcoatTexture(), gltfModel, material, selection, gltfLayer)) modified = true;
+            if (renderTextureSlot("Clearcoat Roughness Texture", cc.getClearcoatRoughnessTexture(), gltfModel, material, selection, gltfLayer)) modified = true;
+            if (renderTextureSlot("Clearcoat Normal Texture", cc.getClearcoatNormalTexture(), gltfModel, material, selection, gltfLayer, true, false)) modified = true;
             ImGui::Unindent(15.0f);
         }
 
@@ -416,7 +596,7 @@ bool MaterialInspector::render(ux3d::gltf::Material* material, ux3d::gltf::Gltf&
                 trans.setTransmissionFactor(static_cast<double>(transFactor));
                 modified = true;
             }
-            if (renderTextureSlot("Transmission Texture", trans.getTransmissionTextureInfo(), gltfModel)) modified = true;
+            if (renderTextureSlot("Transmission Texture", trans.getTransmissionTextureInfo(), gltfModel, material, selection, gltfLayer)) modified = true;
             ImGui::Unindent(15.0f);
         }
 
@@ -446,7 +626,7 @@ bool MaterialInspector::render(ux3d::gltf::Material* material, ux3d::gltf::Gltf&
                 vol.setAttenuationColor(ux3d::math::dvec3(attColor[0], attColor[1], attColor[2]));
                 modified = true;
             }
-            if (renderTextureSlot("Thickness Texture", vol.getThicknessTextureInfo(), gltfModel)) modified = true;
+            if (renderTextureSlot("Thickness Texture", vol.getThicknessTextureInfo(), gltfModel, material, selection, gltfLayer)) modified = true;
             ImGui::Unindent(15.0f);
         }
 
@@ -490,8 +670,8 @@ bool MaterialInspector::render(ux3d::gltf::Material* material, ux3d::gltf::Gltf&
                 spec.setSpecularColorFactor(ux3d::math::dvec3(specColor[0], specColor[1], specColor[2]));
                 modified = true;
             }
-            if (renderTextureSlot("Specular Texture", spec.getSpecularTextureInfo(), gltfModel)) modified = true;
-            if (renderTextureSlot("Specular Color Texture", spec.getSpecularColorTextureInfo(), gltfModel)) modified = true;
+            if (renderTextureSlot("Specular Texture", spec.getSpecularTextureInfo(), gltfModel, material, selection, gltfLayer)) modified = true;
+            if (renderTextureSlot("Specular Color Texture", spec.getSpecularColorTextureInfo(), gltfModel, material, selection, gltfLayer)) modified = true;
             ImGui::Unindent(15.0f);
         }
 
@@ -516,8 +696,8 @@ bool MaterialInspector::render(ux3d::gltf::Material* material, ux3d::gltf::Gltf&
                 sheen.setSheenRoughnessFactor(static_cast<double>(sheenRough));
                 modified = true;
             }
-            if (renderTextureSlot("Sheen Color Texture", sheen.getSheenColorTextureInfo(), gltfModel)) modified = true;
-            if (renderTextureSlot("Sheen Roughness Texture", sheen.getSheenRoughnessTextureInfo(), gltfModel)) modified = true;
+            if (renderTextureSlot("Sheen Color Texture", sheen.getSheenColorTextureInfo(), gltfModel, material, selection, gltfLayer)) modified = true;
+            if (renderTextureSlot("Sheen Roughness Texture", sheen.getSheenRoughnessTextureInfo(), gltfModel, material, selection, gltfLayer)) modified = true;
             ImGui::Unindent(15.0f);
         }
     }

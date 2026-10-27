@@ -68,100 +68,133 @@ struct SelectionState {
     uint32_t selectedViewportId = 0;
     uint64_t revision = 0;
 
+    // Material that opened the current texture/accessor view. The "Back to
+    // Material" action uses it; every ordinary selection clears it.
+    ux3d::gltf::Material* returnMaterial = nullptr;
+
     void selectViewport(uint32_t vpId) {
         type = SelectionType::Viewport;
         selectedViewportId = vpId;
         ++revision;
+        returnMaterial = nullptr;
     }
 
     void selectNode(const ux3d::gltf::Node* node) {
         type = SelectionType::Node;
         selectedNode = const_cast<ux3d::gltf::Node*>(node);
         ++revision;
+        returnMaterial = nullptr;
     }
 
     void selectMaterial(ux3d::gltf::Material* mat) {
         type = SelectionType::Material;
         selectedMaterial = mat;
         ++revision;
+        returnMaterial = nullptr;
     }
 
     void selectMesh(ux3d::gltf::Mesh* mesh) {
         type = SelectionType::Mesh;
         selectedMesh = mesh;
         ++revision;
+        returnMaterial = nullptr;
     }
 
     void selectCamera(ux3d::gltf::Camera* cam) {
         type = SelectionType::Camera;
         selectedCamera = cam;
         ++revision;
+        returnMaterial = nullptr;
     }
 
     void selectLight(ux3d::gltf::Light* light) {
         type = SelectionType::Light;
         selectedLight = light;
         ++revision;
+        returnMaterial = nullptr;
     }
 
     void selectTexture(ux3d::gltf::Texture* tex) {
         type = SelectionType::Texture;
         selectedTexture = tex;
         ++revision;
+        returnMaterial = nullptr;
+    }
+
+    // Opens a texture from a material slot; the texture view offers "Back to Material".
+    void selectTextureFromMaterial(ux3d::gltf::Texture* tex, ux3d::gltf::Material* material) {
+        selectTexture(tex);
+        returnMaterial = material;
     }
 
     void selectImage(ux3d::gltf::Image* img) {
         type = SelectionType::Image;
         selectedImage = img;
         ++revision;
+        returnMaterial = nullptr;
     }
 
     void selectAnimation(ux3d::gltf::Animation* anim) {
         type = SelectionType::Animation;
         selectedAnimation = anim;
         ++revision;
+        returnMaterial = nullptr;
     }
 
     void selectSkin(ux3d::gltf::Skin* skin) {
         type = SelectionType::Skin;
         selectedSkin = skin;
         ++revision;
+        returnMaterial = nullptr;
     }
 
     void selectVariant(ux3d::gltf::MaterialVariant* variant) {
         type = SelectionType::MaterialVariant;
         selectedVariant = variant;
         ++revision;
+        returnMaterial = nullptr;
     }
 
     void selectScene(ux3d::gltf::Scene* scene) {
         type = SelectionType::Scene;
         selectedScene = scene;
         ++revision;
+        returnMaterial = nullptr;
     }
 
     void selectSampler(ux3d::gltf::Sampler* sampler) {
         type = SelectionType::Sampler;
         selectedSampler = sampler;
         ++revision;
+        returnMaterial = nullptr;
     }
 
     void selectAccessor(ux3d::gltf::Accessor* accessor) {
         type = SelectionType::Accessor;
         selectedAccessor = accessor;
         ++revision;
+        returnMaterial = nullptr;
+    }
+
+    // Opens a TEXCOORD_n accessor from a material slot; the accessor view offers
+    // "Back to Material" when it was reached from a material.
+    void selectAccessorFromMaterial(ux3d::gltf::Accessor* accessor, ux3d::gltf::Material* material) {
+        selectAccessor(accessor);
+        returnMaterial = material;
     }
 
     void selectBufferView(ux3d::gltf::BufferView* bv) {
         type = SelectionType::BufferView;
         selectedBufferView = bv;
         ++revision;
+        returnMaterial = nullptr;
     }
 
     void selectBuffer(ux3d::gltf::Buffer* buf) {
         type = SelectionType::Buffer;
         selectedBuffer = buf;
         ++revision;
+        returnMaterial = nullptr;
     }
 };
 

@@ -7,20 +7,33 @@
 #include "gltf/Material.h"
 #include "gltf/Texture.h"
 
+namespace ux3d::renderer {
+class GltfRenderLayer;
+}
+
 namespace ux3d::imgui {
+
+struct SelectionState;
 
 class MaterialInspector {
 public:
     // Renders the full material inspector GUI
     // Returns true if any material property was modified
-    static bool render(ux3d::gltf::Material* material, ux3d::gltf::Gltf& gltfModel, SceneRevisions& revisions);
+    static bool render(ux3d::gltf::Material* material,
+                       ux3d::gltf::Gltf& gltfModel,
+                       SceneRevisions& revisions,
+                       SelectionState& selection,
+                       ux3d::renderer::GltfRenderLayer* gltfLayer = nullptr);
 
 private:
     static bool renderTextureSlot(const char* label,
-                                 std::optional<ux3d::gltf::TextureInfo>& texInfo,
-                                 ux3d::gltf::Gltf& gltfModel,
-                                 bool showScale = false,
-                                 bool showStrength = false);
+                                  std::optional<ux3d::gltf::TextureInfo>& texInfo,
+                                  ux3d::gltf::Gltf& gltfModel,
+                                  ux3d::gltf::Material* material,
+                                  SelectionState& selection,
+                                  ux3d::renderer::GltfRenderLayer* gltfLayer,
+                                  bool showScale = false,
+                                  bool showStrength = false);
 };
 
 } // namespace ux3d::imgui

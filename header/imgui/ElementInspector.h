@@ -29,6 +29,12 @@ public:
                        ux3d::renderer::CommandGenerator* commandGenerator = nullptr);
 
     static void clearPreviewCache();
+
+    // Returns a cached preview texture for an image, or 0 when no preview can
+    // be built. Shared by the image preview and the material texture slots.
+    static unsigned int getImagePreviewTextureId(const ux3d::gltf::Image* image,
+                                                 ux3d::renderer::GltfRenderLayer* gltfLayer,
+                                                 bool signedSquareNormal = false);
 };
 
 } // namespace ux3d::imgui
