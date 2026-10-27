@@ -1,6 +1,7 @@
 // Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
 
 #include "Application.h"
+#include "imgui/SettingsFile.h"
 #include "imgui/SettingsStorage.h"
 
 #include <algorithm>
@@ -8,13 +9,8 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
-#include <mutex>
 #include <sstream>
 #include <vector>
-
-#ifdef _WIN32
-#include <windows.h>
-#endif
 
 namespace ux3d::imgui {
 
@@ -26,260 +22,63 @@ void logSettingsMessage(const std::string& msg, bool isWarning)
     ux3d::core::log(isWarning ? ux3d::core::LogLevel::Warning : ux3d::core::LogLevel::Info, "%s", formatted.c_str());
 }
 
-static std::filesystem::path getExecutableDirectory()
-{
-#ifdef _WIN32
-    std::wstring buffer(MAX_PATH, L'\0');
-    DWORD len = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
-    while (len == buffer.size()) {
-        buffer.resize(buffer.size() * 2);
-        len = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
-    }
-    if (len > 0) {
-        buffer.resize(len);
-        std::filesystem::path exePath(buffer);
-        return exePath.parent_path();
-    }
-#endif
-    std::error_code ec;
-    return std::filesystem::current_path(ec);
-}
-
-static bool isPathWritable(const std::filesystem::path& dir)
-{
-    std::error_code ec;
-    if (!std::filesystem::exists(dir, ec)) {
-        if (!std::filesystem::create_directories(dir, ec) || ec) {
-            return false;
-        }
-    }
-    const std::filesystem::path probe = dir / ".glider_write_test";
-    {
-        std::ofstream test(probe, std::ios::out | std::ios::binary);
-        if (!test.is_open()) {
-            return false;
-        }
-        test << "ok";
-        if (test.fail()) {
-            test.close();
-            std::filesystem::remove(probe, ec);
-            return false;
-        }
-    }
-    std::filesystem::remove(probe, ec);
-    return true;
-}
-
-static std::mutex s_storageMutex;
-static std::filesystem::path s_resolvedDir;
-static bool s_isResolved = false;
-static bool s_isWritable = true;
-static bool s_isFallback = false;
-
-void resetDataDirectoryCache()
-{
-    std::lock_guard<std::mutex> lock(s_storageMutex);
-    s_isResolved = false;
-    s_resolvedDir.clear();
-    s_isWritable = true;
-    s_isFallback = false;
-}
-
-bool isDataDirectoryWritable()
-{
-    std::lock_guard<std::mutex> lock(s_storageMutex);
-    if (!s_isResolved) {
-        // Resolve with default ensureCreated = true
-        std::filesystem::path candidateDir;
-        const char* overrideEnv = std::getenv("GLIDER_DATA_DIR");
-        if (overrideEnv != nullptr && std::strlen(overrideEnv) > 0) {
-            candidateDir = std::filesystem::u8path(overrideEnv);
-        } else {
-            candidateDir = getExecutableDirectory() / "GliderData";
-        }
-        if (isPathWritable(candidateDir)) {
-            s_resolvedDir = candidateDir;
-            s_isWritable = true;
-            s_isFallback = false;
-            s_isResolved = true;
-            logSettingsMessage("Using portable settings directory: " + s_resolvedDir.string());
-        } else {
-            std::filesystem::path appDataDir;
-            const char* appData = std::getenv("APPDATA");
-            if (appData != nullptr && std::strlen(appData) > 0) {
-                appDataDir = std::filesystem::u8path(appData) / "Glider";
-            } else {
-                std::error_code ec;
-                appDataDir = std::filesystem::temp_directory_path(ec) / "Glider";
-            }
-            if (isPathWritable(appDataDir)) {
-                s_resolvedDir = appDataDir;
-                s_isWritable = true;
-                s_isFallback = true;
-                s_isResolved = true;
-                logSettingsMessage("Portable settings directory '" + candidateDir.string() +
-                                   "' is not writable; falling back to AppData: '" + s_resolvedDir.string() + "'");
-            } else {
-                s_resolvedDir = candidateDir;
-                s_isWritable = false;
-                s_isFallback = false;
-                s_isResolved = true;
-                logSettingsMessage("Settings directory '" + candidateDir.string() +
-                                   "' is not writable and fallback directory is not writable; running with in-memory settings.");
-            }
-        }
-    }
-    return s_isWritable;
-}
-
-std::filesystem::path getDataDirectory(bool ensureCreated)
-{
-    std::lock_guard<std::mutex> lock(s_storageMutex);
-    if (s_isResolved) {
-        return s_resolvedDir;
-    }
-
-    std::filesystem::path candidateDir;
-    const char* overrideEnv = std::getenv("GLIDER_DATA_DIR");
-    if (overrideEnv != nullptr && std::strlen(overrideEnv) > 0) {
-        candidateDir = std::filesystem::u8path(overrideEnv);
-    } else {
-        candidateDir = getExecutableDirectory() / "GliderData";
-    }
-
-    if (!ensureCreated) {
-        return candidateDir;
-    }
-
-    if (isPathWritable(candidateDir)) {
-        s_resolvedDir = candidateDir;
-        s_isWritable = true;
-        s_isFallback = false;
-        s_isResolved = true;
-        logSettingsMessage("Using portable settings directory: " + s_resolvedDir.string());
-    } else {
-        std::filesystem::path appDataDir;
-        const char* appData = std::getenv("APPDATA");
-        if (appData != nullptr && std::strlen(appData) > 0) {
-            appDataDir = std::filesystem::u8path(appData) / "Glider";
-        } else {
-            std::error_code ec;
-            appDataDir = std::filesystem::temp_directory_path(ec) / "Glider";
-        }
-        if (isPathWritable(appDataDir)) {
-            s_resolvedDir = appDataDir;
-            s_isWritable = true;
-            s_isFallback = true;
-            s_isResolved = true;
-            logSettingsMessage("Portable settings directory '" + candidateDir.string() +
-                               "' is not writable; falling back to AppData: '" + s_resolvedDir.string() + "'");
-        } else {
-            s_resolvedDir = candidateDir;
-            s_isWritable = false;
-            s_isFallback = false;
-            s_isResolved = true;
-            logSettingsMessage("Settings directory '" + candidateDir.string() +
-                               "' is not writable and fallback directory is not writable; running with in-memory settings.");
-        }
-    }
-    return s_resolvedDir;
-}
-
-std::filesystem::path getDataFilePath(const std::string& filename, bool ensureCreated)
-{
-    const std::filesystem::path dataDir = getDataDirectory(ensureCreated);
-    const std::filesystem::path target = dataDir / filename;
-    if (!ensureCreated) {
-        return target;
-    }
-
-    std::error_code ec;
-    if (!std::filesystem::exists(target, ec)) {
-        std::vector<std::filesystem::path> migrationSources;
-        const char* appData = std::getenv("APPDATA");
-        if (appData != nullptr && std::strlen(appData) > 0) {
-            if (!s_isFallback) {
-                migrationSources.push_back(std::filesystem::u8path(appData) / "Glider" / filename);
-            }
-            migrationSources.push_back(std::filesystem::u8path(appData) / "Gestaltor" / filename);
-        }
-        if (filename == "settings.ini") {
-            migrationSources.push_back(getExecutableDirectory() / "settings.ini");
-        }
-
-        for (const auto& src : migrationSources) {
-            std::error_code ecCheck;
-            if (std::filesystem::exists(src, ecCheck) && !std::filesystem::is_directory(src, ecCheck)) {
-                std::error_code ecCopy;
-                std::filesystem::copy_file(src, target, std::filesystem::copy_options::none, ecCopy);
-                if (!ecCopy) {
-                    logSettingsMessage("Migrated " + filename + " from " + src.string() + " to " + target.string());
-                    break;
-                }
-            }
-        }
-    }
-    return target;
-}
-
 } // namespace ux3d::imgui
 
 namespace ux3d::imgui::application {
 
-std::string Application::getRecentFilesConfigPath()
+namespace {
+
+bool parseInt(const std::string& text, int& value)
 {
-    return getDataFilePath("recent_files.txt", !s_isolatedState).string();
+    char* end = nullptr;
+    const long parsed = std::strtol(text.c_str(), &end, 10);
+    if (end == text.c_str() || (end != nullptr && *end != '\0')) {
+        return false;
+    }
+    value = static_cast<int>(parsed);
+    return true;
 }
+
+bool parseBool(const std::string& text, bool& value)
+{
+    if (text == "1" || text == "true" || text == "True" || text == "yes") {
+        value = true;
+        return true;
+    }
+    if (text == "0" || text == "false" || text == "False" || text == "no") {
+        value = false;
+        return true;
+    }
+    return false;
+}
+
+std::string intText(int value)
+{
+    return std::to_string(value);
+}
+
+bool startsWithFilePrefix(const std::string& key)
+{
+    return key.size() > 4 && key.compare(0, 4, "file") == 0;
+}
+
+} // namespace
 
 std::vector<std::string> Application::loadRecentFiles()
 {
     std::vector<std::string> files;
-    const std::filesystem::path path = getDataFilePath("recent_files.txt", !s_isolatedState);
-    std::error_code ec;
-    if (!std::filesystem::exists(path, ec)) {
+    if (s_isolatedState) {
         return files;
     }
-
-    std::ifstream in(path, std::ios::binary);
-    if (!in.is_open()) {
-        static bool s_readFailLogged = false;
-        if (!s_readFailLogged) {
-            logSettingsMessage("Failed to read recent_files.txt: unable to open file; using defaults.", true);
-            s_readFailLogged = true;
-        }
-        return files;
-    }
-
-    std::string line;
-    bool hasBinary = false;
-    while (std::getline(in, line)) {
-        for (unsigned char c : line) {
-            if (c < 0x09 || (c > 0x0D && c < 0x20)) {
-                hasBinary = true;
-                break;
-            }
-        }
-        if (hasBinary) {
-            break;
-        }
-        while (!line.empty() && (line.back() == '\r' || line.back() == '\n' || line.back() == ' ')) {
-            line.pop_back();
-        }
-        while (!line.empty() && (line.front() == ' ')) {
-            line.erase(line.begin());
-        }
-        if (!line.empty()) {
-            files.push_back(line);
+    SettingsFile& settings = SettingsFile::instance();
+    settings.load();
+    for (const SettingsEntry& entry : settings.section("RecentFiles")) {
+        if (startsWithFilePrefix(entry.first) && !entry.second.empty()) {
+            files.push_back(entry.second);
         }
     }
-
-    if (hasBinary) {
-        static bool s_corruptLogged = false;
-        if (!s_corruptLogged) {
-            logSettingsMessage("Corrupt or invalid recent_files.txt detected; using defaults.", true);
-            s_corruptLogged = true;
-        }
-        return {};
+    if (files.size() > 10) {
+        files.resize(10);
     }
     return files;
 }
@@ -289,37 +88,16 @@ void Application::saveRecentFiles(const std::vector<std::string>& files)
     if (s_isolatedState) {
         return;
     }
-    if (!isDataDirectoryWritable()) {
-        static bool s_unwritableLogged = false;
-        if (!s_unwritableLogged) {
-            logSettingsMessage("Failed to write recent_files.txt: directory is not writable; changes kept in memory.", true);
-            s_unwritableLogged = true;
-        }
-        return;
-    }
-
-    const std::filesystem::path path = getDataFilePath("recent_files.txt", true);
-    std::ofstream out(path, std::ios::out | std::ios::trunc);
-    if (!out.is_open() || out.fail()) {
-        static bool s_saveFailLogged = false;
-        if (!s_saveFailLogged) {
-            logSettingsMessage("Failed to write recent_files.txt: file is not writable; changes kept in memory.", true);
-            s_saveFailLogged = true;
-        }
-        return;
-    }
-
-    for (const auto& filePath : files) {
-        out << filePath << "\n";
-    }
-
-    if (out.fail()) {
-        static bool s_writeErrLogged = false;
-        if (!s_writeErrLogged) {
-            logSettingsMessage("Failed to write recent_files.txt: write error; changes kept in memory.", true);
-            s_writeErrLogged = true;
+    SettingsFile& settings = SettingsFile::instance();
+    settings.load();
+    std::vector<SettingsEntry> entries;
+    for (size_t i = 0; i < files.size() && i < 10; ++i) {
+        if (!files[i].empty()) {
+            entries.emplace_back("file" + std::to_string(entries.size()), files[i]);
         }
     }
+    settings.replaceSection("RecentFiles", std::move(entries));
+    settings.save();
 }
 
 void Application::addRecentFile(std::vector<std::string>& files, const std::string& path)
@@ -340,82 +118,31 @@ void Application::addRecentFile(std::vector<std::string>& files, const std::stri
     saveRecentFiles(files);
 }
 
-std::string Application::getSettingsConfigPath()
-{
-    return getDataFilePath("settings.ini", !s_isolatedState).string();
-}
-
-std::string Application::getWindowStateConfigPath()
-{
-    return getDataFilePath("window_state.txt", !s_isolatedState).string();
-}
-
 WindowState Application::loadWindowState()
 {
     WindowState state;
-    const std::filesystem::path path = getDataFilePath("window_state.txt", !s_isolatedState);
-    std::error_code ec;
-    if (!std::filesystem::exists(path, ec)) {
+    if (s_isolatedState) {
         return state;
     }
+    SettingsFile& settings = SettingsFile::instance();
+    settings.load();
 
-    std::ifstream in(path, std::ios::binary);
-    if (!in.is_open()) {
-        static bool s_readFailLogged = false;
-        if (!s_readFailLogged) {
-            logSettingsMessage("Failed to read window_state.txt: unable to open file; using defaults.", true);
-            s_readFailLogged = true;
-        }
-        return state;
+    int value = 0;
+    if (parseInt(settings.get("Window", "width"), value) && value >= 640) {
+        state.width = value;
     }
-
-    std::string rawContent((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    bool hasBinary = false;
-    for (unsigned char c : rawContent) {
-        if (c < 0x09 || (c > 0x0D && c < 0x20)) {
-            hasBinary = true;
-            break;
-        }
+    if (parseInt(settings.get("Window", "height"), value) && value >= 480) {
+        state.height = value;
     }
-    if (hasBinary) {
-        static bool s_corruptLogged = false;
-        if (!s_corruptLogged) {
-            logSettingsMessage("Corrupt or invalid window_state.txt detected; using defaults.", true);
-            s_corruptLogged = true;
-        }
-        return state;
+    if (parseInt(settings.get("Window", "posX"), value)) {
+        state.posX = value;
     }
-
-    std::istringstream iss(rawContent);
-    std::string key;
-    int val = 0;
-    bool parsedAny = false;
-    while (iss >> key >> val) {
-        if (key == "width" && val >= 640) {
-            state.width = val;
-            parsedAny = true;
-        } else if (key == "height" && val >= 480) {
-            state.height = val;
-            parsedAny = true;
-        } else if (key == "posX") {
-            state.posX = val;
-            parsedAny = true;
-        } else if (key == "posY") {
-            state.posY = val;
-            parsedAny = true;
-        } else if (key == "maximized") {
-            state.maximized = (val != 0);
-            parsedAny = true;
-        }
+    if (parseInt(settings.get("Window", "posY"), value)) {
+        state.posY = value;
     }
-
-    if (!rawContent.empty() && !parsedAny) {
-        static bool s_corruptLogged = false;
-        if (!s_corruptLogged) {
-            logSettingsMessage("Corrupt or invalid window_state.txt detected; using defaults.", true);
-            s_corruptLogged = true;
-        }
-        return WindowState();
+    bool maximized = false;
+    if (parseBool(settings.get("Window", "maximized"), maximized)) {
+        state.maximized = maximized;
     }
     return state;
 }
@@ -436,39 +163,17 @@ void Application::saveWindowState(GLFWwindow* window)
         state.posY = prev.posY;
     }
 
-    if (!isDataDirectoryWritable()) {
-        static bool s_unwritableLogged = false;
-        if (!s_unwritableLogged) {
-            logSettingsMessage("Failed to write window_state.txt: directory is not writable; changes kept in memory.", true);
-            s_unwritableLogged = true;
-        }
-        return;
-    }
-
-    const std::filesystem::path path = getDataFilePath("window_state.txt", true);
-    std::ofstream out(path, std::ios::out | std::ios::trunc);
-    if (!out.is_open() || out.fail()) {
-        static bool s_saveFailLogged = false;
-        if (!s_saveFailLogged) {
-            logSettingsMessage("Failed to write window_state.txt: file is not writable; changes kept in memory.", true);
-            s_saveFailLogged = true;
-        }
-        return;
-    }
-
-    out << "width " << state.width << "\n";
-    out << "height " << state.height << "\n";
-    out << "posX " << state.posX << "\n";
-    out << "posY " << state.posY << "\n";
-    out << "maximized " << (state.maximized ? 1 : 0) << "\n";
-
-    if (out.fail()) {
-        static bool s_writeErrLogged = false;
-        if (!s_writeErrLogged) {
-            logSettingsMessage("Failed to write window_state.txt: write error; changes kept in memory.", true);
-            s_writeErrLogged = true;
-        }
-    }
+    SettingsFile& settings = SettingsFile::instance();
+    settings.load();
+    std::vector<SettingsEntry> entries;
+    const WindowState defaults;
+    if (state.width != defaults.width) entries.emplace_back("width", intText(state.width));
+    if (state.height != defaults.height) entries.emplace_back("height", intText(state.height));
+    if (state.posX != defaults.posX) entries.emplace_back("posX", intText(state.posX));
+    if (state.posY != defaults.posY) entries.emplace_back("posY", intText(state.posY));
+    if (state.maximized) entries.emplace_back("maximized", "1");
+    settings.replaceSection("Window", std::move(entries));
+    settings.save();
 }
 
 void Application::loadImguiLayout()
@@ -476,90 +181,93 @@ void Application::loadImguiLayout()
     if (s_isolatedState) {
         return;
     }
-    const std::filesystem::path path = getDataFilePath("imgui.ini", true);
-    std::error_code ec;
-    if (!std::filesystem::exists(path, ec)) {
+    SettingsFile& settings = SettingsFile::instance();
+    settings.load();
+    const std::vector<SettingsEntry> lines = settings.section("Layout");
+    if (lines.empty()) {
+        layoutPersisted = false;
         return;
     }
 
-    std::ifstream in(path, std::ios::binary);
-    if (!in.is_open()) {
-        static bool s_readFailLogged = false;
-        if (!s_readFailLogged) {
-            logSettingsMessage("Failed to read imgui.ini: unable to open file; using defaults.", true);
-            s_readFailLogged = true;
-        }
-        return;
+    std::string text;
+    for (const SettingsEntry& line : lines) {
+        text += line.second;
+        text += '\n';
     }
-
-    std::string rawContent((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    bool hasBinary = false;
-    for (unsigned char c : rawContent) {
-        if (c < 0x09 || (c > 0x0D && c < 0x20)) {
-            hasBinary = true;
-            break;
-        }
-    }
-    if (hasBinary) {
+    if (text.find('[') == std::string::npos) {
         static bool s_corruptLogged = false;
         if (!s_corruptLogged) {
-            logSettingsMessage("Corrupt or invalid imgui.ini detected; using defaults.", true);
+            logSettingsMessage("Corrupt or invalid layout in settings.ini; using the default layout.", true);
             s_corruptLogged = true;
         }
+        layoutPersisted = false;
         return;
     }
-
-    if (!rawContent.empty() && rawContent.find('[') == std::string::npos) {
-        static bool s_corruptLogged = false;
-        if (!s_corruptLogged) {
-            logSettingsMessage("Corrupt or invalid imgui.ini detected; using defaults.", true);
-            s_corruptLogged = true;
-        }
-        return;
-    }
-
-    ImGui::LoadIniSettingsFromMemory(rawContent.c_str(), rawContent.size());
+    ImGui::LoadIniSettingsFromMemory(text.c_str(), text.size());
+    layoutPersisted = true;
+    layoutBaselineCountdown = 3;
 }
 
-void Application::saveImguiLayout()
+void Application::captureLayoutBaseline()
+{
+    size_t size = 0;
+    const char* data = ImGui::SaveIniSettingsToMemory(&size);
+    layoutBaseline.assign(data != nullptr ? data : "", data != nullptr ? size : 0);
+}
+
+void Application::resetImguiLayoutPersistence()
 {
     if (s_isolatedState) {
         return;
     }
+    layoutBaseline.clear();
+    layoutBaselineCountdown = 3;
+    layoutPersisted = false;
+    SettingsFile& settings = SettingsFile::instance();
+    settings.load();
+    if (settings.hasSection("Layout")) {
+        settings.removeSection("Layout");
+        settings.save();
+    }
+}
+
+void Application::saveImguiLayout()
+{
+    if (s_isolatedState || layoutBaselineCountdown > 0) {
+        return;
+    }
     size_t size = 0;
     const char* data = ImGui::SaveIniSettingsToMemory(&size);
-    if (!data || size == 0) {
+    if (data == nullptr || size == 0) {
         return;
     }
+    std::string current(data, size);
 
-    if (!isDataDirectoryWritable()) {
-        static bool s_unwritableLogged = false;
-        if (!s_unwritableLogged) {
-            logSettingsMessage("Failed to write imgui.ini: directory is not writable; changes kept in memory.", true);
-            s_unwritableLogged = true;
+    SettingsFile& settings = SettingsFile::instance();
+    settings.load();
+    if (current == layoutBaseline) {
+        // The layout still equals the loaded or freshly generated one. A pristine run
+        // stores nothing; a reset removed the section when it happened.
+        if (!layoutPersisted && settings.hasSection("Layout")) {
+            settings.removeSection("Layout");
+            settings.save();
         }
         return;
     }
 
-    const std::filesystem::path path = getDataFilePath("imgui.ini", true);
-    std::ofstream out(path, std::ios::out | std::ios::trunc | std::ios::binary);
-    if (!out.is_open() || out.fail()) {
-        static bool s_saveFailLogged = false;
-        if (!s_saveFailLogged) {
-            logSettingsMessage("Failed to write imgui.ini: file is not writable; changes kept in memory.", true);
-            s_saveFailLogged = true;
+    std::vector<SettingsEntry> lines;
+    std::istringstream input(current);
+    std::string line;
+    while (std::getline(input, line)) {
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
         }
-        return;
+        lines.emplace_back("line" + std::to_string(lines.size()), line);
     }
-
-    out.write(data, static_cast<std::streamsize>(size));
-    if (out.fail()) {
-        static bool s_writeErrLogged = false;
-        if (!s_writeErrLogged) {
-            logSettingsMessage("Failed to write imgui.ini: write error; changes kept in memory.", true);
-            s_writeErrLogged = true;
-        }
-    }
+    settings.replaceSection("Layout", std::move(lines));
+    settings.save();
+    layoutBaseline = current;
+    layoutPersisted = true;
 }
 
 void Application::updateWindowTitle(GLFWwindow* window, const std::string& currentFilePath)

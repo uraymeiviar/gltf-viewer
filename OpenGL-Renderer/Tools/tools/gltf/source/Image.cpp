@@ -1,6 +1,7 @@
 // Copyright (c) 2019 UX3D GmbH. All rights reserved.
 
 #include "gltf/Image.h"
+#include "core/LoadProgress.h"
 #include "filesystem/File.h"
 #include "filesystem/FileSystem.h"
 #include "filesystem/Path.h"
@@ -92,6 +93,57 @@ GltfResult Image::loadDataToMemory(const std::optional<filesystem::Dir>& _gltfDi
     }
 
     return GltfError::ObjectNotFound;
+}
+
+GltfResult Image::prepareLoad(const std::optional<filesystem::Dir>& directory)
+{
+    if (!m_encodedData.empty()) return GltfResult::Success;
+    if (!m_data.getPixels().empty()) return GltfError::ObjectAlreadyExists;
+    core::Vector<uint8_t> bytes;
+    if (m_bufferView) {
+        core::MemoryRange<const uint8_t> range;
+        m_bufferView->getData(range);
+        if (!bytes.assign(range, nullptr)) return GltfError::AllocationFailure;
+        setStorageFormat(StorageFormat::BufferView);
+    } else if (embedded_data::isDataUri(m_uri)) {
+        core::string mime;
+        embedded_data::extractBase64Data(m_uri, mime, bytes);
+        setStorageFormat(StorageFormat::Embedded);
+    } else if (directory) {
+        filesystem::File file = directory->getFilesystem().fromURI(m_uri);
+        if (file.isRelative()) file = *directory / file.toString();
+        if (core::Failed(file.load(bytes))) return GltfError::ObjectNotFound;
+        setStorageFormat(StorageFormat::File);
+    } else {
+        return GltfError::ObjectNotFound;
+    }
+    m_encodedData = std::move(bytes);
+    ++encodedMapID;
+    if (!isValidEncoding(m_mimeType)) setMimeType(imageformats::getEncodingFromBuffer(m_encodedData));
+    return GltfResult::Success;
+}
+
+GltfResult Image::decodePrepared()
+{
+    if (!m_data.getPixels().empty()) return GltfResult::Success;
+    if (core::Failed(imageformats::decodeImage(m_encodedData, m_data))) {
+        core::logWarning("[Loading] image '%s' could not be decoded; using error image", m_uri.c_str());
+        loadAsErrorImage();
+    }
+    const uint32_t limit = core::loading::state.textureLimit;
+    if (limit && !m_data.isCompressed() && (m_data.getWidth() > limit || m_data.getHeight() > limit)) {
+        uint32_t w = m_data.getWidth(), h = m_data.getHeight();
+        while (w > limit || h > limit) { w = std::max(1u,w/2); h = std::max(1u,h/2); }
+        core::Vector<uint8_t> scaled;
+        if (imageformats::scaleImage(m_data,scaled,w,h) && m_data.initialize(scaled.data(),scaled.size(),w,h))
+            ++core::loading::state.reductions;
+        else core::logWarning("[Loading] '%s': texture format cannot be resized",m_uri.substr(0,120).c_str());
+    }
+    if (limit && imageformats::estimateTextureBytes(m_encodedData, limit) < imageformats::estimateTextureBytes(m_encodedData, 0)) {
+        core::log(core::loading::state.requestedTextureLimit == limit ? core::LogLevel::Info : core::LogLevel::Warning,
+            "[Loading] '%s': resident image %ux%u", m_uri.substr(0,120).c_str(), m_data.getWidth(), m_data.getHeight());
+    }
+    return GltfResult::Success;
 }
 
 GltfResult Image::reloadDataToMemory(const filesystem::File& _imageFile)

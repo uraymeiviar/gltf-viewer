@@ -44,6 +44,8 @@ public:
     // TODO: This is a blatant hack that should be removed when textures are truly only recreated when glTF images/textures change.
     // TODO: Currently, *any* change including uniform changes during translations lead to a full glTF -> renderer update, including texture uploads.
     int currentMapID = -1;
+    uint64_t residentBytes = 0; // texel/block payload incl. mips; excludes driver padding
+    uint32_t residentWidth = 0, residentHeight = 0, residentLevels = 0;
 
 private:
     GL* m_gl;

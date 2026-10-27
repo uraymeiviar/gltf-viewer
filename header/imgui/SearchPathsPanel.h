@@ -5,8 +5,9 @@
 #include <functional>
 
 namespace ux3d::imgui {
+class SceneRevisions;
 
 // Renders the Asset Search Paths configuration dialog
-void renderSearchPathsWindow(bool* pOpen, std::function<void()> onReloadModel = nullptr);
+void renderSearchPathsWindow(bool* pOpen, std::function<void()> onReloadModel = nullptr, SceneRevisions* revisions = nullptr);
 
 } // namespace ux3d::imgui

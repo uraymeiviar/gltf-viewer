@@ -566,10 +566,14 @@ void Application::drawMenus(FrameContext& frame)
     ImGuiID dockspaceId = ImGui::GetID("GliderMainDockSpace_v1");
 
     if (s_firstLayout || s_resetLayout) {
+        const bool reset = s_resetLayout;
         bool force = s_resetLayout || s_isolatedState;
         s_firstLayout = false;
         s_resetLayout = false;
         setupDefaultDockLayout(dockspaceId, dockspaceSize, force);
+        if (reset) {
+            resetImguiLayoutPersistence();
+        }
     }
 
     ImGui::DockSpace(dockspaceId, ImVec2(0.0f, 0.0f), dockspaceFlags);
@@ -652,7 +656,7 @@ void Application::drawMenus(FrameContext& frame)
                 updateWindowTitle(window, currentFilePath);
             }
             ImGui::Separator();
-            if (ImGui::MenuItem(ICON_MDI_FOLDER_SEARCH_OUTLINE " Search Paths...", nullptr, &showSearchPaths)) {
+            if (ImGui::MenuItem(ICON_MDI_COG " Settings...", nullptr, &showSearchPaths)) {
             }
             ImGui::Separator();
             if (ImGui::MenuItem(ICON_MDI_EXIT_TO_APP " Exit")) {

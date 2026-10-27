@@ -1,6 +1,7 @@
 // Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
 
 #include "Application.h"
+#include "imgui/RenderQuality.h"
 #include "imgui/ExtensionInspector.h"
 #include "imgui/stb_image_write.h"
 #include "imgui/SceneHierarchyPanel.h"
@@ -983,7 +984,7 @@ void Application::finishFrame(FrameContext& frame, int displayW, int displayH)
         report.viewportWidth = activeViewport->sceneFbo.getWidth();
         report.viewportHeight = activeViewport->sceneFbo.getHeight();
         report.viewportSamples = activeViewport->sceneFbo.getSamples();
-        report.antiAliasing = effectiveAAName(activeViewport->settings);
+        report.antiAliasing = effectiveAAName(ux3d::imgui::RenderQuality::effectiveViewport(activeViewport->settings));
         report.startup = ux3d::imgui::profiling::startupProfile();
         report.reportFrame = frameCount;
         report.frameSampleLimit = ux3d::imgui::profiling::kMaxRetainedFrameSamples;

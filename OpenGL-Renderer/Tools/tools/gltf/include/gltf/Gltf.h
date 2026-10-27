@@ -139,7 +139,7 @@ public:
     template <typename TChildOfRoot>
     const TChildOfRoot* getByID(uint32_t _id) const;
 
-    GltfResult loadBinaryDataToMemory(const std::optional<filesystem::Dir>& gltfDir, const std::optional<filesystem::Dir>& resourceDir);
+    GltfResult loadBinaryDataToMemory(const std::optional<filesystem::Dir>& gltfDir, const std::optional<filesystem::Dir>& resourceDir, bool imagesOnly = false);
 
     GltfResult deleteNode(Node& _node);
     GltfResult deleteScene(Scene& _scene);

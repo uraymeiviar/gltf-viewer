@@ -64,6 +64,7 @@ namespace imageformats {
     };
     DecodeBudgetStats getDecodeBudgetStats();
     void resetDecodeBudgetStats();
+    uint64_t estimateTextureBytes(const core::Vector<uint8_t>& bytes, uint32_t maxSize);
 
     ImageEncodingResult encodePNG(const image::Image& image, core::Vector<uint8_t>& buffer);
     ImageEncodingResult encodeJPEG(const image::Image& image, const uint32_t quality, core::Vector<uint8_t>& buffer);

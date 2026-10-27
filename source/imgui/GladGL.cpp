@@ -367,6 +367,15 @@ void GladGL::pixelStorei(GLenum pname, GLint param)
     glPixelStorei(pname, param);
 }
 
+void GladGL::texSubImage2D(GLenum target, GLint level, GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, const void* data)
+{
+    ux3d::imgui::profiling::countGlCall();
+    if (const auto bytes = ux3d::imgui::profiling::pixelTransferBytes(format, type))
+        ux3d::imgui::profiling::countTextureUpload(static_cast<uint64_t>(width)*height*(*bytes));
+    else ux3d::imgui::profiling::countTextureUploadUnknown();
+    glTexSubImage2D(target, level, x, y, width, height, format, type, data);
+}
+
 void GladGL::texImage2D(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const void* data)
 {
     ux3d::imgui::profiling::countGlCall();

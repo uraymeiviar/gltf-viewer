@@ -5,6 +5,7 @@
 #include "animation/Sampler.h"
 #include "core/Result.h"
 #include "imageformats/imageformats.h"
+#include "core/LoadProgress.h"
 #include "renderer/CommandGenerator.h"
 #include "renderer/CommandMapping.h"
 #include "renderer/EnvironmentMap.h"
@@ -866,14 +867,8 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
                     }
                 } else {
                     glTexture->write(gltfImage->getData(), isLinear);
-                    if (samplerState != nullptr) {
-                        if (samplerState->minFilter == gl::TextureMinFilter::NearestMipmapNearest
-                            || samplerState->minFilter == gl::TextureMinFilter::NearestMipmapLinear
-                            || samplerState->minFilter == gl::TextureMinFilter::LinearMipmapNearest
-                            || samplerState->minFilter == gl::TextureMinFilter::LinearMipmapLinear) {
-                            gl->generateMipmap(static_cast<GLenum>(glTexture->target));
-                        }
-                    }
+                    // Texture::write already generated the mip chain. Repeating it for
+                    // each material using the texture serialized large 8K uploads.
                 }
             }
 
@@ -1833,7 +1828,8 @@ void GltfRenderLayer::updateScene(const gltf::Gltf& gltf, const gltf::Scene& sce
 
     // ensure transforms from parent nodes are resolved into local transforms (relevant for triangle winding direction)
     m_resourceManager.m_transformHierarchy.apply();
-    m_bufferMapping.update(gltf.getAccessors());
+    if (m_buffersUploadedForScene != &gltf) m_bufferMapping.update(gltf.getAccessors());
+    m_buffersUploadedForScene = nullptr;
 
     updateLights(scene.getNodes());
     updateMeshes(scene.getNodes());
@@ -2000,6 +1996,7 @@ void GltfRenderLayer::updateGltf(const gltf::Gltf& gltf)
     // Materials: determine the fragment shader and which textures are used within that.
     updateMaterials(gltf.getMaterials());
     m_syncingGltf = nullptr;
+    m_buffersUploadedForScene = &gltf;
 }
 
 void GltfRenderLayer::applyAnimationTime(const std::optional<float>& animationTime)

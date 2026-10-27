@@ -80,6 +80,7 @@ int Application::run(int argc, char** argv)
             return 1;
         }
     }
+    ux3d::imgui::RenderQuality::configureAuto(argc, argv);
     s_windowSizeOverridden = requestedWidth > 0 && requestedHeight > 0;
     s_profilingEnabled = !noProfileArg && (profileArg || !profileReportArg.empty());
     ux3d::imgui::profiling::setCountingEnabled(s_profilingEnabled);
@@ -223,7 +224,8 @@ int Application::run(int argc, char** argv)
     auto envPath = resolveEnvironmentPath(rendererResourcesDir);
     scenarioEnvironmentPath = envPath.toString().c_str();
     auto& startupProfile = ux3d::imgui::profiling::startupProfile();
-    if (ux3d::imgui::StdFileSystem::instance().isFile(envPath)) {
+    if ((ux3d::imgui::RenderQuality::allowIbl() || ux3d::imgui::RenderQuality::allowSkybox(true)) &&
+        ux3d::imgui::StdFileSystem::instance().isFile(envPath)) {
         const auto environmentInitStart = ux3d::imgui::profiling::Clock::now();
         gltfLayer->setEnvironmentMap(envPath);
         startupProfile.environmentInitMs += ux3d::imgui::profiling::elapsedMs(environmentInitStart);
@@ -349,6 +351,8 @@ int Application::run(int argc, char** argv)
     }
 
     // Cleanup
+    releaseTextureRefreshSnapshot();
+    ux3d::imgui::RenderQuality::releaseGpuSamples();
     ux3d::imgui::ElementInspector::clearPreviewCache();
     gridRenderer.cleanup();
     bboxRenderer.cleanup();
@@ -374,6 +378,7 @@ int Application::run(int argc, char** argv)
 
     if (!s_isolatedState) {
         saveImguiLayout();
+        ux3d::imgui::RenderQuality::save();
     }
 
     ImGui_ImplOpenGL3_Shutdown();

@@ -32,6 +32,13 @@ public:
     int getSamples() const { return m_samples; }
     bool isValid() const { return m_valid; }
     bool isLinearFloat() const { return m_linearFloat; }
+    uint64_t getEstimatedLiveBytes() const
+    {
+        const uint64_t pixels = static_cast<uint64_t>(m_width)*m_height;
+        const uint64_t color = m_linearFloat ? 8 : 4;
+        return pixels*((m_colorTexture ? color : 0) + (m_depthRbo ? 4 : 0) +
+            m_samples*((m_msaaColorRbo ? color : 0) + (m_msaaDepthRbo ? 4 : 0)));
+    }
 
 private:
     void cleanup();

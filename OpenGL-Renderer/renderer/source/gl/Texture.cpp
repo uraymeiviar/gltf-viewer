@@ -2,12 +2,14 @@
 
 #include "renderer/gl/Texture.h"
 #include "core/Logger.h"
+#include "core/LoadProgress.h"
 #include "imageformats/ktx2.h"
 #include "renderer/gl/GL.h"
 #include "renderer/gl/Util.h"
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <limits>
 #include <stdexcept>
 
@@ -84,6 +86,8 @@ ux3d::renderer::gl::Texture::Texture(Texture&& other)
     , handle(other.handle)
     , target(other.target)
     , m_ownsHandle(other.m_ownsHandle)
+    , residentBytes(other.residentBytes)
+    , residentWidth(other.residentWidth), residentHeight(other.residentHeight), residentLevels(other.residentLevels)
 {
     other.handle = invalid;
 }
@@ -106,12 +110,19 @@ void ux3d::renderer::gl::Texture::bind() const
 
 void ux3d::renderer::gl::Texture::write(size_t width, size_t height, Format format, ComponentType pixelFormat, const void* pixels, InternalFormat internalFormat)
 {
+    core::loading::checkpoint();
+    core::loading::Timer uploadTimer(core::loading::Upload);
     if (handle == invalid || target == TextureTarget::Invalid) {
         throw std::runtime_error("Cannot write to invalid texture");
     }
 
     bind();
 
+    const size_t channels = format == Format::RGBA ? 4 : format == Format::RGB ? 3 : format == Format::RG ? 2 : 1;
+    const size_t componentBytes = pixelFormat == ComponentType::UByte ? 1 : pixelFormat == ComponentType::UShort ? 2 : pixelFormat == ComponentType::Float ? 4 : 0;
+    const size_t rowBytes = width*channels*componentBytes;
+    const bool chunked = core::loading::state.yield && pixels && componentBytes &&
+        target == TextureTarget::Texture2d && rowBytes*height > 8u*1024*1024;
     m_gl->texImage2D(
         static_cast<GLenum>(target),
         0,
@@ -121,9 +132,51 @@ void ux3d::renderer::gl::Texture::write(size_t width, size_t height, Format form
         0,
         static_cast<GLint>(format),
         static_cast<GLenum>(pixelFormat),
-        pixels);
-    m_gl->generateMipmap(static_cast<GLenum>(target));
-    checkGLError(m_gl, "Cannot write texture");
+        chunked ? nullptr : pixels);
+    GLenum allocationError = m_gl->getError();
+    static bool injected = false;
+    if (!injected && core::loading::state.yield && pixels && std::getenv("GLIDER_TEST_TEXTURE_ALLOCATION_FAILURE")) {
+        injected = true;
+        allocationError = GL_OUT_OF_MEMORY; // branch injection; does not insert a GL error
+    }
+    if (allocationError != GL_NO_ERROR) {
+        ++core::loading::state.allocationFailures;
+        core::logWarning("[Loading] texture allocation failed (0x%X, %zux%zu); using 1x1 fallback", allocationError, width, height);
+        const uint8_t white[] = {255,255,255,255};
+        m_gl->texImage2D(static_cast<GLenum>(target), 0, GL_RGBA8, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, white);
+        m_gl->texParameteri(static_cast<GLenum>(target), GL_TEXTURE_MAX_LEVEL, 0);
+        if (m_gl->getError() != GL_NO_ERROR) throw std::bad_alloc();
+        residentBytes = 4; residentWidth = residentHeight = residentLevels = 1;
+        return;
+    }
+    if (chunked) {
+        const size_t rows = std::max<size_t>(1, 8u*1024*1024/rowBytes);
+        for (size_t y = 0; y < height; y += rows) {
+            core::loading::checkpoint();
+            bind();
+            m_gl->pixelStorei(GL_UNPACK_ALIGNMENT, 1);
+            m_gl->texSubImage2D(static_cast<GLenum>(target), 0, 0, static_cast<GLint>(y),
+                static_cast<GLsizei>(width), static_cast<GLsizei>(std::min(rows,height-y)),
+                static_cast<GLenum>(format), static_cast<GLenum>(pixelFormat), static_cast<const uint8_t*>(pixels)+y*rowBytes);
+            if (m_gl->getError() != GL_NO_ERROR) throw std::bad_alloc();
+        }
+    }
+    {
+        core::loading::Timer mipTimer(core::loading::Mips);
+        m_gl->generateMipmap(static_cast<GLenum>(target));
+    }
+    if (const GLenum mipError = m_gl->getError(); mipError != GL_NO_ERROR) {
+        ++core::loading::state.allocationFailures;
+        core::logWarning("[Loading] mip generation failed (0x%X); retaining the base level", mipError);
+        m_gl->texParameteri(static_cast<GLenum>(target), GL_TEXTURE_MAX_LEVEL, 0);
+    }
+    ++core::loading::state.completed;
+    residentBytes = 0; residentWidth = static_cast<uint32_t>(width); residentHeight = static_cast<uint32_t>(height); residentLevels = 0;
+    const uint64_t texelBytes = channels*std::max<size_t>(componentBytes,1);
+    for (size_t w = width,h = height; w || h; w >>= 1,h >>= 1) {
+        residentBytes += std::max<size_t>(1,w)*std::max<size_t>(1,h)*texelBytes;
+        ++residentLevels;
+    }
 }
 
 bool ux3d::renderer::gl::Texture::writeCompressed(const image::Image& image, const imageformats::KTX2ImageInfo& info, bool isLinear)
@@ -162,11 +215,16 @@ bool ux3d::renderer::gl::Texture::writeCompressed(const image::Image& image, con
     bind();
     m_gl->pixelStorei(GL_UNPACK_ALIGNMENT, 1);
     m_gl->texParameteri(static_cast<GLenum>(target), GL_TEXTURE_BASE_LEVEL, 0);
-    m_gl->texParameteri(static_cast<GLenum>(target), GL_TEXTURE_MAX_LEVEL, static_cast<GLint>(info.levelCount - 1u));
+    uint32_t firstLevel = 0;
+    const uint32_t limit = core::loading::state.memoryAware ? core::loading::state.textureLimit.load() : 0;
+    while (limit && firstLevel+1 < info.levelCount && (std::max(1u,info.width>>firstLevel) > limit || std::max(1u,info.height>>firstLevel) > limit)) ++firstLevel;
+    m_gl->texParameteri(static_cast<GLenum>(target), GL_TEXTURE_MAX_LEVEL, static_cast<GLint>(info.levelCount - firstLevel - 1u));
     const GLint swizzle[4] = { GL_RED, GL_GREEN, GL_BLUE, GL_ALPHA };
     m_gl->texParameteriv(static_cast<GLenum>(target), GL_TEXTURE_SWIZZLE_RGBA, swizzle);
 
     size_t offset = 0u;
+    residentBytes = 0; residentLevels = info.levelCount-firstLevel;
+    residentWidth = std::max(1u,info.width>>firstLevel); residentHeight = std::max(1u,info.height>>firstLevel);
     for (uint32_t level = 0u; level < info.levelCount; ++level) {
         const uint32_t width = std::max(info.width >> level, 1u);
         const uint32_t height = std::max(info.height >> level, 1u);
@@ -178,9 +236,11 @@ bool ux3d::renderer::gl::Texture::writeCompressed(const image::Image& image, con
             return false;
         }
 
+        if (level < firstLevel) { offset += static_cast<size_t>(levelSize); continue; }
+        core::loading::checkpoint(); bind();
         m_gl->compressedTexImage2D(
             static_cast<GLenum>(target),
-            static_cast<GLint>(level),
+            static_cast<GLint>(level-firstLevel),
             internalFormat,
             static_cast<GLsizei>(width),
             static_cast<GLsizei>(height),
@@ -188,6 +248,7 @@ bool ux3d::renderer::gl::Texture::writeCompressed(const image::Image& image, con
             static_cast<GLsizei>(levelSize),
             image.getPixels().data() + offset);
         offset += static_cast<size_t>(levelSize);
+        residentBytes += levelSize;
     }
 
     return checkGLError(m_gl, "Cannot write compressed texture");

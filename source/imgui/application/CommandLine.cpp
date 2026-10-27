@@ -297,6 +297,8 @@ std::optional<int> Application::configure(int argc, char** argv)
             s_disableRedrawSkip = true;
         } else if (arg == "--capture-viewport" && i + 1 < argc) {
             s_captureViewportPath = argv[++i];
+        } else if (arg == "--capture-loading" && i + 1 < argc) {
+            loadingCapturePath = argv[++i];
         } else if (arg == "--capture-frame" && i + 1 < argc) {
             s_captureFrame = static_cast<uint64_t>(std::stoull(argv[++i]));
             s_captureFrameProvided = true;
@@ -957,17 +959,10 @@ std::optional<int> Application::configure(int argc, char** argv)
                                     blendSelfCheckOutputPath, "blending state cache");
     }
 
-    if (!s_isolatedState) {
-        ux3d::imgui::AppSettings::instance().loadSettings(getSettingsConfigPath());
-        s_recentFiles = loadRecentFiles();
-    } else {
-        // Keep any panel-triggered save away from the user's settings.ini.
-        std::error_code tempError;
-        std::filesystem::path tempDir = std::filesystem::temp_directory_path(tempError);
-        std::filesystem::path tempSettings = tempError ? std::filesystem::path("glider-scenario-settings.ini")
-                                                       : tempDir / "glider-scenario-settings.ini";
-        ux3d::imgui::AppSettings::instance().setIniFilePath(tempSettings.string());
-    }
+    // --isolated leaves the single settings file untouched: the store is disabled for
+    // the whole run, so panel-triggered saves stay in memory.
+    ux3d::imgui::AppSettings::instance().loadSettings();
+    s_recentFiles = loadRecentFiles();
 
     {
         const uint64_t mib = 1024ull * 1024ull;

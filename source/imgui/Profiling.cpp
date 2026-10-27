@@ -1,6 +1,8 @@
 // Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
 
 #include "imgui/Profiling.h"
+#include "core/LoadProgress.h"
+#include "imgui/RenderQuality.h"
 #include "imgui/SceneRevisions.h"
 
 #include <nlohmann/json.hpp>
@@ -344,7 +346,30 @@ json frameToJson(const FrameSample& sample)
 
 json startupToJson(const StartupProfile& startup)
 {
+    json loadStages = json::object();
+    {
+        std::lock_guard lock(ux3d::core::loading::state.mutex);
+        for (int i = 0; i < ux3d::core::loading::StageCount; ++i)
+            loadStages[ux3d::core::loading::names[i]] = ux3d::core::loading::state.milliseconds[i];
+    }
     return json{
+        { "loadStagesMs", loadStages },
+        { "autoQuality", ux3d::imgui::RenderQuality::autoActive() },
+        { "autoQualityStep", ux3d::imgui::RenderQuality::autoLevel() },
+        { "autoQualityStatus", ux3d::imgui::RenderQuality::autoStatus() },
+        { "effectiveIblCubeSize", ux3d::imgui::RenderQuality::effective().iblCubeSize },
+        { "effectiveRenderScale", ux3d::imgui::RenderQuality::effective().renderScale },
+        { "qualityProfile", ux3d::imgui::RenderQuality::profileName(ux3d::imgui::RenderQuality::selectedProfile()) },
+        { "profileTextureMaximum", ux3d::imgui::RenderQuality::textureMaxSize() },
+        { "availableRamBeforeLoad", ux3d::core::loading::state.availableRam.load() },
+        { "availableVramBeforeLoad", ux3d::core::loading::state.availableVram.load() },
+        { "loadingProgressFrames", ux3d::core::loading::state.progressFrames.load() },
+        { "peakGpuUsageBytes", ux3d::core::loading::state.peakGpuUsage.load() },
+        { "textureBudgetBytes", ux3d::core::loading::state.textureBudget.load() },
+        { "estimatedTextureBytes", ux3d::core::loading::state.estimatedTextureBytes.load() },
+        { "textureMaxDimension", ux3d::core::loading::state.textureLimit.load() },
+        { "reducedTextures", ux3d::core::loading::state.reductions.load() },
+        { "allocationFailures", ux3d::core::loading::state.allocationFailures.load() },
         { "vfsDecompressMs", startup.vfsDecompressMs },
         { "environmentInitMs", startup.environmentInitMs },
         { "environmentFilterMs", startup.environmentFilterMs },

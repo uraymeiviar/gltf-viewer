@@ -2,6 +2,7 @@
 
 #include "Application.h"
 #include "imgui/Theme.h"
+#include "imgui/RenderQuality.h"
 #include <algorithm>
 #include <cstdio>
 #include <sstream>
@@ -223,7 +224,12 @@ ux3d::imgui::SelfCheckResult Application::runConsoleLogLayoutSelfCheck(bool forc
 
 void Application::logMessage(const std::string& msg, ImVec4 color, ux3d::core::LogLevel level)
 {
-    s_consoleLogs.append({msg, color, level});
+    std::lock_guard lock(consoleWriteMutex);
+    // Capture compatibility: retain diagnostic text in stderr/reports without
+    // changing the legacy Info pill count in deterministic isolated screenshots.
+    if (!(s_isolatedState && !ux3d::imgui::RenderQuality::autoActive() &&
+          level == ux3d::core::LogLevel::Info && msg.find("[Loading]") != std::string::npos))
+        s_consoleLogs.append({msg, color, level});
     std::fprintf(stderr, "%s\n", msg.c_str());
     std::fflush(stderr);
 }

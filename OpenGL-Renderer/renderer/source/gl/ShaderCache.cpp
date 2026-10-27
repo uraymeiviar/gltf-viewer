@@ -2,6 +2,7 @@
 
 #include "renderer/gl/ShaderCache.h"
 #include "core/Hash.h"
+#include "core/LoadProgress.h"
 #include "filesystem/Dir.h"
 #include "filesystem/File.h"
 #include "filesystem/Path.h"
@@ -113,6 +114,7 @@ GLuint ux3d::renderer::gl::ShaderCache::selectShader(const core::string& shaderI
         return invalid;
     }
 
+    const ux3d::core::loading::Timer compileTimer(ux3d::core::loading::Shaders);
     m_gl->compileShader(glShader);
     GLint compiled = GL_FALSE;
     m_gl->getShaderiv(glShader, GL_COMPILE_STATUS, &compiled);

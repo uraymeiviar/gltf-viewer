@@ -1,7 +1,6 @@
 // Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
 
 #include "imgui/StdFileSystem.h"
-#include "imgui/SettingsStorage.h"
 #include "imgui/EmbeddedVFS.h"
 #include "imgui/AppSettings.h"
 #include "core/Slice.h"
@@ -57,8 +56,11 @@ filesystem::Path StdFileSystem::fromURI(const core::string& uri) const
 
 filesystem::Path StdFileSystem::getTempPath() const
 {
-    std::filesystem::path tempDir = getDataDirectory() / "temp";
     std::error_code ec;
+    std::filesystem::path tempDir = std::filesystem::temp_directory_path(ec) / "Glider";
+    if (ec) {
+        tempDir = std::filesystem::temp_directory_path(ec);
+    }
     std::filesystem::create_directories(tempDir, ec);
     if (ec) {
         tempDir = std::filesystem::temp_directory_path(ec);
@@ -68,7 +70,15 @@ filesystem::Path StdFileSystem::getTempPath() const
 
 filesystem::Path StdFileSystem::getAppDataPath() const
 {
-    return toPath(toGeneric(getDataDirectory().string()));
+    const char* appData = std::getenv("APPDATA");
+    std::filesystem::path directory;
+    if (appData != nullptr && std::strlen(appData) > 0) {
+        directory = std::filesystem::u8path(appData) / "Glider";
+    } else {
+        std::error_code ec;
+        directory = std::filesystem::temp_directory_path(ec) / "Glider";
+    }
+    return toPath(toGeneric(directory.string()));
 }
 
 filesystem::Path StdFileSystem::getExecutableDirPath() const

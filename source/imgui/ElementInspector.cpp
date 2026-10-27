@@ -5,6 +5,8 @@
 #include "imgui/AnimationPlayer.h"
 #include "imgui/ViewportSettingsPanel.h"
 #include "imgui/TextureUtils.h"
+#include "imgui/ResourceMemory.h"
+#include "imgui/RuntimeTelemetry.h"
 #include "imgui/IconsMaterialDesignIcons.h"
 #include "imgui/Theme.h"
 #include "imgui/AppSettings.h"
@@ -788,6 +790,8 @@ void ElementInspector::render(SelectionState& selection,
     // -----------------------------------------------------------------
     else if (selection.type == SelectionType::Mesh && selection.selectedMesh != nullptr) {
         auto* mesh = selection.selectedMesh;
+        ImGui::Text("GPU accessor payload: %s",memoryText(meshGpuBytes(*mesh,gltfLayer)).c_str());
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Unique base attribute/index buffers referenced by this mesh. Shared across instances; excludes driver padding and generated/skin/morph buffers.");
         ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Mesh ID: %u", mesh->m_ID);
 
         char nameBuf[256] = {};
@@ -1021,6 +1025,8 @@ void ElementInspector::render(SelectionState& selection,
             ImGui::Text("glTF Name: %s", tex->getName().c_str());
         }
         if (texSrc != nullptr) {
+            ImGui::Text("Resident GPU payload: %s",memoryText(imageGpuBytes(texSrc,gltfLayer)).c_str());
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Estimated uploaded texel/block payload including resident mip levels and linear/sRGB variants. Shared images are counted once in Statistics.");
             auto* src = texSrc;
             std::string imgName = getImageDisplayName(src);
             ImGui::Text("Source Image: %s", imgName.c_str());
@@ -1104,6 +1110,7 @@ void ElementInspector::render(SelectionState& selection,
                                packagedTextures && isPackagedNormalMap(gltfModel, texSrc, ddsDeclared));
         }
     } else if (selection.type == SelectionType::Image && selection.selectedImage != nullptr) {
+        ImGui::Text("Resident GPU payload: %s",memoryText(imageGpuBytes(selection.selectedImage,gltfLayer)).c_str());
         auto* img = selection.selectedImage;
         ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", getImageDisplayName(img).c_str());
         ImGui::Separator();

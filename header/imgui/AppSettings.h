@@ -22,16 +22,18 @@ class AppSettings {
 public:
     static AppSettings& instance();
 
-    // Configuration file path
-    const std::string& getIniFilePath() const { return m_iniPath; }
-    void setIniFilePath(const std::string& path) { m_iniPath = path; }
+    // Full path of the single Glider settings file, for display in the UI.
+    std::string getIniFilePath() const;
 
-    // Load and save settings.ini
-    bool loadSettings(const std::string& iniPath = "");
-    bool saveSettings(const std::string& iniPath = "");
+    // Reads and writes the [SearchPaths], [SceneHierarchy] and [Resources] sections
+    // of the shared settings file. A missing file keeps the built-in defaults;
+    // saveSettings writes only values that differ from them.
+    bool loadSettings();
+    bool saveSettings();
 
     // Search paths (relative to active glTF model folder)
     std::vector<std::string> getSearchPaths() const;
+    std::vector<std::string> getExpandedSearchPaths() const;
     void setSearchPaths(const std::vector<std::string>& paths);
     bool addSearchPath(const std::string& path);
     bool removeSearchPath(size_t index);
@@ -64,10 +66,12 @@ private:
     AppSettings& operator=(const AppSettings&) = delete;
 
     std::string normalizePath(const std::string& path) const;
+    void expandSearchPathsLocked() const;
 
     mutable std::mutex m_mutex;
-    std::string m_iniPath = "settings.ini";
     std::vector<std::string> m_searchPaths;
+    mutable std::vector<std::string> m_expandedSearchPaths;
+    mutable std::string m_expansionKey;
     std::string m_currentModelPath;
     std::string m_currentModelDir;
     HierarchyDisplayOptions m_hierarchyOptions;

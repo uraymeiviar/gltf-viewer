@@ -3,6 +3,8 @@
 #include "imgui/SearchPathsPanel.h"
 #include "imgui/AppSettings.h"
 #include "imgui/IconsMaterialDesignIcons.h"
+#include "imgui/RenderQuality.h"
+#include "imgui/UiProbe.h"
 
 #include <imgui.h>
 #include <portable-file-dialogs.h>
@@ -14,15 +16,13 @@ namespace fs = std::filesystem;
 
 namespace ux3d::imgui {
 
-void renderSearchPathsWindow(bool* pOpen, std::function<void()> onReloadModel)
+static void renderSearchPathsContent(bool* pOpen, std::function<void()> onReloadModel)
 {
     if (pOpen != nullptr && !*pOpen) {
         return;
     }
 
-    ImGui::SetNextWindowSize(ImVec2(580, 480), ImGuiCond_FirstUseEver);
-
-    if (ImGui::Begin(ICON_MDI_FOLDER_SEARCH_OUTLINE " Asset Search Paths###SearchPathsWindow", pOpen, ImGuiWindowFlags_NoCollapse)) {
+    {
         auto& settings = AppSettings::instance();
         std::string currentModelPath = settings.getCurrentModelPath();
         std::string currentModelDir = settings.getCurrentModelDir();
@@ -30,6 +30,7 @@ void renderSearchPathsWindow(bool* pOpen, std::function<void()> onReloadModel)
 
         // 1. Informative description
         ImGui::TextWrapped("Configure directories where the viewer should search for external assets (such as textures and binary buffers) referenced by the glTF model.");
+        ImGui::TextWrapped("Wildcards: ../texture* matches sibling texture folders; ../* searches immediate sibling folders; ../** searches them recursively. Matches are sorted; links/junctions are not followed. Reload to refresh folder matches.");
         ImGui::Spacing();
 
         // 2. Active Model Context Card
@@ -92,7 +93,9 @@ void renderSearchPathsWindow(bool* pOpen, std::function<void()> onReloadModel)
                     }
 
                     ImGui::SameLine();
-                    if (fs::is_directory(checkDir, ec)) {
+                    if (paths[i].find_first_of("*?") != std::string::npos) {
+                        ImGui::TextDisabled("[ Wildcard ]");
+                    } else if (fs::is_directory(checkDir, ec)) {
                         ImGui::TextColored(ImVec4(0.2f, 0.85f, 0.45f, 1.0f), "[ " ICON_MDI_CHECK " Exists ]");
                         if (ImGui::IsItemHovered()) {
                             ImGui::SetTooltip("Resolved path: %s", checkDir.generic_string().c_str());
@@ -159,7 +162,8 @@ void renderSearchPathsWindow(bool* pOpen, std::function<void()> onReloadModel)
         static char s_newPathBuffer[512] = "";
 
         ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 180.0f);
-        ImGui::InputTextWithHint("##NewPathInput", "e.g. ../texture or ../texture.base", s_newPathBuffer, sizeof(s_newPathBuffer));
+        ImGui::InputTextWithHint("##NewPathInput", "e.g. ../texture*, ../*, ../**", s_newPathBuffer, sizeof(s_newPathBuffer));
+        UiProbe::item("settings.search_path",0);
         ImGui::SameLine();
 
         if (ImGui::Button(ICON_MDI_PLUS " Add Path")) {
@@ -219,6 +223,35 @@ void renderSearchPathsWindow(bool* pOpen, std::function<void()> onReloadModel)
         ImGui::SameLine();
         ImGui::SetCursorPosX(ImGui::GetWindowWidth() - 210.0f);
         ImGui::TextDisabled("Saved in %s", settings.getIniFilePath().c_str());
+    }
+}
+
+void renderSearchPathsWindow(bool* pOpen, std::function<void()> onReloadModel, SceneRevisions* revisions)
+{
+    if (pOpen && !*pOpen) return;
+    ImGui::SetNextWindowSize(ImVec2(680,650),ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSizeConstraints(ImVec2(560,420),ImVec2(2000,2000));
+    if (ImGui::Begin(ICON_MDI_COG " Settings###SearchPathsWindow",pOpen,ImGuiWindowFlags_NoCollapse)) {
+        if (ImGui::BeginTabBar("SettingsTabs")) {
+            const bool search = ImGui::BeginTabItem("Search Paths");
+            UiProbe::item("settings.tab.search",0);
+            if (search) {
+                renderSearchPathsContent(pOpen,onReloadModel);
+                ImGui::EndTabItem();
+            }
+            const bool quality = ImGui::BeginTabItem("Quality Presets");
+            UiProbe::item("settings.tab.quality",0);
+            if (quality) {
+                SceneRevisions dummy;
+                ImGui::BeginChild("PresetEditor",ImVec2(0,-40),false);
+                RenderQuality::drawProfilesEditor(revisions ? *revisions : dummy);
+                ImGui::EndChild();
+                if (ImGui::Button("Close")) { if (pOpen) *pOpen = false; }
+                UiProbe::item("settings.close",0);
+                ImGui::EndTabItem();
+            }
+            ImGui::EndTabBar();
+        }
     }
     ImGui::End();
 }

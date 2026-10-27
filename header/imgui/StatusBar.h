@@ -37,6 +37,7 @@ public:
                        AnimationPlayer& animationPlayer,
                        SceneRevisions& revisions,
                        bool& showLogger,
+                       bool& showStatistics,
                        bool& showValidation,
                        const LogSeverityCounts& logCounts,
                        AntiAliasing* antiAliasing = nullptr);

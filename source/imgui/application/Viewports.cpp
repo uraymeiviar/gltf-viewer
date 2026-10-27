@@ -23,7 +23,7 @@ void Application::drawViewports(FrameContext& frame)
     // Viewport Windows (Multi-Viewport)
     // -------------------------------------------------------------
     auto& activeEnvironment = getSceneEnvironment(sceneEnvironments, gltfModel, activeScene);
-    if (gltfLayer != nullptr) {
+    if (gltfLayer != nullptr && (ux3d::imgui::RenderQuality::allowIbl() || ux3d::imgui::RenderQuality::allowSkybox(activeEnvironment.showBackground))) {
         const auto desiredEnvPath = resolveHdrPath(activeEnvironment.currentHdrPath, rendererResourcesDir);
         if (gltfLayer->getEnvironmentMapPath().toString() != desiredEnvPath.toString()) {
             scenarioEnvironmentPath = desiredEnvPath.toString().c_str();
@@ -218,6 +218,7 @@ void Application::drawViewports(FrameContext& frame)
         float shadingPulldownWidth = ImGui::CalcTextSize(shadingPulldownLabel.c_str()).x + 18.0f;
 
         float totalRightWidth = camPulldownWidth + shadingPulldownWidth + ImGui::GetStyle().ItemSpacing.x;
+        if (!ux3d::imgui::RenderQuality::legacyCaptureUi()) totalRightWidth += 109.0f;
         float rightX = ImGui::GetWindowContentRegionMax().x - totalRightWidth - 8.0f;
         if (rightX > ImGui::GetCursorPosX() + 10.0f) {
             ImGui::SameLine(rightX);
@@ -298,16 +299,28 @@ void Application::drawViewports(FrameContext& frame)
 
         // P7.5: the scene renders at renderScale of the panel size and the image is
         // stretched to the panel. Picking maps mouse positions through the same scale.
-        const float renderScale = ux3d::imgui::RenderQuality::settings().renderScale;
+        if (!ux3d::imgui::RenderQuality::legacyCaptureUi()) {
+            ImGui::SameLine();
+            ux3d::imgui::RenderQuality::drawProfileSelector(sceneRevisions);
+            viewportPos = ImGui::GetCursorScreenPos();
+            viewportSize = ImGui::GetContentRegionAvail();
+        }
+        if (ux3d::imgui::RenderQuality::autoActive() && !ux3d::imgui::RenderQuality::qualityReached()) {
+            ImGui::TextDisabled("%s", ux3d::imgui::RenderQuality::autoStatus().c_str());
+            viewportPos = ImGui::GetCursorScreenPos();
+            viewportSize = ImGui::GetContentRegionAvail();
+        }
+        const auto effectiveSettings = ux3d::imgui::RenderQuality::effectiveViewport(vp->settings);
+        const float renderScale = ux3d::imgui::RenderQuality::effective().renderScale;
         int vpW = static_cast<int>(viewportSize.x * renderScale);
         int vpH = static_cast<int>(viewportSize.y * renderScale);
         if (vpW < 1) vpW = 1;
         if (vpH < 1) vpH = 1;
 
-        const int postAA = vp->settings.effectivePostAAIdx();
+        const int postAA = effectiveSettings.effectivePostAAIdx();
         auto aaMode = static_cast<ux3d::imgui::AntiAliasingMode>(postAA == 0 ? 0 : postAA + 3);
         int desiredSamples = ux3d::imgui::AntiAliasing::getSampleCount(
-            static_cast<ux3d::imgui::AntiAliasingMode>(vp->settings.effectiveMsaaIdx()));
+            static_cast<ux3d::imgui::AntiAliasingMode>(effectiveSettings.effectiveMsaaIdx()));
 
         if (vp->sceneFbo.getWidth() != vpW || vp->sceneFbo.getHeight() != vpH ||
             vp->sceneFbo.getSamples() != desiredSamples || !vp->sceneFbo.isLinearFloat()) {
@@ -444,7 +457,8 @@ void Application::drawViewports(FrameContext& frame)
         const bool exposureAdapting = activeEnvironment.autoExposure && vp->antiAliasing.isExposureAdapting();
         const bool cameraJumped = !vp->hasCachedImage ||
             (glm::distance(cameraEye, vp->lastRenderKey.eye) > 0.5f * std::max(1.0f, cameraZoom));
-        const bool redrawScene = s_disableRedrawSkip || !keyUnchanged || pickingRendered || taaAccumulating || exposureAdapting;
+        const bool redrawScene = s_disableRedrawSkip || !keyUnchanged || pickingRendered || taaAccumulating || exposureAdapting
+            || ux3d::imgui::RenderQuality::wantsSample();
         if (redrawScene) {
             vp->taaStableRenders =
                 (keyUnchanged && isTaa && vp->antiAliasing.isHistoryValid()) ? vp->taaStableRenders + 1 : 0;
@@ -462,7 +476,7 @@ void Application::drawViewports(FrameContext& frame)
         if (redrawScene) {
             vp->sceneFbo.bind();
             glViewport(0, 0, vpW, vpH);
-            if (activeEnvironment.showBackground) {
+            if (ux3d::imgui::RenderQuality::allowSkybox(activeEnvironment.showBackground)) {
                 glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
             } else {
                 glClearColor(activeEnvironment.clearColor.r, activeEnvironment.clearColor.g,
@@ -482,11 +496,15 @@ void Application::drawViewports(FrameContext& frame)
         // 1. Render glTF scene & background skybox
         if (redrawScene && gltfLayer != nullptr && glRenderer != nullptr && commandGenerator != nullptr) {
             const auto sceneBuildStart = ux3d::imgui::profiling::Clock::now();
-            gltfLayer->enableCubeMap(activeEnvironment.showBackground);
+            gltfLayer->enableCubeMap(ux3d::imgui::RenderQuality::allowSkybox(activeEnvironment.showBackground));
             glRenderer->setClearColor(activeEnvironment.clearColor);
             gltfLayer->getResourceManager().setClearColor(activeEnvironment.clearColor);
 
             auto mode = vp->settings.renderMode;
+            // With no IBL, offer a useful texture-colour inspection view even for
+            // models without authored lights (the Low preset).
+            if (!ux3d::imgui::RenderQuality::allowIbl() && mode == ux3d::renderer::RenderMode::None)
+                mode = ux3d::renderer::RenderMode::BaseColor;
 
             // A2.1: the two decal debug views show the prepass targets instead of a PBR
             // debug channel, so the forward draws stay normally shaded underneath.
@@ -723,8 +741,8 @@ void Application::drawViewports(FrameContext& frame)
             commandGenerator->setEnvironmentMapIntensity(activeEnvironment.hdrIntensity);
             commandGenerator->setEnvironmentMapRotation(activeEnvironment.hdrRotation);
             commandGenerator->setEnvironmentMapBlurNormalized(activeEnvironment.hdrBlur);
-            commandGenerator->setIBLEnabled(activeEnvironment.iblEnabled);
-            commandGenerator->setPunctualLightsEnabled(activeEnvironment.punctualLightsEnabled);
+            commandGenerator->setIBLEnabled(activeEnvironment.iblEnabled && ux3d::imgui::RenderQuality::allowIbl());
+            commandGenerator->setPunctualLightsEnabled(ux3d::imgui::RenderQuality::allowLights(activeEnvironment.punctualLightsEnabled));
             commandGenerator->setAsoboNormalMapConvention(
                 gltfLayer->usesDirectXNormalMaps() &&
                 vp->settings.asobo.applies("ASOBO_normal_map_convention"));
@@ -773,11 +791,11 @@ void Application::drawViewports(FrameContext& frame)
             // A4: the behind pass needs HDR radiance and the exact render-scale/MSAA
             // pixel grid. The blit callback switches back to the ordinary scene target.
             commandGenerator->setAsoboGlassCopyValid(false);
-            ssrCaptureDepth = scene.windshieldSsr && vp->settings.screenSpaceReflections;
+            ssrCaptureDepth = scene.windshieldSsr && effectiveSettings.screenSpaceReflections;
             ssrUseDecalDepth = decalActive;
             ssrInteriorSky = vp->settings.interiorSkyReflection;
-            commandGenerator->setSsrOptions(vp->settings.screenSpaceReflections,
-                                           vp->settings.ssrQuality, vp->settings.interiorSkyReflection);
+            commandGenerator->setSsrOptions(effectiveSettings.screenSpaceReflections,
+                                           effectiveSettings.ssrQuality, vp->settings.interiorSkyReflection);
             // TAA resolves the per-frame ray phase noise into soft reflection silhouettes.
             commandGenerator->setSsrFrame(isTaa ? static_cast<float>(vp->taaStableRenders % 64u) : 0.0f);
             const bool floatCopy = scene.asoboGlassCopy && vp->sceneFbo.isValid() && vp->sceneFbo.isLinearFloat();
@@ -920,11 +938,11 @@ void Application::drawViewports(FrameContext& frame)
             postParams.exposureHdrTexture = exposureHdrTexture;
             postParams.exposureEv = activeEnvironment.exposureEV;
             postParams.toneMappingMode = activeEnvironment.toneMappingIdx;
-            postParams.hasClearColor = !activeEnvironment.showBackground;
+            postParams.hasClearColor = !ux3d::imgui::RenderQuality::allowSkybox(activeEnvironment.showBackground);
             postParams.clearColor = glm::vec3(activeEnvironment.clearColor.r,
                                               activeEnvironment.clearColor.g,
                                               activeEnvironment.clearColor.b);
-            postParams.bloomEnabled = activeEnvironment.bloomEnabled && !ssrDebugOverlay;
+            postParams.bloomEnabled = ux3d::imgui::RenderQuality::allowBloom(activeEnvironment.bloomEnabled) && !ssrDebugOverlay;
             postParams.bloomIntensity = activeEnvironment.bloomIntensity;
             postParams.bloomRadius = activeEnvironment.bloomRadius;
             postParams.autoExposure = activeEnvironment.autoExposure;
@@ -1055,7 +1073,7 @@ void Application::drawViewports(FrameContext& frame)
         if (redrawScene && vp->settings.showGrid) {
             gridRenderer.draw(view, proj,
                               ux3d::math::vec3(cameraEye.x, cameraEye.y, cameraEye.z), cameraZoom,
-                              ux3d::imgui::RenderQuality::settings().gridMode == ux3d::imgui::GridMode::PlaneMesh);
+                              ux3d::imgui::RenderQuality::effective().gridMode == ux3d::imgui::GridMode::PlaneMesh);
             ux3d::imgui::profiling::countOverlayDraw();
         }
 

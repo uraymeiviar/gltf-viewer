@@ -126,6 +126,8 @@ set(GLIDER_SOURCES
 	"header/imgui/ValidationPanel.h"
 	"source/imgui/AppSettings.cpp"
 	"header/imgui/AppSettings.h"
+	"source/imgui/SettingsFile.cpp"
+	"header/imgui/SettingsFile.h"
 	"source/imgui/SearchPathsPanel.cpp"
 	"header/imgui/SearchPathsPanel.h"
 	"source/imgui/StatusBar.cpp"

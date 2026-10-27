@@ -37,6 +37,7 @@
 #include <functional>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <utility>
@@ -188,16 +189,15 @@ private:
     void focusCameraOnNode(ux3d::gltf::Node* node, ux3d::gltf::Gltf& gltfModel,
                            ux3d::renderer::GltfRenderLayer* gltfLayer, ux3d::editor::CameraActor& cameraActor,
                            ux3d::imgui::AntiAliasing& antiAliasing, ux3d::imgui::SceneRevisions& revisions);
-    std::string getRecentFilesConfigPath();
     std::vector<std::string> loadRecentFiles();
     void saveRecentFiles(const std::vector<std::string>& files);
     void addRecentFile(std::vector<std::string>& files, const std::string& path);
-    std::string getSettingsConfigPath();
-    std::string getWindowStateConfigPath();
     WindowState loadWindowState();
     void saveWindowState(GLFWwindow* window);
     void loadImguiLayout();
     void saveImguiLayout();
+    void captureLayoutBaseline();
+    void resetImguiLayoutPersistence();
     bool parseWindowSize(const std::string& text, int& width, int& height);
     bool parseFloat3(const std::string& text, float& x, float& y, float& z);
     static std::string toLowerAscii(std::string text);
@@ -210,7 +210,7 @@ private:
                        std::vector<std::unique_ptr<ux3d::imgui::ViewportInstance>>& viewports,
                        ux3d::renderer::GltfRenderLayer* gltfLayer, ux3d::imgui::AnimationPlayer& animPlayer,
                        ux3d::imgui::SceneRevisions& revisions,
-                       std::vector<ux3d::imgui::SceneEnvironmentState>& sceneEnvironments);
+                       std::vector<ux3d::imgui::SceneEnvironmentState>& sceneEnvironments, bool texturesOnly = false);
     void newEmptyGltf(ux3d::gltf::Gltf& gltfModel, ux3d::gltf::Scene*& activeScene,
                       ux3d::imgui::SelectionState& selection, std::string& currentFilePath,
                       ux3d::editor::CameraActor& cameraActor, ux3d::renderer::GltfRenderLayer* gltfLayer,
@@ -249,6 +249,11 @@ private:
     std::string describeUiSelection(const ux3d::imgui::SelectionState& selection);
     std::optional<int> configure(int argc, char** argv);
     void runFrame();
+    // Texture-only quality refreshes keep the presented frame on screen instead of
+    // switching to the full loading screen. The snapshot is the last swapped frame,
+    // captured in the frame that requested the refresh.
+    void captureTextureRefreshSnapshot(int width, int height);
+    void releaseTextureRefreshSnapshot();
     void processInput(float deltaTime);
     // A2.2: --material-edit-emissive <material> edits that material's emissive factor every
     // frame and marks SceneChange::Material, so the per-edit cost can be measured with
@@ -329,6 +334,15 @@ private:
     std::vector<double> idleWakesMs;
     ux3d::imgui::IdleWaitStats idleWaitStats;
     bool frameInProgress = false;
+    bool loadingActive = false;
+    uint32_t loadedTextureCap = 0;
+    GLuint textureRefreshSnapshot = 0;
+    int textureRefreshSnapshotWidth = 0;
+    int textureRefreshSnapshotHeight = 0;
+    std::string queuedLoadPath;
+    std::string loadingCapturePath;
+    bool queuedLoadTestUsed = false;
+    std::mutex consoleWriteMutex;
     bool pendingNewViewport = false;
     const ux3d::gltf::Node* pendingNewViewportCamera = nullptr;
     bool showDemoWindow = false;
@@ -341,6 +355,11 @@ private:
     bool showSearchPaths = false;
     bool s_firstLayout = true;
     bool s_resetLayout = false;
+    // The layout baseline is captured a few frames after startup or a reset, once
+    // docking has settled. Only a real change from it is written to settings.ini.
+    std::string layoutBaseline;
+    int layoutBaselineCountdown = 3;
+    bool layoutPersisted = false;
     std::string modelToLoad;
     std::string dumpFramePath = "";
     std::string dumpNextFramePath; // Optional consecutive-frame overlay diagnostic

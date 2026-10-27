@@ -1,11 +1,13 @@
 // Copyright (c) 2019 UX3D GmbH. All rights reserved.
 
 #include "gltf/Gltf.h"
+#include "core/LoadProgress.h"
 #include "core/Algorithms.h"
 #include "gltf/DracoDecoder.h"
 #include "gltf/Merger.h"
 
 #include <future>
+#include <thread>
 
 using namespace ux3d;
 using namespace ux3d::gltf;
@@ -626,36 +628,102 @@ void Gltf::addRequiredUnknownExtension(const core::string& _extensionName)
     m_requiredUnknownExtensions.insert(_extensionName);
 }
 
-GltfResult Gltf::loadBinaryDataToMemory(const std::optional<filesystem::Dir>& gltfDir, const std::optional<filesystem::Dir>& resourceDir)
+GltfResult Gltf::loadBinaryDataToMemory(const std::optional<filesystem::Dir>& gltfDir, const std::optional<filesystem::Dir>& resourceDir, bool imagesOnly)
 {
     GltfResult result;
 
     {
+        // Captured worker context must outlive the futures even if starting a
+        // later worker throws (e.g. system/thread allocation failure).
+        std::vector<Image*> pendingImages;
+        std::atomic<size_t> nextImage{0};
+        const auto searchDir = resourceDir.has_value() ? resourceDir : gltfDir;
         core::Vector<std::future<GltfResult>> results;
+        if (imagesOnly) {
+            for (auto& image : m_images) { image.m_data = image::Image{}; ++image.encodedMapID; }
+        }
 
         // buffers need to be resolved first because images may get their data from buffers
         if (!results.reserve(m_buffers.size())) {
             return GltfError::AllocationFailure;
         }
-        for (auto& buffer : m_buffers) {
+        core::loading::begin(core::loading::Buffers, static_cast<uint32_t>(m_buffers.size()));
+        const auto buffersStart = core::loading::Clock::now();
+        if (!imagesOnly) for (auto& buffer : m_buffers) {
             results.emplace_back(std::async(std::launch::async, [&buffer, &gltfDir]() { return buffer.loadDataToMemory(gltfDir); }));
         }
         for (auto& res : results) {
             result = core::Max(res.get(), result);
+            ++core::loading::state.completed;
+        }
+
+        {
+            std::lock_guard lock(core::loading::state.mutex);
+            core::loading::state.milliseconds[core::loading::Buffers] +=
+                std::chrono::duration<double, std::milli>(core::loading::Clock::now() - buffersStart).count();
         }
 
         results.clear();
         if (!results.reserve(m_images.size())) {
             return GltfError::AllocationFailure;
         }
-        for (auto& image : m_images) {
-            std::optional<filesystem::Dir> searchDir = gltfDir;
-            if (resourceDir.has_value()) {
-                searchDir = resourceDir;
+        core::loading::begin(core::loading::Images, static_cast<uint32_t>(m_images.size()));
+        core::loading::Timer imagesTimer(core::loading::Images);
+        if (core::loading::state.memoryAware) {
+            // Read encoded headers first. Choose one power-of-two limit for the model,
+            // accounting for a full RGBA mip chain (or the compressed mip payload).
+            const auto directory = resourceDir.has_value() ? resourceDir : gltfDir;
+            for (auto& image : m_images) {
+                if (core::Failed(image.prepareLoad(directory))) {
+                    core::logWarning("[Loading] cannot read image '%s'; using error image", image.getUri().c_str());
+                    image.loadAsErrorImage();
+                }
             }
-            results.emplace_back(std::async(std::launch::async, [&image, searchDir]() { return image.loadDataToMemory(searchDir); }));
+            auto estimate = [&](uint32_t limit) {
+                uint64_t bytes = 0;
+                for (const auto& image : m_images)
+                    bytes += imageformats::estimateTextureBytes(*image.getEncodedBytes(), limit);
+                return bytes;
+            };
+            const uint32_t maximum = core::loading::state.maxTextureSize;
+            const uint64_t budget = core::loading::state.textureBudget;
+            const bool unlimited = core::loading::state.unlimitedTextures;
+            uint32_t limit = maximum;
+            if (!unlimited) {
+                while (limit > 64 && budget && estimate(limit) > budget) limit /= 2;
+            }
+            // Zero is the importer's "leave the image untouched" marker and is also what
+            // the status/statistics UI shows for an uncapped preset.
+            core::loading::state.textureLimit = unlimited ? 0 : limit;
+            core::loading::state.estimatedTextureBytes = estimate(limit);
+            if (unlimited) {
+                core::logInfo("[Loading] texture estimate %.1f MiB, budget %.1f MiB, unlimited (active preset)",
+                    double(estimate(limit))/(1024*1024), double(budget)/(1024*1024));
+            } else {
+                core::logInfo("[Loading] texture estimate %.1f MiB, budget %.1f MiB, maximum dimension %u",
+                    double(estimate(limit))/(1024*1024), double(budget)/(1024*1024), limit);
+            }
         }
-        for (auto& audioSource : m_audioSources) {
+        for (auto& image : m_images) pendingImages.push_back(&image);
+        const size_t workers = std::min<size_t>(pendingImages.size(), std::max(1u, std::min(16u, std::thread::hardware_concurrency())));
+        for (size_t worker = 0; worker < workers; ++worker) {
+            results.emplace_back(std::async(std::launch::async, [&]() {
+                GltfResult combined;
+                for (size_t index = nextImage++; index < pendingImages.size(); index = nextImage++) {
+                    auto& image = *pendingImages[index];
+                    try {
+                        combined = core::Max(combined, core::loading::state.memoryAware ? image.decodePrepared() : image.loadDataToMemory(searchDir));
+                    } catch (const std::bad_alloc&) {
+                        core::logWarning("[Loading] image allocation failed; using error image");
+                        ++core::loading::state.allocationFailures;
+                        image.loadAsErrorImage();
+                    }
+                    ++core::loading::state.completed;
+                }
+                return combined;
+            }));
+        }
+        if (!imagesOnly) for (auto& audioSource : m_audioSources) {
             std::optional<filesystem::Dir> searchDir = gltfDir;
             if (resourceDir.has_value()) {
                 searchDir = resourceDir;
@@ -667,6 +735,7 @@ GltfResult Gltf::loadBinaryDataToMemory(const std::optional<filesystem::Dir>& gl
         }
     }
 
+    if (imagesOnly) return result;
     // draco decoding
     {
         DracoDecoder dracoDecoder(*this);

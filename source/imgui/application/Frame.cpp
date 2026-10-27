@@ -1,6 +1,8 @@
 // Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
 
 #include "Application.h"
+#include "imgui/RenderQuality.h"
+#include "imgui/RuntimeTelemetry.h"
 #include "imgui/ObjectActions.h"
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_opengl3.h"
@@ -10,6 +12,23 @@ namespace ux3d::imgui::application {
 
 void Application::runFrame()
 {
+    if (loadingActive) return; // resize callbacks must not re-enter a load
+    if (ux3d::imgui::RenderQuality::takeTextureRefresh()) {
+        // A texture-only refresh keeps the current screen and shows the progress on a
+        // status-bar strip. If the profile does not change the texture cap there is
+        // nothing to re-decode, so the pending snapshot (if any) is simply dropped.
+        if (loadedTextureCap != ux3d::imgui::RenderQuality::textureMaxSize() && !currentFilePath.empty()) {
+            loadGltfModel(currentFilePath, gltfModel, activeScene, selection, currentFilePath, viewports,
+                gltfLayer.get(), animationPlayer, sceneRevisions, sceneEnvironments, true);
+        }
+        releaseTextureRefreshSnapshot();
+    }
+    if (!queuedLoadPath.empty()) {
+        const std::string path = std::exchange(queuedLoadPath, {});
+        modelLoaded = loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports,
+            gltfLayer.get(), animationPlayer, sceneRevisions, sceneEnvironments);
+        updateWindowTitle(window, currentFilePath);
+    }
     auto& io = ImGui::GetIO();
     frameInProgress = true;
     if (!s_idleStatsPath.empty() && idleFrameStartsMs.size() < 200000) {
@@ -60,11 +79,15 @@ void Application::runFrame()
     drawMenus(frame);
     driveMaterialEditCheck();
     synchronizeScene(frame);
+    ux3d::imgui::RenderQuality::beginGpuSample();
     drawViewports(frame);
+    ux3d::imgui::RenderQuality::endGpuSample(s_sceneRenderTotal != sceneRendersAtFrameStart);
     drawPanels(frame);
+    ux3d::imgui::RenderQuality::updateAuto(s_sceneRenderTotal != sceneRendersAtFrameStart
+        ? ux3d::imgui::profiling::elapsedMs(frame.start) : 0, gltfLayer.get(), sceneRevisions);
     const auto statusBarStart = ux3d::imgui::profiling::Clock::now();
     ux3d::imgui::StatusBar::render(gltfModel, gltfLayer.get(), animationPlayer, sceneRevisions, showLogger,
-                                   showValidation, s_consoleLogs.counts(),
+                                   showStatistics, showValidation, s_consoleLogs.counts(),
                                    activeViewport ? &activeViewport->antiAliasing : nullptr);
     frame.markStage("ui.statusBar", statusBarStart);
 
@@ -87,8 +110,20 @@ void Application::runFrame()
                                                 static_cast<uint64_t>(drawData->TotalIdxCount));
     }
 
+    ux3d::imgui::RuntimeTelemetry::get().record(ux3d::imgui::profiling::elapsedMs(frame.start),
+        ux3d::imgui::RenderQuality::gpuFrameMs(),s_sceneRenderTotal != sceneRendersAtFrameStart);
+    // The next frame re-decodes textures when the preset changed. Grab the frame that is
+    // about to be presented so the refresh can keep it on screen under the progress bar.
+    if (ux3d::imgui::RenderQuality::textureRefreshPending() &&
+        loadedTextureCap != ux3d::imgui::RenderQuality::textureMaxSize() &&
+        !currentFilePath.empty()) {
+        captureTextureRefreshSnapshot(displayW, displayH);
+    }
     finishFrame(frame, displayW, displayH);
     glfwSwapBuffers(window);
+    if (layoutBaselineCountdown > 0 && --layoutBaselineCountdown == 0) {
+        captureLayoutBaseline();
+    }
     if (!s_isolatedState && io.WantSaveIniSettings) {
         io.WantSaveIniSettings = false;
         saveImguiLayout();
@@ -105,6 +140,41 @@ void Application::runFrame()
                              io.WantTextInput || ImGui::IsAnyMouseDown();
     idleQuietFrames = frameActive ? 0 : idleQuietFrames + 1;
     frameInProgress = false;
+}
+
+void Application::captureTextureRefreshSnapshot(int width, int height)
+{
+    if (width <= 0 || height <= 0) return;
+    if (textureRefreshSnapshot == 0) {
+        glGenTextures(1, &textureRefreshSnapshot);
+    }
+    GLint previousTexture = 0, previousReadFbo = 0, previousReadBuffer = 0;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &previousTexture);
+    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &previousReadFbo);
+    glGetIntegerv(GL_READ_BUFFER, &previousReadBuffer);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+    glReadBuffer(GL_BACK);
+    glBindTexture(GL_TEXTURE_2D, textureRefreshSnapshot);
+    glCopyTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 0, 0, width, height, 0);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(previousTexture));
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(previousReadFbo));
+    glReadBuffer(static_cast<GLenum>(previousReadBuffer));
+    textureRefreshSnapshotWidth = width;
+    textureRefreshSnapshotHeight = height;
+}
+
+void Application::releaseTextureRefreshSnapshot()
+{
+    if (textureRefreshSnapshot != 0) {
+        glDeleteTextures(1, &textureRefreshSnapshot);
+        textureRefreshSnapshot = 0;
+    }
+    textureRefreshSnapshotWidth = 0;
+    textureRefreshSnapshotHeight = 0;
 }
 
 void Application::driveMaterialEditCheck()

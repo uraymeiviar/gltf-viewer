@@ -80,6 +80,7 @@ public:
     virtual void bindTexture(GLenum target, GLuint texture) override;
     virtual void pixelStorei(GLenum pname, GLint param) override;
     virtual void texImage2D(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const void* data) override;
+    void texSubImage2D(GLenum target, GLint level, GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, const void* data) override;
     virtual void compressedTexImage2D(GLenum target, GLint level, GLenum internalformat, GLsizei width, GLsizei height, GLint border, GLsizei imageSize, const void* data) override
     {
         ux3d::imgui::profiling::countGlCall();

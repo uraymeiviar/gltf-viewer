@@ -62,6 +62,8 @@ public:
 
     uint64_t getSizeInBytes();
     GltfResult loadDataToMemory(const std::optional<filesystem::Dir>& _gltfDir);
+    GltfResult prepareLoad(const std::optional<filesystem::Dir>& directory);
+    GltfResult decodePrepared();
     GltfResult reloadDataToMemory(const filesystem::File& _imageFile);
 
     StorageFormat getStorageFormat() const { return m_storageFormat; }

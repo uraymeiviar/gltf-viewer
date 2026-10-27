@@ -5,6 +5,7 @@
 #include "gltf/Gltf.h"
 #include <cstdint>
 #include <string>
+namespace ux3d::renderer { class GltfRenderLayer; }
 
 namespace ux3d::imgui {
 
@@ -18,6 +19,7 @@ struct RenderBufferStatistics {
     uint64_t decalBufferAllocations = 0;
     uint64_t decalBufferResizes = 0;
     uint64_t decalBufferReleases = 0;
+    uint64_t viewportTargetBytes = 0;
 
     bool operator==(const RenderBufferStatistics&) const = default;
 };
@@ -25,10 +27,14 @@ struct RenderBufferStatistics {
 class StatisticsPanel {
 public:
     static void render(const ux3d::gltf::Gltf& gltfModel, const std::string& currentFilePath,
-                       const RenderBufferStatistics& buffers = {});
+                       const RenderBufferStatistics& buffers = {}, const ux3d::renderer::GltfRenderLayer* layer = nullptr);
 
     // Drops the cached snapshot after a load, reload, save, or explicit refresh.
     static void invalidate();
+
+    // Brings the Statistics window/tab to the front on the next frame.
+    static void requestFocus();
+    static bool consumeFocusRequest();
 };
 
 } // namespace ux3d::imgui

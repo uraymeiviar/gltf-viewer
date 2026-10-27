@@ -81,7 +81,7 @@
 
 Pre-compiled standalone binaries are available on the [**Releases**](https://github.com/uraymeiviar/gltf-viewer/releases) page.
 
-Simply extract `Glider.exe` anywhere and run. No installation or setup is needed. Glider is fully portable: settings, layout, and session state live in a local `GliderData/` folder next to `Glider.exe` (with automatic fallback to `%APPDATA%/Glider` if the directory is unwritable).
+Simply extract `Glider.exe` anywhere and run. No installation or setup is needed. Glider is fully portable: all settings, layout, and session state live in a single `settings.ini` next to `Glider.exe`, written only when a value differs from its default (with automatic fallback to `%APPDATA%/Glider` if the directory is unwritable).
 
 ```bat
 Glider.exe [path_to_model.gltf / path_to_model.glb]

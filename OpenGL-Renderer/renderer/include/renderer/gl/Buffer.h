@@ -26,6 +26,7 @@ public:
     void bind(BufferTarget target) const;
 
     GLuint handle = invalid;
+    uint64_t residentBytes = 0;
 
 private:
     GL* m_gl;

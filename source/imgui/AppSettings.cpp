@@ -1,6 +1,7 @@
 // Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
 
 #include "imgui/AppSettings.h"
+#include "imgui/SettingsFile.h"
 #include "imgui/SettingsStorage.h"
 #include "core/Logger.h"
 
@@ -8,6 +9,8 @@
 #include <sstream>
 #include <algorithm>
 #include <cctype>
+#include <functional>
+#include <set>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -67,6 +70,7 @@ void AppSettings::setCurrentModelPath(const std::string& modelPath)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
     m_currentModelPath = toGenericSlash(modelPath);
+    m_expansionKey.clear();
 
     if (!m_currentModelPath.empty()) {
         std::error_code ec;
@@ -186,259 +190,217 @@ void AppSettings::setResourceOptions(const ResourceDisplayOptions& options)
     m_resourceOptions = options;
 }
 
-bool AppSettings::loadSettings(const std::string& iniPath)
+std::string AppSettings::getIniFilePath() const
 {
-    std::string targetFile = iniPath.empty() ? getDataFilePath("settings.ini").string() : iniPath;
-    m_iniPath = targetFile;
+    return getSettingsFilePath().string();
+}
 
-    std::error_code ec;
-    if (!fs::exists(fs::u8path(targetFile), ec)) {
-        // File does not exist yet; save default settings
-        saveSettings(targetFile);
+bool AppSettings::loadSettings()
+{
+    SettingsFile& settings = SettingsFile::instance();
+    if (!settings.load()) {
+        // Persistence is disabled (--isolated): keep the built-in defaults.
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_searchPaths = { "../texture" };
+        m_hierarchyOptions = HierarchyDisplayOptions{};
+        m_resourceOptions = ResourceDisplayOptions{};
         return false;
     }
 
-    std::ifstream in(fs::u8path(targetFile), std::ios::binary);
-    if (!in.is_open()) {
-        static bool s_readFailLogged = false;
-        if (!s_readFailLogged) {
-            logSettingsMessage("Failed to read settings.ini: unable to open file; using defaults.", true);
-            s_readFailLogged = true;
+    const auto readBool = [&](const char* section, const char* key, bool fallback) {
+        const std::string value = settings.get(section, key);
+        if (value == "1" || value == "true" || value == "True") {
+            return true;
         }
-        return false;
-    }
-
-    std::string rawContent((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    bool hasBinary = false;
-    for (unsigned char c : rawContent) {
-        if (c < 0x09 || (c > 0x0D && c < 0x20)) {
-            hasBinary = true;
-            break;
+        if (value == "0" || value == "false" || value == "False") {
+            return false;
         }
-    }
-    if (hasBinary) {
-        static bool s_corruptLogged = false;
-        if (!s_corruptLogged) {
-            logSettingsMessage("Corrupt or invalid settings.ini detected; using defaults.", true);
-            s_corruptLogged = true;
-        }
-        return false;
-    }
+        return fallback;
+    };
 
     std::lock_guard<std::mutex> lock(m_mutex);
     m_searchPaths.clear();
-
-    std::istringstream iss(rawContent);
-    std::string line;
-    bool inSearchPathsSection = false;
-    bool inSceneHierarchySection = false;
-    bool inResourcesSection = false;
-    bool parsedAnySection = false;
-
-    while (std::getline(iss, line)) {
-        std::string trimmed = trimString(line);
-        if (trimmed.empty() || trimmed[0] == ';' || trimmed[0] == '#') {
-            continue;
-        }
-
-        if (trimmed[0] == '[') {
-            parsedAnySection = true;
-            // Check section header
-            if (trimmed.rfind("[SearchPaths]", 0) == 0 || trimmed.rfind("[SearchPaths", 0) == 0) {
-                inSearchPathsSection = true;
-                inSceneHierarchySection = false;
-                inResourcesSection = false;
-            } else if (trimmed.rfind("[SceneHierarchy]", 0) == 0 || trimmed.rfind("[SceneHierarchy", 0) == 0) {
-                inSearchPathsSection = false;
-                inSceneHierarchySection = true;
-                inResourcesSection = false;
-            } else if (trimmed.rfind("[Resources]", 0) == 0 || trimmed.rfind("[Resources", 0) == 0) {
-                inSearchPathsSection = false;
-                inSceneHierarchySection = false;
-                inResourcesSection = true;
-            } else {
-                inSearchPathsSection = false;
-                inSceneHierarchySection = false;
-                inResourcesSection = false;
-            }
-            continue;
-        }
-
-        if (inSearchPathsSection) {
-            auto eqPos = trimmed.find('=');
-            if (eqPos != std::string::npos) {
-                std::string key = trimString(trimmed.substr(0, eqPos));
-                std::string val = trimString(trimmed.substr(eqPos + 1));
-
-                if (key == "count") {
-                    continue;
-                } else if (key.rfind("path", 0) == 0 && key != "paths") {
-                    std::string norm = toGenericSlash(val);
+    if (settings.hasSection("SearchPaths")) {
+        // An existing section is authoritative: count=0 means the user cleared it.
+        for (const SettingsEntry& entry : settings.section("SearchPaths")) {
+            if (entry.first.rfind("path", 0) == 0 && entry.first != "paths") {
+                const std::string norm = toGenericSlash(trimString(entry.second));
+                if (!norm.empty() && std::find(m_searchPaths.begin(), m_searchPaths.end(), norm) == m_searchPaths.end()) {
+                    m_searchPaths.push_back(norm);
+                }
+            } else if (entry.first == "paths") {
+                std::stringstream ss(entry.second);
+                std::string item;
+                while (std::getline(ss, item, ';')) {
+                    const std::string norm = toGenericSlash(trimString(item));
                     if (!norm.empty() && std::find(m_searchPaths.begin(), m_searchPaths.end(), norm) == m_searchPaths.end()) {
                         m_searchPaths.push_back(norm);
                     }
-                } else if (key == "paths") {
-                    std::stringstream ss(val);
-                    std::string item;
-                    while (std::getline(ss, item, ';')) {
-                        std::string norm = toGenericSlash(trimString(item));
-                        if (!norm.empty() && std::find(m_searchPaths.begin(), m_searchPaths.end(), norm) == m_searchPaths.end()) {
-                            m_searchPaths.push_back(norm);
-                        }
-                    }
                 }
             }
-        } else if (inSceneHierarchySection) {
-            auto eqPos = trimmed.find('=');
-            if (eqPos != std::string::npos) {
-                std::string key = trimString(trimmed.substr(0, eqPos));
-                std::string val = trimString(trimmed.substr(eqPos + 1));
-                bool bVal = (val == "true" || val == "1" || val == "True");
-
-                if (key == "showIcon") m_hierarchyOptions.showIcon = bVal;
-                else if (key == "showTitle") m_hierarchyOptions.showTitle = bVal;
-                else if (key == "showIndex") m_hierarchyOptions.showIndex = bVal;
-                else if (key == "showName") m_hierarchyOptions.showName = bVal;
-            }
-        } else if (inResourcesSection) {
-            auto eqPos = trimmed.find('=');
-            if (eqPos != std::string::npos) {
-                std::string key = trimString(trimmed.substr(0, eqPos));
-                std::string val = trimString(trimmed.substr(eqPos + 1));
-                bool bVal = (val == "true" || val == "1" || val == "True");
-
-                if (key == "showIcon") m_resourceOptions.showIcon = bVal;
-                else if (key == "showTitle") m_resourceOptions.showTitle = bVal;
-                else if (key == "showIndex") m_resourceOptions.showIndex = bVal;
-                else if (key == "showName") m_resourceOptions.showName = bVal;
-            }
         }
+    } else {
+        m_searchPaths = { "../texture" };
     }
 
-    if (!rawContent.empty() && !parsedAnySection) {
-        static bool s_corruptLogged = false;
-        if (!s_corruptLogged) {
-            logSettingsMessage("Corrupt or invalid settings.ini detected; using defaults.", true);
-            s_corruptLogged = true;
-        }
-        return false;
-    }
+    const HierarchyDisplayOptions hierarchyDefaults;
+    m_hierarchyOptions.showIcon = readBool("SceneHierarchy", "showIcon", hierarchyDefaults.showIcon);
+    m_hierarchyOptions.showTitle = readBool("SceneHierarchy", "showTitle", hierarchyDefaults.showTitle);
+    m_hierarchyOptions.showIndex = readBool("SceneHierarchy", "showIndex", hierarchyDefaults.showIndex);
+    m_hierarchyOptions.showName = readBool("SceneHierarchy", "showName", hierarchyDefaults.showName);
 
-    m_iniPath = targetFile;
+    const ResourceDisplayOptions resourceDefaults;
+    m_resourceOptions.showIcon = readBool("Resources", "showIcon", resourceDefaults.showIcon);
+    m_resourceOptions.showTitle = readBool("Resources", "showTitle", resourceDefaults.showTitle);
+    m_resourceOptions.showIndex = readBool("Resources", "showIndex", resourceDefaults.showIndex);
+    m_resourceOptions.showName = readBool("Resources", "showName", resourceDefaults.showName);
+
+    // Drop values that equal the defaults so a legacy file is consolidated without
+    // re-writing defaults into the new one.
+    const std::vector<std::string> defaultSearchPaths = { "../texture" };
+    if (m_searchPaths == defaultSearchPaths) {
+        settings.removeSection("SearchPaths");
+    }
+    if (m_hierarchyOptions.showIcon == hierarchyDefaults.showIcon &&
+        m_hierarchyOptions.showTitle == hierarchyDefaults.showTitle &&
+        m_hierarchyOptions.showIndex == hierarchyDefaults.showIndex &&
+        m_hierarchyOptions.showName == hierarchyDefaults.showName) {
+        settings.removeSection("SceneHierarchy");
+    }
+    if (m_resourceOptions.showIcon == resourceDefaults.showIcon &&
+        m_resourceOptions.showTitle == resourceDefaults.showTitle &&
+        m_resourceOptions.showIndex == resourceDefaults.showIndex &&
+        m_resourceOptions.showName == resourceDefaults.showName) {
+        settings.removeSection("Resources");
+    }
     return true;
 }
 
-bool AppSettings::saveSettings(const std::string& iniPath)
+bool AppSettings::saveSettings()
 {
-    std::string targetFile = iniPath.empty() ? m_iniPath : iniPath;
-    if (targetFile.empty() || targetFile == "settings.ini") {
-        targetFile = getDataFilePath("settings.ini").string();
-    }
-    m_iniPath = targetFile;
+    SettingsFile& settings = SettingsFile::instance();
+    settings.load();
 
-    if (!isDataDirectoryWritable()) {
-        static bool s_unwritableLogged = false;
-        if (!s_unwritableLogged) {
-            logSettingsMessage("Failed to write settings.ini: directory is not writable; changes kept in memory.", true);
-            s_unwritableLogged = true;
-        }
-        return false;
-    }
-
-    std::vector<std::string> preservedLines;
-    bool fileExisted = false;
-
-    std::error_code ec;
-    if (fs::exists(fs::u8path(targetFile), ec)) {
-        std::ifstream in(fs::u8path(targetFile));
-        if (in.is_open()) {
-            fileExisted = true;
-            std::string line;
-            bool skippingSection = false;
-
-            while (std::getline(in, line)) {
-                std::string trimmed = trimString(line);
-                if (trimmed[0] == '[') {
-                    if (trimmed.rfind("[SearchPaths]", 0) == 0 || trimmed.rfind("[SearchPaths", 0) == 0 ||
-                        trimmed.rfind("[SceneHierarchy]", 0) == 0 || trimmed.rfind("[SceneHierarchy", 0) == 0 ||
-                        trimmed.rfind("[Resources]", 0) == 0 || trimmed.rfind("[Resources", 0) == 0) {
-                        skippingSection = true;
-                        continue;
-                    } else {
-                        skippingSection = false;
-                    }
-                }
-
-                if (!skippingSection) {
-                    preservedLines.push_back(line);
+    std::vector<SettingsEntry> searchPathEntries;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        const std::vector<std::string> defaults = { "../texture" };
+        if (m_searchPaths != defaults) {
+            if (m_searchPaths.empty()) {
+                // Keep an explicit empty list distinct from "no value stored".
+                searchPathEntries.emplace_back("count", "0");
+            } else {
+                for (size_t i = 0; i < m_searchPaths.size(); ++i) {
+                    searchPathEntries.emplace_back("path" + std::to_string(i), m_searchPaths[i]);
                 }
             }
         }
     }
+    settings.replaceSection("SearchPaths", std::move(searchPathEntries));
 
-    std::ofstream out(fs::u8path(targetFile), std::ios::out | std::ios::trunc);
-    if (!out.is_open() || out.fail()) {
-        static bool s_saveFailLogged = false;
-        if (!s_saveFailLogged) {
-            logSettingsMessage("Failed to write settings.ini: file is not writable; changes kept in memory.", true);
-            s_saveFailLogged = true;
-        }
-        return false;
-    }
-
-    if (!fileExisted) {
-        out << "; Glider glTF Viewer Configuration\n\n";
-    }
-
-    // Write [SearchPaths] section
-    out << "[SearchPaths]\n";
+    std::vector<SettingsEntry> hierarchyEntries;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        out << "count=" << m_searchPaths.size() << "\n";
-        for (size_t i = 0; i < m_searchPaths.size(); ++i) {
-            out << "path" << i << "=" << m_searchPaths[i] << "\n";
-        }
+        const HierarchyDisplayOptions defaults;
+        if (m_hierarchyOptions.showIcon != defaults.showIcon) hierarchyEntries.emplace_back("showIcon", m_hierarchyOptions.showIcon ? "1" : "0");
+        if (m_hierarchyOptions.showTitle != defaults.showTitle) hierarchyEntries.emplace_back("showTitle", m_hierarchyOptions.showTitle ? "1" : "0");
+        if (m_hierarchyOptions.showIndex != defaults.showIndex) hierarchyEntries.emplace_back("showIndex", m_hierarchyOptions.showIndex ? "1" : "0");
+        if (m_hierarchyOptions.showName != defaults.showName) hierarchyEntries.emplace_back("showName", m_hierarchyOptions.showName ? "1" : "0");
     }
-    out << "\n";
+    settings.replaceSection("SceneHierarchy", std::move(hierarchyEntries));
 
-    // Write [SceneHierarchy] section
-    out << "[SceneHierarchy]\n";
+    std::vector<SettingsEntry> resourceEntries;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        out << "showIcon=" << (m_hierarchyOptions.showIcon ? "true" : "false") << "\n";
-        out << "showTitle=" << (m_hierarchyOptions.showTitle ? "true" : "false") << "\n";
-        out << "showIndex=" << (m_hierarchyOptions.showIndex ? "true" : "false") << "\n";
-        out << "showName=" << (m_hierarchyOptions.showName ? "true" : "false") << "\n";
+        const ResourceDisplayOptions defaults;
+        if (m_resourceOptions.showIcon != defaults.showIcon) resourceEntries.emplace_back("showIcon", m_resourceOptions.showIcon ? "1" : "0");
+        if (m_resourceOptions.showTitle != defaults.showTitle) resourceEntries.emplace_back("showTitle", m_resourceOptions.showTitle ? "1" : "0");
+        if (m_resourceOptions.showIndex != defaults.showIndex) resourceEntries.emplace_back("showIndex", m_resourceOptions.showIndex ? "1" : "0");
+        if (m_resourceOptions.showName != defaults.showName) resourceEntries.emplace_back("showName", m_resourceOptions.showName ? "1" : "0");
     }
-    out << "\n";
+    settings.replaceSection("Resources", std::move(resourceEntries));
 
-    // Write [Resources] section
-    out << "[Resources]\n";
-    {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        out << "showIcon=" << (m_resourceOptions.showIcon ? "true" : "false") << "\n";
-        out << "showTitle=" << (m_resourceOptions.showTitle ? "true" : "false") << "\n";
-        out << "showIndex=" << (m_resourceOptions.showIndex ? "true" : "false") << "\n";
-        out << "showName=" << (m_resourceOptions.showName ? "true" : "false") << "\n";
+    return settings.save();
+}
+
+static bool folderPatternMatches(std::string pattern, std::string name)
+{
+    auto lower = [](std::string& s) { for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c))); };
+    lower(pattern); lower(name);
+    size_t p = 0, n = 0, star = std::string::npos, retry = 0;
+    while (n < name.size()) {
+        if (p < pattern.size() && (pattern[p] == '?' || pattern[p] == name[n])) { ++p; ++n; }
+        else if (p < pattern.size() && pattern[p] == '*') { star = p++; retry = n; }
+        else if (star != std::string::npos) { p = star+1; n = ++retry; }
+        else return false;
     }
-    out << "\n";
+    while (p < pattern.size() && pattern[p] == '*') ++p;
+    return p == pattern.size();
+}
 
-    // Write any preserved other sections
-    for (const auto& pl : preservedLines) {
-        out << pl << "\n";
-    }
-
-    if (out.fail()) {
-        static bool s_writeErrLogged = false;
-        if (!s_writeErrLogged) {
-            logSettingsMessage("Failed to write settings.ini: write error; changes kept in memory.", true);
-            s_writeErrLogged = true;
+void AppSettings::expandSearchPathsLocked() const
+{
+    std::string key = m_currentModelDir;
+    for (const auto& path : m_searchPaths) key += '\n' + path;
+    if (key == m_expansionKey) return;
+    m_expansionKey = key;
+    m_expandedSearchPaths.clear();
+    std::set<std::string> seen;
+    auto add = [&](const fs::path& path) {
+        std::error_code ec;
+        if (!fs::is_directory(path, ec)) return;
+        // Expansion starts from the model directory, which is itself relative when the
+        // model was opened by a relative path. Store absolute paths so resolveAssetPath
+        // never prepends the model directory to a path that already contains it.
+        fs::path absolute = fs::absolute(path, ec);
+        if (ec || absolute.empty()) {
+            ec.clear();
+            absolute = path;
         }
-        return false;
+        const auto normalized = absolute.lexically_normal().generic_string();
+        std::string identity = normalized;
+        for (char& c : identity) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (seen.insert(identity).second) m_expandedSearchPaths.push_back(normalized);
+    };
+    for (const auto& text : m_searchPaths) {
+        auto pattern = fs::u8path(text);
+        if (pattern.is_relative()) {
+            if (m_currentModelDir.empty()) continue;
+            pattern = fs::u8path(m_currentModelDir)/pattern;
+        }
+        std::vector<std::string> segments;
+        for (const auto& component : pattern.relative_path()) segments.push_back(component.generic_string());
+        std::function<void(fs::path,size_t)> expand = [&](fs::path base, size_t index) {
+            if (index == segments.size()) { add(base); return; }
+            const auto& segment = segments[index];
+            if (segment.find_first_of("*?") == std::string::npos) { expand(base/segment, index+1); return; }
+            if (segment == "**") expand(base, index+1); // zero directory levels
+            std::error_code ec;
+            std::vector<fs::path> children;
+            for (fs::directory_iterator it(base, fs::directory_options::skip_permission_denied, ec), end;
+                 it != end; it.increment(ec)) {
+                if (ec) break;
+                const auto& entry = *it;
+                bool reparse = entry.is_symlink(ec);
+#ifdef _WIN32
+                const DWORD attributes = GetFileAttributesW(entry.path().c_str());
+                reparse |= attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_REPARSE_POINT);
+#endif
+                if (!reparse && entry.is_directory(ec) && (segment == "**" || folderPatternMatches(segment, entry.path().filename().generic_string())))
+                    children.push_back(entry.path());
+            }
+            std::sort(children.begin(), children.end());
+            for (const auto& child : children) expand(child, segment == "**" ? index : index+1);
+        };
+        expand(pattern.root_path(), 0);
     }
+}
 
-    m_iniPath = targetFile;
-    return true;
+std::vector<std::string> AppSettings::getExpandedSearchPaths() const
+{
+    std::lock_guard lock(m_mutex);
+    expandSearchPathsLocked();
+    return m_expandedSearchPaths;
 }
 
 std::string AppSettings::resolveAssetPath(const std::string& requestedPath) const
@@ -514,7 +476,8 @@ std::string AppSettings::resolveAssetPath(const std::string& requestedPath) cons
         dirsToCheck.push_back(modelDir);
     }
 
-    for (const auto& sp : m_searchPaths) {
+    expandSearchPathsLocked();
+    for (const auto& sp : m_expandedSearchPaths) {
         if (sp.empty()) continue;
         fs::path searchDir = fs::u8path(sp);
         if (searchDir.is_relative() && !modelDir.empty()) {

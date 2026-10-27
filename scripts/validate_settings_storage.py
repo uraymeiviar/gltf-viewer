@@ -1,37 +1,50 @@
 # Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
-"""Validation script for portable settings storage and I/O robustness.
+"""Validation script for the single portable settings.ini and I/O robustness.
 
 Checks:
-  1. default_run: Portable storage <exeDir>/GliderData is created and populated on
-     interactive session exit; %APPDATA%/Glider is not modified.
-  2. readonly_fallback: When the candidate data directory is read-only (denied write via ACL),
-     Glider falls back to %APPDATA%/Glider or in-memory mode, logs the fallback, and exits 0.
-  3. corrupt_unreadable: When settings/state files are corrupt or unreadable, Glider starts
-     with defaults, logs one warning per file, and exits 0.
-  4. isolated_mode: Running with --isolated does not read or write settings to disk.
-  5. baseline_compare: Renders with --isolated and verifies byte-identical capture to baseline.
+  1. pristine: A session with an empty private settings directory writes no file at
+     all, because nothing differs from the built-in defaults.
+  2. changed_value: Changing one preference writes settings.ini with the schema marker,
+     the changed value, and no default-valued sections.
+  3. readonly_fallback: When <exeDir> is not writable (denied write via ACL), Glider
+     writes settings.ini to %APPDATA%/Glider (or %TEMP%/Glider), logs the fallback, and
+     exits 0 without creating a file in the exe directory.
+  4. corrupt_unreadable: A corrupt file logs one warning and restarts from defaults; an
+     unreadable file is never overwritten and changes stay in memory for the session.
+  5. isolated_mode: --isolated neither reads nor writes the private file nor the
+     portable settings.ini next to the executable.
+  6. baseline_compare: With --baseline <exe>, renders --isolated and compares the
+     capture byte-for-byte with that executable.
+
+Private settings directories are selected with GLIDER_DATA_DIR (the test hook) and are
+never the user's state. Only the fallback check touches the real exe directory, and it
+moves the existing settings.ini aside and restores it afterwards.
 """
 
 import argparse
+import atexit
 import hashlib
 import os
 import pathlib
 import shutil
-import subprocess
+import harness_process as subprocess
 import sys
 import time
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 EXE = REPO / "build" / "bin" / "Release" / "Glider.exe"
-BASE_EXE = REPO / "build" / "baselines" / "652def5.exe"
 REVIEW_DIR = REPO / "build" / "review"
-DEFAULT_DATA_DIR = REPO / "build" / "bin" / "Release" / "GliderData"
-APPDATA_DIR = pathlib.Path(os.environ.get("APPDATA", "")) / "Glider" if os.environ.get("APPDATA") else None
+PORTABLE = EXE.parent / "settings.ini"
+SCHEMA_MARKER = "; Glider settings file (schema 1)"
 
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-parser.add_argument("--only", choices=["default_run", "readonly_fallback", "corrupt_unreadable", "isolated_mode", "baseline_compare"])
+parser.add_argument("--only", choices=["pristine", "changed_value", "readonly_fallback",
+                                      "corrupt_unreadable", "isolated_mode", "baseline_compare"])
+parser.add_argument("--baseline", default=None,
+                    help="Optional baseline Glider.exe for the isolated capture comparison.")
 args = parser.parse_args()
 
+REVIEW_DIR.mkdir(parents=True, exist_ok=True)
 failures = []
 
 
@@ -45,166 +58,222 @@ def check(condition, label):
         failures.append(label)
 
 
-def run_glider(extra_args, env=None, timeout=60):
-    cmd = [str(EXE)] + extra_args
-    return subprocess.run(cmd, cwd=REPO, env=env, capture_output=True, text=True, timeout=timeout)
+def clean_dir(path):
+    path = pathlib.Path(path)
+    if path.exists():
+        shutil.rmtree(path)
+    path.mkdir(parents=True)
+    return path
 
 
-if section("default_run"):
-    print("[default_run]")
-    REVIEW_DIR.mkdir(parents=True, exist_ok=True)
-    test_script = REVIEW_DIR / "val_settings_interactive.txt"
-    test_report = REVIEW_DIR / "val_settings_interactive.json"
-    test_script.write_text("wait 8\nreload resources/sampleGltf/HelloCube.glb\nwait 8\n", encoding="utf-8")
-    test_report.unlink(missing_ok=True)
+def private_env(directory):
+    env = dict(os.environ)
+    env.pop("GLIDER_DATA_DIR", None)
+    env["GLIDER_DATA_DIR"] = str(directory)
+    return env
 
-    # Clean existing GliderData to verify cold-start creation & migration
-    if DEFAULT_DATA_DIR.exists():
-        shutil.rmtree(DEFAULT_DATA_DIR)
 
-    appdata_mtimes = {}
-    if APPDATA_DIR and APPDATA_DIR.exists():
-        appdata_mtimes = {f.name: f.stat().st_mtime for f in APPDATA_DIR.glob("*") if f.is_file()}
+def idle_script():
+    script = REVIEW_DIR / "val_settings_idle.txt"
+    script.write_text("wait 8\n", encoding="utf-8")
+    return script
 
-    # Ensure clean env (no GLIDER_DATA_DIR override)
-    clean_env = dict(os.environ)
-    clean_env.pop("GLIDER_DATA_DIR", None)
 
-    res = run_glider(["--ui-script", str(test_script), "--ui-report", str(test_report)], env=clean_env)
-    check(res.returncode == 0, "Default interactive session exits 0")
-    check(DEFAULT_DATA_DIR.exists(), f"GliderData directory created at {DEFAULT_DATA_DIR}")
+def run_glider(extra_args, env=None, timeout=120):
+    return subprocess.run([str(EXE)] + extra_args, cwd=REPO, env=env,
+                          capture_output=True, text=True, timeout=timeout)
 
-    expected_files = ["settings.ini", "recent_files.txt", "window_state.txt", "render_quality.txt", "imgui.ini"]
-    for fname in expected_files:
-        fpath = DEFAULT_DATA_DIR / fname
-        check(fpath.exists() and fpath.stat().st_size > 0, f"GliderData contains {fname} ({fpath.stat().st_size if fpath.exists() else 0} bytes)")
 
-    if APPDATA_DIR and APPDATA_DIR.exists():
-        new_appdata_mtimes = {f.name: f.stat().st_mtime for f in APPDATA_DIR.glob("*") if f.is_file()}
-        changed = [f for f in new_appdata_mtimes if f not in appdata_mtimes or new_appdata_mtimes[f] != appdata_mtimes[f]]
-        check(len(changed) == 0, f"%APPDATA%/Glider not modified during portable run (changed: {changed})")
+def file_hash(path):
+    path = pathlib.Path(path)
+    return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
 
-    check("Using portable settings directory" in res.stderr, "Logged portable settings directory usage")
+
+def read_ini(path):
+    sections = {}
+    current = None
+    for line in pathlib.Path(path).read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith(";") or line.startswith("#"):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            current = sections.setdefault(line[1:-1], {})
+        elif current is not None and "=" in line:
+            key, value = line.split("=", 1)
+            current[key.strip()] = value.strip()
+    return sections
+
+
+def run_session(directory, label, extra_args=()):
+    """Run one interactive session with a private settings directory."""
+    script = idle_script()
+    report = REVIEW_DIR / f"val_settings_{label}.json"
+    report.unlink(missing_ok=True)
+    result = run_glider(["--ui-script", str(script), "--ui-report", str(report)] + list(extra_args),
+                        env=private_env(directory))
+    return result, pathlib.Path(directory) / "settings.ini"
+
+
+if section("pristine"):
+    print("[pristine]")
+    directory = clean_dir(REVIEW_DIR / "val_settings_pristine")
+    result, ini_path = run_session(directory, "pristine")
+    check(result.returncode == 0, f"Glider exits 0 with an empty settings directory ({result.returncode})")
+    check(not ini_path.exists(), "No settings.ini is written when every value equals its default")
+    check(not (directory / "settings.ini.tmp").exists(), "No temporary settings file is left behind")
+    check("Corrupt or invalid" not in result.stderr and "Failed to read" not in result.stderr,
+          "A missing settings file is valid and logs no warning")
+
+
+if section("changed_value"):
+    print("[changed_value]")
+    directory = clean_dir(REVIEW_DIR / "val_settings_changed")
+    result, ini_path = run_session(directory, "changed", ("--quality-preset", "low"))
+    check(result.returncode == 0, f"Glider exits 0 after changing a preference ({result.returncode})")
+    check(ini_path.is_file(), f"settings.ini written at {ini_path}")
+    if ini_path.is_file():
+        text = ini_path.read_text(encoding="utf-8")
+        check(text.startswith(SCHEMA_MARKER), "settings.ini starts with the schema marker")
+        ini = read_ini(ini_path)
+        check(ini.get("QualityProfiles", {}).get("selection") == "1",
+              "Changed preference is stored ([QualityProfiles] selection=1)")
+        check(ini.get("RenderQuality", {}).get("iblCubeSize") == "256",
+              "Preset-specific render value is stored (iblCubeSize=256)")
+        check(all(name not in ini for name in ("SearchPaths", "SceneHierarchy", "Resources")),
+              "Default-valued sections are not written")
+        check(all(name not in ini for name in ("Window", "Layout")),
+              "Default window size and layout are not written")
 
 
 if section("readonly_fallback"):
     print("[readonly_fallback]")
-    ro_dir = REVIEW_DIR / "test_val_ro_data"
-    ro_dir.mkdir(parents=True, exist_ok=True)
+    preserved = REVIEW_DIR / f"val_settings_portable_{time.time_ns()}.ini"
+    had_portable = PORTABLE.is_file()
+    if had_portable:
+        PORTABLE.replace(preserved)
+    fake_appdata = clean_dir(REVIEW_DIR / "val_settings_fallback_appdata")
     user = os.environ.get("USERNAME", "Everyone")
+    denied = False
 
-    test_script = REVIEW_DIR / "val_settings_ro_script.txt"
-    test_report = REVIEW_DIR / "val_settings_ro_report.json"
-    test_script.write_text("wait 8\n", encoding="utf-8")
-    test_report.unlink(missing_ok=True)
+    def restore_portable_file():
+        if denied:
+            try:
+                subprocess.run(["icacls", str(EXE.parent), "/remove:d", user], check=True, capture_output=True)
+            except Exception:  # noqa: BLE001 - restoration must never mask the result
+                pass
+        if had_portable and preserved.is_file():
+            preserved.replace(PORTABLE)
 
-    # Sub-case A: Read-only candidate directory falls back to APPDATA
-    print("  Testing ACL deny (W) on candidate directory...")
-    subprocess.run(["icacls", str(ro_dir), "/deny", f"{user}:(W)"], check=True, capture_output=True)
+    atexit.register(restore_portable_file)
     try:
-        env_ro = dict(os.environ)
-        env_ro["GLIDER_DATA_DIR"] = str(ro_dir)
-        res = run_glider(["--ui-script", str(test_script), "--ui-report", str(test_report)], env=env_ro)
-        check(res.returncode == 0, "Glider exits 0 when candidate dir is unwritable")
-        check("is not writable; falling back to AppData" in res.stderr, "Fallback to AppData logged")
+        subprocess.run(["icacls", str(EXE.parent), "/deny", f"{user}:(W)"], check=True, capture_output=True)
+        denied = True
+        env = dict(os.environ)
+        env.pop("GLIDER_DATA_DIR", None)
+        env["APPDATA"] = str(fake_appdata)
+        report = REVIEW_DIR / "val_settings_fallback.json"
+        report.unlink(missing_ok=True)
+        result = run_glider(["--quality-preset", "low", "--ui-script", str(idle_script()),
+                             "--ui-report", str(report)], env=env)
+        check(result.returncode == 0, f"Glider exits 0 with an unwritable exe directory ({result.returncode})")
+        check("is not writable; using" in result.stderr, "Fallback settings location is logged")
+        fallback = fake_appdata / "Glider" / "settings.ini"
+        check(fallback.is_file(), f"settings.ini written to the fallback location ({fallback})")
+        if fallback.is_file():
+            check(fallback.read_text(encoding="utf-8").startswith(SCHEMA_MARKER),
+                  "Fallback settings.ini is written in the new format")
+        check(not PORTABLE.exists(), "No settings.ini is created in the unwritable exe directory")
     finally:
-        subprocess.run(["icacls", str(ro_dir), "/remove:d", user], check=True, capture_output=True)
-
-    # Sub-case B: Both candidate and AppData unwritable -> in-memory fallback
-    print("  Testing both candidate and AppData unwritable (in-memory mode)...")
-    subprocess.run(["icacls", str(ro_dir), "/deny", f"{user}:(W)"], check=True, capture_output=True)
-    try:
-        env_inmem = dict(os.environ)
-        env_inmem["GLIDER_DATA_DIR"] = str(ro_dir)
-        env_inmem["APPDATA"] = str(ro_dir)
-        res = run_glider(["--ui-script", str(test_script), "--ui-report", str(test_report)], env=env_inmem)
-        check(res.returncode == 0, "Glider exits 0 when both portable and AppData are unwritable")
-        check("running with in-memory settings" in res.stderr, "In-memory settings fallback logged")
-        check("directory is not writable; changes kept in memory" in res.stderr, "Unwritable save warning logged")
-    finally:
-        subprocess.run(["icacls", str(ro_dir), "/remove:d", user], check=True, capture_output=True)
+        restore_portable_file()
+        atexit.unregister(restore_portable_file)
 
 
 if section("corrupt_unreadable"):
     print("[corrupt_unreadable]")
-    corrupt_dir = REVIEW_DIR / "test_val_corrupt_data"
-    corrupt_dir.mkdir(parents=True, exist_ok=True)
+    directory = clean_dir(REVIEW_DIR / "val_settings_corrupt")
+    ini_path = directory / "settings.ini"
+    ini_path.write_bytes(b"\xde\xad\xbe\xef\x00\x01\x02\x03corrupt binary data")
+    result, _ = run_session(directory, "corrupt")
+    check(result.returncode == 0, f"Glider exits 0 with a corrupt settings.ini ({result.returncode})")
+    check("Corrupt or invalid settings.ini" in result.stderr, "Corrupt settings.ini warning logged")
+    check(not ini_path.exists() or ini_path.read_text(encoding="utf-8", errors="replace").startswith(SCHEMA_MARKER),
+          "Corrupt file is replaced by a valid file on the next save (or removed when empty)")
 
-    (corrupt_dir / "settings.ini").write_bytes(b"\xde\xad\xbe\xef\x00\x01\x02\x03corrupt binary data")
-    (corrupt_dir / "window_state.txt").write_bytes(b"\x00\xff\xfe\x01corrupt binary state")
-    (corrupt_dir / "recent_files.txt").write_bytes(b"\x00\x01\x02\x03\x04corrupt recent list")
-    (corrupt_dir / "render_quality.txt").write_bytes(b"\x00\x00corrupt quality data")
-    (corrupt_dir / "imgui.ini").write_bytes(b"\x80\x81\x82\x83corrupt imgui layout")
-
-    test_script = REVIEW_DIR / "val_settings_corrupt_script.txt"
-    test_report = REVIEW_DIR / "val_settings_corrupt_report.json"
-    test_script.write_text("wait 8\n", encoding="utf-8")
-    test_report.unlink(missing_ok=True)
-
-    env_corrupt = dict(os.environ)
-    env_corrupt["GLIDER_DATA_DIR"] = str(corrupt_dir)
-
-    res = run_glider(["--ui-script", str(test_script), "--ui-report", str(test_report)], env=env_corrupt)
-    check(res.returncode == 0, "Glider exits 0 with corrupt files")
-    check("Corrupt or invalid settings.ini detected; using defaults" in res.stderr, "Logged corrupt settings.ini")
-    check("Corrupt or invalid window_state.txt detected; using defaults" in res.stderr, "Logged corrupt window_state.txt")
-    check("Corrupt or invalid recent_files.txt detected; using defaults" in res.stderr, "Logged corrupt recent_files.txt")
-    check("Corrupt or invalid render_quality.txt detected; using defaults" in res.stderr, "Logged corrupt render_quality.txt")
-    check("Corrupt or invalid imgui.ini detected; using defaults" in res.stderr, "Logged corrupt imgui.ini")
-
-    # Sub-case: Unreadable file (permission denied on single file)
-    unread_file = corrupt_dir / "settings.ini"
-    unread_file.write_text("[SearchPaths]\ncount=0\n", encoding="utf-8")
+    # Unreadable: the file must be left untouched and changes stay in memory.
+    ini_path.write_text(SCHEMA_MARKER + "\n\n[QualityProfiles]\nselection=3\n", encoding="utf-8")
+    original = ini_path.read_bytes()
     user = os.environ.get("USERNAME", "Everyone")
-    subprocess.run(["icacls", str(unread_file), "/deny", f"{user}:(R)"], check=True, capture_output=True)
+    denied = False
+
+    def restore_read_access():
+        if denied:
+            try:
+                subprocess.run(["icacls", str(ini_path), "/remove:d", user], check=True, capture_output=True)
+            except Exception:  # noqa: BLE001 - restoration must never mask the result
+                pass
+
+    atexit.register(restore_read_access)
     try:
-        res = run_glider(["--ui-script", str(test_script), "--ui-report", str(test_report)], env=env_corrupt)
-        check(res.returncode == 0, "Glider exits 0 with unreadable settings.ini")
-        check("Failed to read settings.ini: unable to open file; using defaults" in res.stderr, "Logged unreadable settings.ini")
+        subprocess.run(["icacls", str(ini_path), "/deny", f"{user}:(R)"], check=True, capture_output=True)
+        denied = True
+        result, _ = run_session(directory, "unreadable", ("--quality-preset", "low"))
+        check(result.returncode == 0, f"Glider exits 0 with an unreadable settings.ini ({result.returncode})")
+        check("Failed to read settings.ini" in result.stderr, "Unreadable settings.ini warning logged")
     finally:
-        subprocess.run(["icacls", str(unread_file), "/remove:d", user], check=True, capture_output=True)
+        restore_read_access()
+        atexit.unregister(restore_read_access)
+    check(file_hash(ini_path) == hashlib.sha256(original).hexdigest(),
+          "Unreadable settings.ini is left byte-identical")
 
 
 if section("isolated_mode"):
     print("[isolated_mode]")
-    # Verify --isolated does not create GliderData if missing
-    if DEFAULT_DATA_DIR.exists():
-        shutil.rmtree(DEFAULT_DATA_DIR)
+    directory = clean_dir(REVIEW_DIR / "val_settings_isolated")
+    ini_path = directory / "settings.ini"
+    ini_path.write_text(SCHEMA_MARKER + "\n\n[QualityProfiles]\nselection=2\n", encoding="utf-8")
+    before = file_hash(ini_path)
+    portable_before = file_hash(PORTABLE)
+    result, _ = run_session(directory, "isolated", ("--isolated", "--quality-preset", "low"))
+    check(result.returncode == 0, f"Glider exits 0 under --isolated ({result.returncode})")
+    check(file_hash(ini_path) == before, "Private settings.ini is unchanged under --isolated")
+    check(file_hash(PORTABLE) == portable_before, "Portable settings.ini is unchanged under --isolated")
 
-    iso_dump = REVIEW_DIR / "val_isolated_dump.png"
-    iso_dump.unlink(missing_ok=True)
-
-    clean_env = dict(os.environ)
-    clean_env.pop("GLIDER_DATA_DIR", None)
-
-    res = run_glider(["resources/sampleGltf/HelloCube.glb", "--isolated", "--dump-frame", str(iso_dump), "--exit-after-dump"], env=clean_env)
-    check(res.returncode == 0, "Glider exits 0 under --isolated")
-    check(not DEFAULT_DATA_DIR.exists(), "GliderData was NOT created under --isolated")
-    check(iso_dump.exists() and iso_dump.stat().st_size > 0, "Dumped frame under --isolated successfully")
+    empty = clean_dir(REVIEW_DIR / "val_settings_isolated_empty")
+    run_session(empty, "isolated_empty", ("--isolated", "--quality-preset", "low"))
+    check(not (empty / "settings.ini").exists(), "--isolated does not create a settings file")
 
 
 if section("baseline_compare"):
     print("[baseline_compare]")
-    base_dump = REVIEW_DIR / "val_baseline_dump.png"
-    cand_dump = REVIEW_DIR / "val_candidate_dump.png"
-    base_dump.unlink(missing_ok=True)
-    cand_dump.unlink(missing_ok=True)
+    if args.baseline is None:
+        print("  SKIP pass --baseline <Glider.exe> to compare an isolated capture")
+    else:
+        baseline = pathlib.Path(args.baseline)
+        check(baseline.is_file(), f"Baseline exists ({baseline})")
+        base_dump = REVIEW_DIR / "val_baseline_dump.png"
+        cand_dump = REVIEW_DIR / "val_candidate_dump.png"
+        base_dump.unlink(missing_ok=True)
+        cand_dump.unlink(missing_ok=True)
+        env = dict(os.environ)
+        env.pop("GLIDER_DATA_DIR", None)
 
-    clean_env = dict(os.environ)
-    clean_env.pop("GLIDER_DATA_DIR", None)
+        def capture(exe, target):
+            return subprocess.run([str(exe), "resources/sampleGltf/HelloCube.glb", "--isolated",
+                                   "--dump-frame", str(target), "--exit-after-dump"],
+                                  cwd=REPO, env=env, capture_output=True, text=True)
 
-    res_base = subprocess.run([str(BASE_EXE), "resources/sampleGltf/HelloCube.glb", "--isolated", "--dump-frame", str(base_dump), "--exit-after-dump"], cwd=REPO, env=clean_env, capture_output=True, text=True)
-    check(res_base.returncode == 0, f"Baseline exits 0 ({res_base.returncode})")
-
-    res_cand = run_glider(["resources/sampleGltf/HelloCube.glb", "--isolated", "--dump-frame", str(cand_dump), "--exit-after-dump"], env=clean_env)
-    check(res_cand.returncode == 0, f"Candidate exits 0 ({res_cand.returncode})")
-
-    check(base_dump.exists(), "Baseline capture exists")
-    check(cand_dump.exists(), "Candidate capture exists")
-    if base_dump.exists() and cand_dump.exists():
-        base_bytes = base_dump.read_bytes()
-        cand_bytes = cand_dump.read_bytes()
-        check(base_bytes == cand_bytes, f"Candidate capture byte-identical to baseline ({len(cand_bytes)} bytes, sha256={hashlib.sha256(cand_bytes).hexdigest()[:16]})")
+        res_base = capture(baseline, base_dump)
+        res_cand = capture(EXE, cand_dump)
+        check(res_base.returncode == 0, f"Baseline exits 0 ({res_base.returncode})")
+        check(res_cand.returncode == 0, f"Candidate exits 0 ({res_cand.returncode})")
+        if base_dump.is_file() and cand_dump.is_file():
+            base_bytes = base_dump.read_bytes()
+            cand_bytes = cand_dump.read_bytes()
+            check(base_bytes == cand_bytes,
+                  f"Candidate capture byte-identical to baseline ({len(cand_bytes)} bytes, "
+                  f"sha256={hashlib.sha256(cand_bytes).hexdigest()[:16]})")
+        else:
+            check(False, "Both captures exist")
 
 
 print(f"\nSummary: {len(failures)} failures")

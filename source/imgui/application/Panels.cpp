@@ -56,6 +56,9 @@ void Application::drawPanels(FrameContext& frame)
     // Statistics Panel
     // -------------------------------------------------------------
     if (showStatistics) {
+        if (ux3d::imgui::StatisticsPanel::consumeFocusRequest()) {
+            ImGui::SetNextWindowFocus();
+        }
         if (ImGui::Begin(WND_STATISTICS, &showStatistics)) {
             ux3d::imgui::RenderBufferStatistics buffers;
             buffers.decalBufferActive = decalBuffer.isValid();
@@ -65,7 +68,9 @@ void Application::drawPanels(FrameContext& frame)
             buffers.decalBufferAllocations = decalBuffer.getAllocationCount();
             buffers.decalBufferResizes = decalBuffer.getResizeCount();
             buffers.decalBufferReleases = decalBuffer.getReleaseCount();
-            ux3d::imgui::StatisticsPanel::render(gltfModel, currentFilePath, buffers);
+            for (const auto& vp : viewports) buffers.viewportTargetBytes += vp->sceneFbo.getEstimatedLiveBytes() +
+                vp->overlayFbo.getEstimatedLiveBytes() + vp->antiAliasing.getEstimatedLiveBytes();
+            ux3d::imgui::StatisticsPanel::render(gltfModel, currentFilePath, buffers, gltfLayer.get());
         }
         ImGui::End();
     }
@@ -89,7 +94,7 @@ void Application::drawPanels(FrameContext& frame)
                 loadGltfModel(currentFilePath, gltfModel, activeScene, selection, currentFilePath, viewports,
                               gltfLayer.get(), animationPlayer, sceneRevisions, sceneEnvironments);
             }
-        });
+        }, &sceneRevisions);
     }
 
     drawLogger();

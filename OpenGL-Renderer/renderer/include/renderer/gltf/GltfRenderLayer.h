@@ -304,6 +304,7 @@ private:
     Camera* m_activeCamera = nullptr;
     std::optional<uint32_t> m_materialVariantID = std::nullopt;
     EnvironmentMap* m_activeEnvironmentMap = nullptr;
+    const gltf::Gltf* m_buffersUploadedForScene = nullptr;
     filesystem::Path m_environmentMapPath;
     bool m_cubeMapEnabled = true;
     const gltf::Scene* m_gltfScene;

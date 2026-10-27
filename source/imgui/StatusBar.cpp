@@ -1,11 +1,15 @@
 // Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
 
+#include "imgui/RuntimeTelemetry.h"
 #include "imgui/StatusBar.h"
+#include "imgui/StatisticsPanel.h"
+#include "imgui/UiProbe.h"
 #include "imgui/ValidationPanel.h"
 #include "imgui/GltfValidator.h"
 #include "imgui/IconsMaterialDesignIcons.h"
 #include "imgui/Theme.h"
 #include "imgui/AntiAliasing.h"
+#include "imgui/RenderQuality.h"
 #include "renderer/gltf/GltfRenderLayer.h"
 #include <imgui.h>
 #include <cstdio>
@@ -18,6 +22,7 @@ void StatusBar::render(ux3d::gltf::Gltf& gltfModel,
                        AnimationPlayer& animationPlayer,
                        SceneRevisions& revisions,
                        bool& showLogger,
+                       bool& showStatistics,
                        bool& showValidation,
                        const LogSeverityCounts& logCounts,
                        AntiAliasing* antiAliasing)
@@ -85,6 +90,9 @@ void StatusBar::render(ux3d::gltf::Gltf& gltfModel,
         }
         float validBadgeWidth = ImGui::CalcTextSize(valText).x + ImGui::GetStyle().FramePadding.x * 2.0f + 6.0f;
         float rightGroupWidth = logPillWidth + ImGui::GetStyle().ItemSpacing.x + validBadgeWidth + 4.0f;
+        const bool telemetry = !RenderQuality::legacyCaptureUi();
+        const float telemetryWidth = telemetry && mainViewport->WorkSize.x > 1100 ? 270.0f : telemetry ? 85.0f : 0.0f;
+        rightGroupWidth += telemetryWidth;
 
         // -------------------------------------------------------------
         // Left Group (A): Animation controls
@@ -230,6 +238,47 @@ void StatusBar::render(ux3d::gltf::Gltf& gltfModel,
         // Right Area: (C) Message Counts + (D) glTF Valid
         // -------------------------------------------------------------
         ImGui::SameLine(rightStart);
+        if (telemetry) {
+            const auto& live = RuntimeTelemetry::get();
+            if (telemetryWidth > 100) {
+                const auto& memory = live.memory;
+                char label[100];
+                if (memory.gpuKnown && memory.gpuBudget) {
+                    std::snprintf(label,sizeof(label),"VRAM %.2f / %.2f GiB",memory.gpuUsage/double(1ull<<30),memory.gpuBudget/double(1ull<<30));
+                    ImGui::ProgressBar(static_cast<float>(std::min(1.0,double(memory.gpuUsage)/memory.gpuBudget)),ImVec2(180,ImGui::GetFrameHeight()),label);
+                } else {
+                    ImGui::ProgressBar(0,ImVec2(180,ImGui::GetFrameHeight()),"VRAM unknown");
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+                    ImGui::SetTooltip("%s\nUsage / OS budget (not necessarily physical VRAM capacity).\nAvailable: %s\nClick to open the Statistics panel.",memory.gpuSource,memoryText(memory.availableVram).c_str());
+                }
+                if (ImGui::IsItemClicked()) {
+                    showStatistics = true;
+                    StatisticsPanel::requestFocus();
+                }
+                UiProbe::item("status.vram", 0);
+                ImGui::SameLine();
+            }
+            char fpsLabel[32];
+            std::snprintf(fpsLabel, sizeof(fpsLabel), "%.0f FPS", live.fps);
+            const ImVec2 fpsSize = ImGui::CalcTextSize(fpsLabel);
+            const ImVec2 fpsPos = ImGui::GetCursorScreenPos();
+            ImGui::InvisibleButton("##StatusBarFps", ImVec2(fpsSize.x, ImGui::GetFrameHeight()));
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+                ImGui::SetTooltip("Presented FPS: %.1f\nScene redraws/s: %.1f\nCPU frame: %.2f ms\nGPU render: %.2f ms\nCPU process: %.1f%%\nCached/idle views redraw only when needed.\nClick to open the Statistics panel.",
+                                  live.fps,live.renderFps,live.cpuMs,live.gpuMs,live.cpuPercent);
+            }
+            if (ImGui::IsItemClicked()) {
+                showStatistics = true;
+                StatisticsPanel::requestFocus();
+            }
+            ImGui::GetWindowDrawList()->AddText(ImVec2(fpsPos.x, fpsPos.y + (ImGui::GetFrameHeight() - fpsSize.y) * 0.5f),
+                                                ImGui::GetColorU32(ImGuiCol_Text), fpsLabel);
+            UiProbe::item("status.fps", 0);
+            ImGui::SameLine(rightStart+telemetryWidth);
+        }
 
         // (C) Message counts custom pill with colored icons
         ImVec2 p0 = ImGui::GetCursorScreenPos();

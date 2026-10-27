@@ -23,6 +23,9 @@
 #include <mutex>
 
 #include "imageformats/imageformats.h"
+#include "core/LoadProgress.h"
+#include "core/Logger.h"
+#include <memory>
 
 using namespace ux3d;
 using namespace ux3d::imageformats;
@@ -141,6 +144,33 @@ void imageformats::resetDecodeBudgetStats()
     std::lock_guard lock(g_budgetMutex);
     g_budgetStats = DecodeBudgetStats();
     g_budgetStats.budgetBytes = g_budgetBytes;
+}
+
+uint64_t imageformats::estimateTextureBytes(const core::Vector<uint8_t>& bytes, uint32_t maxSize)
+{
+    const auto encoding = getEncodingFromBuffer(bytes);
+    KTX2ImageInfo info;
+    if (getKTX2ImageInfo(bytes, info) && info.blockCompressed) {
+        uint32_t first = 0;
+        while (maxSize && first+1 < info.levelCount && (std::max(1u,info.width>>first) > maxSize || std::max(1u,info.height>>first) > maxSize)) ++first;
+        uint64_t total = 0;
+        for (uint32_t level = first; level < info.levelCount; ++level) total += getKTX2CompressedLevelSize(info,level);
+        return total;
+    }
+    if (encoding == ImageEncoding::DDS) {
+        uint32_t w = readLE32(bytes,16), h = readLE32(bytes,12);
+        while (maxSize && (w > maxSize || h > maxSize)) { w = std::max(1u,w/2); h = std::max(1u,h/2); }
+        return uint64_t(w)*h*16*4/3;
+    }
+    int w = 0, h = 0, channels = 0;
+    if (bytes.size() <= INT_MAX && stbi_info_from_memory(bytes.data(), static_cast<int>(bytes.size()), &w, &h, &channels)) {
+        while (maxSize && (w > static_cast<int>(maxSize) || h > static_cast<int>(maxSize))) {
+            w = std::max(1, w/2); h = std::max(1, h/2);
+        }
+        const uint64_t bpc = stbi_is_16_bit_from_memory(bytes.data(), static_cast<int>(bytes.size())) ? 2 : 1;
+        return uint64_t(w)*h*4*bpc*4/3;
+    }
+    return estimateDecodedBytes(bytes, encoding)*4/3;
 }
 
 ImageDecodingResult imageformats::decodeImageFromFile(
@@ -547,6 +577,32 @@ ImageDecodingResult imageformats::decodeImage(
 
     size_t pixelSize = static_cast<size_t>((bitsPerChannel[0] + bitsPerChannel[1] + bitsPerChannel[2] + bitsPerChannel[3]) / 8);
 
+    // Reduce before the Image-owned copy is made. The lease still accounts for the full
+    // decoder allocation, so several 8K decodes cannot exhaust RAM at the same time.
+    std::unique_ptr<uint8_t, decltype(&stbi_image_free)> decoded(imageDataStb, stbi_image_free);
+    std::vector<uint8_t> resized;
+    const uint32_t limit = core::loading::state.memoryAware ? core::loading::state.textureLimit.load() : 0;
+    if (limit && imageDataStb && encoding != ImageEncoding::HDR && (width > limit || height > limit)) {
+        const size_t originalWidth = width, originalHeight = height;
+        while (width > limit || height > limit) { width = std::max<size_t>(1, width/2); height = std::max<size_t>(1, height/2); }
+        resized.resize(width*height*pixelSize);
+        const int channels = static_cast<int>(pixelSize / (bitsPerChannel[0]/8));
+        int ok = 0;
+        if (bitsPerChannel[0] == 8) {
+            ok = stbir_resize_uint8(imageDataStb, static_cast<int>(originalWidth), static_cast<int>(originalHeight), 0,
+                resized.data(), static_cast<int>(width), static_cast<int>(height), 0, channels);
+        } else if (bitsPerChannel[0] == 16) {
+            ok = stbir_resize_uint16_generic(reinterpret_cast<uint16_t*>(imageDataStb), static_cast<int>(originalWidth), static_cast<int>(originalHeight), 0,
+                reinterpret_cast<uint16_t*>(resized.data()), static_cast<int>(width), static_cast<int>(height), 0,
+                channels, -1, 0, STBIR_EDGE_CLAMP, STBIR_FILTER_DEFAULT, STBIR_COLORSPACE_LINEAR, nullptr);
+        }
+        if (!ok) return ImageDecodingError::InitializeFailure;
+        imageDataStb = resized.data();
+        ++core::loading::state.reductions;
+        core::log(core::loading::state.requestedTextureLimit == limit ? core::LogLevel::Info : core::LogLevel::Warning,
+            "[Loading] texture reduced %zux%zu -> %zux%zu (preset/memory maximum %u)", originalWidth, originalHeight, width, height, limit);
+    }
+
     size_t imageLength = 0;
     for (uint32_t level = 0; level < levelCount; level++) {
         imageLength += static_cast<size_t>(std::max<uint64_t>(width >> level, 1ull)) * static_cast<size_t>(std::max<uint64_t>(height >> level, 1ull)) * static_cast<size_t>(std::max<uint64_t>(depth >> level, 1ull)) * pixelSize * static_cast<size_t>(faceCount) * static_cast<size_t>(arrayCount);
@@ -574,7 +630,6 @@ ImageDecodingResult imageformats::decodeImage(
         delete[] imageData;
     } else if (imageDataStb != nullptr) {
         success = success && _outImage.initialize(imageDataStb, imageLength, static_cast<uint32_t>(width), static_cast<uint32_t>(height), static_cast<uint32_t>(depth), faceCount, arrayCount, levelCount);
-        stbi_image_free(imageDataStb);
     }
 
     if (!success) {
@@ -712,10 +767,13 @@ ux3d::imageformats::ImageEncodingResult ux3d::imageformats::scaleImage(
     }
     if (!_inImage.isCompressed()) {
         if (!_inImage.isPacked()) {
+            if (!_outBuffer.resize(static_cast<size_t>(_width)*_height*_inImage.getPixelSize(),nullptr)) return ImageEncodingError::WriteFailure;
             int inStrideInBytes = static_cast<int>(_inImage.getWidth() * _inImage.getPixelSize());
             int outStrideInBytes = static_cast<int>(_width * _inImage.getPixelSize());
-
-            if (stbir_resize_uint8(
+            int success = 0;
+            const auto channels = static_cast<int>(_inImage.getChannelCount());
+            const auto bits = _inImage.getChannelSize(image::Channel::RED);
+            if (bits == 8) success = stbir_resize_uint8(
                     _inImage.getPixels().data(),
                     static_cast<int>(_inImage.getWidth()),
                     static_cast<int>(_inImage.getHeight()),
@@ -724,7 +782,14 @@ ux3d::imageformats::ImageEncodingResult ux3d::imageformats::scaleImage(
                     static_cast<int>(_width),
                     static_cast<int>(_height),
                     outStrideInBytes,
-                    static_cast<int>(_inImage.getChannelCount()))) {
+                    channels);
+            else if (bits == 16 && _inImage.getFormat() != image::Format::FLOAT)
+                success = stbir_resize_uint16_generic(reinterpret_cast<const uint16_t*>(_inImage.getPixels().data()),_inImage.getWidth(),_inImage.getHeight(),inStrideInBytes,
+                    reinterpret_cast<uint16_t*>(_outBuffer.data()),_width,_height,outStrideInBytes,channels,-1,0,STBIR_EDGE_CLAMP,STBIR_FILTER_DEFAULT,STBIR_COLORSPACE_LINEAR,nullptr);
+            else if (bits == 32 && _inImage.getFormat() == image::Format::FLOAT)
+                success = stbir_resize_float(reinterpret_cast<const float*>(_inImage.getPixels().data()),_inImage.getWidth(),_inImage.getHeight(),inStrideInBytes,
+                    reinterpret_cast<float*>(_outBuffer.data()),_width,_height,outStrideInBytes,channels);
+            if (success) {
                 return ImageEncodingResult::Success;
             }
         }

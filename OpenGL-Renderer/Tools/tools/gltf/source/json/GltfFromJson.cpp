@@ -1,4 +1,5 @@
 #include "gltf/json/GltfFromJson.h"
+#include "core/LoadProgress.h"
 #include "core/String.h"
 #include "gltf/Gltf.h"
 #include "gltf/MaterialVariant.h"
@@ -26,6 +27,8 @@ using namespace ux3d::gltf;
 
 ConversionResult GltfFromJson::convert(const core::string& _gltfString, std::optional<ImportOptions> importOptions)
 {
+    core::loading::begin(core::loading::Json);
+    core::loading::Timer timer(core::loading::Json);
     if (_gltfString.empty()) {
         return ConversionError::InvalidJson;
     }
