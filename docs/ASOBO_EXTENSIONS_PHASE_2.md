@@ -2,7 +2,7 @@
 
 [Journal index](ASOBO_EXTENSIONS_JOURNAL.md) · [Extension reference](ASOBO_EXTENSIONS_REFERENCE.md) · [Surface-data study](ASOBO_GBUFFER_STUDY.md) · [Validation rules](RENDERER_OPTIMIZATION_VALIDATION.md)
 
-**Status:** Design approved 2026-10-25; A2.1 (buffer and prepass) and A2.2 (decal pass and receiver application) done, A2.3 next.
+**Status:** Design approved 2026-10-25; A2.1 (buffer and prepass), A2.2 (decal pass and receiver application) and A2.3 (modes) done, A2.5 next.
 
 **Entry:** A1.2, A1.4, the A0.6 notes and the [surface-data study](ASOBO_GBUFFER_STUDY.md). **Goal:** decals
 composite the way MSFS composites them. `ASOBO_material_geometry_decal` is used by 144 of 207 project files: 7 cockpit materials and 4 exterior materials.
@@ -93,7 +93,7 @@ A0 to `RGBA16F` or A3–A5 to 16-bit only if the tests show banding. Not a user 
 
 - `mode = default`: the rules above.
 - `mode = blendMasked`: coverage × the mask ramp (`blendSharpnessFactor`). The SDK and the Blender preview disagree on
-  its direction (study §4.7, open question 2): follow the SDK (smaller = sharper) and keep it one function.
+  its direction (study §4.7, open question 2): A2.3 follows the exporter preview (1 = hard; semantics section 7) and keeps it one function.
 - `mode = frosted`: coverage × vertex alpha (frost coverage). The frost look itself (textures, melt) belongs with
   icing in A6; A2 only blends.
 - `ASOBO_material_blend_gbuffer`: the exporter imports it as a default-mode decal; same path, same switch logic.
@@ -210,7 +210,7 @@ Run one at a time; each lands, is reviewed and committed before the next. Owners
       frames are byte-identical (`build/review/a22fix_edit_before.png` /
       `a22fix_edit_after.png`). Repro: `--material-edit-emissive DECAL_LIT --profile-report ...`,
       with `--force-full-sync` as the before reference.
-- [ ] **A2.3 — Modes and legacy decals. Owner: GPT Sol.** `blendMasked` ramp, `frosted` coverage,
+- [x] **A2.3 — Modes and legacy decals. Done 2026-10-28. Owner: GPT Sol (implemented by Claude).** `blendMasked` ramp, `frosted` coverage,
   `decalChan0–2`, support-table notes. `ASOBO_material_blend_gbuffer` and `normalOverrideFactor` already use the
   A2.2 default path; A2.3 verifies their equivalence.
   **Tests:** fixtures per mode; ramp endpoints; blend_gbuffer renders like the equivalent default decal.
@@ -226,6 +226,37 @@ Run one at a time; each lands, is reviewed and committed before the next. Owners
   - **Semantics:** §7 of the semantics doc (the `blendMasked` preview ramp is verified from the exporter graph;
     `frosted` has no exported frost keys; the per-channel blend operator is inferred). Brief:
     `C:\Users\uray\.claude\codex-runs\gltf-viewer\decal-modes.brief.md`.
+  - **Research:** semantics section 7, "A2.3 research". The SDK documents the per-channel operator (lerp; occlusion
+    multiplies), `normalOverrideFactor`, the channel masks (receiver categories) and Geo Decal Frosted (Blast/Melt
+    Sys, melt-pattern texture, icing-driven coverage); none of the frost-specific values are exported. The SDK text
+    and the exporter preview disagree on the `blendSharpnessFactor` direction; Glider follows the preview (1 = hard),
+    supported by the DA62 data (all 47 blendMasked materials use the Max default 1.0, and the insect specks live in
+    the albedo alpha with per-speck thresholds in the mask).
+  - **Implementation:** `blendMasked` multiplies the coverage by
+    `ramp = linearstep(vA; clamp(R - h), clamp(R + h))`, `h = max(1 - s, 1e-5)` (`asoboDecalBlendMaskRamp`,
+    `decal_accum.frag`, variant `ASOBO_DECAL_BLEND_MASKED` set per draw by `DecalAccumulationLayer`). The decal's own
+    `blendMaskTexture` is registered as a linear image and bound as `u_DecalBlendMaskSampler` by `GltfRenderLayer`; its
+    `HAS_` define is removed again so the forward (A1.4 fallback) program variant is unchanged. `frosted`,
+    `ASOBO_material_blend_gbuffer` and `blendMasked` without a mask texture stay on the default path. `decalChan0-2`
+    are not applied (Glider cannot tell a SimObject from scenery); `underClearcoat = false` still draws under the coat.
+  - **Results:** `scripts/validate_asobo_decal_modes.py` (registered in `run_regression.py`) 49/49: `s = 1` covers
+    `R = 0` (sRGB 186 = c 0.5 at vA 0.5) and leaves `R = 128/255` and `R = 1` at 0 with a hard step in the gradient;
+    `s = 0` gives vA everywhere (136); mid values `s = 0.5, R = 128/255` 136 and `s = 0.8, vA = 0.6` 177 (ramp 0.745);
+    `s = 0.5` and `s = 1` byte-identical in the saturated `R = 0`/`R = 1` bands, different in the transition bands;
+    frosted (all-ones and DA62 Frost factors) and blend_gbuffer byte-identical to the equivalent default decal in
+    all six property views and shaded; `--asobo-disable ASOBO_material_geometry_decal` and `--asobo off`
+    byte-identical to `8be9d7e`. HelloCube, the 11 E195 reference views and the E175 winglet (`frosted`, all
+    factors 1) byte-identical to `8be9d7e`. DA62 review (`build/review/decal_modes/contact_sheet.png`): the mask
+    changes only the vertex-alpha fade zones of the insect decals (`da62_insects_fade`: 15,041 px, max 30/255); where
+    vA = 1 (leading edges) and on Frost nothing changes, as expected. Zero GL errors.
+  - **Deviations:** the brief's "sharpness 0 vs 1 differ only at the transition" does not hold for this ramp (at
+    `s = 0` it equals vA and ignores the mask), so the transition-only check uses `s = 0.5` vs `s = 1`; `s = 0` vs
+    `s = 1` is checked to differ also in the saturated bands.
+  - **Review change (2026-10-28, orchestrator):** the worker drew `frosted` at full authored coverage, so DA62
+    airframes looked frozen by default. The SDK says icing state drives Geo Decal Frosted coverage and a clean
+    aircraft shows none, so `frosted` coverage is now multiplied by Glider's icing setting (the former
+    "Windshield icing" slider, now "Icing", `--windshield-icing`, default 0): clean by default, authored frost at 1.
+    The check asserts icing 1 = default decal and icing 0 = a zero-factor decal (inferred mapping).
 - [x] **A2.4 — Environment occluder and fake terrain. Done 2026-10-25 (occluder hidden; fake terrain not yet recorded).** Was: Owner: GPT Astra (small).** Per study §4a, neither has
   anything to render in a viewer:
   - `ASOBO_material_environment_occluder` only hides MSFS weather and vegetation inside the cabin, which Glider does

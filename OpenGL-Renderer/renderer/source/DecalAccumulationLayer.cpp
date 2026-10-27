@@ -9,6 +9,7 @@
 #include "renderer/passes/DecalAccumulationPass.h"
 
 #include <algorithm>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -152,6 +153,24 @@ RendererScene DecalAccumulationLayer::applyLayer(RendererScene&& scene, const st
             ? std::clamp(static_cast<float>(decal->number("normalOverrideFactor").value_or(1.0)), 0.0f, 1.0f)
             : 1.0f;
         pooled->setUniform<float>("u_DecalNormalOverride", normalOverride);
+        // A2.3: mode "blendMasked" multiplies the coverage by the blend-mask ramp (semantics
+        // §7). It needs the decal's blendMaskTexture sampler (created by GltfRenderLayer);
+        // without it, and for "frosted", "default" and blend_gbuffer, the coverage stays the
+        // A2.2 default one.
+        const gltf::asobo::ExtensionData* geometry = material->asobo != nullptr
+            ? material->asobo->find("ASOBO_material_geometry_decal") : nullptr;
+        const std::string* mode = geometry != nullptr && decal == geometry ? geometry->string("mode") : nullptr;
+        const bool hasBlendMask = std::any_of(pooled->samplers.begin(), pooled->samplers.end(),
+            [](const gl::Sampler& sampler) { return sampler.name == "u_DecalBlendMaskSampler"; });
+        const bool blendMasked = mode != nullptr && *mode == "blendMasked" && hasBlendMask;
+        pooled->defines.defineIf(blendMasked, "ASOBO_DECAL_BLEND_MASKED");
+        // Frost is weather: the SDK drives Geo Decal Frosted coverage by the icing state, and a clean
+        // aircraft shows none. Glider uses its icing setting (0 = clean, the default) as that state.
+        pooled->defines.defineIf(mode != nullptr && *mode == "frosted", "ASOBO_DECAL_FROSTED");
+        if (blendMasked) {
+            pooled->setUniform<float>("u_DecalBlendSharpness",
+                std::clamp(static_cast<float>(geometry->number("blendSharpnessFactor").value_or(0.0)), 0.0f, 1.0f));
+        }
         // The prepass G0 is not an attachment of this pass; it is read through this sampler.
         pooled->samplers.emplace_back("u_DecalG0", m_g0Texture.get(), m_g0SamplerState.get());
         // A2.2: the prepass depth, for the tolerant test that replaces GL_DEPTH_TEST here.

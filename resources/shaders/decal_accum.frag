@@ -35,6 +35,33 @@ uniform float u_DecalOcclusionFactor;
 uniform float u_DecalNormalOverride;
 // The prepass G0: the receiver's world-space geometric normal at this pixel.
 uniform sampler2D u_DecalG0;
+#ifdef ASOBO_DECAL_BLEND_MASKED
+// A2.3: mode "blendMasked" (Geo Decal BlendMasked). The decal's own blendMaskTexture (red
+// channel) and blendSharpnessFactor; see asoboDecalBlendMaskRamp below.
+uniform sampler2D u_DecalBlendMaskSampler;
+uniform int u_DecalBlendMaskUVSet;
+uniform float u_DecalBlendSharpness;
+
+// The exporter's Geo Decal BlendMasked preview (MSFS 2024 Blender exporter,
+// msfs_material_geo_decal_blendmasked.py; semantics §7):
+//   ramp = linearstep(vA; low = clamp(R - (1 - s), 0, 1), high = clamp(R + (1 - s), 0, 1))
+// with R the mask red channel and vA the vertex alpha. s = 1 is a hard edge (vA > R), s = 0
+// spans the whole [0, 1] range, so the coverage is vA and the mask has no effect. The preview
+// adds 1e-6 to s; at exactly s = 1 that inverts its map range, so Glider keeps a minimum
+// half-width instead (the same 1e-5 floor as the A5.1 detail-map ramp). The preview's
+// "threshold" input is a Blender-only property and is not exported: it is 0 here.
+float asoboDecalBlendMaskRamp()
+{
+    vec2 uv = u_DecalBlendMaskUVSet == 0 ? getAsoboMainUV(v_texcoord_0) : v_texcoord_1;
+    float r = texture(u_DecalBlendMaskSampler, clampAsoboUV(uv, u_DecalBlendMaskUVSet, u_DecalBlendMaskSampler)).r;
+    float vA = getVertexColor().a;
+    float halfWidth = max(1.0 - clamp(u_DecalBlendSharpness, 0.0, 1.0), 1.0e-5);
+    float low = clamp(r - halfWidth, 0.0, 1.0);
+    float high = clamp(r + halfWidth, 0.0, 1.0);
+    return clamp((vA - low) / max(high - low, 1.0e-5), 0.0, 1.0);
+}
+#endif
+
 // A2.2: the prepass depth. This pass has no depth attachment and no GL_DEPTH_TEST; the test
 // below replaces it with a tolerance chosen from the measured decal-receiver gap of the E195
 // cockpit (see docs/ASOBO_EXTENSIONS_PHASE_2.md, A2.2). A fixed-function LEQUAL against the
@@ -87,6 +114,16 @@ void main()
 
     vec4 baseColor = getBaseColor();
     float coverage = clamp(baseColor.a, 0.0, 1.0);
+#ifdef ASOBO_DECAL_BLEND_MASKED
+    // A2.3: blendMasked coverage = standard alpha (which already holds the vertex alpha, as
+    // in the exporter preview) x the blend-mask ramp. "frosted" and "default" stop above.
+    coverage *= asoboDecalBlendMaskRamp();
+#endif
+#ifdef ASOBO_DECAL_FROSTED
+    // A2.3: "frosted" coverage follows the icing state (Viewport Settings icing, default 0 = no
+    // frost), as MSFS drives it from the aircraft icing; at 1 the authored coverage is drawn.
+    coverage *= clamp(u_WindshieldIcing, 0.0, 1.0);
+#endif
 
 #if ALPHAMODE == ALPHAMODE_MASK
     if (baseColor.a < u_AlphaCutoff)

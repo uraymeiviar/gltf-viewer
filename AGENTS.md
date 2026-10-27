@@ -287,7 +287,7 @@ build/bin/Release/Glider.exe
 - `--ssr <on|off>`: per-viewport windshield-v3 screen-space reflections (default on).
 - `--ssr-quality <low|medium|high>`: 256/512/1024 screen-space sample budgets, maximum pixel stride 2/1/1, with five refinement steps (default medium).
 - `--interior-sky-reflection <0..1>`: windshield IBL fallback strength inside the combined environment-occluder bounds; without occluders it applies to every windshield (default 0.5). These three controls are in Viewport Settings → MSFS Extensions.
-- `--windshield-icing <0..1>`: windshield icing coverage multiplier (0.0 = clean [default], 1.0 = fully iced). In Viewport Settings → MSFS Extensions.
+- `--windshield-icing <0..1>`: icing state (0.0 = clean [default], 1.0 = fully iced): windshield icing coverage and the coverage of `frosted` geometry decals. Viewport Settings → MSFS Extensions → Icing.
 - `--clear-color <r,g,b>`: scene clear colour for this run; disables the background skybox (capture/test hook).
 - `--hide-grid`: hide the active viewport's ground grid for review captures.
 - `--show-invisible-materials`: Also draw materials marked invisible by `ASOBO_material_invisible` and environment occluders (`ASOBO_material_environment_occluder`); both are hidden by default.

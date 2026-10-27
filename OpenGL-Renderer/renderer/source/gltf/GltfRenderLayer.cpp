@@ -1139,6 +1139,23 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
             material->setUniform<float>("u_MicroScratchesStrength", microScratchesStrength);
         }
 
+        // A2.3: the geometry decal's own blendMaskTexture (not the detail map's key of the same
+        // name). Only the decal accumulation shader reads it, and only for mode "blendMasked"
+        // (DecalAccumulationLayer). The sampler is created for any mode so an Inspector mode
+        // edit needs no texture reload; the HAS_ define is removed again so the forward (A1.4
+        // fallback) program variant stays exactly the one it was before A2.3.
+        if (const gltf::asobo::ExtensionData* geometryDecal = material->asobo != nullptr
+                ? material->asobo->find("ASOBO_material_geometry_decal") : nullptr) {
+            const gltf::asobo::TextureRef* reference = geometryDecal->texture("blendMaskTexture");
+            if (reference != nullptr && m_syncingGltf != nullptr && reference->index >= 0
+                && static_cast<size_t>(reference->index) < m_syncingGltf->getTextures().size()) {
+                const gltf::Texture* gltfTexture = &m_syncingGltf->getTextures().at(static_cast<size_t>(reference->index));
+                if (createSamplerFromTexture("DecalBlendMask", gltfTexture, static_cast<uint32_t>(reference->texCoord), true)) {
+                    material->defines.undefine("HAS_DECAL_BLEND_MASK_MAP");
+                }
+            }
+        }
+
         material->setUniform<math::vec3>("u_EmissiveFactor", gltfMaterial->getEmissiveFactorOrDefault());
         float dayMultiplier = 1.0f;
         float nightMultiplier = 1.0f;
@@ -2264,6 +2281,19 @@ void GltfRenderLayer::updateGltf(const gltf::Gltf& gltf)
                 insertDetailImage("detailMetalRoughAOTexture", true);
                 insertDetailImage("detailNormalTexture", true);
                 insertDetailImage("blendMaskTexture", true);
+            }
+        }
+
+        // A2.3: the geometry decal's blend mask (mode blendMasked) is a linear mask texture.
+        if (gltf.isExtensionDeclared("ASOBO_material_geometry_decal")) {
+            const gltf::asobo::ExtensionSet materialExtensions =
+                gltf::asobo::parseExtensions(gltf, material, gltf::asobo::Scope::Material);
+            if (const gltf::asobo::ExtensionData* geometryDecal = materialExtensions.find("ASOBO_material_geometry_decal")) {
+                const gltf::asobo::TextureRef* reference = geometryDecal->texture("blendMaskTexture");
+                if (reference != nullptr && reference->index >= 0
+                    && static_cast<size_t>(reference->index) < gltf.getTextures().size()) {
+                    insertTextureImage(&gltf.getTextures().at(static_cast<size_t>(reference->index)), true);
+                }
             }
         }
 

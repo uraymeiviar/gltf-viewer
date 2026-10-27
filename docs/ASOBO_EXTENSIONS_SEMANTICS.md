@@ -336,6 +336,77 @@ The extension itself carries **no** decal color, normal, emissive, or OMR textur
 7. Why does the geometry-decal schema not contain `mode`, `decalChan*`, `normalOverrideFactor`, `blendSharpnessFactor`, `underClearcoat`, or `blendMaskTexture` even though the exporter writes them?
 8. What does `mode: "frosted"` change in the engine, and do the frost/freeze values in the Blender tree correspond to any exported parameter? They are not exported.
 
+**A2.3 research (2026-10-28): modes, sharpness, channels**
+
+Sources: the local MSFS 2024 SDK documentation (`C:\MSFS 2024 Flighting SDK\Documentation\public\flighting\...`;
+paths below are relative to it), the 3ds Max exporter source in the same SDK
+(`Tools\3dsMax\glTF-Exporter\3ds Max\MSFS2024_Max2Babylon\FlightSim\FlightSimMaterialExporter.cs`, "Max" below) and
+the Blender exporter (`Tools\Blender\addons\io_scene_gltf2_msfs_2024\...`). The 2020 `Materials.htm` adds nothing for
+these modes.
+
+- **V** Per-channel blend factors (Decal, BlendMasked and Frosted use the same definitions): "A value of 0 means the
+  background material's ... component is used. A value of 1 means the decal material's ... component is used ... The
+  components are linearly interpolated"; occlusion at 1 uses the decal occlusion *multiplied with* the background one
+  (`models-and-textures/textures/materials/flightsim-material-parameters/index.md`, "Decal Per Component Blend
+  Factors"). This settles open question 1 for the operator: `p = lerp(p_below, p_decal, f)`, `O = O_below·lerp(1, O_decal, f)`
+  — what A2.2 implements. How the factor combines with the decal's alpha is still not written down (**I**: `w = f × coverage`).
+- **V** `normalOverrideFactor` ("Normal Mode - Tangent / Override"): 0 = the normal of the surface under the geodecal,
+  1 = the geodecal mesh normal, in between interpolated (same page). A2.2 already does this.
+- **V** Geo Decal BlendMasked is "very similar to the Decal material ... with the addition of parameters to change the
+  sharpness of the blend" (`.../flightsim-materials/index.md`). Its textures are the standard decal ones plus
+  "GeometryDecal Blend Mask" (`.../flightsim-material-textures/index.md`; its prose is a copy of the detail-map blend
+  mask text and describes a secondary albedo, which the exporter does not write for this mode).
+- **V** Dirt use (`models-and-textures/modeling/aircraft/airframe/dirt-and-grime/index.md`): insect splatter is a
+  "Progressive Mask" — a grey-scale mask "progressively expose[s] more and more of the albedo" — on a GeoDecal Blended
+  Mask with `Insects_albd` + `Insects_Mask`; vertex alpha is "the primary modifier" (1 = 100 %, 0 = 0 %). The
+  progression amount itself is a simulator dirt state, not a glTF value.
+- **Conflict on polarity.** The SDK text says "a low value will create a sharper mask, and a higher value will mean a
+  more blended mask" (`flightsim-material-parameters`, "Blend Sharpness"; the illustration
+  `mat_21_param_geodecal_sharpness` shows 0.001 sharp and 1.00 with no mask structure). The Max exporter's default is
+  `blendSharpnessFactor = 1.0` and it always writes the raw value (Max `Defaults`, `SetBlendSharpnessFactor`); the
+  Blender exporter's default is 0.0 (elided), and its preview uses `1 - s` as the ramp half-width (1 = hard). Both
+  exporters write the same key without conversion, so the two tools read the same number in opposite directions.
+  **I (A2.3 choice):** Glider follows the exporter preview (1 = hard), as the A2.3 brief specifies. Supporting
+  evidence from the data: `Insects_albd` is one flat colour (72, 64, 56) whose *alpha* holds the specks, and
+  `Insects_Mask` gives each speck a threshold; every DA62 blendMasked material (47 per tree) uses the Max value 1.0.
+  With the SDK-text polarity, 1.0 would make the ramp equal to the vertex alpha and the mask would do nothing on any
+  DA62 decal, which contradicts the "progressive mask" description. The ramp is one function
+  (`asoboDecalBlendMaskRamp` in `decal_accum.frag`), so a later MSFS reference capture can flip it in one place.
+- **V** Geo Decal Frosted: a geometry decal "used to add the frost effect", drawn in the decal pass; parameters Color,
+  Roughness, Metal, Normal, Emissive, Normal Mode, Render On ClearCoat, plus **Blast Sys** and **Melt Sys** (anti-ice
+  system flags) (`flightsim-material-parameters`, "Decal Per Component Blend Factors (GeoDecalFrosted)"). Textures: the
+  standard set, Detail Color, "Melt pattern(R) Roughness(G) Metallic(B)" (blended with the primary occlusion/roughness
+  "in the same way as the Detail Occlusion(R) Roughness(G) Metallic(B) texture") and Detail Normal
+  (`flightsim-material-textures`, "GeoDecalFrosted"). The frost workflow
+  (`models-and-textures/modeling/aircraft/airframe/frost-and-ice/index.md`): vertex alpha paints where ice appears;
+  the effect shows with the simulator's icing state (DevMode "Visual Icing"); Blast/Melt only work with an anti-ice
+  system. **V** Neither exporter writes Blast Sys, Melt Sys or any frost key (no such field in the Max decal class;
+  §7 above for Blender); the melt-pattern and detail textures go out as `ASOBO_material_detail_map`, which A5.1
+  already renders on the decal material.
+- **I** `frosted` therefore renders on the default decal path: the same per-channel factors, coverage = base-colour
+  alpha (with vertex alpha). Left out, because it needs weather or system state that a glTF does not carry: the
+  icing amount (frost is drawn at full authored coverage, as if fully iced), melting/blasting by anti-ice systems,
+  and any engine-side melt animation of the melt pattern.
+- **V** Decal channel masks: Scenery / Terrain / SimObject; "if you un-check all options, the decal will be invisible"
+  (`flightsim-material-parameters`, "Decal Channel Masks"). **I** They select which kind of *receiving* object the decal
+  lands on. A glTF does not say whether it is loaded as a SimObject or as scenery, so Glider renders decals unchanged
+  whatever the channels say (including all three false). The Max exporter writes them only for mode `default`.
+- **V** "Render On ClearCoat" (Max) / "Render Under Clearcoat" (Blender) are opposite checkboxes for the same
+  `underClearcoat` key (Max writes `underClearcoat = !RenderOnClearCoat`). Glider still draws every decal under the
+  coat (open question 3 of A2).
+- Answers to the open questions above: 1 answered for the operator (V); 2 and 5 — channels are receiver-category
+  masks (V), not applied (I); 4 answered for `normalOverrideFactor` (V), `blendSharpnessFactor` polarity conflicting
+  (see above); 8 — frost is weather-driven and Blast/Melt are not exported (V).
+
+**Glider formula (A2.3):** for `mode = "blendMasked"` with a `blendMaskTexture`,
+`coverage = baseColor.a × ramp`, `ramp = clamp((vA − low) / max(high − low, 1e-5), 0, 1)`,
+`low = clamp(R − h, 0, 1)`, `high = clamp(R + h, 0, 1)`, `h = max(1 − s, 1e-5)`, with `baseColor.a` already
+containing the vertex alpha (as the preview's standard alpha does), `R` the mask red channel on the mask's own UV set,
+`vA` the vertex alpha and `s = blendSharpnessFactor`. The preview's Blender-only "threshold" is 0. The preview adds
+1e-6 to `s`, which at exactly `s = 1` swaps `low`/`high` and inverts its map range; Glider uses the 1e-5 floor instead
+(the hard step the parameter approaches). Without a mask texture `blendMasked` renders like `default` (**I**).
+`frosted`, `default` and `ASOBO_material_blend_gbuffer` use `coverage = baseColor.a`.
+
 ## 8. `ASOBO_material_blend_gbuffer`
 
 **Coverage: partial** (legacy, no writer).

@@ -125,8 +125,11 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
             if (ImGui::SliderFloat("Interior sky reflection", &state.interiorSkyReflection, 0.0f, 1.0f)) {
                 revisions.mark(SceneChange::ViewportSettings);
             }
-            if (ImGui::SliderFloat("Windshield icing", &state.windshieldIcing, 0.0f, 1.0f, "%.2f")) {
+            if (ImGui::SliderFloat("Icing", &state.windshieldIcing, 0.0f, 1.0f, "%.2f")) {
                 revisions.mark(SceneChange::ViewportSettings);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Windshield icing and frosted geometry decals (0 = clean aircraft).");
             }
             ImGui::Indent();
             for (const ux3d::gltf::asobo::SupportInfo& info : ux3d::gltf::asobo::supportTable()) {
