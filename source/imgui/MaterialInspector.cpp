@@ -546,7 +546,8 @@ bool MaterialInspector::render(ux3d::gltf::Material* material,
                          material->getIor().has_value() ||
                          material->getSpecular().has_value() ||
                          material->getSheen().has_value() ||
-                         material->getIridescence().has_value();
+                         material->getIridescence().has_value() ||
+                         material->getAnisotropy().has_value();
 
     std::string khronosHeader = "Khronos Extensions" + std::string(hasKhronosExt ? " (Active)" : "");
     if (ImGui::CollapsingHeader(khronosHeader.c_str(), hasKhronosExt ? ImGuiTreeNodeFlags_DefaultOpen : 0)) {
@@ -695,6 +696,28 @@ bool MaterialInspector::render(ux3d::gltf::Material* material,
             }
             if (renderTextureSlot("Iridescence Texture", iri.getIridescenceTextureInfo(), gltfModel, material, selection, gltfLayer)) modified = true;
             if (renderTextureSlot("Iridescence Thickness Texture", iri.getIridescenceThicknessTextureInfo(), gltfModel, material, selection, gltfLayer)) modified = true;
+        }
+        // KHR_materials_anisotropy (A7.1)
+        if (material->getAnisotropy().has_value()) {
+            extensionHeader("KHR_materials_anisotropy");
+            ImGui::Indent(15.0f);
+            auto& aniso = material->getAnisotropy().value();
+            float strength = static_cast<float>(aniso.getAnisotropyStrengthOrDefault());
+            if (ImGui::SliderFloat("Anisotropy Strength", &strength, 0.0f, 1.0f, "%.3f")) {
+                aniso.setAnisotropyStrength(static_cast<double>(std::clamp(strength, 0.0f, 1.0f)));
+                modified = true;
+            }
+            UiProbe::item("khr.anisotropy.strength", material->m_ID);
+            float degrees = static_cast<float>(aniso.getAnisotropyRotationOrDefault() * 180.0 / 3.14159265358979323846);
+            if (ImGui::DragFloat("Anisotropy Rotation", &degrees, 0.5f, -360.0f, 360.0f, "%.1f deg")) {
+                aniso.setAnisotropyRotation(static_cast<double>(degrees) * 3.14159265358979323846 / 180.0);
+                modified = true;
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Counter-clockwise from the tangent; stored in radians.");
+            }
+            if (renderTextureSlot("Anisotropy Texture", aniso.getAnisotropyTextureInfo(), gltfModel, material, selection, gltfLayer)) modified = true;
+            ImGui::Unindent(15.0f);
         }
     }
 

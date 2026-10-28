@@ -42,6 +42,7 @@ void MaterialsToJson::convert(const Material& _material, nlohmann::json& _jsonMa
     convertExtensionXMP(_material, _jsonMaterial);
     convertExtensionVolume(_material, _jsonMaterial);
     convertExtensionIridescence(_material, _jsonMaterial);
+    convertExtensionAnisotropy(_material, _jsonMaterial);
 }
 
 void MaterialsToJson::convertPbrMetallicRoughness(const Material& _material, nlohmann::json& _jsonMaterial) const
@@ -533,4 +534,30 @@ void MaterialsToJson::convertExtensionIridescence(const Material& _material, nlo
     }
 
     _jsonMaterial["extensions"]["KHR_materials_iridescence"] = jsonIridescence;
+}
+
+void MaterialsToJson::convertExtensionAnisotropy(const Material& _material, nlohmann::json& _jsonMaterial) const
+{
+    const std::optional<gltf::Anisotropy>& oAnisotropy = _material.getAnisotropy();
+    if (oAnisotropy.has_value() == false) {
+        return;
+    }
+
+    nlohmann::json jsonAnisotropy = nlohmann::json::object();
+
+    GltfObjectToJson gltfObjectToJson(m_exportOptions);
+    gltfObjectToJson.convertExtras(oAnisotropy.value(), jsonAnisotropy);
+    gltfObjectToJson.convertUnknownExtensions(oAnisotropy.value(), jsonAnisotropy);
+
+    if (oAnisotropy->hasAnisotropyStrength()) {
+        jsonAnisotropy["anisotropyStrength"] = oAnisotropy->getAnisotropyStrengthOrDefault();
+    }
+    if (oAnisotropy->hasAnisotropyRotation()) {
+        jsonAnisotropy["anisotropyRotation"] = oAnisotropy->getAnisotropyRotationOrDefault();
+    }
+    if (oAnisotropy->hasAnisotropyTextureInfo()) {
+        convertTextureInfo(oAnisotropy->getAnisotropyTextureInfo(), "anisotropyTexture", jsonAnisotropy);
+    }
+
+    _jsonMaterial["extensions"]["KHR_materials_anisotropy"] = jsonAnisotropy;
 }

@@ -18,6 +18,7 @@ bool MaterialMerger::resolveDependencies(const Material& _SourceMaterial, Materi
     resolveTransmissionTextures(_SourceMaterial, _Material);
     resolveVolumeTextures(_SourceMaterial, _Material);
     resolveIridescenceTextures(_SourceMaterial, _Material);
+    resolveAnisotropyTextures(_SourceMaterial, _Material);
     resolveXMP(_SourceMaterial, _Material);
 
     return true;
@@ -106,6 +107,14 @@ void MaterialMerger::resolveIridescenceTextures(const Material& _SourceMaterial,
         auto& iridescence = _Material.getIridescence();
         resolveTextureInfo(src->getIridescenceTextureInfo(), iridescence->getIridescenceTextureInfo());
         resolveTextureInfo(src->getIridescenceThicknessTextureInfo(), iridescence->getIridescenceThicknessTextureInfo());
+    }
+}
+
+void MaterialMerger::resolveAnisotropyTextures(const Material& _SourceMaterial, Material& _Material)
+{
+    const auto& src = _SourceMaterial.getAnisotropy();
+    if (src.has_value()) {
+        resolveTextureInfo(src->getAnisotropyTextureInfo(), _Material.getAnisotropy()->getAnisotropyTextureInfo());
     }
 }
 

@@ -1242,3 +1242,63 @@ Intensity edits. For `CB_Labels`, 1000 produces an effective factor of 1 under
 the default scene scale, retaining the warm texture colour and readable labels.
 It is an explicit preview choice, not a verified simulator brightness or an
 automatic per-aircraft rule. The original file stays unchanged.
+
+## 17. `ASOBO_material_anisotropic_v2` and `ASOBO_material_anisotropic` (A7.1, 2026-10-28)
+
+**Coverage: partial** (the texture packing and the two roughness channels are documented; the direction decoding and the BRDF are not). Glider renders v2 on the `KHR_materials_anisotropy` lobe (see **Glider rendering**); v1 is deferred.
+
+**Written when**
+
+- **V** v2: for the Anisotropic material type (and Hair, which shares the property), the 2024 exporter writes `ASOBO_material_anisotropic_v2` with one key, `anisoDirectionRoughnessTexture`, and only when that texture is set (`io/com/extensions/material/asobo_material_anisotropic.py:27`, `:65-82`). The importer turns an SSS material into Hair when the extension is also present (`:40-56`).
+- **V** v1 (MSFS 2020 exporter, `H:\git-repos\msfs2020-blender-5.2.x-addons\io_scene_gltf2_msfs_2020\com\msfs_material_props.py:1295-1342`): `ASOBO_material_anisotropic` with one key, `anisotropicTexture`, from the material's extra slot 1, written for the Anisotropic and Hair types when the texture is set. The 2020 panel labels that slot "Anisotropic direction (RG)" (`blender/msfs_material_panel.py:531-532`).
+- **V** No v1 file exists in the local SDKs or add-on folders; 106 local files use v2 (survey 2026-10-28: 102 DA62 seatbelt LOD files, 54 in PackageSources and 48 in Packages, plus four landing-gear `Gear_LOD00.gltf` (left/right, PackageSources and Packages); one anisotropic material each).
+
+**Properties**
+
+| Key | Type, default | Conversion | Schema | Source | St. |
+|---|---|---|---|---|---|
+| v2 `anisoDirectionRoughnessTexture` | textureInfo, optional | none; no `texCoord`/transform (cross-cutting facts) | "aniso direction (RG) and roughnessY orientation (B). The anisotropic use the roughness in comp texture for the roughnessX." (`repo:resources/schemas/asobo/ASOBO_material_anisotropic_v2/gltf.ASOBO_material_anisotropic_v2.schema.json:6-10`) | `io/com/extensions/material/asobo_material_anisotropic.py:70-75`; label `blender/utils/msfs_material_utils.py:226` | V |
+| v1 `anisotropicTexture` | textureInfo, optional | none | no description (`repo:resources/schemas/asobo/ASOBO_material_anisotropic/gltf.ASOBO_material_anisotropic.schema.json`) | 2020 exporter above | V |
+
+**Textures**
+
+| Texture | Channels | UV | Colour space | Source | St. |
+|---|---|---|---|---|---|
+| v2 direction/roughness | R, G: direction in tangent space; B: roughness Y ("cross direction"); A unused | TEXCOORD_0 | linear (texture-lib slot `MTL_BITMAP_ANISO_DIR_ROUGH`) | 2024 SDK `models-and-textures/textures/materials/flightsim-material-textures/index.md:326-357`; `content-configuration/textures/texture-xml-properties/index.md:48`; DA62 `DA62_Airframe_AnisotropicDirection_comp.png.xml` | V |
+| core ORM (`metallicRoughnessTexture`) | G is "Aniso RoughnessX": roughness "in the main direction given by the tangent space (derived from the UVs) and the Anisotropic Direction" | TEXCOORD_0 | linear | `flightsim-material-textures/index.md:330-332`; `blender/utils/msfs_material_utils.py:225` | V |
+| v1 direction | "Anisotropic Direction (RG)": "the horizontal and vertical direction of the distortion of the specular highlights" | TEXCOORD_0 | linear (inferred) | MSFS 2020 SDK `C:\MSFS SDK\Documentation\html\Asset_Creation\3DS_Max_Plugin\Materials.htm:846-847` | V |
+
+**SDK text (verbatim facts)**
+
+- **V** 2020 SDK `Materials.htm:229-230`: the material "aims to model the light behavior seen in striped micro-surfaces. Such cases may be brushed metal or many types of fabrics." `:846-847`: RG direction controls "the shape of the specular highlights from real-time lights".
+- **V** 2024 SDK `flightsim-materials/index.md:181-187`: adds "The specular on the material is offset by the two roughness maps following a custom direction in tangent space"; no additional parameters (`flightsim-material-parameters/index.md:421-423`).
+- **V** 2024 SDK `flightsim-material-textures/index.md:350`: "To use the 'default' orientation, the channels must each have a value of 0.5. The RoughnessY component (blue channel) is the level of roughness in the cross direction ... a lighter texture will create more dissipated light." The material is meant for "a 'brushed metal' effect" (`:353`).
+- **V** 2024 SDK `plugins/gltf-schemas/index.md:202-226`: same sentence as the schema; its JSON example uses the v1 name `"ASOBO_material_anisotropic"` with the v2 key (a documentation slip; the 2024 release notes record "Fixed anisotropic extension name", `introduction/sdk-release-notes/index.md:2713`).
+- **V** Decals land on Anisotropic receivers (`flightsim-materials/index.md:110`; phase 2 receiver classes).
+- **V** Neither Blender add-on implements the lobe: the 2024 preview adds an image node and a Separate Color node and wires nothing (`blender/material/msfs_material_anisotropic.py:94-125`, "TODO - Update shader tree for anisotropic"). The 2020 preview wires R to Principled "Anisotropic" and B to "Anisotropic Rotation" (`msfs2020-blender-5.2.x-addons/io_scene_gltf2_msfs_2020/blender/msfs_material_function.py:745-773`), which contradicts the SDK's RG-direction text and is a preview device.
+
+**Evidence from the DA62 textures (2026-10-28)**
+
+- **V** The 54 DA62 seatbelt materials (`Seatbelt_Strip`, PackageSources) and 48 packaged copies reference `texture/Seatbelts/Seatbelt_01_aniso.png` / `SEATBELT_01_ANISO.PNG.KTX2`; neither file is in the SDK sample (only the glTFs are). Their direction values cannot be inspected; Glider renders those materials isotropic (no texture bound).
+- **V** The landing-gear `Anisotropic_Brake` material (`Part_Exterior_Gear_L|R/model/Gear_LOD00.gltf`, material 3, no normal map, no TANGENT) uses `DA62_Airframe_AnisotropicDirection_comp.png` (1024x1024 RGBA): every texel is RGB (0, 0, 0), A 255. Its ORM `DA62_Airframe_Anisotropic_comp.png` has G 0.20-0.79 (mean 0.28). So the shipped brake has roughness Y = 0 and a black direction.
+- **I** Decoding RG as `2 * RG - 1` (the `KHR_materials_anisotropy` convention, where 0.5/0.5 is the zero vector) explains the SDK's "default orientation" at 0.5/0.5: the zero vector selects the default, i.e. the tangent. A raw `[0, 1]` reading would make 0.5/0.5 a 45-degree diagonal, an odd default. Under `2 * RG - 1`, the black brake texture is the diagonal (-1, -1) (an anisotropy axis, so equal to (1, 1)); under the raw reading it would be the degenerate zero vector. The single real texture does not decide between them; the SDK sentence does, so Glider uses `2 * RG - 1`. The vector is normalised (only its direction is used; the two roughnesses carry the strength).
+
+**Shading meaning**
+
+- **V** Two roughnesses: X (ORM G x `roughnessFactor`) along the direction, Y (texture B) across it (SDK above).
+- **I** The BRDF is an anisotropic GGX with `alpha_x = X^2` along the direction and `alpha_y = Y^2` across it (the SDK says "offset by the two roughness"; no formula is published). Roughness Y is not multiplied by `roughnessFactor` (the SDK ties only X to the ORM texture). With X > Y the lobe is rougher along the direction, so highlights stretch along it.
+
+**Glider rendering (A7.1)**
+
+- Lobe: the `KHR_materials_anisotropy` one (Khronos glTF-Sample-Viewer): `D_GGX_anisotropic` / `V_GGX_anisotropic` for punctual lights, the bent-normal approximation for IBL (normal bent around the smooth axis, prefiltered lod and DFG LUT from the smooth axis' roughness). KHR uses `alpha_t = mix(alpha, 1, strength^2)` along the rotated direction `t` and `alpha_b = alpha`.
+- ASOBO v2 maps exactly onto it **(I)**: `d = normalize(2 * RG - 1)`, `|2 * RG - 1| < 0.02` (8-bit 127/128) = the tangent; `axisX = TBN * d` (made perpendicular to the shading normal), `axisY = n x axisX`; `X = ` the core roughness after the detail (A5.1) and decal (A2.2) layers, `Y = B` (the decal roughness layer also replaces Y with the same weight, **I**). The rougher axis becomes `t`, the smoother roughness the base: `alpha_b = min(X, Y)^2`, `strength^2 = (max(X, Y)^2 - alpha_b) / (1 - alpha_b)`, so `alpha_t = max(X, Y)^2`. X == Y gives strength 0, which takes the unchanged isotropic code: byte-identical to the material without the extension.
+- Tangents: primitives without TANGENT get MikkTSpace tangents for a non-zero KHR strength or an ASOBO v2 material, as for normal maps (A1.11), on the anisotropy texture's UV set when no normal map is sampled. With `--without-textures` the KHR direction falls back to the tangent (tangents are still generated); ASOBO v2 without its texture stays isotropic (no tangents).
+- Per-viewport switch `ASOBO_material_anisotropic_v2` (Viewport Settings → MSFS Extensions, `--asobo-disable ASOBO_material_anisotropic_v2`, `--asobo off`): off compiles the isotropic core variant (byte-identical to the file without the extension). `KHR_materials_anisotropy` has the per-material Inspector display switch of the other KHR extensions.
+- v1 `ASOBO_material_anisotropic`: **deferred**. The SDK documents only an RG direction and no second roughness, the 2020 Blender preview reads R as an amount and B as a rotation, and no v1 asset exists to decide; the material renders isotropic.
+
+**Open questions**
+
+1. Is RG decoded as `2 * RG - 1` (assumed) or `[0, 1]`, and is the vector normalised or does its length scale the effect? Needs an MSFS reference capture of a known direction texture.
+2. Is the MSFS lobe GGX with `alpha = roughness^2` per axis, or a different anisotropic model (e.g. Ward / Ashikhmin)? Does roughness Y take `roughnessFactor`?
+3. v1: what do R, G (and B) of `anisotropicTexture` mean, and what is the second roughness?
+4. Hair uses the same texture; MSFS presumably combines it with SSS (A3), which Glider does not render.

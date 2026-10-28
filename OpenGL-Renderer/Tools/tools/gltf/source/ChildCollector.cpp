@@ -369,6 +369,15 @@ void ChildCollector::addMaterialChildren(const Material* material)
         }
     }
 
+    if (material->getAnisotropy().has_value()) {
+        addToGltfObjectList(&material->getAnisotropy().value());
+
+        if (material->getAnisotropy()->getAnisotropyTextureInfo().has_value()) {
+            addToGltfObjectList(&material->getAnisotropy()->getAnisotropyTextureInfo().value());
+            addToWorkList(material->getAnisotropy()->getAnisotropyTextureInfo()->getTexture());
+        }
+    }
+
     if (material->getEmissiveStrength().has_value()) {
         addToGltfObjectList(&material->getEmissiveStrength().value());
     }

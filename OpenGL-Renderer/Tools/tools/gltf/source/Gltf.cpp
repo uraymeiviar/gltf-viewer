@@ -485,6 +485,12 @@ GltfResult Gltf::deleteTexture(Texture& _Texture)
                 }
             }
         }
+        // Anisotropy
+        auto& anisotropy = material.getAnisotropy();
+        if (anisotropy.has_value() && anisotropy->getAnisotropyTextureInfo().has_value()
+            && anisotropy->getAnisotropyTextureInfo()->getTexture() == &_Texture) {
+            anisotropy->getAnisotropyTextureInfo()->unsetTexture();
+        }
     }
     return core::remove(m_textures, _Texture) ? GltfResult::Success : GltfError::ObjectNotFound;
 }

@@ -14,7 +14,13 @@ classify every remaining extension, so the support matrix has no unknown entry.
     texture, tilings, inverse roughness and the v1 dirt mask.
   - `ASOBO_material_iridescent`: map onto `KHR_materials_iridescence`.
   - `ASOBO_material_pearlescent`: a view-dependent hue shift (25 project files use it).
-  - `ASOBO_material_anisotropic_v2` and v1: an anisotropic GGX lobe.
+  - [x] `ASOBO_material_anisotropic_v2` and v1: an anisotropic GGX lobe. **Done (v2), 2026-10-28:** v2 maps onto
+    the new `KHR_materials_anisotropy` lobe (Sample-Viewer anisotropic GGX for punctual lights, bent-normal IBL):
+    direction = RG x 2 - 1 in tangent space (0.5/0.5 = tangent), roughness X = core roughness along it, Y = texture B
+    across it; X == Y is byte-identical to the isotropic material. Generated tangents also serve anisotropic
+    materials. Per-viewport switch; `KHR_materials_anisotropy` has the Inspector display switch. v1 is deferred: its
+    packing is not established (semantics section 17). Check: `scripts/validate_asobo_anisotropy.py` (quick
+    regression).
   - **Tests:** each must equal its KHR counterpart at neutral settings.
 - [ ] **A7.2 — `ASOBO_material_sail` (R3). Owner: Claude.** Back-face lighting and translucency by
   `sailLightAbsorption`. Warn when the material is not double-sided.

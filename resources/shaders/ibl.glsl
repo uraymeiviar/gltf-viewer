@@ -39,6 +39,41 @@ vec3 getIBLRadianceGGX(vec3 n, vec3 v, float roughness, vec3 F0, float specularW
 }
 
 
+#ifdef MATERIAL_ANISOTROPY
+// KHR_materials_anisotropy (glTF-Sample-Viewer): the reflection vector comes from a normal bent
+// towards the anisotropic "normal" (v without its component along anisotropyDirection), by more for a
+// stronger, smoother lobe. anisotropyDirection is the smooth axis (anisotropicB); roughness is its
+// perceptual roughness.
+// iridescenceFactor 0 leaves the k_S of getIBLRadianceGGX unchanged.
+vec3 getIBLRadianceAnisotropy(vec3 n, vec3 v, float roughness, float anisotropy, vec3 anisotropyDirection, vec3 F0,
+    vec3 iridescenceFresnel, float iridescenceFactor, float specularWeight)
+{
+    float NdotV = clampedDot(n, v);
+
+    vec3 anisotropicTangent = cross(anisotropyDirection, v);
+    vec3 anisotropicNormal = cross(anisotropicTangent, anisotropyDirection);
+    float bendFactor = 1.0 - anisotropy * (1.0 - roughness);
+    float bendFactorPow4 = bendFactor * bendFactor * bendFactor * bendFactor;
+    vec3 bent = mix(anisotropicNormal, n, bendFactorPow4);
+    // v parallel to the direction makes the anisotropic normal vanish; keep n then.
+    vec3 bentNormal = dot(bent, bent) > 1e-12 ? normalize(bent) : n;
+
+    float lod = roughness * float(u_MipCount - 1);
+    vec3 reflection = normalize(reflect(-v, bentNormal));
+
+    vec2 brdfSamplePoint = clamp(vec2(NdotV, roughness), vec2(0.0, 0.0), vec2(1.0, 1.0));
+    vec2 f_ab = texture(u_GGXLUT, brdfSamplePoint).rg;
+    vec3 specularLight = getSpecularSample(reflection, lod).rgb;
+
+    vec3 Fr = max(vec3(1.0 - roughness), F0) - F0;
+    vec3 k_S = mix(F0 + Fr * pow(1.0 - NdotV, 5.0), iridescenceFresnel, iridescenceFactor);
+    vec3 FssEss = k_S * f_ab.x + f_ab.y;
+
+    return specularWeight * specularLight * FssEss;
+}
+#endif
+
+
 #ifdef MATERIAL_IRIDESCENCE
 vec3 getIBLRadianceGGXIridescence(vec3 n, vec3 v, float roughness, vec3 F0, vec3 iridescenceFresnel, float iridescenceFactor, float specularWeight)
 {

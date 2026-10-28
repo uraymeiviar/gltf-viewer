@@ -198,6 +198,44 @@ vec3 BRDF_specularGGXIridescence(vec3 f0, vec3 f90, vec3 iridescenceFresnel, flo
 #endif
 
 
+#ifdef MATERIAL_ANISOTROPY
+// KHR_materials_anisotropy (glTF-Sample-Viewer): anisotropic GGX distribution and the matching
+// height-correlated Smith visibility. With at == ab both reduce to D_GGX / V_GGX.
+float D_GGX_anisotropic(float NdotH, float TdotH, float BdotH, float at, float ab)
+{
+    float a2 = at * ab;
+    vec3 f = vec3(ab * TdotH, at * BdotH, a2 * NdotH);
+    float w2 = a2 / max(dot(f, f), 1e-30);
+    return a2 * w2 * w2 / M_PI;
+}
+
+
+float V_GGX_anisotropic(float NdotL, float NdotV, float BdotV, float TdotV, float TdotL, float BdotL, float at, float ab)
+{
+    float GGXV = NdotL * length(vec3(at * TdotV, ab * BdotV, NdotV));
+    float GGXL = NdotV * length(vec3(at * TdotL, ab * BdotL, NdotL));
+    float GGX = GGXV + GGXL;
+    return GGX > 0.0 ? clamp(0.5 / GGX, 0.0, 1.0) : 0.0;
+}
+
+
+// Without NdotL. alphaRoughness is the roughness along b; along t it rises to 1 with anisotropy^2.
+vec3 BRDF_specularGGXAnisotropy(vec3 F, float alphaRoughness, float anisotropy, vec3 n, vec3 v, vec3 l, vec3 h, vec3 t, vec3 b)
+{
+    float ab = clamp(alphaRoughness, 0.001, 1.0);
+    float at = max(mix(alphaRoughness, 1.0, anisotropy * anisotropy), ab);
+
+    float NdotL = clamp(dot(n, l), 0.0, 1.0);
+    float NdotH = clamp(dot(n, h), 0.001, 1.0);
+    float NdotV = clamp(dot(n, v), 0.0, 1.0);
+
+    float V = V_GGX_anisotropic(NdotL, NdotV, dot(b, v), dot(t, v), dot(t, l), dot(b, l), at, ab);
+    float D = D_GGX_anisotropic(NdotH, dot(t, h), dot(b, h), at, ab);
+    return F * (V * D);
+}
+#endif
+
+
 // f_sheen
 vec3 BRDF_specularSheen(vec3 sheenColor, float sheenRoughness, float NdotL, float NdotV, float NdotH)
 {

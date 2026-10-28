@@ -200,6 +200,26 @@ ConversionResult MaterialsFromJson::convert(const nlohmann::json& _jsonMaterial)
                 }
             }
 
+            extensionName = "KHR_materials_anisotropy";
+            extension = extensions->find(extensionName);
+            if (extension != extensions->end()) {
+                if (!exclusiveExtension.isSet(ExtensionCategory::Unlit) && !exclusiveExtension.isSet(ExtensionCategory::PBRSpecularGlossiness)) {
+                    if (extension->is_object()) {
+                        pMaterial->createAnisotropy();
+                        exclusiveExtension |= ExtensionCategory::PBRNext;
+                        if (!convertAnisotropy(*extension, pMaterial->getAnisotropy().value())) {
+                            containsErrors = true;
+                        }
+                    } else {
+                        core::logWarning("material.%s.%s with value '%s' has invalid type", key.c_str(), extensionName.c_str(), extension->dump().c_str());
+                        containsErrors = true;
+                    }
+                } else {
+                    // The conflicting extensions have to be put in manually
+                    core::logWarning("Conflicting extensions in material: %s conflicts with Unlit and is discarded. Discarded Content: %s", extensionName.c_str(), extension->dump().c_str());
+                }
+            }
+
             extensionName = "KHR_materials_pbrSpecularGlossiness";
             extension = extensions->find(extensionName);
             if (extension != extensions->end()) {
@@ -392,6 +412,11 @@ ConversionResult MaterialsFromJson::resolve(const nlohmann::json& _jsonMaterial,
                         }
                         if (extensionName == "KHR_materials_iridescence" && _material.getIridescence().has_value()) {
                             if (!resolveIridescence(extension, _material.getIridescence().value())) {
+                                containsErrors = true;
+                            }
+                        }
+                        if (extensionName == "KHR_materials_anisotropy" && _material.getAnisotropy().has_value()) {
+                            if (!resolveAnisotropy(extension, _material.getAnisotropy().value())) {
                                 containsErrors = true;
                             }
                         }
@@ -1273,6 +1298,53 @@ ConversionResult MaterialsFromJson::resolveVolume(const nlohmann::json& _jsonVol
         return ConversionError::SuccessWithErrors;
     }
 
+    return ConversionResult::Success;
+}
+
+ConversionResult MaterialsFromJson::convertAnisotropy(const nlohmann::json& _json, Anisotropy& _anisotropy) const
+{
+    bool containsErrors = false;
+    for (const auto& [key, value] : _json.items()) {
+        if (key == "anisotropyStrength" || key == "anisotropyRotation") {
+            const bool strength = key == "anisotropyStrength";
+            if (value.is_number() && core::Succeeded(strength ? _anisotropy.setAnisotropyStrength(value.get<double>())
+                                                              : _anisotropy.setAnisotropyRotation(value.get<double>()))) {
+                continue;
+            }
+            core::logWarning("KHR_materials_anisotropy.%s with value '%s' has invalid type or range", key.c_str(), value.dump().c_str());
+            containsErrors = true;
+        } else if (key == "anisotropyTexture") {
+            if (value.is_object()) {
+                _anisotropy.createAnisotropyTextureInfo();
+                if (!convertTextureInfo(value, _anisotropy.getAnisotropyTextureInfo().value())) {
+                    containsErrors = true;
+                }
+            } else {
+                core::logWarning("KHR_materials_anisotropy.%s with value '%s' has invalid type", key.c_str(), value.dump().c_str());
+                containsErrors = true;
+            }
+        }
+    }
+
+    if (!GltfObjectFromJson::convertUnknownExtensions(_json, &_anisotropy, "KHR_materials_anisotropy")) {
+        containsErrors = true;
+    }
+    GltfObjectFromJson::convertExtras(_json, &_anisotropy);
+
+    if (containsErrors) {
+        return ConversionError::SuccessWithErrors;
+    }
+    return ConversionResult::Success;
+}
+
+ConversionResult MaterialsFromJson::resolveAnisotropy(const nlohmann::json& _json, Anisotropy& _anisotropy)
+{
+    const auto texture = _json.find("anisotropyTexture");
+    if (texture != _json.end() && texture->is_object() && _anisotropy.getAnisotropyTextureInfo().has_value()) {
+        if (core::Failed(resolveTextureInfo(*texture, _anisotropy.getAnisotropyTextureInfo().value()))) {
+            return ConversionError::SuccessWithErrors;
+        }
+    }
     return ConversionResult::Success;
 }
 

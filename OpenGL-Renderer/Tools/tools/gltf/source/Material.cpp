@@ -37,6 +37,7 @@ Material::Material(uint32_t _id, const Material& _source)
     , m_emissiveStrength(_source.m_emissiveStrength)
     , m_volume(_source.m_volume)
     , m_iridescence(_source.m_iridescence)
+    , m_anisotropy(_source.m_anisotropy)
     , m_xmpPacket(_source.m_xmpPacket)
 {
 }
@@ -174,6 +175,16 @@ GltfResult Material::createIridescence()
     return GltfResult::Success;
 }
 
+GltfResult Material::createAnisotropy()
+{
+    if (m_anisotropy.has_value()) {
+        return GltfError::ObjectAlreadyExists;
+    }
+    resetPBRNextExtensionExceptions();
+    m_anisotropy.emplace();
+    return GltfResult::Success;
+}
+
 GltfResult Material::createEmissiveStrength()
 {
     if (m_emissiveStrength.has_value()) {
@@ -253,6 +264,9 @@ Extensions Material::getUsedExtensions() const
     }
     if (checkForIridescence()) {
         usedExtensions |= Extension::Iridescence;
+    }
+    if (checkForAnisotropy()) {
+        usedExtensions |= Extension::Anisotropy;
     }
     if (m_emissiveStrength.has_value()) {
         usedExtensions |= Extension::EmissiveStrength;
@@ -337,6 +351,10 @@ bool Material::checkForTextureTransform() const
             }
         }
     }
+    if (m_anisotropy.has_value() && m_anisotropy->getAnisotropyTextureInfo()
+        && m_anisotropy->getAnisotropyTextureInfo()->getTextureTransform().has_value()) {
+        return true;
+    }
 
     return false;
 }
@@ -350,6 +368,7 @@ void Material::resetPBRNextExtensions()
     m_transmission.reset();
     m_volume.reset();
     m_emissiveStrength.reset();
+    m_anisotropy.reset();
 }
 
 void Material::resetPBRNextExtensionExceptions()

@@ -58,6 +58,7 @@ struct RenderSettings {
     bool enableIOR = true;
     bool enableSpecular = true;
     bool enableEmissiveStrength = true;
+    bool enableAnisotropy = true;
 };
 
 class Material {
@@ -95,6 +96,12 @@ public:
     // A2.2: the viewport applies ASOBO_material_geometry_decal, so decal-class draws get their
     // depth bias. Set per viewport next to drawOrderActive; off renders the file as without ASOBO.
     bool decalBiasActive = false;
+    // A7.1: the material compiles the anisotropic lobe. khrAnisotropy: KHR_materials_anisotropy with
+    // a non-zero strength (its display switch is RenderSettings::enableAnisotropy).
+    // asoboAnisotropy: ASOBO_material_anisotropic_v2 with its texture bound; createScene defines
+    // ASOBO_ANISOTROPY per viewport when the viewport applies the extension.
+    bool khrAnisotropy = false;
+    bool asoboAnisotropy = false;
     bool overrideBlend = false;
     bool customBlend = false;
     bool blendingEnabled = false;

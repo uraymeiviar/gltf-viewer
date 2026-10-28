@@ -388,6 +388,28 @@ vec2 getIridescenceThicknessUV()
 
 #endif
 
+// Anisotropy: KHR_materials_anisotropy's anisotropyTexture (RG direction, B strength). A7.1 binds
+// ASOBO_material_anisotropic_v2's anisoDirectionRoughnessTexture (RG direction, B roughness Y) here too.
+
+
+#ifdef MATERIAL_ANISOTROPY
+
+uniform sampler2D u_AnisotropySampler;
+uniform int u_AnisotropyUVSet;
+uniform mat3 u_AnisotropyUVTransform;
+
+
+vec2 getAnisotropyUV()
+{
+    vec3 uv = vec3(u_AnisotropyUVSet < 1 ? getAsoboMainUV(v_texcoord_0) : v_texcoord_1, 1.0);
+#ifdef HAS_ANISOTROPY_UV_TRANSFORM
+    uv = u_AnisotropyUVTransform * uv;
+#endif
+    return clampAsoboUV(uv.xy, u_AnisotropyUVSet, u_AnisotropySampler);
+}
+
+#endif
+
 #if defined(MATERIAL_TRANSMISSION) || defined(ASOBO_GLASS_REFRACTION) || defined(ASOBO_WINDSHIELD_SSR)
 uniform sampler2D u_TransmissionFramebufferSampler;
 uniform ivec2 u_TransmissionFramebufferSize;

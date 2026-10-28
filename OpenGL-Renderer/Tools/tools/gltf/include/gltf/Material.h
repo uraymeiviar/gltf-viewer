@@ -6,6 +6,7 @@
 #include "ChildOfRoot.h"
 #include "TextureInfo.h"
 #include "XMP.h"
+#include "material/Anisotropy.h"
 #include "material/Clearcoat.h"
 #include "material/EmissiveStrength.h"
 #include "material/Ior.h"
@@ -49,6 +50,7 @@ private:
     std::optional<EmissiveStrength> m_emissiveStrength;
     std::optional<Volume> m_volume;
     std::optional<Iridescence> m_iridescence;
+    std::optional<Anisotropy> m_anisotropy;
 
     // extensions
     std::optional<PacketContainer> m_xmpPacket = std::nullopt;
@@ -151,6 +153,11 @@ public:
     std::optional<Iridescence>& getIridescence() { return m_iridescence; }
     const std::optional<Iridescence>& getIridescence() const { return m_iridescence; }
 
+    GltfResult createAnisotropy();
+    void destroyAnisotropy() { m_anisotropy.reset(); }
+    std::optional<Anisotropy>& getAnisotropy() { return m_anisotropy; }
+    const std::optional<Anisotropy>& getAnisotropy() const { return m_anisotropy; }
+
     GltfResult createUnlit();
     void destroyUnlit() { m_unlit.reset(); }
     std::optional<Unlit>& getUnlit() { return m_unlit; }
@@ -178,6 +185,7 @@ private:
     bool checkForTransmission() const { return m_transmission.has_value(); }
     bool checkForVolume() const { return m_volume.has_value(); }
     bool checkForIridescence() const { return m_iridescence.has_value(); }
+    bool checkForAnisotropy() const { return m_anisotropy.has_value(); }
     bool checkForTextureTransform() const;
     void resetPBRNextExtensions();
     void resetPBRNextExtensionExceptions();

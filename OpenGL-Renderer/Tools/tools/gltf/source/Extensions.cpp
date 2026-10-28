@@ -26,6 +26,7 @@ ux3d::core::Vector<ux3d::gltf::Extension> ux3d::gltf::getAllExtensions()
         Extension::Audio,
         Extension::WebP,
         Extension::TextureDDS,
+        Extension::Anisotropy,
     };
 }
 
@@ -53,6 +54,7 @@ ux3d::core::Vector<ux3d::core::string> ux3d::gltf::getAllExtensionNames()
         extensionToString(Extension::Audio),
         extensionToString(Extension::WebP),
         extensionToString(Extension::TextureDDS),
+        extensionToString(Extension::Anisotropy),
     };
 }
 
@@ -103,6 +105,8 @@ ux3d::core::string ux3d::gltf::extensionToString(Extension _extension)
         return "KHR_animation_pointer";
     case Extension::Audio:
         return "KHR_audio";
+    case Extension::Anisotropy:
+        return "KHR_materials_anisotropy";
     }
 
     core::logError("%u is not a valid extension value, it might contain multiple extension flags",
@@ -169,6 +173,9 @@ ux3d::gltf::Extension ux3d::gltf::stringToExtension(core::string& _extensionStr)
     if (_extensionStr == "KHR_materials_iridescence") {
         return Extension::Iridescence;
     }
+    if (_extensionStr == "KHR_materials_anisotropy") {
+        return Extension::Anisotropy;
+    }
     if (_extensionStr == "KHR_animation_pointer") {
         return Extension::AnimationPointer;
     }
@@ -193,7 +200,7 @@ bool ux3d::gltf::extensionStringKnown(core::string& _extensionStr)
 
 bool ux3d::gltf::isExtensionRequired(Extension _extension)
 {
-    if (_extension == Extension::Audio || _extension == Extension::PunctualLights || _extension == Extension::MaterialsVariants || _extension == Extension::XMP || _extension == Extension::PbrSpecularGlossinessMaterial || _extension == Extension::UnlitMaterial || _extension == Extension::Clearcoat || _extension == Extension::Specular || _extension == Extension::Sheen || _extension == Extension::Ior || _extension == Extension::Transmission || _extension == Extension::Volume || _extension == Extension::EmissiveStrength || _extension == Extension::WebP || _extension == Extension::TextureDDS) {
+    if (_extension == Extension::Audio || _extension == Extension::PunctualLights || _extension == Extension::MaterialsVariants || _extension == Extension::XMP || _extension == Extension::PbrSpecularGlossinessMaterial || _extension == Extension::UnlitMaterial || _extension == Extension::Clearcoat || _extension == Extension::Specular || _extension == Extension::Sheen || _extension == Extension::Ior || _extension == Extension::Transmission || _extension == Extension::Volume || _extension == Extension::EmissiveStrength || _extension == Extension::WebP || _extension == Extension::TextureDDS || _extension == Extension::Anisotropy) {
         return false;
     }
 

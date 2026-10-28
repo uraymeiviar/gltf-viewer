@@ -473,6 +473,12 @@ void main()
     // convert to material roughness by squaring the perceptual roughness.
     materialInfo.alphaRoughness = materialInfo.perceptualRoughness * materialInfo.perceptualRoughness;
 
+#ifdef MATERIAL_ANISOTROPY
+    // KHR_materials_anisotropy, or ASOBO_material_anisotropic_v2 (A7.1). A strength of 0 (the
+    // ASOBO roughness X == Y) takes the isotropic code below unchanged.
+    materialInfo = getAnisotropyInfo(materialInfo, normalInfo);
+#endif
+
     // Compute reflectance.
     float reflectance = max(max(materialInfo.f0.r, materialInfo.f0.g), materialInfo.f0.b);
 
@@ -505,9 +511,22 @@ void main()
 
     // Calculate lighting contribution from image based lighting source (IBL)
 #ifdef USE_IBL
+#if defined(MATERIAL_ANISOTROPY) && !defined(ASOBO_WINDSHIELD_SSR)
+    // As the Sample Viewer, the normal is bent around the smooth axis (anisotropicB), which stretches the
+    // reflection along anisotropicT like the punctual lobe.
+    if (materialInfo.anisotropyStrength > 0.0) {
+#ifdef MATERIAL_IRIDESCENCE
+        f_specular += getIBLRadianceAnisotropy(n, v, materialInfo.anisotropyRoughness, materialInfo.anisotropyStrength,
+            materialInfo.anisotropicB, materialInfo.f0, iridescenceFresnel, materialInfo.iridescenceFactor, materialInfo.specularWeight);
+#else
+        f_specular += getIBLRadianceAnisotropy(n, v, materialInfo.anisotropyRoughness, materialInfo.anisotropyStrength,
+            materialInfo.anisotropicB, materialInfo.f0, materialInfo.f0, 0.0, materialInfo.specularWeight);
+#endif
+    } else
+#endif
+    {
 #ifdef MATERIAL_IRIDESCENCE
     f_specular += getIBLRadianceGGXIridescence(n, v, materialInfo.perceptualRoughness, materialInfo.f0, iridescenceFresnel, materialInfo.iridescenceFactor, materialInfo.specularWeight);
-    f_diffuse += getIBLRadianceLambertianIridescence(n, v, materialInfo.perceptualRoughness, materialInfo.c_diff, materialInfo.f0, iridescenceF0, materialInfo.iridescenceFactor, materialInfo.specularWeight);
 #else
 #ifdef ASOBO_WINDSHIELD_SSR
     f_specular += windshieldReflection(getIBLRadianceGGX(n, v, materialInfo.perceptualRoughness, materialInfo.f0, materialInfo.specularWeight),
@@ -515,6 +534,11 @@ void main()
 #else
     f_specular += getIBLRadianceGGX(n, v, materialInfo.perceptualRoughness, materialInfo.f0, materialInfo.specularWeight);
 #endif
+#endif
+    }
+#ifdef MATERIAL_IRIDESCENCE
+    f_diffuse += getIBLRadianceLambertianIridescence(n, v, materialInfo.perceptualRoughness, materialInfo.c_diff, materialInfo.f0, iridescenceF0, materialInfo.iridescenceFactor, materialInfo.specularWeight);
+#else
     f_diffuse += getIBLRadianceLambertian(n, v, materialInfo.perceptualRoughness, materialInfo.c_diff, materialInfo.f0, materialInfo.specularWeight);
 #endif
 
@@ -616,11 +640,27 @@ void main()
             vec3 intensity = getLighIntensity(light, pointToLight);
 #ifdef MATERIAL_IRIDESCENCE
             f_diffuse += intensity * NdotL *  BRDF_lambertianIridescence(materialInfo.f0, materialInfo.f90, iridescenceFresnel, materialInfo.iridescenceFactor, materialInfo.c_diff, materialInfo.specularWeight, VdotH);
-            f_specular += intensity * NdotL * BRDF_specularGGXIridescence(materialInfo.f0, materialInfo.f90, iridescenceFresnel, materialInfo.alphaRoughness, materialInfo.iridescenceFactor, materialInfo.specularWeight, VdotH, NdotL, NdotV, NdotH);
 #else
             f_diffuse += intensity * NdotL *  BRDF_lambertian(materialInfo.f0, materialInfo.f90, materialInfo.c_diff, materialInfo.specularWeight, VdotH);
+#endif
+#ifdef MATERIAL_ANISOTROPY
+            if (materialInfo.anisotropyStrength > 0.0) {
+                vec3 anisotropyF = F_Schlick(materialInfo.f0, materialInfo.f90, VdotH);
+#ifdef MATERIAL_IRIDESCENCE
+                anisotropyF = mix(anisotropyF, iridescenceFresnel, materialInfo.iridescenceFactor);
+#endif
+                f_specular += intensity * NdotL * materialInfo.specularWeight * BRDF_specularGGXAnisotropy(anisotropyF,
+                    materialInfo.anisotropyAlpha, materialInfo.anisotropyStrength, n, v, l, h,
+                    materialInfo.anisotropicT, materialInfo.anisotropicB);
+            } else
+#endif
+            {
+#ifdef MATERIAL_IRIDESCENCE
+            f_specular += intensity * NdotL * BRDF_specularGGXIridescence(materialInfo.f0, materialInfo.f90, iridescenceFresnel, materialInfo.alphaRoughness, materialInfo.iridescenceFactor, materialInfo.specularWeight, VdotH, NdotL, NdotV, NdotH);
+#else
             f_specular += intensity * NdotL * BRDF_specularGGX(materialInfo.f0, materialInfo.f90, materialInfo.alphaRoughness, materialInfo.specularWeight, VdotH, NdotL, NdotV, NdotH);
 #endif
+            }
 
 #ifdef MATERIAL_SHEEN
             f_sheen += intensity * getPunctualRadianceSheen(materialInfo.sheenColorFactor, materialInfo.sheenRoughnessFactor, NdotL, NdotV, NdotH);

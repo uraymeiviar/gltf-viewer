@@ -34,6 +34,9 @@ uniform float u_IridescenceIor;
 uniform float u_IridescenceThicknessMinimum;
 uniform float u_IridescenceThicknessMaximum;
 
+// Anisotropy (KHR_materials_anisotropy): cos(anisotropyRotation), sin(anisotropyRotation), anisotropyStrength
+uniform vec3 u_Anisotropy;
+
 // Emissive Strength
 uniform float u_EmissiveStrength;
 
@@ -91,6 +94,17 @@ struct MaterialInfo
     float iridescenceFactor;
     float iridescenceIor;
     float iridescenceThickness;
+
+#ifdef MATERIAL_ANISOTROPY
+    // Anisotropic GGX lobe in the KHR_materials_anisotropy parameterisation (A7.1 maps
+    // ASOBO_material_anisotropic_v2 onto the same values): the roughness along anisotropicT is
+    // alpha_t = mix(anisotropyAlpha, 1, anisotropyStrength^2), along anisotropicB it is anisotropyAlpha.
+    vec3 anisotropicT;          // world space, unit, perpendicular to the shading normal
+    vec3 anisotropicB;          // cross(n, anisotropicT)
+    float anisotropyStrength;   // [0, 1]; 0 selects the isotropic BRDF
+    float anisotropyRoughness;  // perceptual roughness of the anisotropicB axis
+    float anisotropyAlpha;      // anisotropyRoughness^2
+#endif
 };
 
 
@@ -452,3 +466,82 @@ float albedoSheenScalingLUT(float NdotV, float sheenRoughnessFactor)
 {
     return texture(u_SheenELUT, vec2(NdotV, sheenRoughnessFactor)).r;
 }
+
+
+#ifdef MATERIAL_ANISOTROPY
+// World-space unit direction for a non-zero tangent-space anisotropy direction, made
+// perpendicular to the shading normal. A degenerate tangent frame falls back to any direction
+// perpendicular to n, so the result is never NaN.
+vec3 getAnisotropyDirection(NormalInfo normalInfo, vec2 direction)
+{
+    vec3 n = normalInfo.n;
+    vec3 t = mat3(normalInfo.t, normalInfo.b, n) * vec3(direction, 0.0);
+    t -= n * dot(n, t);
+    float len = length(t);
+    if (!(len > 1e-6)) {
+        t = abs(n.z) < 0.999 ? cross(n, vec3(0.0, 0.0, 1.0)) : cross(n, vec3(1.0, 0.0, 0.0));
+        len = max(length(t), 1e-6);
+    }
+    return t / len;
+}
+
+
+// Call after alphaRoughness is final. Fills the anisotropic lobe from KHR_materials_anisotropy or,
+// with ASOBO_ANISOTROPY, from ASOBO_material_anisotropic_v2 (docs/ASOBO_EXTENSIONS_SEMANTICS.md
+// section 17): direction = texture RG * 2 - 1 in tangent space (0.5/0.5 = the tangent), roughness X =
+// the core roughness (ORM G x factor, after the detail and decal layers) along that direction,
+// roughness Y = texture B across it. Both map exactly onto the KHR lobe: the rougher axis becomes
+// anisotropicT, the smoother one the base, strength^2 = (alpha_hi - alpha_lo) / (1 - alpha_lo).
+MaterialInfo getAnisotropyInfo(MaterialInfo info, NormalInfo normalInfo)
+{
+#ifdef ASOBO_ANISOTROPY
+    vec3 anisotropySample = texture(u_AnisotropySampler, getAnisotropyUV()).rgb;
+    vec2 direction = anisotropySample.rg * 2.0 - vec2(1.0);
+    // The SDK's "default orientation" is RG = 0.5/0.5. 8-bit textures store it as 127 or 128, which
+    // decodes to a vector of length <= 0.006; anything shorter than 0.02 is that default (the tangent).
+    if (dot(direction, direction) < 4e-4) {
+        direction = vec2(1.0, 0.0);
+    }
+    float roughnessX = info.perceptualRoughness;
+    float roughnessY = anisotropySample.b;
+#ifdef ASOBO_DECAL_RECEIVER
+    // The decal roughness layer replaces both axes with the same weight (inferred), so a fully
+    // covering decal leaves its own isotropic roughness.
+    if (u_AsoboDecalReceiver != 0) {
+        roughnessY = applyDecalScalar(roughnessY, texelFetch(u_DecalA4, ivec2(gl_FragCoord.xy), 0).rg);
+    }
+#endif
+    roughnessY = clamp(roughnessY, 0.0, 1.0);
+    vec3 axisX = getAnisotropyDirection(normalInfo, direction);
+    vec3 axisY = cross(normalInfo.n, axisX);
+    float roughnessLo = min(roughnessX, roughnessY);
+    float roughnessHi = max(roughnessX, roughnessY);
+    float alphaLo = roughnessLo * roughnessLo;
+    float alphaHi = roughnessHi * roughnessHi;
+    info.anisotropicT = roughnessX >= roughnessY ? axisX : axisY;
+    info.anisotropyRoughness = roughnessLo;
+    info.anisotropyAlpha = alphaLo;
+    info.anisotropyStrength = alphaHi > alphaLo
+        ? sqrt(clamp((alphaHi - alphaLo) / max(1.0 - alphaLo, 1e-6), 0.0, 1.0)) : 0.0;
+#else
+    // KHR_materials_anisotropy, as the Khronos glTF-Sample-Viewer.
+    vec2 direction = vec2(1.0, 0.0);
+    float strength = u_Anisotropy.z;
+#ifdef HAS_ANISOTROPY_MAP
+    vec3 anisotropySample = texture(u_AnisotropySampler, getAnisotropyUV()).rgb;
+    direction = anisotropySample.rg * 2.0 - vec2(1.0);
+    if (dot(direction, direction) < 1e-6) {
+        direction = vec2(1.0, 0.0);
+    }
+    strength *= anisotropySample.b;
+#endif
+    direction = mat2(u_Anisotropy.x, u_Anisotropy.y, -u_Anisotropy.y, u_Anisotropy.x) * direction;
+    info.anisotropicT = getAnisotropyDirection(normalInfo, direction);
+    info.anisotropyStrength = clamp(strength, 0.0, 1.0);
+    info.anisotropyRoughness = info.perceptualRoughness;
+    info.anisotropyAlpha = info.alphaRoughness;
+#endif
+    info.anisotropicB = cross(normalInfo.n, info.anisotropicT);
+    return info;
+}
+#endif

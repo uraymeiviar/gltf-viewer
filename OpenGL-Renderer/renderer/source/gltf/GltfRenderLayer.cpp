@@ -470,11 +470,68 @@ void tangentSetSpace(const SMikkTSpaceContext* context, const float tangent[3], 
     target = glm::vec4(tangent[0], tangent[1], tangent[2], sign);
 }
 
-std::vector<glm::vec4> generateMikkTangents(const gltf::Primitive& primitive)
+// A2.2: the UV set is part of the tangent cache key. A material's normal map may sample
+// TEXCOORD_1 instead of TEXCOORD_0, and switching it must regenerate (not reuse) the tangents.
+constexpr uint32_t kNoNormalMapUvSet = 0xFFFFFFFFu;
+
+// A7.1: an anisotropic lobe orients along the tangent frame, so materials with a non-zero
+// KHR_materials_anisotropy strength or with ASOBO_material_anisotropic_v2 need tangents as normal-
+// mapped materials do. The KHR direction falls back to the tangent without its texture, so it needs
+// them with omitted images too; ASOBO without its texture stays isotropic (no tangents then).
+bool needsAnisotropyTangents(const gltf::Material& material, bool imagesOmitted)
+{
+    if (material.isUnlit()) {
+        return false;
+    }
+    if (material.getAnisotropy().has_value()) {
+        return material.getAnisotropy()->getAnisotropyStrengthOrDefault() > 0.0;
+    }
+    const auto& extensions = material.getUnknownExtensions();
+    return !imagesOmitted && extensions.find("ASOBO_material_anisotropic_v2") != extensions.end();
+}
+
+uint32_t anisotropyUvSet(const gltf::Material& material)
+{
+    if (material.getAnisotropy().has_value()) {
+        const auto& texture = material.getAnisotropy()->getAnisotropyTextureInfo();
+        return texture.has_value() ? texture->getEffectiveTexCoord() : 0u;
+    }
+    const auto& extensions = material.getUnknownExtensions();
+    const auto entry = extensions.find("ASOBO_material_anisotropic_v2");
+    if (entry != extensions.end()) {
+        const auto json = nlohmann::json::parse(entry->second.c_str(), nullptr, false);
+        if (json.is_object() && json.contains("anisoDirectionRoughnessTexture")) {
+            const auto& texture = json["anisoDirectionRoughnessTexture"];
+            if (texture.is_object() && texture.contains("texCoord") && texture["texCoord"].is_number_unsigned()) {
+                return texture["texCoord"].get<uint32_t>();
+            }
+        }
+    }
+    return 0u;
+}
+
+// The UV set the generated tangents follow: the normal map's (A1.11) when one is sampled, else the
+// anisotropy texture's (A7.1), else kNoNormalMapUvSet (no tangents are generated).
+uint32_t tangentFrameUvSet(const gltf::Material& material, bool imagesOmitted)
+{
+    if (!imagesOmitted && material.getNormalTextureInfo().has_value()
+        && material.getNormalTextureInfo()->getTexture() != nullptr) {
+        return material.getNormalTextureInfo()->getEffectiveTexCoord();
+    }
+    if (needsAnisotropyTangents(material, imagesOmitted)) {
+        return anisotropyUvSet(material);
+    }
+    return kNoNormalMapUvSet;
+}
+
+std::vector<glm::vec4> generateMikkTangents(const gltf::Primitive& primitive, bool imagesOmitted)
 {
     const gltf::Material* material = primitive.getMaterial();
-    if (material == nullptr || !material->getNormalTextureInfo().has_value()
-        || material->getNormalTextureInfo()->getTexture() == nullptr) {
+    if (material == nullptr) {
+        return {};
+    }
+    const uint32_t uvSet = tangentFrameUvSet(*material, imagesOmitted);
+    if (uvSet == kNoNormalMapUvSet) {
         return {};
     }
     if (primitive.getPrimitiveMode() != gltf::PrimitiveMode::Triangles) {
@@ -487,8 +544,8 @@ std::vector<glm::vec4> generateMikkTangents(const gltf::Primitive& primitive)
     TangentSpaceData data;
     data.positions = gltf::GltfUtils::getAttributeAccessor(primitive, "POSITION");
     data.normals = gltf::GltfUtils::getAttributeAccessor(primitive, "NORMAL");
-    // MikkTSpace must use the UV set the normal map samples, not always TEXCOORD_0.
-    const std::string uvAttribute = "TEXCOORD_" + std::to_string(material->getNormalTextureInfo()->getEffectiveTexCoord());
+    // MikkTSpace must use the UV set the normal map (or the anisotropy texture) samples, not always TEXCOORD_0.
+    const std::string uvAttribute = "TEXCOORD_" + std::to_string(uvSet);
     data.texcoords = gltf::GltfUtils::getAttributeAccessor(primitive, uvAttribute);
     data.indices = primitive.getIndicesAccessor();
     if (data.positions == nullptr || data.normals == nullptr || data.texcoords == nullptr) {
@@ -526,25 +583,21 @@ std::vector<glm::vec4> generateMikkTangents(const gltf::Primitive& primitive)
     return data.tangents;
 }
 
-// A2.2: the UV set is part of the tangent cache key. A material's normal map may sample
-// TEXCOORD_1 instead of TEXCOORD_0, and switching it must regenerate (not reuse) the tangents.
-constexpr uint32_t kNoNormalMapUvSet = 0xFFFFFFFFu;
-
-uint32_t generatedTangentUvSet(const gltf::Primitive& primitive)
+uint32_t generatedTangentUvSet(const gltf::Primitive& primitive, bool imagesOmitted)
 {
     const gltf::Material* material = primitive.getMaterial();
-    if (material == nullptr || !material->getNormalTextureInfo().has_value()) {
+    if (material == nullptr) {
         return 0u;
     }
-    return material->getNormalTextureInfo()->getEffectiveTexCoord();
+    const uint32_t uvSet = tangentFrameUvSet(*material, imagesOmitted);
+    return uvSet == kNoNormalMapUvSet ? 0u : uvSet;
 }
 
-uint32_t materialNormalUvSet(const gltf::Material& material)
+// Material-level key for the A2.2 change detection: a material edit that changes whether (or on
+// which UV set) tangents are generated rebuilds the meshes.
+uint32_t materialNormalUvSet(const gltf::Material& material, bool imagesOmitted)
 {
-    if (!material.getNormalTextureInfo().has_value()) {
-        return kNoNormalMapUvSet;
-    }
-    return material.getNormalTextureInfo()->getEffectiveTexCoord();
+    return tangentFrameUvSet(material, imagesOmitted);
 }
 }
 
@@ -721,6 +774,9 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
         material->setUniform<float>("u_IridescenceIor", 1.3f);
         material->setUniform<float>("u_IridescenceThicknessMinimum", 100.f);
         material->setUniform<float>("u_IridescenceThicknessMaximum", 400.f);
+
+        // anisotropy defaults (KHR_materials_anisotropy: rotation 0, strength 0)
+        material->setUniform<math::vec3>("u_Anisotropy", math::vec3(1.f, 0.f, 0.f));
 
         if (m_resourceManager.getFramebufferTexture() != nullptr && m_resourceManager.getFramebufferSamplerState() != nullptr) {
             material->defines.define("HAS_OPAQUE_FRAMEBUFFER");
@@ -1319,6 +1375,42 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
             setUniformAsAnimationPointerTarget<float>(gltfMaterial, "extensions/KHR_materials_iridescence/iridescenceThicknessMinimum", material, "u_IridescenceThicknessMinimum");
         }
 
+        // A7.1: KHR_materials_anisotropy. A strength of 0 (the default) compiles no anisotropic code,
+        // so it renders byte-identically to the material without the extension; the texture B channel
+        // can only lower the strength. ASOBO_material_anisotropic_v2 maps onto the same lobe when its
+        // direction/roughness-Y texture is bound (without it the second roughness is unknown and the
+        // material stays isotropic); createScene applies its per-viewport switch.
+        // A texture whose image failed to load (the loader's placeholder) is not used: its colour would
+        // read as a direction and a strength / roughness Y.
+        material->khrAnisotropy = false;
+        material->asoboAnisotropy = false;
+        auto anisotropyImageUsable = [this](const gltf::Texture* gltfTexture) {
+            const bool ddsDeclared = m_syncingGltf != nullptr && m_syncingGltf->isExtensionDeclared("MSFT_texture_dds");
+            const gltf::Image* image = pickImageForTexture(gltfTexture, ddsDeclared);
+            return image != nullptr && !image->isErrorImage();
+        };
+        const auto& anisotropy = gltfMaterial->getAnisotropy();
+        if (anisotropy.has_value()) {
+            const auto& anisotropyTexture = anisotropy->getAnisotropyTextureInfo();
+            if (anisotropyTexture.has_value() && anisotropyImageUsable(anisotropyTexture->getTexture())) {
+                createSampler("Anisotropy", anisotropyTexture, "extensions/KHR_materials_anisotropy/anisotropyTexture");
+            }
+            const double rotation = anisotropy->getAnisotropyRotationOrDefault();
+            const double strength = std::clamp(anisotropy->getAnisotropyStrengthOrDefault(), 0.0, 1.0);
+            material->setUniform<math::vec3>("u_Anisotropy", math::vec3(static_cast<float>(std::cos(rotation)),
+                static_cast<float>(std::sin(rotation)), static_cast<float>(strength)));
+            material->khrAnisotropy = strength > 0.0;
+        } else if (const gltf::asobo::ExtensionData* asoboAnisotropy = material->asobo != nullptr
+                       ? material->asobo->find("ASOBO_material_anisotropic_v2") : nullptr) {
+            const gltf::asobo::TextureRef* reference = asoboAnisotropy->texture("anisoDirectionRoughnessTexture");
+            if (reference != nullptr && m_syncingGltf != nullptr && reference->index >= 0
+                && static_cast<size_t>(reference->index) < m_syncingGltf->getTextures().size()) {
+                const gltf::Texture* gltfTexture = &m_syncingGltf->getTextures().at(static_cast<size_t>(reference->index));
+                material->asoboAnisotropy = anisotropyImageUsable(gltfTexture) && createSamplerFromTexture("Anisotropy",
+                    gltfTexture, static_cast<uint32_t>(std::max(0, reference->texCoord)), true);
+            }
+        }
+
         if (m_resourceManager.getFramebufferTexture() != nullptr && m_resourceManager.getFramebufferSamplerState() != nullptr) {
             material->defines.define("HAS_OPAQUE_FRAMEBUFFER");
             material->samplers.emplace_back("u_TransmissionFramebufferSampler", m_resourceManager.getFramebufferTexture(), m_resourceManager.getFramebufferSamplerState());
@@ -1344,6 +1436,7 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
         material->defines.defineIf(transmission.has_value(), "MATERIAL_TRANSMISSION");
         material->defines.defineIf(volume.has_value(), "MATERIAL_VOLUME");
         material->defines.defineIf(iridescence.has_value(), "MATERIAL_IRIDESCENCE");
+        material->defines.defineIf(material->khrAnisotropy, "MATERIAL_ANISOTROPY");
 
         return true;
     };
@@ -1670,8 +1763,10 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
         // normal map's UV set.
         // Omitted normal maps do not need generated tangent frames. Retain authored
         // attributes, but avoid this CPU work and its extra GPU buffer for this open.
-        if (!m_modelImagesOmitted && vertexCount > 0u && mesh->attributes.size() < 16u) {
-            const GeneratedTangentKey tangentKey { gltfPrimitive, generatedTangentUvSet(*gltfPrimitive) };
+        // A7.1: anisotropic materials need them as well, also when the images were omitted.
+        if (vertexCount > 0u && mesh->attributes.size() < 16u && gltfPrimitive->getMaterial() != nullptr
+            && tangentFrameUvSet(*gltfPrimitive->getMaterial(), m_modelImagesOmitted) != kNoNormalMapUvSet) {
+            const GeneratedTangentKey tangentKey { gltfPrimitive, generatedTangentUvSet(*gltfPrimitive, m_modelImagesOmitted) };
             auto tangentIt = m_generatedTangentBuffers.find(tangentKey);
             if (tangentIt == m_generatedTangentBuffers.end()) {
                 auto prepared = m_preparedTangents.find(tangentKey);
@@ -1680,7 +1775,7 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
                     generated = std::move(prepared->second);
                     m_preparedTangents.erase(prepared);
                 } else {
-                    generated = generateMikkTangents(*gltfPrimitive);
+                    generated = generateMikkTangents(*gltfPrimitive, m_modelImagesOmitted);
                 }
                 if (generated.size() == vertexCount) {
                     auto tangentBuffer = std::make_unique<gl::Buffer>(m_resourceManager.m_gl);
@@ -2300,6 +2395,22 @@ void GltfRenderLayer::updateGltf(const gltf::Gltf& gltf)
             insertImage(iridescence->getIridescenceThicknessTextureInfo(), true);
         }
 
+        // A7.1: KHR_materials_anisotropy and ASOBO_material_anisotropic_v2 direction textures are linear.
+        const auto& anisotropy = material.getAnisotropy();
+        if (anisotropy.has_value()) {
+            insertImage(anisotropy->getAnisotropyTextureInfo(), true);
+        } else if (gltf.isExtensionDeclared("ASOBO_material_anisotropic_v2")) {
+            const gltf::asobo::ExtensionSet materialExtensions =
+                gltf::asobo::parseExtensions(gltf, material, gltf::asobo::Scope::Material);
+            if (const gltf::asobo::ExtensionData* asoboAnisotropy = materialExtensions.find("ASOBO_material_anisotropic_v2")) {
+                const gltf::asobo::TextureRef* reference = asoboAnisotropy->texture("anisoDirectionRoughnessTexture");
+                if (reference != nullptr && reference->index >= 0
+                    && static_cast<size_t>(reference->index) < gltf.getTextures().size()) {
+                    insertTextureImage(&gltf.getTextures().at(static_cast<size_t>(reference->index)), true);
+                }
+            }
+        }
+
         // A5.1: the four ASOBO_material_detail_map textures are not core slots, so register
         // them here. The colour map is sRGB, the ORM, normal and blend-mask maps are linear.
         if (gltf.isExtensionDeclared("ASOBO_material_detail_map")) {
@@ -2460,7 +2571,7 @@ bool GltfRenderLayer::updateMaterialStates(const gltf::Gltf& gltf)
     bool meshUpdateNeeded = false;
     for (const gltf::Material& material : gltf.getMaterials()) {
         const auto known = m_materialNormalUvSets.find(&material);
-        if (known != m_materialNormalUvSets.end() && known->second != materialNormalUvSet(material)) {
+        if (known != m_materialNormalUvSets.end() && known->second != materialNormalUvSet(material, m_modelImagesOmitted)) {
             meshUpdateNeeded = true;
             break;
         }
@@ -2507,7 +2618,7 @@ void GltfRenderLayer::releaseModelTextures()
 void GltfRenderLayer::prepareGeneratedTangents(const gltf::Gltf& gltf)
 {
     m_preparedTangents.clear();
-    if (gltf.imagesOmitted()) return;
+    const bool imagesOmitted = gltf.imagesOmitted();
     struct Work {
         const gltf::Primitive* primitive;
         std::vector<glm::vec4> tangents;
@@ -2516,8 +2627,7 @@ void GltfRenderLayer::prepareGeneratedTangents(const gltf::Gltf& gltf)
     uint64_t largestTemporary = 1;
     for (const auto& mesh : gltf.getMeshes()) for (const auto& primitive : mesh.getPrimitives()) {
         const auto* material = primitive.getMaterial();
-        if (!material || !material->getNormalTextureInfo().has_value()
-            || !material->getNormalTextureInfo()->getTexture()
+        if (!material || tangentFrameUvSet(*material, imagesOmitted) == kNoNormalMapUvSet
             || gltf::GltfUtils::getAttributeAccessor(primitive, "TANGENT")) continue;
         work.push_back({&primitive, {}});
         if (const auto* positions = gltf::GltfUtils::getAttributeAccessor(primitive, "POSITION"))
@@ -2534,13 +2644,13 @@ void GltfRenderLayer::prepareGeneratedTangents(const gltf::Gltf& gltf)
     std::vector<std::future<void>> futures;
     for (size_t i = 0; i < workers; ++i) futures.push_back(std::async(std::launch::async, [&] {
         for (size_t index = next++; index < work.size(); index = next++) {
-            work[index].tangents = generateMikkTangents(*work[index].primitive);
+            work[index].tangents = generateMikkTangents(*work[index].primitive, imagesOmitted);
             ++core::loading::state.completed;
         }
     }));
     for (auto& future : futures) future.get();
     for (auto& item : work)
-        m_preparedTangents.emplace(GeneratedTangentKey{item.primitive, generatedTangentUvSet(*item.primitive)}, std::move(item.tangents));
+        m_preparedTangents.emplace(GeneratedTangentKey{item.primitive, generatedTangentUvSet(*item.primitive, imagesOmitted)}, std::move(item.tangents));
 }
 
 void GltfRenderLayer::updateMaterials(const core::LinkedList<gltf::Material>& materials)
@@ -2559,7 +2669,7 @@ void GltfRenderLayer::updateMaterials(const core::LinkedList<gltf::Material>& ma
     // material-only sync can detect a UV-set change that requires rebuilding the tangents.
     m_materialNormalUvSets.clear();
     for (const gltf::Material& gltfMaterial : materials) {
-        m_materialNormalUvSets.emplace(&gltfMaterial, materialNormalUvSet(gltfMaterial));
+        m_materialNormalUvSets.emplace(&gltfMaterial, materialNormalUvSet(gltfMaterial, m_modelImagesOmitted));
     }
 }
 void GltfRenderLayer::updateSkins(const core::Vector<gltf::Node*>& rootNodes)
@@ -2872,6 +2982,11 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
             const bool refract = glass != nullptr || legacyGlass != nullptr || codeGlass;
             const bool reflect = refract || windshieldV3 != nullptr || legacyWindshield || codeWindshield;
             const bool windshield = reflect && !refract;
+            // A7.1: ASOBO_material_anisotropic_v2 per viewport; off compiles the isotropic core variant.
+            const bool asoboAnisotropy = entry.material->asoboAnisotropy && !entry.material->khrAnisotropy
+                && asoboOptions.applies("ASOBO_material_anisotropic_v2");
+            entry.material->defines.defineIf(asoboAnisotropy, "ASOBO_ANISOTROPY");
+            entry.material->defines.defineIf(asoboAnisotropy || entry.material->khrAnisotropy, "MATERIAL_ANISOTROPY");
             entry.material->defines.defineIf(windshield, "ASOBO_MATERIAL_WINDSHIELD");
             entry.material->defines.defineIf(windshield && windshieldV3 != nullptr, "ASOBO_MATERIAL_WINDSHIELD_V3");
             entry.material->defines.defineIf(windshield && windshieldV3 == nullptr, "ASOBO_MATERIAL_WINDSHIELD_LEGACY");
@@ -2949,6 +3064,7 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
             material->renderSettings.enableIOR &= materialExtensionOptions.applies(material->gltfMaterialId, "KHR_materials_ior");
             material->renderSettings.enableSpecular &= materialExtensionOptions.applies(material->gltfMaterialId, "KHR_materials_specular");
             material->renderSettings.enableEmissiveStrength &= materialExtensionOptions.applies(material->gltfMaterialId, "KHR_materials_emissive_strength");
+            material->renderSettings.enableAnisotropy &= materialExtensionOptions.applies(material->gltfMaterialId, "KHR_materials_anisotropy");
         }
         material->defines.define("LINEAR_OUTPUT", 1);
     }
