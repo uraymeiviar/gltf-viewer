@@ -83,4 +83,12 @@ layout(std140) uniform EnvironmentBlock
     vec4 u_SkyPortalPositionRadius[8];
     vec4 u_SkyPortalNormalCosInner[8];
     vec4 u_SkyPortalCosOuter[8];
+
+    // A6.4 pre-exposure (NightSky.h): the scene's linear outputs (pbr.frag, ground.frag, the procedural sky) are written
+    // multiplied by u_PreExposure so night radiance (1e-8 .. 1e-5 environment units) stays inside the half-float scene
+    // target; the post-processing exposure divides it out again. Exactly 1 except with the procedural sky in the Auto
+    // or Curve exposure mode. Readers of the scene colour (transmission, SSR) divide by it.
+    float u_PreExposure;
+    // A6.5: night weight of the ASOBO_material_emissive multipliers while u_TimeOfDay is 2 (Automatic, twilight).
+    float u_EmissiveNightBlend;
 };

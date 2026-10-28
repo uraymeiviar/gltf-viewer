@@ -381,6 +381,7 @@ json Application::agentStateJson()
     st["sun"] = sunStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene));
     st["timeOfDay"] = timeOfDayStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene));
     st["sky"] = skyStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene));
+    st["night"] = nightStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene));
     st["ssao"] = ssaoStateJson();
     if (activeViewport != nullptr) {
         // A3.6: the active viewport's ground. height/albedo are what the last render used (the albedo is what A6.2
@@ -478,10 +479,166 @@ ux3d::imgui::SunDiskEvaluation Application::sunDiskEvaluation(const ux3d::imgui:
                                         environment.sunAngularRadius);
 }
 
+ux3d::imgui::night::MoonEvaluation Application::moonEvaluation(const ux3d::imgui::SceneEnvironmentState& environment) const
+{
+    using namespace ux3d::imgui;
+    const bool procedural = environment.environmentSource == static_cast<int>(EnvironmentSource::ProceduralSky);
+    // The moon needs the clock (its position, and its phase against the clock's sun); with the Manual sun there is none.
+    if (!procedural || !environment.clock.enabled) return night::MoonEvaluation();
+    const TimeOfDayEvaluation tod = evaluateTimeOfDay(environment.clock);
+    return night::evaluateMoon(environment.clock, tod, skyAtmosphere(environment), environment.nightSky.moonEnabled);
+}
+
+EffectiveSun Application::effectiveDirectionalLight(const ux3d::imgui::SceneEnvironmentState& environment) const
+{
+    EffectiveSun light = effectiveSun(environment);
+    light.angularRadius = glm::radians(std::clamp(environment.sunAngularRadius, 0.0f, 10.0f));
+    const ux3d::imgui::night::MoonEvaluation moon = moonEvaluation(environment);
+    if (!moon.available || !moon.aboveHorizon) return light;
+    const glm::vec3 moonlight = moon.illuminance * std::max(environment.nightSky.moonlightScale, 0.0f);
+    auto luminance = [](const glm::vec3& c) { return 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b; };
+    const float sunLuminance = light.enabled ? luminance(light.illuminance) : 0.0f;
+    // One shadowed directional light at a time: the brighter of the two (the sun by day, the moon once the sun has
+    // set; at the switch both are below 1e-4 of the sky, so it is not visible).
+    if (luminance(moonlight) <= sunLuminance || luminance(moonlight) <= 0.0f) return light;
+    EffectiveSun out;
+    out.enabled = true;
+    out.moon = true;
+    out.direction = moon.direction;
+    out.illuminance = moonlight;
+    out.angularRadius = moon.angularRadius;
+    return out;
+}
+
+ExposurePlan Application::exposurePlan(const ux3d::imgui::SceneEnvironmentState& environment) const
+{
+    using namespace ux3d::imgui;
+    ExposurePlan plan;
+    plan.mode = effectiveExposureMode(environment);
+    const bool procedural = environment.environmentSource == static_cast<int>(EnvironmentSource::ProceduralSky);
+    // The physical modes need calibrated units, i.e. the procedural sky. With the HDR, Auto is the metered auto exposure
+    // of before and Curve is Manual (an HDR panorama has no time of day).
+    if (!procedural || plan.mode == ExposureMode::Manual) return plan;
+    auto luminance = [](const glm::vec3& c) { return 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b; };
+    // The time-of-day curve: horizontal illuminance from the sun (direct), the clear sky (A6.2 table), the moonlight
+    // and the night sky glow, read by an incident meter.
+    const EffectiveSun sun = effectiveSun(environment);
+    const glm::vec3 sunDirection = skySunDirection(environment);
+    float illuminance = sun.enabled ? luminance(sun.illuminance) * std::max(sun.direction.y, 0.0f) : 0.0f;
+    const float sky = night::clearSkyIlluminance(glm::degrees(std::asin(std::clamp(sunDirection.y, -1.0f, 1.0f)))) +
+                      night::airglowIlluminance(environment.nightSky.airglow);
+    illuminance += sky;
+    const night::MoonEvaluation moon = moonEvaluation(environment);
+    if (moon.available && moon.aboveHorizon) {
+        illuminance += luminance(moon.illuminance) * std::max(environment.nightSky.moonlightScale, 0.0f) * std::max(moon.direction.y, 0.0f);
+    }
+    plan.horizontalIlluminance = illuminance;
+    // The meter also counts the sky in view (NightSky.h kCurveSkyWeight) and the curve's key offset.
+    plan.curveEv100 = night::ev100FromIlluminance(illuminance + night::kCurveSkyWeight * sky);
+    plan.curveEv = night::gliderEvFromEv100(plan.curveEv100, environment.exposureMinEV100, environment.exposureMaxEV100,
+                                            night::kCurveKeyOffsetEv);
+    plan.physical = true;
+    plan.preExposure = std::exp2(plan.curveEv);
+    return plan;
+}
+
+float Application::emissiveNightBlend(const ux3d::imgui::SceneEnvironmentState& environment) const
+{
+    using namespace ux3d::imgui;
+    if (environment.timeOfDay == static_cast<int>(DayNightMode::Automatic)) {
+        const TimeOfDayEvaluation tod = evaluateTimeOfDay(environment.clock);
+        return night::nightBlend(tod.lightElevation, environment.clock.nightThreshold);
+    }
+    return environment.timeOfDay == static_cast<int>(DayNightMode::Night) ? 1.0f : 0.0f;
+}
+
+json Application::nightStateJson(const ux3d::imgui::SceneEnvironmentState& environment) const
+{
+    using namespace ux3d::imgui;
+    auto vec3Json = [](const glm::vec3& v) { return json{agent::floatJson(v.x), agent::floatJson(v.y), agent::floatJson(v.z)}; };
+    const bool procedural = environment.environmentSource == static_cast<int>(EnvironmentSource::ProceduralSky);
+    const ExposurePlan plan = exposurePlan(environment);
+    json exposure = {{"mode", exposureModeName(static_cast<ExposureMode>(std::clamp(environment.exposureMode, -1, 2)))},
+                     {"effectiveMode", exposureModeName(plan.mode)},
+                     {"physical", plan.physical},
+                     {"ev100Offset", agent::floatJson(night::kEv100Offset)},
+                     {"minEv100", agent::floatJson(environment.exposureMinEV100)},
+                     {"maxEv100", agent::floatJson(environment.exposureMaxEV100)},
+                     {"compensation", agent::floatJson(environment.exposureCompensationEV)},
+                     {"curveIlluminance", agent::floatJson(plan.horizontalIlluminance)},
+                     {"curveIlluminanceLux", agent::floatJson(plan.horizontalIlluminance * static_cast<float>(night::kLuxPerUnit))},
+                     {"curveEv100", agent::floatJson(plan.curveEv100)},
+                     {"curveEv", agent::floatJson(plan.curveEv)},
+                     {"preExposure", agent::floatJson(plan.preExposure)},
+                     {"toneMapping", effectiveToneMapping(environment)}};
+    json viewportsJson = json::array();
+    for (const auto& vp : viewports) {
+        if (vp == nullptr) continue;
+        viewportsJson.push_back({{"viewport", vp->id},
+                                 {"preExposure", agent::floatJson(vp->preExposure)},
+                                 {"exposureEv", agent::floatJson(vp->displayedExposureEv)},
+                                 {"meteredLuminance", agent::floatJson(vp->antiAliasing.getMeteredLuminance())},
+                                 {"adapting", vp->antiAliasing.isExposureAdapting()}});
+    }
+    exposure["viewports"] = viewportsJson;
+
+    const night::MoonEvaluation moon = moonEvaluation(environment);
+    const EffectiveSun light = effectiveDirectionalLight(environment);
+    float moonAzimuth = 0.0f, moonElevation = 0.0f;
+    sunAnglesFromDirection(moon.direction, moonAzimuth, moonElevation);
+    const float moonLux = (0.2126f * moon.illuminance.r + 0.7152f * moon.illuminance.g + 0.0722f * moon.illuminance.b) *
+                          static_cast<float>(night::kLuxPerUnit);
+    json moonJson = {{"enabled", environment.nightSky.moonEnabled},
+                     {"available", moon.available},
+                     {"aboveHorizon", moon.aboveHorizon},
+                     {"direction", vec3Json(moon.direction)},
+                     {"azimuth", agent::floatJson(moonAzimuth)},
+                     {"elevation", agent::floatJson(moonElevation)},
+                     {"sunFromMoon", vec3Json(moon.sunFromMoon)},
+                     {"angularRadius", agent::floatJson(glm::degrees(moon.angularRadius))},
+                     {"phaseAngle", moon.phaseAngle},
+                     {"illuminatedFraction", moon.illuminatedFraction},
+                     {"distanceKm", moon.distanceKm},
+                     {"transmittance", vec3Json(moon.transmittance)},
+                     {"illuminanceTop", vec3Json(moon.illuminanceTop)},
+                     {"illuminance", vec3Json(moon.illuminance)},
+                     {"illuminanceLux", agent::floatJson(moonLux)},
+                     {"diskScale", vec3Json(moon.diskScale)},
+                     {"lightScale", agent::floatJson(environment.nightSky.moonlightScale)},
+                     {"lighting", light.moon}};
+    json starsJson = {{"enabled", environment.nightSky.starsEnabled},
+                      {"density", agent::floatJson(environment.nightSky.starDensity)},
+                      {"fade", 0.0f}};
+    if (procedural && environment.clock.enabled) {
+        const TimeOfDayEvaluation tod = evaluateTimeOfDay(environment.clock);
+        const glm::mat3 rotation = night::worldToEquatorial(environment.clock, tod);
+        // Columns of the transpose: the world directions of the equatorial axes.
+        const glm::mat3 toWorld = glm::transpose(rotation);
+        starsJson["fade"] = agent::floatJson(night::starFade(tod.lightElevation));
+        starsJson["celestialPole"] = vec3Json(toWorld[2]);
+        starsJson["vernalEquinox"] = vec3Json(toWorld[0]);
+        const double gmst = solar::detail::greenwichSiderealDegrees(tod.julianDayUt);
+        starsJson["localSiderealDegrees"] = solar::normalizeDegrees(gmst + environment.clock.longitude);
+    }
+    json lightJson = {{"source", light.moon ? "moon" : "sun"},
+                      {"enabled", light.enabled},
+                      {"direction", vec3Json(light.direction)},
+                      {"illuminance", vec3Json(light.illuminance)}};
+    return {{"exposure", exposure},
+            {"moon", moonJson},
+            {"stars", starsJson},
+            {"airglow", agent::floatJson(environment.nightSky.airglow)},
+            {"nightVision", agent::floatJson(environment.nightSky.nightVision)},
+            {"airglowZenith", vec3Json(night::airglowRadiance(environment.nightSky.airglow))},
+            {"directionalLight", lightJson},
+            {"emissiveNightBlend", agent::floatJson(emissiveNightBlend(environment))}};
+}
+
 ux3d::imgui::AtmosphereParameters Application::skyAtmosphere(const ux3d::imgui::SceneEnvironmentState& environment) const
 {
     ux3d::imgui::AtmosphereParameters p;
     p.mieDensity = std::max(environment.skyMieDensity, 0.0f);
+    p.airglow = std::max(environment.nightSky.airglow, 0.0f);
     p.ozone = environment.skyOzone;
     if (environment.skyGroundAlbedo >= 0.0f) {
         p.groundAlbedo = glm::vec3(std::min(environment.skyGroundAlbedo, 1.0f));
@@ -751,9 +908,10 @@ json Application::timeOfDayStateJson(const ux3d::imgui::SceneEnvironmentState& e
                   {"aboveHorizon", tod.moon.horizontal.apparentElevation > -0.833},
                   {"gliderAzimuth", agent::floatJson(tod.moonGliderAzimuth)},
                   {"direction", vec3Json(moonDirection)},
-                  {"rendered", false}}},
+                  {"rendered", environment.environmentSource == 1 && environment.nightSky.moonEnabled}}},
         {"dayNight", {{"mode", environment.timeOfDay == 2 ? "auto" : environment.timeOfDay == 1 ? "night" : "day"},
                       {"effective", effectiveDayNight(environment) == 1 ? "night" : "day"},
+                      {"nightBlend", agent::floatJson(emissiveNightBlend(environment))},
                       {"threshold", agent::floatJson(clock.nightThreshold)}}}};
     return out;
 }
@@ -877,6 +1035,10 @@ json Application::probePixel(ux3d::imgui::ViewportInstance* vp, int x, int y, bo
         glReadPixels(x, glY, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, ldr);
     }
 
+    // A6.4: report linear radiance (environment units); the scene target holds it times the viewport's pre-exposure.
+    if (vp->preExposure != 1.0f) {
+        for (int c = 0; c < 3; ++c) hdr[c] /= vp->preExposure;
+    }
     json out;
     out["x"] = x;
     out["y"] = y;
@@ -949,6 +1111,12 @@ json Application::probeRegion(ux3d::imgui::ViewportInstance* vp, int x0, int y0,
     glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(previousRead));
     glReadBuffer(static_cast<GLenum>(previousReadBuffer));
     glPixelStorei(GL_PACK_ALIGNMENT, previousPack);
+    if (vp->preExposure != 1.0f) {
+        // A6.4: linear radiance without the viewport's pre-exposure.
+        for (size_t i = 0; i < pixels.size(); ++i) {
+            if (i % 4u != 3u) pixels[i] /= vp->preExposure;
+        }
+    }
 
     double minRgb[3] = {1e30, 1e30, 1e30}, maxRgb[3] = {-1e30, -1e30, -1e30}, sumRgb[3] = {0, 0, 0};
     double minLum = 1e30, maxLum = -1e30, sumLum = 0.0;
@@ -1429,12 +1597,60 @@ void Application::registerAgentSettings()
     // --- Environment (one per glTF scene, shared by every viewport) ---
     addSetting(floatSetting<ES>("exposure", E, &ES::exposureEV, "Manual exposure in EV (2^EV).", "--exposure <ev>"));
     {
-        SettingSpec spec = indexEnumSetting<ES>("tone_mapping", E, &ES::toneMappingIdx, {"neutral", "hill", "narkowicz"},
-                                                "Tone mapping operator (Khronos PBR Neutral, ACES Hill, ACES Narkowicz).",
-                                                "--tone-mapping <neutral|hill|narkowicz>");
+        // A6.4: "default" (index -1) = ACES Hill with the HDR source (as before), PBR Neutral with the procedural sky.
+        SettingSpec spec;
+        spec.key = "tone_mapping";
+        spec.scope = E;
+        spec.type = SettingType::Enum;
+        spec.help = "Tone mapping operator (Khronos PBR Neutral, ACES Hill, ACES Narkowicz); default = ACES Hill with the "
+                    "HDR source, PBR Neutral with the procedural sky.";
+        spec.cliFlag = "--tone-mapping <default|neutral|hill|narkowicz>";
+        static const std::vector<std::string> names = {"default", "neutral", "hill", "narkowicz"};
+        spec.enumValues = names;
         spec.enumAliases = {{"pbr_neutral", "neutral"}, {"aces_hill", "hill"}, {"aces_narkowicz", "narkowicz"}};
+        spec.get = [](void* t) {
+            const int index = std::clamp(static_cast<ES*>(t)->toneMappingIdx, -1, 2);
+            return json(names[static_cast<size_t>(index + 1)]);
+        };
+        spec.set = [](void* t, const json& v, std::string&) {
+            const auto it = std::find(names.begin(), names.end(), v.get<std::string>());
+            static_cast<ES*>(t)->toneMappingIdx = static_cast<int>(it - names.begin()) - 1;
+            return true;
+        };
         addSetting(std::move(spec));
     }
+    {
+        // A6.4 exposure mode (NightSky.h). auto_exposure below is the same state seen as a switch.
+        SettingSpec spec;
+        spec.key = "exposure_mode";
+        spec.scope = E;
+        spec.type = SettingType::Enum;
+        spec.help = "Exposure: manual (the exposure EV), auto (eye adaptation: metered; with the procedural sky in EV100 "
+                    "with the key curve and exposure_min/max_ev100), curve (procedural sky: from the sun/moon/sky "
+                    "illuminance of the time of day; Manual with the HDR) or default (Manual with the HDR source, curve "
+                    "with the procedural sky).";
+        spec.cliFlag = "--exposure-mode <default|manual|auto|curve>";
+        static const std::vector<std::string> modes = {"default", "manual", "auto", "curve"};
+        spec.enumValues = modes;
+        spec.enumAliases = {{"eye_adaptation", "auto"}, {"time_of_day", "curve"}};
+        spec.get = [](void* t) {
+            const int index = std::clamp(static_cast<ES*>(t)->exposureMode, -1, 2);
+            return json(modes[static_cast<size_t>(index + 1)]);
+        };
+        spec.set = [](void* t, const json& v, std::string&) {
+            const auto it = std::find(modes.begin(), modes.end(), v.get<std::string>());
+            static_cast<ES*>(t)->exposureMode = static_cast<int>(it - modes.begin()) - 1;
+            return true;
+        };
+        addSetting(std::move(spec));
+    }
+    addSetting(floatSetting<ES>("exposure_min_ev100", E, &ES::exposureMinEV100,
+                                "Procedural sky, Auto/Curve exposure: darkest scene exposed for, in EV100 (default -12, a "
+                                "starlit night; Glider EV = 13.38 - EV100 + key).",
+                                "--exposure-min-ev100 <ev>", std::pair{-20.0, 25.0}));
+    addSetting(floatSetting<ES>("exposure_max_ev100", E, &ES::exposureMaxEV100,
+                                "Procedural sky, Auto/Curve exposure: brightest scene exposed for, in EV100 (default 18).",
+                                "--exposure-max-ev100 <ev>", std::pair{-20.0, 25.0}));
     addSetting(floatSetting<ES>("hdr_rotation", E, &ES::hdrRotation, "Environment rotation in degrees.", "--hdr-rotation <deg>"));
     addSetting(floatSetting<ES>("hdr_intensity", E, &ES::hdrIntensity, "Environment (IBL) intensity."));
     addSetting(floatSetting<ES>("hdr_blur", E, &ES::hdrBlur, "Background blur.", {}, std::pair{0.0, 1.0}));
@@ -1598,7 +1814,25 @@ void Application::registerAgentSettings()
     addSetting(boolSetting<ES>("bloom", E, &ES::bloomEnabled, "Physically based bloom.", "--bloom <on|off>"));
     addSetting(floatSetting<ES>("bloom_intensity", E, &ES::bloomIntensity, "Bloom intensity.", "--bloom-intensity <x>"));
     addSetting(floatSetting<ES>("bloom_radius", E, &ES::bloomRadius, "Bloom radius.", "--bloom-radius <x>"));
-    addSetting(boolSetting<ES>("auto_exposure", E, &ES::autoExposure, "Auto exposure (metered).", "--auto-exposure <on|off>"));
+    {
+        // The exposure mode as a switch: on = auto, off = manual (also with the procedural sky, so scripts that pass
+        // --auto-exposure off keep the manual EV); get is true while Auto is in effect.
+        SettingSpec spec;
+        spec.key = "auto_exposure";
+        spec.scope = E;
+        spec.type = SettingType::Bool;
+        spec.help = "Auto exposure (metered): on = exposure_mode auto, off = exposure_mode manual.";
+        spec.cliFlag = "--auto-exposure <on|off>";
+        spec.get = [](void* t) {
+            return json(ux3d::imgui::effectiveExposureMode(*static_cast<ES*>(t)) == ux3d::imgui::ExposureMode::Auto);
+        };
+        spec.set = [](void* t, const json& v, std::string&) {
+            static_cast<ES*>(t)->exposureMode =
+                static_cast<int>(v.get<bool>() ? ux3d::imgui::ExposureMode::Auto : ux3d::imgui::ExposureMode::Manual);
+            return true;
+        };
+        addSetting(std::move(spec));
+    }
     addSetting(floatSetting<ES>("exposure_compensation", E, &ES::exposureCompensationEV,
                                               "Auto-exposure compensation in EV.", "--exposure-compensation <ev>"));
     addSetting(boolSetting<ES>("background", E, &ES::showBackground, "Skybox background (off: clear colour).", "--clear-color disables it"));
@@ -1756,6 +1990,60 @@ void Application::registerAgentSettings()
                                 "Procedural sky: grey ground albedo below the horizon; -1 = automatic (the active viewport's "
                                 "A3.6 ground plane albedo, else 0.3).",
                                 "--sky-ground-albedo <x|auto>", std::pair{-1.0, 1.0}));
+    // A6.6 night sky (NightSky.h): moon and stars need the A6.1 clock; the glow is part of the sky (and its IBL).
+    {
+        auto nightBool = [&](const char* key, bool ux3d::imgui::night::NightSettings::*member, const char* help, const char* cli) {
+            SettingSpec spec;
+            spec.key = key;
+            spec.scope = E;
+            spec.type = SettingType::Bool;
+            spec.help = help;
+            spec.cliFlag = cli;
+            spec.get = [member](void* t) { return json(static_cast<ES*>(t)->nightSky.*member); };
+            spec.set = [member](void* t, const json& v, std::string&) {
+                static_cast<ES*>(t)->nightSky.*member = v.get<bool>();
+                return true;
+            };
+            addSetting(std::move(spec));
+        };
+        auto nightFloat = [&](const char* key, float ux3d::imgui::night::NightSettings::*member, const char* help, const char* cli,
+                              double lo, double hi) {
+            SettingSpec spec;
+            spec.key = key;
+            spec.scope = E;
+            spec.type = SettingType::Float;
+            spec.help = help;
+            spec.cliFlag = cli;
+            spec.hasRange = true;
+            spec.minimum = lo;
+            spec.maximum = hi;
+            spec.get = [member](void* t) { return agent::floatJson(static_cast<ES*>(t)->nightSky.*member); };
+            spec.set = [member](void* t, const json& v, std::string&) {
+                static_cast<ES*>(t)->nightSky.*member = static_cast<float>(v.get<double>());
+                return true;
+            };
+            addSetting(std::move(spec));
+        };
+        nightBool("moon", &ux3d::imgui::night::NightSettings::moonEnabled,
+                  "Procedural sky with the clock: the moon disk (A6.1 position and phase) and the moonlight (the directional "
+                  "light with the A3.2 shadows while it is brighter than the sun).",
+                  "--moon <on|off>");
+        nightFloat("moonlight_scale", &ux3d::imgui::night::NightSettings::moonlightScale,
+                   "Multiplier of the moonlight (full moon about 0.25 lux); the disk is not scaled.", "--moonlight-scale <x>",
+                   0.0, 1000.0);
+        nightBool("stars", &ux3d::imgui::night::NightSettings::starsEnabled,
+                  "Procedural sky with the clock: procedural stars turning with the sidereal time, fading in below civil "
+                  "twilight (background only).",
+                  "--stars <on|off>");
+        nightFloat("star_density", &ux3d::imgui::night::NightSettings::starDensity,
+                   "Multiplier of the number of stars (1 = about 8,900 down to magnitude 6.5).", "--star-density <x>", 0.0, 10.0);
+        nightFloat("night_vision", &ux3d::imgui::night::NightSettings::nightVision,
+                   "Procedural sky with Auto/Curve exposure: largest weight of the per-pixel rod-vision shift (dim pixels "
+                   "desaturate towards blue-grey below 3 cd/m^2; Jensen et al. 2000); 0 = off.", "--night-vision <0..1>", 0.0, 1.0);
+        nightFloat("sky_airglow", &ux3d::imgui::night::NightSettings::airglow,
+                   "Night sky glow level of the procedural sky (1 = 2e-4 cd/m^2 at the zenith, a dark moonless sky).",
+                   "--sky-airglow <x>", 0.0, 1000.0);
+    }
 
     // --- Renderer-wide ---
     {

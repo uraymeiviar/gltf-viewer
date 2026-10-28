@@ -131,6 +131,27 @@ Commands run on the render thread between frames, strictly in order. Multi-frame
   effect is per viewport: `set_viewport_setting lens_flare ghosts|streak|both|off` (default off; `on` = both) and
   `lens_flare_intensity` (1); it is built from the bloom mips and only light far above white flares.
 
+## Exposure, moon, stars, night (A6.4 / A6.5 / A6.6)
+
+- `exposure_mode` (environment): `default` (Manual with the HDR, `curve` with the procedural sky), `manual` (the
+  `exposure` EV), `auto` (metered eye adaptation; with the sky in EV100 with a key curve), `curve` (the sky's exposure
+  from the time of day: sun + sky + moon + night glow illuminance). `auto_exposure true/false` = `auto` / `manual`.
+  Glider EV = 13.38 - EV100 + key (+ `exposure_compensation`); `exposure_min_ev100` (-12) / `exposure_max_ev100` (18).
+  With the sky in `auto`/`curve` the scene target is pre-exposed: `probe` / `probe_region` still return linear
+  radiance in environment units (`get_state` `night.exposure.viewports[].preExposure`, `exposureEv`).
+- `tone_mapping default` = ACES Hill with the HDR, PBR Neutral with the procedural sky.
+- Moon and stars need `environment sky` and `time_of_day_mode true`. `moon` (true): disk at the A6.1 moon position
+  with its phase, and the moonlight as the directional light with the shadows while it is brighter than the sun (full
+  moon about 0.25 lux; `moonlight_scale`). `stars` (true), `star_density` (1): procedural stars turning with the
+  sidereal time, fading in below -6 deg sun. `sky_airglow` (1): the night sky glow (part of the sky and its IBL).
+  `night_vision` (0.75): dim pixels desaturate towards blue-grey (rod vision) in `auto`/`curve`.
+- `get_state` `night`: exposure plan (`curveEv100`, `curveIlluminanceLux`, `preExposure`), `moon` (direction,
+  `illuminatedFraction`, `illuminanceLux`, `lighting`), `stars` (`fade`, `celestialPole`, `localSiderealDegrees`),
+  `directionalLight.source` (`sun` / `moon`), `emissiveNightBlend`. `sun.shadows.viewports[].light` names the light.
+- `time_of_day auto` blends the ASOBO_material_emissive day/night multipliers over twilight (night weight smoothstep
+  from threshold + 3 to threshold - 3 deg; `timeOfDay.dayNight.nightBlend`).
+- Interiors at night: use `exposure_mode auto` (the curve is the exterior's; MSFS-scaled panels stay much brighter).
+
 ## Ground (A3.6)
 
 - `set_viewport_setting ground plane` replaces the editor grid by an infinite horizontal ground plane in the scene

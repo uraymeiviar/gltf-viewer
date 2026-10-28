@@ -35,6 +35,8 @@ private:
     static void renderSky(SceneEnvironmentState& env, const SkyStatus* sky, SceneRevisions& revisions);
     // A6.7: Sun Disk (on/off, size multiplier, limb darkening).
     static void renderSunDisk(SceneEnvironmentState& env, SceneRevisions& revisions);
+    // A6.6: Night Sky (moon, moonlight, stars, night sky glow).
+    static void renderNightSky(SceneEnvironmentState& env, SceneRevisions& revisions);
 };
 
 } // namespace ux3d::imgui

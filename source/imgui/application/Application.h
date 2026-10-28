@@ -159,6 +159,18 @@ struct EffectiveSun {
     bool enabled = false;
     glm::vec3 direction = glm::vec3(0.0f, 1.0f, 0.0f);
     glm::vec3 illuminance = glm::vec3(0.0f);
+    bool moon = false;          // A6.6: effectiveDirectionalLight returned the moonlight
+    float angularRadius = 0.0f; // radians (effectiveDirectionalLight)
+};
+
+// A6.4: how a scene is exposed this frame (Application::exposurePlan).
+struct ExposurePlan {
+    ux3d::imgui::ExposureMode mode = ux3d::imgui::ExposureMode::Manual;
+    bool physical = false;            // procedural sky in Auto or Curve: EV100-based, pre-exposed
+    float preExposure = 1.0f;         // 2^curveEv while physical
+    float curveEv = 0.0f;             // Glider EV of the time-of-day curve (compensation not included)
+    float curveEv100 = 0.0f;
+    float horizontalIlluminance = 0.0f; // the curve's input (environment units): sun + sky + moon + glow
 };
 
 struct FrameContext {
@@ -372,6 +384,14 @@ private:
     // A3.1: the effective sun of a scene environment (Manual, or From HDR: the panorama's sun turned with
     // the HDR rotation and scaled by the HDR intensity) and its state for get_state and profile reports.
     EffectiveSun effectiveSun(const ux3d::imgui::SceneEnvironmentState& environment) const;
+    // A6.6: the one shadowed directional light: the sun, or the moonlight when it is brighter (sun below the horizon,
+    // procedural sky with the clock).
+    EffectiveSun effectiveDirectionalLight(const ux3d::imgui::SceneEnvironmentState& environment) const;
+    ux3d::imgui::night::MoonEvaluation moonEvaluation(const ux3d::imgui::SceneEnvironmentState& environment) const;
+    ExposurePlan exposurePlan(const ux3d::imgui::SceneEnvironmentState& environment) const;
+    nlohmann::json nightStateJson(const ux3d::imgui::SceneEnvironmentState& environment) const;
+    // A6.5: the ASOBO_material_emissive night weight (0 day .. 1 night; Automatic blends over twilight).
+    float emissiveNightBlend(const ux3d::imgui::SceneEnvironmentState& environment) const;
     nlohmann::json sunStateJson(const ux3d::imgui::SceneEnvironmentState& environment) const;
     // A6.7: the sun disk the background draws (SunDisk.h): visible while the sun is on and the background shown.
     ux3d::imgui::SunDiskEvaluation sunDiskEvaluation(const ux3d::imgui::SceneEnvironmentState& environment) const;

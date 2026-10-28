@@ -57,6 +57,7 @@ struct AtmosphereParameters {
     float mieDensity = 1.0f;                // multiplies the Mie (aerosol) density: 1 = clear, larger = hazier
     bool ozone = true;                      // ozone absorption (the blue of the twilight sky)
     glm::vec3 groundAlbedo = glm::vec3(sky::kNeutralGroundAlbedo);
+    float airglow = 1.0f;                   // A6.6 night sky glow level (NightSky.h; 1 = a dark moonless sky)
 
     bool operator==(const AtmosphereParameters&) const = default;
 };

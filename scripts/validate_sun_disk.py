@@ -291,7 +291,8 @@ def check_baseline(baseline):
     sun = ["--sun", "on", "--sun-dir", "196,6", "--camera-target", "0,0,0", "--camera-yaw", "0", "--camera-pitch", "0",
            "--camera-distance", "4", "--auto-exposure", "off"]
     now, _ = render(model, "base_now_sun_disk_off", sun + ["--sun-disk", "off"])
-    before, _ = render(model, "base_ref_sun_disk_off", sun, exe=baseline)
+    # Baselines from 0ddd430 on draw the disk too: pass the same switch to both binaries.
+    before, _ = render(model, "base_ref_sun_disk_off", sun + ["--sun-disk", "off"], exe=baseline)
     check(same(now, before), f"sun on, --sun-disk off: byte-identical to {baseline.stem}")
     on, report = render(model, "sun_disk_on_default", sun)
     visible = report is not None and report["sun"]["disk"]["visible"]

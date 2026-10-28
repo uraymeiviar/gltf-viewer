@@ -538,6 +538,7 @@ struct ProfileReport {
     nlohmann::json camera;
     nlohmann::json timeOfDay; // A6.1: the computed time of day (get_state "timeOfDay")
     nlohmann::json sky; // A6.2/A6.3: the procedural sky (get_state "sky"); only while it is the environment source
+    nlohmann::json night; // A6.4-A6.6: exposure, moon, stars (get_state "night"); only with the procedural sky
     nlohmann::json sun; // A3.1: effective sun and the HDR's detected sun (get_state "sun")
     nlohmann::json ssao; // A3.5: per-viewport SSAO settings, state, memory and GPU time (get_state "ssao")
 };

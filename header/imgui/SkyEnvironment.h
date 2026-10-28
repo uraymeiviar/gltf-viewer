@@ -3,6 +3,7 @@
 #pragma once
 
 #include "imgui/EmbeddedVFS.h"
+#include "imgui/NightSky.h"
 #include "imgui/Profiling.h"
 #include "imgui/SkyAtmosphere.h"
 
@@ -783,6 +784,9 @@ private:
         glUniform4f(glGetUniformLocation(program, "u_GroundAlbedo"), p.groundAlbedo.r, p.groundAlbedo.g, p.groundAlbedo.b,
                     sky::kOzoneHalfWidthKm);
         glUniform3f(glGetUniformLocation(program, "u_SunDirection"), m_sunDirection.x, m_sunDirection.y, m_sunDirection.z);
+        // A6.6 night sky glow, per unit top-of-atmosphere sun illuminance like everything in the LUTs.
+        const glm::vec3 airglow = night::airglowRadiance(p.airglow) / sky::kSolarIlluminance;
+        glUniform4f(glGetUniformLocation(program, "u_Airglow"), airglow.r, airglow.g, airglow.b, night::kAirglowLayerKm);
         glUniform1i(glGetUniformLocation(program, "u_TransmittanceLUT"), 0);
         glUniform1i(glGetUniformLocation(program, "u_MultiScatteringLUT"), 1);
         glUniform1i(glGetUniformLocation(program, "u_SkyViewLUT"), 2);

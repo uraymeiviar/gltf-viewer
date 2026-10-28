@@ -111,7 +111,12 @@ public:
     void setAsoboGlassCopyValid(bool valid) { m_asoboGlassCopyValidUniform.write(valid ? 1 : 0); }
     void setAsoboEmissiveActive(bool active);
     void setMsfsEmissiveScale(float scale);
+    // 0 day, 1 night, 2 blend (A6.5: the night weight is setEmissiveNightBlend's).
     void setTimeOfDay(int timeOfDay);
+    void setEmissiveNightBlend(float blend) { m_emissiveNightBlend = blend; }
+    // A6.4: multiplier of the scene's linear outputs (EnvironmentBlock u_PreExposure); 1 = none.
+    void setPreExposure(float preExposure) { m_preExposure = preExposure; }
+    float getPreExposure() const { return m_preExposure; }
     void setAsoboMaterialEmissiveApplied(bool applied);
     void setAsoboOcclusionStrengthApplied(bool applied);
     // A3.1: the sun, a directional light evaluated by pbr.frag through the punctual-light BRDF path.
@@ -241,6 +246,8 @@ protected:
     glm::vec3 m_sunDirection = glm::vec3(0.0f, 1.0f, 0.0f);
     glm::vec3 m_sunIlluminance = glm::vec3(0.0f);
     float m_sunAngularRadius = 0.0f;
+    float m_preExposure = 1.0f;
+    float m_emissiveNightBlend = 0.0f;
     // A3.2 sun shadow map (borrowed texture handle; stable wrapper and comparison sampler).
     SunShadowParameters m_sunShadow;
     std::unique_ptr<gl::Texture> m_sunShadowTexture;

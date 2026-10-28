@@ -44,6 +44,16 @@ struct HdrPostProcessParams {
     float deltaTime = 1.0f / 60.0f;
     bool snapExposure = false;
     bool startFromManualEv = false;
+    // A6.4 (NightSky.h): the scene's linear values arrive multiplied by preExposure (1 = none); the displayed exposure
+    // is 2^EV / preExposure. With physicalExposure the metered luminance is converted to EV100 (reflected meter,
+    // K = 12.5), clamped to minEv100..maxEv100, and mapped to Glider's EV with the key curve plus the compensation.
+    float preExposure = 1.0f;
+    bool physicalExposure = false;
+    float minEv100 = -12.0f;
+    float maxEv100 = 18.0f;
+    // A6.6: largest weight of the per-pixel scotopic (rod vision) shift; 0 = off (the image is unchanged). Only with
+    // calibrated units (the procedural sky's physical exposure).
+    float nightVision = 0.0f;
 };
 
 class AntiAliasing {
@@ -110,6 +120,8 @@ public:
     float getLastTaaBlendFactor() const { return m_lastTaaBlendFactor; }
     uint64_t getLastTaaTargetGeneration() const { return m_lastTaaTargetGeneration; }
     float getAdaptedExposureEv() const { return m_adaptedEv; }
+    // A6.4: the last metered scene average luminance (environment units, pre-exposure removed; 0 before metering).
+    float getMeteredLuminance() const { return m_meteredLuminance; }
     // Restart auto-exposure (model load, camera jump); independent of the TAA history.
     void resetExposure();
     bool isExposureAdapting() const { return m_exposureAdapting; }
@@ -157,6 +169,7 @@ private:
     GLint m_tmHdrTexLoc = -1;
     GLint m_tmBloomTexLoc = -1;
     GLint m_tmExposureLoc = -1;
+    GLint m_tmNightShiftLoc = -1;
     GLint m_tmToneMapModeLoc = -1;
     GLint m_tmRawModeLoc = -1;
     GLint m_tmHasClearColorLoc = -1;
@@ -202,6 +215,7 @@ private:
     GLuint m_meterFbo = 0;
     GLuint m_meterTexture = 0;
     float m_adaptedEv = 0.0f;
+    float m_meteredLuminance = 0.0f;
     bool m_exposureValid = false;
     bool m_exposureAdapting = false;
     bool m_snapExposureNext = false;

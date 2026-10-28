@@ -69,7 +69,10 @@ vec3 getAsoboGlassBehind(vec3 n, vec3 v, float ior, float perceptualRoughness)
     float roughBlur = max(0.0, perceptualRoughness - 0.08) / 0.92;
     float lod = clamp(maxLod * applyIorToRoughness(roughBlur, ior), 0.0, maxLod);
     vec2 border = 0.5 * exp2(lod) / size;
-    return textureLod(u_TransmissionFramebufferSampler, clamp(uv, border, 1.0 - border), lod).rgb;
+    vec3 behind = textureLod(u_TransmissionFramebufferSampler, clamp(uv, border, 1.0 - border), lod).rgb;
+    // A6.4: the copy holds pre-exposed scene colour.
+    if (u_PreExposure != 1.0) behind /= u_PreExposure;
+    return behind;
 }
 #endif
 
@@ -320,6 +323,7 @@ vec4 windshieldSample(vec3 n, vec3 v, vec3 ng, vec3 position, float roughness)
     float coverage = ssrHitCoverage(hit.xy, hit.z, size, radius);
     // The copy's mip chain is regenerated after every capture.
     vec3 colour = textureLod(u_TransmissionFramebufferSampler, hit.xy, log2(radius / 1.5)).rgb;
+    if (u_PreExposure != 1.0) colour /= u_PreExposure; // A6.4: pre-exposed scene colour
     float confidence = hit.a * coverage;
     return vec4(colour * confidence, confidence);
 }
@@ -874,6 +878,10 @@ void main()
         f_emissive *= u_MsfsEmissiveScale;
         if (u_AsoboMaterialEmissiveApplied != 0) {
             float dayNightMult = (u_TimeOfDay == 1) ? u_EmissiveNightMultiplier : u_EmissiveDayMultiplier;
+            if (u_TimeOfDay == 2) {
+                // A6.5: Automatic day/night blends over twilight (NightSky.h nightBlend).
+                dayNightMult = mix(u_EmissiveDayMultiplier, u_EmissiveNightMultiplier, u_EmissiveNightBlend);
+            }
             f_emissive *= dayNightMult;
         }
     } else {
@@ -975,6 +983,8 @@ void main()
 #endif
 
 #ifdef LINEAR_OUTPUT
+    // A6.4: pre-exposure (environment_block.glsl), exactly 1 unless the procedural sky's physical exposure is on.
+    if (u_PreExposure != 1.0) color.rgb *= u_PreExposure;
     g_finalColor = vec4(fitHalfFloatHdr(color.rgb), baseColor.a);
 #else
     g_finalColor = vec4(toneMap(color), baseColor.a);

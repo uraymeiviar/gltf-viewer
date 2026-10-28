@@ -94,6 +94,12 @@ struct ViewportInstance {
     bool ssaoActive = false;
     // A3.7: the number of sky portals that lit this viewport's last render (0 when none or switched off).
     int skyPortalCount = 0;
+    // A6.4: the pre-exposure this viewport's last render wrote its scene target with (1 = none) and its exposure.
+    float preExposure = 1.0f;
+    // A6.6: the light the shadow map was rendered for (the moon at night) and its direction.
+    bool sunShadowFromMoon = false;
+    glm::vec3 sunShadowDirection = glm::vec3(0.0f, 1.0f, 0.0f);
+    float displayedExposureEv = 0.0f;
 
     bool groundPlaneActive = false;
     float groundPlaneHeight = 0.0f;

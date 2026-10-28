@@ -890,6 +890,26 @@ std::optional<int> Application::configure(int argc, char** argv)
         } else if (arg == "--environment" && i + 1 < argc) {
             // A6.2: hdr (the panorama, default) or sky (the procedural sky).
             if (!applyCliSetting(SettingScope::Environment, "environment", toLowerAscii(argv[++i]), "--environment")) return 1;
+        } else if (arg == "--exposure-mode" && i + 1 < argc) {
+            // A6.4: default|manual|auto|curve.
+            if (!applyCliSetting(SettingScope::Environment, "exposure_mode", toLowerAscii(argv[++i]), "--exposure-mode")) return 1;
+        } else if (arg == "--exposure-min-ev100" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Environment, "exposure_min_ev100", argv[++i], "--exposure-min-ev100")) return 1;
+        } else if (arg == "--exposure-max-ev100" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Environment, "exposure_max_ev100", argv[++i], "--exposure-max-ev100")) return 1;
+        } else if (arg == "--moon" && i + 1 < argc) {
+            // A6.6 night sky.
+            if (!applyCliSetting(SettingScope::Environment, "moon", toLowerAscii(argv[++i]), "--moon")) return 1;
+        } else if (arg == "--moonlight-scale" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Environment, "moonlight_scale", argv[++i], "--moonlight-scale")) return 1;
+        } else if (arg == "--stars" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Environment, "stars", toLowerAscii(argv[++i]), "--stars")) return 1;
+        } else if (arg == "--star-density" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Environment, "star_density", argv[++i], "--star-density")) return 1;
+        } else if (arg == "--night-vision" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Environment, "night_vision", argv[++i], "--night-vision")) return 1;
+        } else if (arg == "--sky-airglow" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Environment, "sky_airglow", argv[++i], "--sky-airglow")) return 1;
         } else if (arg == "--sky-mie" && i + 1 < argc) {
             if (!applyCliSetting(SettingScope::Environment, "sky_mie", argv[++i], "--sky-mie")) return 1;
         } else if (arg == "--sky-ozone" && i + 1 < argc) {
@@ -948,7 +968,8 @@ std::optional<int> Application::configure(int argc, char** argv)
             if (val == "manual") val = "off";
             if (!applyCliSetting(SettingScope::Environment, "auto_exposure", val, "--auto-exposure")) return 1;
             cliAutoExposureProvided = true;
-            cliAutoExposure = getSceneEnvironment(sceneEnvironments, gltfModel, activeScene).autoExposure;
+            cliAutoExposure = ux3d::imgui::effectiveExposureMode(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene)) ==
+                              ux3d::imgui::ExposureMode::Auto;
         } else if (arg == "--exposure-compensation") {
             if (!applyCliSetting(SettingScope::Environment, "exposure_compensation", argv[++i], "--exposure-compensation")) return 1;
         } else if (arg == "--msfs-emissive-scale" && i + 1 < argc) {

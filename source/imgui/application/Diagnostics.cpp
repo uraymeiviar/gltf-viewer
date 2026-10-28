@@ -781,7 +781,7 @@ bool Application::writeScenarioReport(const std::string& reportPath, const std::
     out << "    \"msaaSamples\": " << (settings.effectiveMsaaIdx() == 0 ? 1 : 1 << settings.effectiveMsaaIdx()) << ",\n";
     out << "    \"postAAIndex\": " << settings.effectivePostAAIdx() << ",\n";
     out << "    \"renderModeIndex\": " << settings.renderModeIdx << ",\n";
-    out << "    \"toneMappingIndex\": " << environment.toneMappingIdx << ",\n";
+    out << "    \"toneMappingIndex\": " << ux3d::imgui::effectiveToneMapping(environment) << ",\n";
     out << "    \"exposureEV\": ";
     writeJsonNumber(out, environment.exposureEV);
     out << ",\n";
@@ -1015,6 +1015,8 @@ void Application::finishFrame(FrameContext& frame, int displayW, int displayH)
         report.sun = sunStateJson(activeEnvironment);
         report.timeOfDay = timeOfDayStateJson(activeEnvironment);
         if (activeEnvironment.environmentSource != 0) report.sky = skyStateJson(activeEnvironment);
+        // A6.4-A6.6: exposure, moon, stars (only with the procedural sky, so HDR reports are unchanged).
+        if (activeEnvironment.environmentSource != 0) report.night = nightStateJson(activeEnvironment);
         report.ssao = ssaoStateJson();
         if (!reportNodeArgs.empty()) {
             for (const auto& spec : reportNodeArgs) {

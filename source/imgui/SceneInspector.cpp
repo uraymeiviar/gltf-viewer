@@ -320,7 +320,10 @@ void SceneInspector::render(SceneEnvironmentState& env,
             "ACES Hill",
             "ACES Narkowicz"
         };
-        if (ImGui::Combo("Tone Mapping", &env.toneMappingIdx, toneMappingNames, 3)) {
+        // A6.4: an unset choice shows the source's default (ACES Hill with the HDR, PBR Neutral with the sky).
+        int toneMappingIdx = effectiveToneMapping(env);
+        if (ImGui::Combo("Tone Mapping", &toneMappingIdx, toneMappingNames, 3)) {
+            env.toneMappingIdx = toneMappingIdx;
             if (commandGenerator != nullptr) {
                 if (env.toneMappingIdx == 0) {
                     commandGenerator->setToneMapping(ux3d::renderer::ToneMappingsEnum::PBR_NEUTRAL);
@@ -333,17 +336,51 @@ void SceneInspector::render(SceneEnvironmentState& env,
             revisions.mark(SceneChange::RenderSettings);
         }
 
-        // Exposure mode (Manual / Auto) and controls
-        const char* exposureModeNames[] = { "Manual", "Auto" };
-        int exposureModeIdx = env.autoExposure ? 1 : 0;
-        if (ImGui::Combo("Exposure Mode", &exposureModeIdx, exposureModeNames, 2)) {
-            env.autoExposure = (exposureModeIdx == 1);
-            env.autoExposureStartFromManual = env.autoExposure;
+        // Exposure mode (Manual / Auto / Time-of-day curve, A6.4) and controls. An unset mode shows the source's
+        // default (Manual with the HDR, Time-of-day curve with the procedural sky).
+        const char* exposureModeNames[] = { "Manual", "Auto (eye adaptation)", "Time-of-day curve" };
+        const ExposureMode effectiveMode = effectiveExposureMode(env);
+        int exposureModeIdx = static_cast<int>(effectiveMode);
+        if (ImGui::Combo("Exposure Mode", &exposureModeIdx, exposureModeNames, 3)) {
+            env.exposureMode = exposureModeIdx;
+            env.autoExposureStartFromManual = exposureModeIdx == static_cast<int>(ExposureMode::Auto);
             revisions.mark(SceneChange::RenderSettings);
         }
         UiProbe::item("scene.exposure.mode", 0);
-
-        if (!env.autoExposure) {
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Manual: the EV below. Auto: metered eye adaptation (with the procedural sky in EV100 with a key\n"
+                              "curve that keeps night darker than day). Time-of-day curve: the procedural sky's exposure from\n"
+                              "the sun, sky, moon and night glow illuminance (Manual with the HDR). Default: Manual with the\n"
+                              "HDR, Time-of-day curve with the procedural sky.");
+        }
+        const bool physicalExposure = env.environmentSource == static_cast<int>(EnvironmentSource::ProceduralSky) &&
+                                      effectiveMode != ExposureMode::Manual;
+        if (physicalExposure) {
+            if (ImGui::SliderFloat("EV Compensation", &env.exposureCompensationEV, -4.0f, 4.0f, "%+.2f EV")) {
+                revisions.mark(SceneChange::RenderSettings);
+            }
+            UiProbe::item("scene.exposure.compensation", 0);
+            if (ImGui::SliderFloat("Darkest Scene (EV100)", &env.exposureMinEV100, -20.0f, 10.0f, "%.1f")) {
+                env.exposureMaxEV100 = (std::max)(env.exposureMaxEV100, env.exposureMinEV100);
+                revisions.mark(SceneChange::RenderSettings);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Scenes darker than this are not exposed further (-12: a starlit night, about 0.001 lux).\n"
+                                  "Glider EV = 13.38 - EV100 + the key curve.");
+            }
+            if (ImGui::SliderFloat("Brightest Scene (EV100)", &env.exposureMaxEV100, 0.0f, 25.0f, "%.1f")) {
+                env.exposureMinEV100 = (std::min)(env.exposureMinEV100, env.exposureMaxEV100);
+                revisions.mark(SceneChange::RenderSettings);
+            }
+            if (effectiveMode == ExposureMode::Auto) {
+                if (ImGui::SliderFloat("Adapt Speed Up", &env.autoExposureSpeedUp, 0.2f, 20.0f, "%.1f /s")) {
+                    revisions.mark(SceneChange::RenderSettings);
+                }
+                if (ImGui::SliderFloat("Adapt Speed Down", &env.autoExposureSpeedDown, 0.2f, 20.0f, "%.1f /s")) {
+                    revisions.mark(SceneChange::RenderSettings);
+                }
+            }
+        } else if (effectiveMode != ExposureMode::Auto) {
             // Manual Exposure (EV slider and linear multiplier)
             if (ImGui::SliderFloat("Exposure (EV)", &env.exposureEV, -4.0f, 4.0f, "%.2f EV")) {
                 float linearExposure = std::pow(2.0f, env.exposureEV);
@@ -462,6 +499,72 @@ void SceneInspector::render(SceneEnvironmentState& env,
     UiProbe::item("scene.sun_disk", 0);
     if (diskOpen) {
         renderSunDisk(env, revisions);
+    }
+
+    // A6.6: after Sun Disk (collapsed by default).
+    const bool nightOpen = ImGui::CollapsingHeader("Night Sky");
+    UiProbe::item("scene.night", 0);
+    if (nightOpen) {
+        renderNightSky(env, revisions);
+    }
+}
+
+void SceneInspector::renderNightSky(SceneEnvironmentState& env, SceneRevisions& revisions)
+{
+    night::NightSettings& n = env.nightSky;
+    if (env.environmentSource != static_cast<int>(EnvironmentSource::ProceduralSky)) {
+        ImGui::TextDisabled("The moon, the stars and the night glow belong to the procedural sky.");
+    } else if (!env.clock.enabled) {
+        ImGui::TextDisabled("The moon and the stars follow the Time of Day clock (switch it on).");
+    }
+    if (ImGui::Checkbox("Moon", &n.moonEnabled)) {
+        revisions.mark(SceneChange::RenderSettings);
+    }
+    UiProbe::item("scene.night.moon", 0);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("The moon disk at the clock's moon position with its phase, and the moonlight: the directional\n"
+                          "light (with the sun's shadows) while it is brighter than the sun. Full moon about 0.25 lux.");
+    }
+    ImGui::BeginDisabled(!n.moonEnabled);
+    if (ImGui::SliderFloat("Moonlight", &n.moonlightScale, 0.0f, 100.0f, "%.2f x", ImGuiSliderFlags_Logarithmic)) {
+        revisions.mark(SceneChange::RenderSettings);
+    }
+    UiProbe::item("scene.night.moonlight", 0);
+    ImGui::EndDisabled();
+    if (ImGui::Checkbox("Stars", &n.starsEnabled)) {
+        revisions.mark(SceneChange::RenderSettings);
+    }
+    UiProbe::item("scene.night.stars", 0);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Procedural stars (magnitudes down to 6.5) turning with the sidereal time; they fade in once the\n"
+                          "sun is below civil twilight. Background only.");
+    }
+    ImGui::BeginDisabled(!n.starsEnabled);
+    if (ImGui::SliderFloat("Star Density", &n.starDensity, 0.0f, 10.0f, "%.2f x", ImGuiSliderFlags_Logarithmic)) {
+        revisions.mark(SceneChange::RenderSettings);
+    }
+    UiProbe::item("scene.night.star_density", 0);
+    ImGui::EndDisabled();
+    if (ImGui::SliderFloat("Night Glow", &n.airglow, 0.0f, 100.0f, "%.2f x", ImGuiSliderFlags_Logarithmic)) {
+        revisions.mark(SceneChange::RenderSettings);
+    }
+    UiProbe::item("scene.night.airglow", 0);
+    if (ImGui::SliderFloat("Night Vision", &n.nightVision, 0.0f, 1.0f, "%.2f")) {
+        revisions.mark(SceneChange::RenderSettings);
+    }
+    UiProbe::item("scene.night.vision", 0);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Rod vision of the Auto / Time-of-day exposure: dim pixels lose colour towards a blue-grey (below\n"
+                          "3 cd/m^2, fully at 0.01 cd/m^2), bright ones (screens, the moon) keep it. 0 = off.");
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Airglow and integrated starlight of the procedural sky (1 = a dark moonless sky, 2e-4 cd/m^2 at\n"
+                          "the zenith); it lights the scene through the IBL.");
+    }
+    if (env.clock.enabled) {
+        const TimeOfDayEvaluation tod = evaluateTimeOfDay(env.clock);
+        ImGui::TextDisabled("Moon: elevation %.1f deg, %.0f%% lit", tod.moon.horizontal.apparentElevation,
+                            100.0 * tod.moon.illuminatedFraction);
     }
 }
 

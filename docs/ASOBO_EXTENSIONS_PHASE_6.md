@@ -2,7 +2,7 @@
 
 [Journal index](ASOBO_EXTENSIONS_JOURNAL.md) · [Extension reference](ASOBO_EXTENSIONS_REFERENCE.md) · [Validation rules](RENDERER_OPTIMIZATION_VALIDATION.md)
 
-**Status:** In progress: A6.1, A6.2, A6.3 and A6.7 done.
+**Status:** In progress: A6.1-A6.7 done (A6.8 optional, later).
 
 **Entry:** A3.1 and A3.2 (sun and shadows). **Goal:** a dynamic, configurable time of day emulating MSFS (user
 priority 6). The sun, sky, environment lighting, exposure and emissive day/night all follow one time-of-day
@@ -199,16 +199,89 @@ setting, and changing it is seamless.
     twilight is A6.4's.
   - **Deviations:** the budget is a GPU-time aim measured per kind of work, not a fixed number of faces per frame;
     the configured-quality refinement takes a few seconds at High (it is limited to the same per-frame budget).
-- [ ] **A6.4 — Exposure and tone mapping (R3). Owner: Claude.** Exposure that keeps noon, dusk and night readable,
+- [x] **A6.4 — Exposure and tone mapping (R3). Owner: Claude.** Exposure that keeps noon, dusk and night readable,
   either an MSFS-like auto exposure (eye adaptation) or presets per time of day, and the tone-mapping curve
   closest to MSFS. Both are judged against the reference screenshots.
-- [ ] **A6.5 — Emissive day/night and lights (R2). Owner: Claude.** The A1.6 day/night switch and the A3.3 macro
+  - **Done 2026-10-29.** `header/imgui/NightSky.h` (constants, key curve, sky illuminance table), `Application::exposurePlan`
+    (`Commands.cpp`), `AntiAliasing::updateAutoExposure` (physical branch), pre-exposure in `pbr.frag`, `ground.frag`,
+    `cubemap.frag` (`environment_block.glsl` `u_PreExposure`).
+    - **Modes** (`exposure_mode`, Scene Inspector → Environment → Exposure Mode): *Manual* (the EV, unchanged), *Auto (eye
+      adaptation)*, *Time-of-day curve*, and *default*: Manual with the HDR source (byte-identical to before), the curve
+      with the procedural sky. `auto_exposure on/off` = auto / manual. With the HDR, Auto is the previous metered auto
+      exposure and the curve acts as Manual (an HDR panorama has no time of day).
+    - **Units:** saturation-based exposure at ISO 100 (Lagarde & de Rousiers 2014) H = 1 / (1.2 x 2^EV100) per cd/m^2;
+      with A6.2's 1 unit = 12,800 cd/m^2 this is **Glider EV = 13.38 - EV100** (EV 0 = EV100 13.4). Auto meters the
+      scene (the existing 64 x 64 centre-weighted log average with outlier rejection) as a reflected meter, EV100 =
+      log2(L x 100 / 12.5); the curve is an incident meter on the horizontal illuminance, EV100 = log2(E x 100 / 250),
+      E = sun (direct) + clear sky (table integrated from the A6.2 model; below -10 deg the rendered sky's own values) +
+      moonlight + night glow, plus 2 x the sky part (the sky in view) and -0.75 EV (calibrated against Auto).
+      **Limits** EV100 -12 (starlight, about 0.001 lux) .. 18 (`exposure_min_ev100` / `exposure_max_ev100`): Glider EV
+      about -3 .. +23. **Key/compensation** (shared by both modes): +0.6 EV in daylight (EV100 >= 11: an 18% grey at
+      0.18), +0.4 at 8, -0.2 at 4, -0.8 at 0, -1.3 at -4, -1.6 at -8, -1.8 at -12 (linear between): night is shown
+      darker than day, monotonic; `exposure_compensation` is added. Auto adapts with the existing speeds.
+    - **Pre-exposure:** night radiance (1e-8 .. 1e-5 units) is below the half-float scene target's normal range, so in the
+      physical modes the scene's linear outputs are written x 2^curveEV (pbr, ground plane, sky background; the
+      transmission/SSR copies divide it out) and the post exposure is 2^EV / pre-exposure; the meter, `probe` and
+      `probe_region` remove it (radiance in environment units). Pre-exposure 1 = the previous shaders exactly.
+    - **Tone mapper:** default for the procedural sky **Khronos PBR Neutral** (`tone_mapping default`: ACES Hill with
+      the HDR, unchanged). Comparison (scripts/review_night.py, E195 sunset frame, 828 sky pixels near the set sun,
+      exposed linear colour vs displayed): PBR Neutral hue shift mean 0.6 deg / 95th percentile 1.7 deg, saturation
+      kept 1.07; ACES Hill 1.7 / 5.4 deg, 0.91; ACES Narkowicz 3.4 / 10.2 deg, 0.61 (yellows the orange horizon, washes
+      the sky out). *Inferred:* no MSFS reference screenshots were available; the choice is for plausible sunset hues.
+    - **Night vision** (`night_vision`, default 0.75, physical modes only): per pixel, below 3 cd/m^2 (full at 0.01)
+      the colour moves towards its luminance with a blue tint (Jensen et al. 2000); bright pixels keep their colour.
+  - **Check:** `scripts/validate_night.py` (serial list): E195 exterior on the plane, Auto and Curve, mean displayed luma
+    in 0.05..0.60 at noon (0.34), sunset (0.33), dusk -6.4 deg (0.21), moonless night (0.08) and full moon (0.10);
+    evening sweep sunset - 30 min .. + 2.5 h in 5-minute steps: largest step 0.023 (curve) / 0.018 (auto), limit 0.03;
+    curve darkens monotonically (largest rise 0.004, the night plateau; limit 0.01).
+  - **Deviation / finding:** the A6.2 sky had kinks in its twilight brightness every ~3.7 degrees of sun elevation (the
+    32 x 32 multiple-scattering LUT was filtered linearly where Psi_ms falls by orders of magnitude): `sky_passes.frag`
+    now interpolates it bilinearly in log space (validate_sky still passes, references within tolerance). Interiors at
+    night (MSFS-scaled emissive panels) need Auto: the curve is the exterior's and overexposes cockpits.
+- [x] **A6.5 — Emissive day/night and lights (R2). Owner: Claude.** The A1.6 day/night switch and the A3.3 macro
   lights' day/night cycle follow the time of day.
-- [ ] **A6.6 — Night sky (R2). Owner: Claude.** Moon (position and phase from the A6.1 date and location, lit
+  - **Done 2026-10-29.** Automatic day/night now blends: night weight w = smoothstep from threshold + 3 to threshold - 3
+    degrees of lighting elevation (0.5 at the threshold, where the reported state flips), multiplier = mix(day, night,
+    w) (`u_TimeOfDay` 2 + `u_EmissiveNightBlend`, `pbr.frag` and `decal_accum.frag`); outside the blend the integer
+    Day / Night path is used, so the A6.1 checks (byte-identical to forced Day / Night) hold. `timeOfDay.dayNight.nightBlend`.
+    Check: an emissive quad over a 90-minute sweep matches day x (1 - w) + night x w within 0.06%, one state flip.
+  - **Not done:** `ASOBO_macro_light` lights are not rendered (A3.3 deferred), so they have no day/night cycle.
+- [x] **A6.6 — Night sky (R2). Owner: Claude.** Moon (position and phase from the A6.1 date and location, lit
   disk, and a dim directional light through the A3.1 sun path) and stars (a star-field cubemap or procedural
   stars, rotated by sidereal time). Without them night is black plus emissives.
   - **Tests:** moon position and phase against a published ephemeris; night exposure keeps the moonlit model
     readable (A6.4).
+  - **Done 2026-10-29.** Procedural sky with the A6.1 clock (without the clock there is no moon and no stars).
+    `night::evaluateMoon`, `worldToEquatorial`, `cubemap.frag` (`MOON_DISK`, `STARS`), `sky_passes.frag` (glow),
+    `Application::effectiveDirectionalLight`, Scene Inspector → *Night Sky* (collapsed, after Sun Disk).
+    - **Moon disk** at the A6.1 topocentric moon direction (refraction per `sun_refraction`), angular radius from its
+      distance, drawn with the true view direction (not cubemap.vert's). Shading: Lommel-Seeliger mu0 / (mu0 + mu) of
+      the hemisphere lit from the true sun-from-moon vector, so phase and bright-limb orientation follow from geometry.
+      Illuminance (top of atmosphere) = p x E_sun x (R/d)^2 x Krisciunas-Schaefer phase law, p = 0.12, E_sun = 10 units:
+      **full moon 0.234 lux at phase angle 7.7 deg** (0.31 at 0), x the atmosphere transmittance towards it; the disk
+      is normalised to integrate to it. Background only; the moonlit sky (scattered moonlight) is not modelled.
+    - **Moonlight:** the A3.1 directional light (same BRDF path, angular radius of the moon) with the A3.2 shadows,
+      **one shadowed directional light at a time: the brighter of sun and moon** (the sun by day; once it has set the
+      moon; at the switch both are 1e-4 of the sky). Colour: white sunlight x transmittance, not tinted; the bluish
+      look of moonlit scenes comes from the tone stage (*night vision*, A6.4), stated choice. `moonlight_scale`.
+    - **Stars:** hash-based, no catalogue: a 6 x 256 x 256 cube grid on the celestial sphere, star probability per cell
+      proportional to its solid angle (about 8,900 stars x `star_density` down to magnitude 6.5), magnitudes from
+      N(<m) ~ 10^(0.5 m), illuminance 2.54e-6 lux x 10^(-0.4 m), hashed colour temperature, a Gaussian about a pixel
+      wide integrating to the illuminance, extinction by Kasten-Young airmass with the zenith optical depth of the
+      A6.2 atmosphere, no twinkle. Rotated world -> equatorial from the clock's local sidereal time, latitude and heading.
+      Fade: smoothstep from sun -6 deg (0) to -12 (1). Not in the IBL; their integrated light is part of the glow.
+    - **Night sky glow:** 2e-4 cd/m^2 at the zenith (airglow + integrated starlight, slightly green-white), van Rhijn
+      factor of a 90 km layer, achromatic extinction; inside the sky-view LUT, so it lights the scene through the IBL
+      (about 0.001 lux) and the horizon is never black (`sky_airglow`).
+  - **Check (validate_night.py):** full moon centre 0.9 px from the projected A6.1 direction (limit 1), centre radiance
+    = K/2 within 0.7%; lit fraction from the image 1.001 / 0.817 / 0.401 vs A6.1 0.995 / 0.809 / 0.398 (limit 0.1),
+    lit side towards the sun within 0.1 deg; white Lambert sphere: fitted light direction 1.5 deg from the moon, strength
+    +4.3% (IBL glow included; limit 10%); shadow map rendered for the moon at night and the sun at noon, the sphere's
+    moon shadow on the ground; 767 / 800 stars in a 60 deg night view, none at noon, field turns -15.0 deg about the
+    reported celestial pole in 1 h (expected -15.04).
+  - **Deviations:** moon and stars need the clock; no moonlit sky glow, no earthshine, no lunar surface detail (the
+    disk is uniform albedo); HDR source: no moon/stars/glow. With 16-bit IBL presets (Balanced, Performance) the night
+    glow underflows the IBL cubes (High uses 32-bit).
 - [x] **A6.7 — Sun disk and glare (R2). Owner: Claude.** A sun disk with limb darkening in the sky, so it appears
   in the background, in sky reflections and in SSR on the windshield; and a glare/bloom response through the
   existing bloom chain (optionally a lens-flare or starburst, user-selectable). The disk is excluded from the IBL

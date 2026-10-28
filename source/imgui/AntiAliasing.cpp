@@ -1,6 +1,7 @@
 // Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
 
 #include "imgui/AntiAliasing.h"
+#include "imgui/NightSky.h"
 #include "imgui/Profiling.h"
 #include <algorithm>
 #include <cstdio>
@@ -176,6 +177,9 @@ uniform int u_HasClearColor;
 uniform vec3 u_ClearColor;
 uniform int u_BloomEnabled;
 uniform float u_BloomIntensity;
+// A6.6 night vision (NightSky.h): x the largest scotopic weight (0 = off: the image is unchanged), y the factor from the
+// input values to cd/m^2 (12,800 / pre-exposure).
+uniform vec2 u_NightShift;
 
 const float GAMMA = 2.2;
 const float INV_GAMMA = 1.0 / GAMMA;
@@ -237,7 +241,21 @@ vec3 toneMap_KhronosPbrNeutral(vec3 color) {
     return mix(color, newPeak * vec3(1.0, 1.0, 1.0), g);
 }
 
+// A6.6: rod (scotopic) vision. Per pixel, below the photopic range (3 cd/m^2 down to 0.01 cd/m^2, log scale) the colour
+// moves towards its luminance with a blue tint (the Purkinje shift: Jensen et al. 2000, "A Physically-Based Night Sky
+// Model"); bright pixels (emissive screens, the moon) keep their colour. It is the "white balance" of a moonlit scene:
+// the moonlight itself is not tinted.
+vec3 nightVision(vec3 color) {
+    const vec3 kScotopicTint = vec3(0.85, 1.0, 1.42); // luminance 1
+    float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
+    float cd = max(luminance * u_NightShift.y, 1.0e-12);
+    float weight = clamp((log(3.0) - log(cd)) / (log(3.0) - log(0.01)), 0.0, 1.0);
+    weight = weight * weight * (3.0 - 2.0 * weight) * u_NightShift.x;
+    return mix(color, luminance * kScotopicTint, weight);
+}
+
 vec3 applyToneMap(vec3 color) {
+    if (u_NightShift.x > 0.0) color = nightVision(color);
     color *= u_Exposure;
     if (u_ToneMapMode == 0) {
         return linearTosRGB(clamp(toneMap_KhronosPbrNeutral(color), 0.0, 1.0));
@@ -602,6 +620,7 @@ void AntiAliasing::init()
         m_tmClearColorLoc = glGetUniformLocation(m_tonemapProgram, "u_ClearColor");
         m_tmBloomEnabledLoc = glGetUniformLocation(m_tonemapProgram, "u_BloomEnabled");
         m_tmBloomIntensityLoc = glGetUniformLocation(m_tonemapProgram, "u_BloomIntensity");
+        m_tmNightShiftLoc = glGetUniformLocation(m_tonemapProgram, "u_NightShift");
     }
 
     // Compile Bloom Downsample & Upsample programs
@@ -1347,9 +1366,21 @@ float AntiAliasing::updateAutoExposure(GLuint inputHdrTexture, int width, int he
 
     const float meanLogLuma = (sumAcceptedW > 1e-6f) ? (sumWeightedLogLuma / sumAcceptedW) : std::log2(0.18f);
     const float avgLuma = std::exp2(meanLogLuma);
-    const float minEv = std::min(params.autoExposureMinEv, params.autoExposureMaxEv);
-    const float maxEv = std::max(params.autoExposureMinEv, params.autoExposureMaxEv);
-    const float targetEv = std::clamp(params.exposureCompensationEv - std::log2(std::max(avgLuma, 1e-4f) / 0.18f), minEv, maxEv);
+    float minEv = std::min(params.autoExposureMinEv, params.autoExposureMaxEv);
+    float maxEv = std::max(params.autoExposureMinEv, params.autoExposureMaxEv);
+    float targetEv = 0.0f;
+    if (params.physicalExposure) {
+        // A6.4: EV100 of the metered average (pre-exposure removed), limited, then Glider's EV with the key curve.
+        const float luminance = std::max(avgLuma, 1e-4f) / params.preExposure;
+        m_meteredLuminance = luminance;
+        targetEv = ux3d::imgui::night::gliderEvFromEv100(ux3d::imgui::night::ev100FromLuminance(luminance), params.minEv100,
+                                                          params.maxEv100, params.exposureCompensationEv);
+        minEv = ux3d::imgui::night::gliderEvFromEv100(params.maxEv100, params.minEv100, params.maxEv100, params.exposureCompensationEv);
+        maxEv = ux3d::imgui::night::gliderEvFromEv100(params.minEv100, params.minEv100, params.maxEv100, params.exposureCompensationEv);
+    } else {
+        m_meteredLuminance = std::max(avgLuma, 1e-4f);
+        targetEv = std::clamp(params.exposureCompensationEv - std::log2(std::max(avgLuma, 1e-4f) / 0.18f), minEv, maxEv);
+    }
 
     const bool snap = params.snapExposure || m_snapExposureNext || (!m_exposureValid && !params.startFromManualEv);
     m_snapExposureNext = false;
@@ -1402,7 +1433,8 @@ void AntiAliasing::renderPostProcess(GLuint inputHdrTexture,
                                                   width, height, params);
 
     // Phase 2: Physically based bloom (Jimenez 2014)
-    const GLuint bloomTex = renderBloom(inputHdrTexture, width, height, params, std::pow(2.0f, effectiveEv));
+    // A6.4: the input is pre-exposed; the displayed exposure removes it (exactly 2^EV while preExposure is 1).
+    const GLuint bloomTex = renderBloom(inputHdrTexture, width, height, params, std::pow(2.0f, effectiveEv) / params.preExposure);
 
     // Phase 1: Tone mapping composite pass into LDR FBO
     glViewport(0, 0, width, height);
@@ -1417,7 +1449,7 @@ void AntiAliasing::renderPostProcess(GLuint inputHdrTexture,
     glBindTexture(GL_TEXTURE_2D, (bloomTex != 0) ? bloomTex : inputHdrTexture);
     glUniform1i(m_tmBloomTexLoc, 1);
 
-    const float exposureLinear = std::pow(2.0f, effectiveEv);
+    const float exposureLinear = std::pow(2.0f, effectiveEv) / params.preExposure;
     glUniform1f(m_tmExposureLoc, exposureLinear);
     glUniform1i(m_tmToneMapModeLoc, params.toneMappingMode);
     glUniform1i(m_tmRawModeLoc, params.rawPassThrough ? 1 : (params.ssrDebugOverlay ? 2 : 0));
@@ -1425,6 +1457,7 @@ void AntiAliasing::renderPostProcess(GLuint inputHdrTexture,
     glUniform3f(m_tmClearColorLoc, params.clearColor.r, params.clearColor.g, params.clearColor.b);
     glUniform1i(m_tmBloomEnabledLoc, (bloomTex != 0) ? 1 : 0);
     glUniform1f(m_tmBloomIntensityLoc, params.bloomIntensity);
+    glUniform2f(m_tmNightShiftLoc, params.nightVision, params.nightVision > 0.0f ? 12800.0f / params.preExposure : 0.0f);
 
     glBindVertexArray(m_quadVao);
     glDrawArrays(GL_TRIANGLES, 0, 6);

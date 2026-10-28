@@ -67,8 +67,40 @@ void Application::drawViewports(FrameContext& frame)
                 skyMaterial->setUniform("u_SunDisk", ux3d::math::vec4(disk.angularRadius, activeEnvironment.sunDisk.limbDarkening ? 1.0f : 0.0f, 0.0f, 0.0f));
                 skyMaterial->setUniform("u_SunDiskRadiance", ux3d::math::vec3(radiance.r, radiance.g, radiance.b));
             }
+            // A6.6: the moon disk and the stars on the procedural sky (they need the A6.1 clock); the defines are absent
+            // otherwise, so every other background is unchanged.
+            bool moonVisible = false;
+            bool starsVisible = false;
+            if (skyActive && activeEnvironment.clock.enabled) {
+                const ux3d::imgui::night::MoonEvaluation moon = moonEvaluation(activeEnvironment);
+                moonVisible = moon.available && moon.direction.y > -moon.angularRadius && moon.angularRadius > 0.0f;
+                if (moonVisible) {
+                    const glm::vec3 scale = moon.diskScale;
+                    skyMaterial->setUniform("u_MoonDisk", ux3d::math::vec4(moon.direction.x, moon.direction.y, moon.direction.z, moon.angularRadius));
+                    skyMaterial->setUniform("u_MoonSun", ux3d::math::vec3(moon.sunFromMoon.x, moon.sunFromMoon.y, moon.sunFromMoon.z));
+                    skyMaterial->setUniform("u_MoonRadiance", ux3d::math::vec3(scale.r, scale.g, scale.b));
+                }
+                const ux3d::imgui::TimeOfDayEvaluation tod = ux3d::imgui::evaluateTimeOfDay(activeEnvironment.clock);
+                const float fade = ux3d::imgui::night::starFade(tod.lightElevation);
+                const auto& nightSky = activeEnvironment.nightSky;
+                starsVisible = nightSky.starsEnabled && nightSky.starDensity > 0.0f && fade > 0.0f;
+                if (starsVisible) {
+                    const glm::mat3 rotation = ux3d::imgui::night::worldToEquatorial(activeEnvironment.clock, tod);
+                    skyMaterial->setUniform("u_StarRotation", rotation); // column-major mat3, 36 bytes
+                    skyMaterial->setUniform("u_Stars", ux3d::math::vec4(ux3d::imgui::night::kStarsPerSteradian * nightSky.starDensity, fade,
+                                                                        ux3d::imgui::night::kStarMagnitudeZeroUnits,
+                                                                        ux3d::imgui::night::kStarFaintestMagnitude));
+                    const glm::vec3 zenith = ux3d::imgui::atmosphereTransmittance(skyAtmosphere(activeEnvironment), glm::vec3(0.0f, 1.0f, 0.0f));
+                    const glm::vec3 depth = -glm::log(glm::max(zenith, glm::vec3(1.0e-6f)));
+                    skyMaterial->setUniform("u_StarExtinction", ux3d::math::vec3(depth.x, depth.y, depth.z));
+                }
+            }
+            skyMaterial->defines.defineIf(moonVisible, "MOON_DISK");
+            skyMaterial->defines.defineIf(starsVisible, "STARS");
         }
     }
+    // A6.4: the exposure plan of this frame (mode, pre-exposure, curve) for every viewport.
+    const ExposurePlan exposure = exposurePlan(activeEnvironment);
 
     // Viewports drawn this frame share one scene traversal (see GltfRenderLayer).
     if (!s_disableSharedTraversal) {
@@ -495,7 +527,7 @@ void Application::drawViewports(FrameContext& frame)
         const bool isTaa = aaMode == ux3d::imgui::AntiAliasingMode::TAA;
         const bool taaAccumulating =
             isTaa && (!vp->antiAliasing.isHistoryValid() || vp->taaStableRenders < kTaaSettleRenders);
-        const bool exposureAdapting = activeEnvironment.autoExposure && vp->antiAliasing.isExposureAdapting();
+        const bool exposureAdapting = exposure.mode == ux3d::imgui::ExposureMode::Auto && vp->antiAliasing.isExposureAdapting();
         const bool cameraJumped = !vp->hasCachedImage ||
             (glm::distance(cameraEye, vp->lastRenderKey.eye) > 0.5f * std::max(1.0f, cameraZoom));
         const bool redrawScene = s_disableRedrawSkip || !keyUnchanged || pickingRendered || taaAccumulating || exposureAdapting
@@ -849,14 +881,22 @@ void Application::drawViewports(FrameContext& frame)
             frame.markStage("scene.build", sceneBuildStart);
 
             // Continuously synchronize scene lighting, tone mapping, exposure, and environment parameters
-            if (activeEnvironment.toneMappingIdx == 0) {
+            const int toneMapping = ux3d::imgui::effectiveToneMapping(activeEnvironment);
+            if (toneMapping == 0) {
                 commandGenerator->setToneMapping(ux3d::renderer::ToneMappingsEnum::PBR_NEUTRAL);
-            } else if (activeEnvironment.toneMappingIdx == 1) {
+            } else if (toneMapping == 1) {
                 commandGenerator->setToneMapping(ux3d::renderer::ToneMappingsEnum::ACES_HILL);
-            } else if (activeEnvironment.toneMappingIdx == 2) {
+            } else if (toneMapping == 2) {
                 commandGenerator->setToneMapping(ux3d::renderer::ToneMappingsEnum::ACES_NARKOWICZ);
             }
             commandGenerator->setExposure(std::pow(2.0f, activeEnvironment.exposureEV));
+            // A6.4: pre-exposure of the scene's linear outputs (exactly 1 unless the procedural sky's physical exposure
+            // runs; debug views stay unscaled).
+            {
+                const bool debugView = mode != ux3d::renderer::RenderMode::None && mode != ux3d::renderer::RenderMode::Wireframe;
+                vp->preExposure = exposure.physical && !debugView ? exposure.preExposure : 1.0f;
+                commandGenerator->setPreExposure(vp->preExposure);
+            }
             // A6.2: the procedural sky is in world space; the HDR's intensity, rotation and blur do not apply to it.
             commandGenerator->setEnvironmentMapIntensity(skyActive ? 1.0f : activeEnvironment.hdrIntensity);
             commandGenerator->setEnvironmentMapRotation(skyActive ? 0.0f : activeEnvironment.hdrRotation);
@@ -864,9 +904,9 @@ void Application::drawViewports(FrameContext& frame)
             commandGenerator->setIBLEnabled(activeEnvironment.iblEnabled && ux3d::imgui::RenderQuality::allowIbl());
             commandGenerator->setPunctualLightsEnabled(ux3d::imgui::RenderQuality::allowLights(activeEnvironment.punctualLightsEnabled));
             {
-                const EffectiveSun sun = effectiveSun(activeEnvironment);
-                commandGenerator->setSun(sun.enabled, sun.direction, sun.illuminance,
-                                         glm::radians(std::clamp(activeEnvironment.sunAngularRadius, 0.0f, 10.0f)));
+                // A6.6: the sun, or the moonlight once it is the brighter (one directional light, A3.1 path).
+                const EffectiveSun sun = effectiveDirectionalLight(activeEnvironment);
+                commandGenerator->setSun(sun.enabled, sun.direction, sun.illuminance, sun.angularRadius);
             }
             commandGenerator->setAsoboNormalMapConvention(
                 gltfLayer->usesDirectXNormalMaps() &&
@@ -891,7 +931,14 @@ void Application::drawViewports(FrameContext& frame)
                 gltfLayer->declaresAsoboExtensions() &&
                 vp->settings.asobo.enabled && !s_disableMsfsEmissive);
             commandGenerator->setMsfsEmissiveScale(activeEnvironment.msfsEmissiveScale);
-            commandGenerator->setTimeOfDay(effectiveDayNight(activeEnvironment));
+            {
+                // A6.5: Automatic day/night blends over twilight; exactly Day / Night outside the blend.
+                const float nightBlend = emissiveNightBlend(activeEnvironment);
+                const bool blending = activeEnvironment.timeOfDay == static_cast<int>(ux3d::imgui::DayNightMode::Automatic) &&
+                                      nightBlend > 0.0f && nightBlend < 1.0f;
+                commandGenerator->setTimeOfDay(blending ? 2 : effectiveDayNight(activeEnvironment));
+                commandGenerator->setEmissiveNightBlend(blending ? nightBlend : 0.0f);
+            }
             commandGenerator->setAsoboMaterialEmissiveApplied(
                 vp->settings.asobo.applies("ASOBO_material_emissive"));
             commandGenerator->setAsoboOcclusionStrengthApplied(
@@ -976,7 +1023,7 @@ void Application::drawViewports(FrameContext& frame)
             transmissionDestination = floatCopy ? &vp->sceneFbo : nullptr;
             transmissionSource = &vp->sceneFbo;
             GLuint exposureHdrTexture = 0;
-            if (ssrDebugOverlay && activeEnvironment.autoExposure) {
+            if (ssrDebugOverlay && exposure.mode == ux3d::imgui::ExposureMode::Auto) {
                 // Meter the same radiance as Shaded, including windshield reflections.
                 // Only these diagnostic modes pay for the extra draw and TAA history.
                 for (auto [mesh, material] : scene.drawables) {
@@ -1123,7 +1170,7 @@ void Application::drawViewports(FrameContext& frame)
             postParams.ssrDebugOverlay = ssrDebugOverlay;
             postParams.exposureHdrTexture = exposureHdrTexture;
             postParams.exposureEv = activeEnvironment.exposureEV;
-            postParams.toneMappingMode = activeEnvironment.toneMappingIdx;
+            postParams.toneMappingMode = ux3d::imgui::effectiveToneMapping(activeEnvironment);
             postParams.hasClearColor = !ux3d::imgui::RenderQuality::allowSkybox(activeEnvironment.showBackground);
             postParams.clearColor = glm::vec3(activeEnvironment.clearColor.r,
                                               activeEnvironment.clearColor.g,
@@ -1133,7 +1180,20 @@ void Application::drawViewports(FrameContext& frame)
             postParams.bloomRadius = activeEnvironment.bloomRadius;
             postParams.lensFlare = vp->settings.lensFlare;
             postParams.lensFlareIntensity = vp->settings.lensFlareIntensity;
-            postParams.autoExposure = activeEnvironment.autoExposure;
+            postParams.autoExposure = exposure.mode == ux3d::imgui::ExposureMode::Auto;
+            // A6.4: the procedural sky's physical modes (pre-exposed input; Curve = the curve's EV, Auto = metered EV100).
+            postParams.preExposure = vp->preExposure;
+            if (exposure.physical && vp->preExposure != 1.0f) {
+                postParams.physicalExposure = true;
+                postParams.minEv100 = activeEnvironment.exposureMinEV100;
+                postParams.nightVision = std::clamp(activeEnvironment.nightSky.nightVision, 0.0f, 1.0f);
+                postParams.maxEv100 = activeEnvironment.exposureMaxEV100;
+                if (exposure.mode == ux3d::imgui::ExposureMode::Curve) {
+                    postParams.exposureEv = exposure.curveEv + activeEnvironment.exposureCompensationEV;
+                } else {
+                    postParams.exposureEv = exposure.curveEv; // where the adaptation starts
+                }
+            }
             postParams.startFromManualEv = activeEnvironment.autoExposureStartFromManual;
             postParams.exposureCompensationEv = activeEnvironment.exposureCompensationEV;
             postParams.autoExposureMinEv = activeEnvironment.autoExposureMinEV;
@@ -1143,6 +1203,7 @@ void Application::drawViewports(FrameContext& frame)
             postParams.deltaTime = frame.deltaTime;
             postParams.snapExposure = cameraJumped && !activeEnvironment.autoExposureStartFromManual;
             vp->antiAliasing.renderPostProcess(hdrTexture, vp->overlayFbo.getFbo(), vpW, vpH, postParams);
+            vp->displayedExposureEv = postParams.autoExposure ? vp->antiAliasing.getAdaptedExposureEv() : postParams.exposureEv;
 
             if (aaMode == ux3d::imgui::AntiAliasingMode::FXAA) {
                 const auto aaStart = ux3d::imgui::profiling::Clock::now();
@@ -1628,7 +1689,10 @@ void Application::updateSunShadows(ux3d::imgui::ViewportInstance& vp, FrameConte
                                    bool shadingAllowed, int vpW, int vpH, std::optional<float> groundHeight)
 {
     ux3d::renderer::CommandGenerator::SunShadowParameters parameters; // disabled
-    const EffectiveSun sun = effectiveSun(environment);
+    // A6.6: the shadowed directional light: the sun, or the moon at night (one at a time).
+    const EffectiveSun sun = effectiveDirectionalLight(environment);
+    vp.sunShadowFromMoon = sun.moon;
+    vp.sunShadowDirection = sun.direction;
     const ux3d::imgui::RenderQualitySettings quality = ux3d::imgui::RenderQuality::effective();
     const bool wanted = sun.enabled && quality.shadows && shadingAllowed && gltfLayer != nullptr && commandGenerator != nullptr
         && glRenderer != nullptr && shadowCasterLayer != nullptr && sunShadowCamera != nullptr && activeScene != nullptr;
@@ -1813,6 +1877,12 @@ nlohmann::json Application::sunShadowStateJson() const
         if (vp == nullptr) continue;
         nlohmann::json entry = {{"viewport", vp->id}, {"active", vp->sunShadowActive},
                                 {"memoryBytes", vp->sunShadowMap.bytes()}};
+        if (vp->sunShadowActive) {
+            // A6.6: which light casts the shadows (the sun, or the moon at night).
+            entry["light"] = vp->sunShadowFromMoon ? "moon" : "sun";
+            entry["lightDirection"] = {agent::floatJson(vp->sunShadowDirection.x), agent::floatJson(vp->sunShadowDirection.y),
+                                       agent::floatJson(vp->sunShadowDirection.z)};
+        }
         if (vp->sunShadowActive) {
             nlohmann::json cascades = nlohmann::json::array();
             for (int c = 0; c < vp->sunShadowSetup.count; ++c) {

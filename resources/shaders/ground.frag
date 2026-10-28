@@ -163,5 +163,7 @@ void main()
     float fog = 1.0 - exp(-u_GroundHaze.x * distanceToCamera);
     color = mix(color, hazeColor, fog);
 
+    // A6.4: pre-exposure (environment_block.glsl), exactly 1 unless the procedural sky's physical exposure is on.
+    if (u_PreExposure != 1.0) color *= u_PreExposure;
     g_finalColor = vec4(fitHalfFloatHdr(color), 1.0);
 }

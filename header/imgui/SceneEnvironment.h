@@ -7,6 +7,7 @@
 #include <glm/glm.hpp>
 #include <string>
 
+#include "imgui/NightSky.h"
 #include "imgui/SunDisk.h"
 #include "imgui/TimeOfDay.h"
 
@@ -27,15 +28,22 @@ struct SceneEnvironmentState {
     float hdrRotation = 0.0f;
     std::string currentHdrPath = kDefaultEnvironmentFile;
 
-    int toneMappingIdx = 1; // 0 = PBR Neutral, 1 = ACES Hill, 2 = ACES Narkowicz
+    // 0 = PBR Neutral, 1 = ACES Hill, 2 = ACES Narkowicz; -1 = the source's default (A6.4): ACES Hill with the HDR (as
+    // before A6.4), kSkyDefaultToneMapping with the procedural sky.
+    int toneMappingIdx = -1;
     float exposureEV = 0.0f; // EV value, exposure = 2^EV
-    bool autoExposure = false; // false = Manual (default), true = Auto-Exposure
+    // A6.4: ExposureMode (NightSky.h). Default = Manual with the HDR source (the behaviour before A6.4), Curve with the
+    // procedural sky. Auto with the HDR is the metered auto exposure (EV limits below); with the procedural sky it is
+    // physically based (EV100, limits exposureMinEV100..MaxEV100, key curve), and so is Curve (from the sun/moon).
+    int exposureMode = static_cast<int>(ExposureMode::Default);
     bool autoExposureStartFromManual = false;
     float exposureCompensationEV = 0.0f;
     float autoExposureMinEV = -6.0f;
     float autoExposureMaxEV = 6.0f;
     float autoExposureSpeedUp = 3.0f;
     float autoExposureSpeedDown = 1.5f;
+    float exposureMinEV100 = night::kDefaultMinEv100; // A6.4 physically based modes (procedural sky)
+    float exposureMaxEV100 = night::kDefaultMaxEv100;
 
     bool bloomEnabled = true;
     float bloomIntensity = 0.04f;
@@ -83,9 +91,29 @@ struct SceneEnvironmentState {
     float skyMieDensity = 1.0f;     // multiplies the Mie (aerosol) density; 1 = clear sky (Hillaire 2020 / Bruneton)
     bool skyOzone = true;           // ozone absorption
     float skyGroundAlbedo = -1.0f;  // grey ground albedo below the horizon; < 0 = automatic (A3.6 plane, else 0.3)
+    // A6.6 moon, stars and night sky glow (procedural sky; the moon and the stars need the A6.1 clock).
+    night::NightSettings nightSky;
 
     bool operator==(const SceneEnvironmentState&) const = default;
 };
+
+// A6.4: the tone mapper of the procedural sky when none is chosen (sunset hues; docs/ASOBO_EXTENSIONS_PHASE_6.md A6.4).
+inline constexpr int kSkyDefaultToneMapping = 0; // Khronos PBR Neutral
+
+// The tone mapper in effect (0 PBR Neutral, 1 ACES Hill, 2 ACES Narkowicz).
+inline int effectiveToneMapping(const SceneEnvironmentState& environment)
+{
+    if (environment.toneMappingIdx >= 0 && environment.toneMappingIdx <= 2) return environment.toneMappingIdx;
+    return environment.environmentSource == 1 ? kSkyDefaultToneMapping : 1;
+}
+
+// A6.4: the exposure mode in effect (Default resolved by the environment source).
+inline ExposureMode effectiveExposureMode(const SceneEnvironmentState& environment)
+{
+    const ExposureMode mode = static_cast<ExposureMode>(std::clamp(environment.exposureMode, -1, 2));
+    if (mode != ExposureMode::Default) return mode;
+    return environment.environmentSource == 1 ? ExposureMode::Curve : ExposureMode::Manual;
+}
 
 // Unit vector from the surface towards the sun for the A3.1 convention above.
 inline glm::vec3 sunDirectionFromAngles(float azimuthDeg, float elevationDeg)

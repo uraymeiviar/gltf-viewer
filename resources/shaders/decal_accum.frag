@@ -181,6 +181,10 @@ void main()
         emissive *= u_MsfsEmissiveScale;
         if (u_AsoboMaterialEmissiveApplied != 0) {
             float dayNightMult = (u_TimeOfDay == 1) ? u_EmissiveNightMultiplier : u_EmissiveDayMultiplier;
+            if (u_TimeOfDay == 2) {
+                // A6.5: Automatic day/night blends over twilight.
+                dayNightMult = mix(u_EmissiveDayMultiplier, u_EmissiveNightMultiplier, u_EmissiveNightBlend);
+            }
             emissive *= dayNightMult;
         }
     } else {

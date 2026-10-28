@@ -18,6 +18,7 @@ uniform vec4 u_MieExtinction;     // rgb Mie extinction at sea level (1/km), a p
 uniform vec4 u_OzoneAbsorption;   // rgb ozone absorption at the layer peak (1/km), a peak altitude (km)
 uniform vec4 u_GroundAlbedo;      // rgb ground albedo, a ozone layer half width (km)
 uniform vec3 u_SunDirection;      // PASS_SKYVIEW / PASS_CUBE: world, unit, towards the sun
+uniform vec4 u_Airglow;           // A6.6: rgb night sky glow zenith radiance (per unit sun), a layer altitude (km)
 uniform float u_RadianceScale;    // PASS_CUBE
 uniform int u_Face;               // PASS_CUBE
 uniform vec2 u_TargetSize;        // output size in texels
@@ -104,11 +105,24 @@ vec3 transmittanceToTop(float r, float mu)
     return texture(u_TransmittanceLUT, transmittanceUv(r, mu)).rgb;
 }
 
+// Bilinear in log space: with the sun below the horizon Psi_ms falls by orders of magnitude between neighbouring texels
+// (3.7 degrees of sun elevation apart), where linear filtering would put kinks into the twilight sky's brightness (A6.4
+// time sweep). In daylight the two agree within the LUT's own accuracy.
 vec3 multipleScattering(float r, float sunZenithCos)
 {
     vec2 uv = clamp(vec2(sunZenithCos * 0.5 + 0.5, (r - bottomRadius()) / (topRadius() - bottomRadius())), 0.0, 1.0);
     uv = vec2(skyFromUnitToSubUvs(uv.x, kMultiScatteringLutSize), skyFromUnitToSubUvs(uv.y, kMultiScatteringLutSize));
-    return texture(u_MultiScatteringLUT, uv).rgb;
+    vec2 texel = uv * kMultiScatteringLutSize - 0.5;
+    vec2 base = floor(texel);
+    vec2 f = texel - base;
+    ivec2 i0 = clamp(ivec2(base), ivec2(0), ivec2(int(kMultiScatteringLutSize) - 1));
+    ivec2 i1 = clamp(ivec2(base) + 1, ivec2(0), ivec2(int(kMultiScatteringLutSize) - 1));
+    const float kFloor = 1.0e-30;
+    vec3 a = log(max(texelFetch(u_MultiScatteringLUT, ivec2(i0.x, i0.y), 0).rgb, vec3(kFloor)));
+    vec3 b = log(max(texelFetch(u_MultiScatteringLUT, ivec2(i1.x, i0.y), 0).rgb, vec3(kFloor)));
+    vec3 c = log(max(texelFetch(u_MultiScatteringLUT, ivec2(i0.x, i1.y), 0).rgb, vec3(kFloor)));
+    vec3 d = log(max(texelFetch(u_MultiScatteringLUT, ivec2(i1.x, i1.y), 0).rgb, vec3(kFloor)));
+    return exp(mix(mix(a, b, f.x), mix(c, d, f.x), f.y));
 }
 
 float rayleighPhase(float cosTheta)
@@ -252,7 +266,23 @@ void main()
     float viewSin = skySafeSqrt(1.0 - viewZenithCos * viewZenithCos);
     float nu = clamp(viewSin * sunSin * lightViewCos + viewZenithCos * sunZenithCos, -1.0, 1.0);
     ScatteringResult s = integrateScattering(viewRadius, viewZenithCos, sunZenithCos, nu, 48, true, false, true);
-    fragmentColor = vec4(s.luminance, 1.0);
+    // A6.6 night sky glow (airglow and the integrated starlight; NightSky.h): a thin emitting layer at u_Airglow.a km,
+    // brighter towards the horizon by the van Rhijn factor 1 / sqrt(1 - (R / (R + h))^2 sin^2 z), dimmed by the
+    // luminance of the transmittance to the top of the atmosphere. Rays that end on the ground see it lit by the glow's irradiance
+    // (about 1.6 pi x the zenith radiance, NightSky.h airglowIlluminance) through the Lambert ground albedo.
+    vec3 glow = vec3(0.0);
+    if (rayHitsGround(viewRadius, viewZenithCos)) {
+        glow = u_Airglow.rgb * 1.6 * u_GroundAlbedo.rgb;
+    } else {
+        float ratio = bottomRadius() / (bottomRadius() + u_Airglow.a);
+        float sinZenith2 = max(1.0 - viewZenithCos * viewZenithCos, 0.0);
+        float vanRhijn = inversesqrt(max(1.0 - ratio * ratio * sinZenith2, 1.0e-4));
+        // Achromatic extinction: the glow scattered back into the line of sight from the whole sky dome largely refills
+        // the colour the direct path loses near the horizon (not modelled per wavelength).
+        vec3 transmittance = transmittanceToTop(viewRadius, viewZenithCos);
+        glow = u_Airglow.rgb * vanRhijn * dot(transmittance, vec3(0.2126, 0.7152, 0.0722));
+    }
+    fragmentColor = vec4(s.luminance + glow, 1.0);
 }
 #endif
 

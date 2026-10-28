@@ -640,6 +640,9 @@ bool writeProfileReport(const std::string& path, const ProfileReport& report)
     if (!report.sky.is_null()) {
         document["sky"] = report.sky;
     }
+    if (!report.night.is_null()) {
+        document["night"] = report.night;
+    }
     if (!report.sun.is_null()) {
         document["sun"] = report.sun;
     }

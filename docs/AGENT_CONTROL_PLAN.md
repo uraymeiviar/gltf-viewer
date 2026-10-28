@@ -346,7 +346,7 @@ environment `exposure`, `tone_mapping`, `hdr_rotation`, `hdr_intensity`, `hdr_bl
 `msfs_emissive_scale`, `bloom`, `bloom_intensity`, `bloom_radius`, `auto_exposure`, `exposure_compensation`,
 `background`, `clear_color`, `ibl`, `punctual_lights`, the A3.1 sun keys and the A6.1 clock (`time_of_day_mode`,
 `date`, `time`, `utc_offset`, `latitude`, `longitude`, `heading`, `time_preset`, `sun_refraction`,
-`night_threshold`, `time_playing`, `time_scale`; `time_of_day` is the emissive day/night/auto switch), the A6.2 sky (`environment`, `sky_mie`, `sky_ozone`, `sky_ground_albedo`), the A6.7 sun disk (`sun_disk`, `sun_disk_scale`, `sun_disk_limb_darkening`); viewport A6.7 `lens_flare`, `lens_flare_intensity`; renderer `msfs_emissive`, `grid_mode` (saved preference), `sky_time_slicing`, `sky_budget_ms`.
+`night_threshold`, `time_playing`, `time_scale`; `time_of_day` is the emissive day/night/auto switch), the A6.2 sky (`environment`, `sky_mie`, `sky_ozone`, `sky_ground_albedo`), the A6.7 sun disk (`sun_disk`, `sun_disk_scale`, `sun_disk_limb_darkening`), A6.4-A6.6 (`exposure_mode`, `exposure_min_ev100`, `exposure_max_ev100`, `moon`, `moonlight_scale`, `stars`, `star_density`, `sky_airglow`, `night_vision`; `tone_mapping` gained `default`); viewport A6.7 `lens_flare`, `lens_flare_intensity`; renderer `msfs_emissive`, `grid_mode` (saved preference), `sky_time_slicing`, `sky_budget_ms`.
 
 ### 7.2 Registering a setting
 
