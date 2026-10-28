@@ -373,6 +373,8 @@ private:
     // the HDR rotation and scaled by the HDR intensity) and its state for get_state and profile reports.
     EffectiveSun effectiveSun(const ux3d::imgui::SceneEnvironmentState& environment) const;
     nlohmann::json sunStateJson(const ux3d::imgui::SceneEnvironmentState& environment) const;
+    // A6.7: the sun disk the background draws (SunDisk.h): visible while the sun is on and the background shown.
+    ux3d::imgui::SunDiskEvaluation sunDiskEvaluation(const ux3d::imgui::SceneEnvironmentState& environment) const;
     // A6.1: the computed time-of-day state (sun, moon, events, day/night) for get_state and profile reports; the
     // ASOBO_material_emissive day/night value the renderer gets (Automatic resolves through the sun elevation);
     // and the clock advance while playing.

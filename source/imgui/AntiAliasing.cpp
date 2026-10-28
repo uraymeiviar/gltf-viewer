@@ -378,6 +378,84 @@ void main() {
 }
 )";
 
+// A6.7 lens effect, screen space from the bloom pyramid (after the downsample chain, before the upsample): ghosts of
+// the bright light mirrored through the image centre (with a slight chromatic split), a halo ring, and a horizontal
+// anamorphic streak. Only light well above white (kLensThreshold in exposed units) takes part, so the sun disk and
+// its mirror highlights flare and an ordinary sky does not. Written additively into bloom level 0 in bloom units
+// (u_Scale converts exposed units back), so the composite's bloom mix carries it and bloom off removes it.
+static const char* s_lensFlareFS = R"(
+#version 410 core
+in vec2 v_TexCoord;
+out vec4 FragColor;
+
+uniform sampler2D u_Source; // bloom level 1 (half of the canonical 450 rows)
+uniform sampler2D u_Blur;   // bloom level 3
+uniform int u_Mode;         // 1 ghosts + halo, 2 streak, 3 both
+uniform float u_Scale;      // intensity x 5 / (bloom mix x exposure)
+uniform float u_Exposure;
+uniform float u_Aspect;     // width / height
+uniform vec2 u_SourceTexel;
+
+const float kLensThreshold = 4.0;
+
+vec3 bright(vec3 c)
+{
+    vec3 e = max(c, vec3(0.0)) * u_Exposure;
+    float l = dot(e, vec3(0.2126, 0.7152, 0.0722));
+    return e * (max(l - kLensThreshold, 0.0) / max(l, 1.0e-6));
+}
+
+float window(vec2 uv)
+{
+    vec2 edge = smoothstep(vec2(0.0), vec2(0.08), uv) * smoothstep(vec2(0.0), vec2(0.08), vec2(1.0) - uv);
+    return edge.x * edge.y;
+}
+
+vec3 ghosts(vec2 uv)
+{
+    // Ghost i of a light at L lies at c + (L - c) * k[i]: this pixel shows the light found at c + (uv - c) / k[i].
+    const float k[5] = float[5](-0.32, -0.62, -1.15, 0.42, -2.2);
+    const float w[5] = float[5](1.0, 0.7, 0.45, 0.35, 0.25);
+    const vec3 tint[5] = vec3[5](vec3(1.0, 0.75, 0.35), vec3(0.35, 0.75, 1.0), vec3(0.7, 1.0, 0.5),
+                                 vec3(1.0, 0.45, 0.75), vec3(0.55, 0.65, 1.0));
+    vec2 d = uv - 0.5;
+    vec3 sum = vec3(0.0);
+    for (int i = 0; i < 5; ++i) {
+        vec2 sr = 0.5 + d / (k[i] * 1.03);
+        vec2 sg = 0.5 + d / k[i];
+        vec2 sb = 0.5 + d / (k[i] * 0.97);
+        vec3 c = vec3(bright(texture(u_Blur, sr).rgb).r, bright(texture(u_Blur, sg).rgb).g, bright(texture(u_Blur, sb).rgb).b);
+        sum += c * tint[i] * (w[i] * window(sg));
+    }
+    // Halo: a ring of radius 0.45 (image heights) around a light near the centre.
+    vec2 toCentre = (vec2(0.5) - uv) * vec2(u_Aspect, 1.0);
+    vec2 haloOffset = (length(toCentre) > 1.0e-5 ? normalize(toCentre) : vec2(0.0, 1.0)) * 0.45 / vec2(u_Aspect, 1.0);
+    vec2 hs = uv + haloOffset;
+    float haloWeight = pow(max(1.0 - length((hs - 0.5) * vec2(u_Aspect, 1.0)) / 0.7, 0.0), 5.0);
+    sum += bright(texture(u_Blur, hs).rgb) * vec3(0.9, 0.85, 1.0) * (1.5 * haloWeight * window(hs));
+    return sum * 2.0e-3;
+}
+
+vec3 streak(vec2 uv)
+{
+    vec3 sum = vec3(0.0);
+    float stepX = 2.0 * u_SourceTexel.x;
+    for (int j = -24; j <= 24; ++j) {
+        float w = exp(-abs(float(j)) / 7.0);
+        sum += bright(texture(u_Source, uv + vec2(float(j) * stepX, 0.0)).rgb) * w;
+    }
+    return sum * vec3(0.5, 0.72, 1.0) * 1.6e-4;
+}
+
+void main()
+{
+    vec3 flare = vec3(0.0);
+    if (u_Mode == 1 || u_Mode == 3) flare += ghosts(v_TexCoord);
+    if (u_Mode == 2 || u_Mode == 3) flare += streak(v_TexCoord);
+    FragColor = vec4(flare * u_Scale, 0.0);
+}
+)";
+
 // 64x64 luminance metering downsample shader for Auto-Exposure
 static const char* s_meterFS = R"(
 #version 410 core
@@ -583,6 +661,11 @@ void AntiAliasing::cleanup()
         glDeleteProgram(m_bloomDownsampleProgram);
         m_bloomDownsampleProgram = 0;
     }
+    if (m_lensProgram) {
+        glDeleteProgram(m_lensProgram);
+        m_lensProgram = 0;
+    }
+    m_lensProgramTried = false;
     if (m_bloomUpsampleProgram) {
         glDeleteProgram(m_bloomUpsampleProgram);
         m_bloomUpsampleProgram = 0;
@@ -1025,7 +1108,60 @@ void AntiAliasing::ensureBloomBuffers(int width, int height)
     glBindTexture(GL_TEXTURE_2D, 0);
 }
 
-GLuint AntiAliasing::renderBloom(GLuint inputHdrTexture, int width, int height, const HdrPostProcessParams& params)
+void AntiAliasing::renderLensFlare(int width, int height, const HdrPostProcessParams& params, float exposure)
+{
+    if (!m_lensProgramTried) {
+        m_lensProgramTried = true;
+        ux3d::imgui::profiling::countShaderCompile();
+        ux3d::imgui::profiling::countShaderCompile();
+        ux3d::imgui::profiling::countProgramLink();
+        m_lensProgram = linkProgram(s_quadVS, s_lensFlareFS);
+        if (m_lensProgram) {
+            m_lensSourceLoc = glGetUniformLocation(m_lensProgram, "u_Source");
+            m_lensBlurLoc = glGetUniformLocation(m_lensProgram, "u_Blur");
+            m_lensModeLoc = glGetUniformLocation(m_lensProgram, "u_Mode");
+            m_lensScaleLoc = glGetUniformLocation(m_lensProgram, "u_Scale");
+            m_lensExposureLoc = glGetUniformLocation(m_lensProgram, "u_Exposure");
+            m_lensAspectLoc = glGetUniformLocation(m_lensProgram, "u_Aspect");
+            m_lensTexelLoc = glGetUniformLocation(m_lensProgram, "u_SourceTexel");
+        }
+    }
+    if (m_lensProgram == 0 || m_bloomTexture[1] == 0 || m_bloomTexture[3] == 0) {
+        return;
+    }
+    // The composite adds bloom x clamp(intensity, 0, 1) / 5 (s_tonemapFS) before the exposure: write the flare so it
+    // arrives as lensFlareIntensity x the flare in exposed units.
+    const float bloomMix = std::clamp(params.bloomIntensity, 0.0f, 1.0f);
+    const float scale = std::max(params.lensFlareIntensity, 0.0f) * 5.0f /
+                        (std::max(bloomMix, 1.0e-4f) * std::max(exposure, 1.0e-8f));
+    glViewport(0, 0, m_bloomMipW[0], m_bloomMipH[0]);
+    glBindFramebuffer(GL_FRAMEBUFFER, m_bloomFbo[0]);
+    glEnable(GL_BLEND);
+    glBlendEquation(GL_FUNC_ADD);
+    glBlendFunc(GL_ONE, GL_ONE);
+    glUseProgram(m_lensProgram);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, m_bloomTexture[1]);
+    glUniform1i(m_lensSourceLoc, 0);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, m_bloomTexture[3]);
+    glUniform1i(m_lensBlurLoc, 1);
+    glUniform1i(m_lensModeLoc, std::clamp(params.lensFlare, 0, 3));
+    glUniform1f(m_lensScaleLoc, scale);
+    glUniform1f(m_lensExposureLoc, exposure);
+    glUniform1f(m_lensAspectLoc, static_cast<float>(width) / static_cast<float>(std::max(1, height)));
+    glUniform2f(m_lensTexelLoc, 1.0f / static_cast<float>(std::max(1, m_bloomMipW[1])),
+                1.0f / static_cast<float>(std::max(1, m_bloomMipH[1])));
+    glBindVertexArray(m_quadVao);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    ux3d::imgui::profiling::countAppDrawCall();
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glActiveTexture(GL_TEXTURE0);
+    glDisable(GL_BLEND);
+}
+
+GLuint AntiAliasing::renderBloom(GLuint inputHdrTexture, int width, int height, const HdrPostProcessParams& params, float exposure)
 {
     static_assert(kBloomMips == 5, "s_tonemapFS averages the five accumulated bloom levels");
     if (!params.bloomEnabled || params.rawPassThrough || params.bloomIntensity <= 0.0f ||
@@ -1063,6 +1199,13 @@ GLuint AntiAliasing::renderBloom(GLuint inputHdrTexture, int width, int height, 
 
         glDrawArrays(GL_TRIANGLES, 0, 6);
         ux3d::imgui::profiling::countAppDrawCall();
+    }
+
+    // A6.7: the lens effect reads the pure downsampled levels 1 and 3 and adds into level 0; the upsample below adds
+    // into level 0 as well, so the order does not matter. Off (the default) skips it entirely.
+    if (params.lensFlare > 0 && params.lensFlareIntensity > 0.0f) {
+        renderLensFlare(width, height, params, exposure);
+        glBindVertexArray(m_quadVao);
     }
 
     // 2. 3x3 Tent Upsample chain with additive accumulation (kBloomMips - 1 down to 1 -> into i - 1)
@@ -1259,7 +1402,7 @@ void AntiAliasing::renderPostProcess(GLuint inputHdrTexture,
                                                   width, height, params);
 
     // Phase 2: Physically based bloom (Jimenez 2014)
-    const GLuint bloomTex = renderBloom(inputHdrTexture, width, height, params);
+    const GLuint bloomTex = renderBloom(inputHdrTexture, width, height, params, std::pow(2.0f, effectiveEv));
 
     // Phase 1: Tone mapping composite pass into LDR FBO
     glViewport(0, 0, width, height);

@@ -22,8 +22,8 @@ Checks:
         position) within PROBE_REL x expected + PROBE_ABS; set_environment sun_dir changes them like the CLI;
   * From HDR, synthetic HDR (sky 0.5, a 0.6-degree disk of 2e4 at a known direction): the detected direction is
     within 0.2 degrees, the detected illuminance within 2% of the disk's excess integral; --hdr-rotation turns it;
-    the background with the sun on has no texel above the removal threshold (the sun disk is gone) while sun off
-    shows it; the mean linear luminance of the IBL-lit Lambert sphere stays within ENERGY_TOLERANCE of sun off;
+    the background with the sun on (A6.7 disk off) has no texel above the removal threshold (the sun disk is gone)
+    while sun off shows it, and with the A6.7 disk on the drawn disk is there instead; the mean linear luminance of the IBL-lit Lambert sphere stays within ENERGY_TOLERANCE of sun off;
   * From HDR, the default HDR: the detected sun is identical across runs and render-quality presets, follows
     --hdr-rotation, and is reported (direction, illuminance, colour);
   * KHR_lights_punctual sphere: with the sun on, the probed linear value equals light-only + sun-only (additive);
@@ -453,14 +453,18 @@ def check_from_hdr_synthetic():
     shots = {}
     # The background stays on (no --clear-color); the camera looks at -Z, the sun is 25 degrees up behind the sphere.
     background_view = [a for a in VIEW if a not in ("--clear-color", "0,0,0")]
-    for label, flags in (("off", []), ("hdr", ["--sun", "on", "--sun-mode", "hdr"]), ("manual", ["--sun", "on"])):
+    # A6.7: the background draws its own sun disk while the sun is on; --sun-disk off isolates the HDR sun removal.
+    for label, flags in (("off", []), ("hdr", ["--sun", "on", "--sun-mode", "hdr", "--sun-disk", "off"]),
+                         ("manual", ["--sun", "on", "--sun-disk", "off"]), ("hdr_disk", ["--sun", "on", "--sun-mode", "hdr"])):
         png, report = render(model, f"syn_back_{label}", background_view + ["--env", back_hdr] + flags, view=False)
         shots[label] = (png, report)
     if all(p for p, _ in shots.values()):
         white = {k: int((load(p).min(axis=2) >= 254).sum()) for k, (p, _) in shots.items()}
         check(white["off"] > 0, f"sun off: the background shows the HDR's sun disk ({white['off']} white pixels)")
         check(white["hdr"] == 0 and white["manual"] == 0,
-              f"sun on: no clipped sun left in the background (From HDR {white['hdr']}, Manual {white['manual']} px)")
+              f"sun on (A6.7 disk off): no clipped sun left in the background (From HDR {white['hdr']}, Manual {white['manual']} px)")
+        check(white["hdr_disk"] > 0 and shots["hdr_disk"][1]["sun"]["disk"]["visible"],
+              f"sun on From HDR with the A6.7 disk (default): the drawn disk replaces the removed one ({white['hdr_disk']} white pixels)")
 
 
 def check_default_hdr():

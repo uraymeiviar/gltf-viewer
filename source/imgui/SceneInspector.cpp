@@ -456,6 +456,47 @@ void SceneInspector::render(SceneEnvironmentState& env,
     if (skyOpen) {
         renderSky(env, sky, revisions);
     }
+
+    // A6.7: after Sky & Atmosphere (collapsed by default), so every existing control keeps its place.
+    const bool diskOpen = ImGui::CollapsingHeader("Sun Disk");
+    UiProbe::item("scene.sun_disk", 0);
+    if (diskOpen) {
+        renderSunDisk(env, revisions);
+    }
+}
+
+void SceneInspector::renderSunDisk(SceneEnvironmentState& env, SceneRevisions& revisions)
+{
+    SunDiskSettings& disk = env.sunDisk;
+    if (ImGui::Checkbox("Sun Disk", &disk.enabled)) {
+        revisions.mark(SceneChange::RenderSettings);
+    }
+    UiProbe::item("scene.sun_disk.on", 0);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("The sun's disk in the background (HDR or procedural sky) while the sun is on, with the sun's\n"
+                          "illuminance and colour. Only the visible background: the IBL never sees it (the sun light\n"
+                          "already comes from the directional light). Its glare is the scene's bloom.");
+    }
+    ImGui::BeginDisabled(!disk.enabled);
+    if (ImGui::SliderFloat("Disk Size", &disk.scale, 0.0f, sundisk::kMaxScale, "%.2f x", ImGuiSliderFlags_Logarithmic)) {
+        revisions.mark(SceneChange::RenderSettings);
+    }
+    UiProbe::item("scene.sun_disk.scale", 0);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Artistic multiplier of the angular radius (Sun -> Angular Radius). The disk keeps the sun's\n"
+                          "illuminance, so a larger disk is dimmer; the specular highlight is not scaled.");
+    }
+    if (ImGui::Checkbox("Limb Darkening", &disk.limbDarkening)) {
+        revisions.mark(SceneChange::RenderSettings);
+    }
+    UiProbe::item("scene.sun_disk.limb", 0);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Darker, redder edge (Hestroffer & Magnan power law); the disk's mean radiance is unchanged.");
+    }
+    ImGui::EndDisabled();
+    if (!env.sunEnabled && !env.clock.enabled && env.environmentSource != static_cast<int>(EnvironmentSource::ProceduralSky)) {
+        ImGui::TextDisabled("Drawn while the sun is on.");
+    }
 }
 
 void SceneInspector::renderSky(SceneEnvironmentState& env, const SkyStatus* sky, SceneRevisions& revisions)

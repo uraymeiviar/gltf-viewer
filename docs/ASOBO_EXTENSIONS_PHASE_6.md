@@ -2,7 +2,7 @@
 
 [Journal index](ASOBO_EXTENSIONS_JOURNAL.md) · [Extension reference](ASOBO_EXTENSIONS_REFERENCE.md) · [Validation rules](RENDERER_OPTIMIZATION_VALIDATION.md)
 
-**Status:** In progress: A6.1, A6.2 and A6.3 done.
+**Status:** In progress: A6.1, A6.2, A6.3 and A6.7 done.
 
 **Entry:** A3.1 and A3.2 (sun and shadows). **Goal:** a dynamic, configurable time of day emulating MSFS (user
 priority 6). The sun, sky, environment lighting, exposure and emissive day/night all follow one time-of-day
@@ -209,13 +209,69 @@ setting, and changing it is seamless.
   stars, rotated by sidereal time). Without them night is black plus emissives.
   - **Tests:** moon position and phase against a published ephemeris; night exposure keeps the moonlit model
     readable (A6.4).
-- [ ] **A6.7 — Sun disk and glare (R2). Owner: Claude.** A sun disk with limb darkening in the sky, so it appears
+- [x] **A6.7 — Sun disk and glare (R2). Owner: Claude.** A sun disk with limb darkening in the sky, so it appears
   in the background, in sky reflections and in SSR on the windshield; and a glare/bloom response through the
   existing bloom chain (optionally a lens-flare or starburst, user-selectable). The disk is excluded from the IBL
   filter input so the sun is not counted twice (the A3.1 rule: while the sun is on, the HDR's own sun region is
   clamped out of the panorama before filtering, `IBLSampler` `EnvironmentSun`; a sky model should add its disk
   only to the background, after filtering).
   - **Tests:** the disk is at the A6.1 sun direction; bloom off removes the glare.
+  - **Done 2026-10-29.** `header/imgui/SunDisk.h`, `resources/shaders/cubemap.frag` (`SUN_DISK`),
+    `AntiAliasing::renderLensFlare`, `Application::sunDiskEvaluation`, `SceneInspector::renderSunDisk`.
+    - **Disk:** drawn by the background shader only (`SUN_DISK` define, absent while the sun is off or the disk
+      disabled, so those images are unchanged), in both environment sources, at the A3.1 sun direction (in the
+      procedural sky and with the clock: the A6.1 sun). Angular radius R = `sun_angular_radius` x `sun_disk_scale`;
+      mean radiance E / (pi sin^2 R), E the A3.1 sun illuminance the lighting uses (procedural sky: 10 x the
+      transmittance towards the sun, so the disk has the transmittance colour; HDR: the Manual or From HDR sun, which
+      replaces the HDR's removed sun). Limb darkening: Hestroffer & Magnan (1998) I(mu) / I(1) = mu^alpha, alpha =
+      (0.397, 0.503, 0.652) at 680 / 550 / 440 nm (as in Hillaire 2016), normalised by (alpha + 2) / 2 so the disk
+      still integrates to E. Antialiased edge: coverage over the pixel's angular footprint (`fwidth`), so it is about
+      one pixel wide and the same for every TAA jitter.
+    - **Not in the IBL:** the background shader is no filter input (the HDR is filtered from the panorama after the
+      A3.1 sun removal, the sky from `sky_passes.frag` `PASS_CUBE`), so the directional light alone carries the sun's
+      lighting. Switching the disk changes only its own pixels and never re-filters the sky.
+    - **Half-float range:** the real sun's mean radiance (1.2e5..1.5e5 for E = 8..10 at 0.27 degrees) exceeds the
+      RGBA16F scene target, so the drawn colour is scaled (hue kept) until its brightest channel at the centre is
+      32000 (`rangeScale` in `get_state` / profile `sun.disk`); half the range stays free for blending.
+    - **True view direction:** `cubemap.vert` (from the Khronos sample viewer) projects the cube with w + 0.1, which
+      draws the background about 7% towards the image centre. The disk and the procedural sky (A6.2) now use the
+      direction the perspective camera really sees at each fragment, so the disk is at the projected sun position
+      (0.0-0.1 px measured), in line with the geometry, the ground plane, shadows and highlights; the HDR background
+      keeps the old projection (unchanged images). At the image centre both agree, so the A6.2 references hold.
+    - **Reflections:** mirror-like materials and windshields show the sun through the A3.1 highlight (GGX widened by
+      tan(R) / 2): it integrates to E and peaks at E / (pi tan^2 R), the disk's mean radiance (within cos^2 R), and its
+      energy-equivalent size is the disk's reflection (validated on a mirror sphere). SSR misses fall back to the
+      environment cube, which has no disk; the analytic highlight is added independently of SSR, so glass never
+      loses the sun. The disk is not drawn into the cubes for reflections (it would count the sun twice).
+    - **Glare:** the disk's HDR radiance goes through the existing Jimenez bloom chain (no change to it); bloom off
+      leaves a sharp edge. **Lens effect** (per viewport, Viewport Settings → *Post*, a new tab after Quality;
+      `lens_flare off|ghosts|streak|both`, default off, `lens_flare_intensity`): one pass between the bloom
+      downsample and upsample reads the downsampled levels 1 and 3 and adds into level 0: five ghosts mirrored
+      through the image centre with a small chromatic split, a halo ring, and/or a 49-tap horizontal anamorphic
+      streak; only light above 4 in exposed units takes part (the composite's bloom mix carries it, so bloom off
+      removes it and an image without such light is byte-identical). The program is compiled on first use.
+    - **Settings:** environment `sun_disk` (default on), `sun_disk_scale` (0..20, default 1; the disk keeps E, so a
+      larger disk is dimmer; the A3.1 highlight is not scaled), `sun_disk_limb_darkening` (default on); viewport
+      `lens_flare`, `lens_flare_intensity` (0..10). CLI `--sun-disk`, `--sun-disk-scale`, `--sun-disk-limb-darkening`,
+      `--lens-flare`, `--lens-flare-intensity`. UI: Scene Inspector → *Sun Disk* (a header after Sky & Atmosphere,
+      collapsed by default).
+  - **Check:** `scripts/validate_sun_disk.py` (quick regression, serial list); review `scripts/review_sun_disk.py`
+    (`build/review/sundisk/`). Sun off with the HDR source (with every disk / lens setting changed) byte-identical
+    to the baseline (HelloCube, two E195 ASOBO views), and sun on with `--sun-disk off` too; HDR disk (black
+    panorama, R 1 degree, two directions and scale 2): centre 0.03-0.11 px from the projected sun, diameter within
+    0.02 px of 2R projected, interior radiance E / (pi sin^2 R) within 0.04%; limb darkening: centre = mean x
+    (alpha + 2) / 2 within 0.1%, profile at rho 0.5 / 0.8 = mu^alpha within 0.2%; procedural sky with the A6.1 clock:
+    centre 0.00 px from the clock's sun, diameter exact, colour = the sun's transmittance colour; Lambert sphere
+    identical with the disk on and off (HDR and sky, no re-filter or swap), only pixels inside the disk change;
+    mirror sphere (R 2 and 4 degrees): highlight energy-equivalent diameter -1.1 / -1.2% from the disk's ray-traced
+    reflection, peak -1.3 / -0.3% from E / (pi tan^2 R); bloom off: black beyond 2 px of the edge; lens effect off,
+    at intensity 0 or with bloom off byte-identical to the effect-free render, on adds light only (ghosts opposite,
+    the streak horizontal), byte-identical when nothing exceeds its threshold; registry, refused values, pipe = CLI.
+  - **Deviations:** the drawn disk is limited to 32000 per channel (half-float range); the size multiplier keeps the
+    illuminance (a larger disk is dimmer) and does not widen the highlight; the HDR background keeps
+    `cubemap.vert`'s projection (changing it would change every HDR image); `validate_sun.py`'s check that the HDR's
+    own sun is removed from the background now passes `--sun-disk off` (the drawn disk is there by design) and a new
+    check confirms the drawn disk replaces it.
 - [ ] **A6.8 — Ocean (R3, optional, later). Owner: Claude.** An FFT ocean (Tessendorf) as the A3.6 *Ocean* ground
   choice, for seaplanes, carrier aircraft and showcase views. Not required for the exit gate.
   - **Simulation:** 3–4 cascades at 256², a modern directional spectrum (JONSWAP / Horvath 2015), foam from the

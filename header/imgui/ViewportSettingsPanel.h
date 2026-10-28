@@ -41,6 +41,10 @@ struct ViewportSettingsState {
     float skyPortalStrength = 0.35f; // A3.7: scale of the ASOBO_sky_portal window light (0..4); 0.35 inferred from the SDK pair
     bool showSkyPortals = false; // A3.7: draw every portal's gizmo (a selected portal node always shows its own)
     SsaoSettings ssao; // A3.5: screen-space ambient occlusion of the sky light (off by default)
+    // A6.7 lens effect from the bloom mips (AntiAliasing::renderLensFlare): 0 off (default), 1 ghosts + halo,
+    // 2 anamorphic streak, 3 both. Runs inside the bloom chain, so bloom off removes it.
+    int lensFlare = 0;
+    float lensFlareIntensity = 1.0f;
     bool invertWinding = false;    // Invert front/back face winding order (CW vs CCW)
     // Legacy mode remains the fallback for saved state and existing automation.
     int antiAliasingIdx = 5;       // 0=None, 1/2/3=MSAA 2/4/8x, 4=FXAA, 5=TAA

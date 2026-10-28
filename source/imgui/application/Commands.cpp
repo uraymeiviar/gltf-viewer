@@ -470,6 +470,14 @@ EffectiveSun Application::effectiveSun(const ux3d::imgui::SceneEnvironmentState&
     return sun;
 }
 
+ux3d::imgui::SunDiskEvaluation Application::sunDiskEvaluation(const ux3d::imgui::SceneEnvironmentState& environment) const
+{
+    const EffectiveSun sun = effectiveSun(environment);
+    const bool background = ux3d::imgui::RenderQuality::allowSkybox(environment.showBackground);
+    return ux3d::imgui::evaluateSunDisk(environment.sunDisk, sun.enabled && background, sun.illuminance,
+                                        environment.sunAngularRadius);
+}
+
 ux3d::imgui::AtmosphereParameters Application::skyAtmosphere(const ux3d::imgui::SceneEnvironmentState& environment) const
 {
     ux3d::imgui::AtmosphereParameters p;
@@ -821,6 +829,18 @@ json Application::sunStateJson(const ux3d::imgui::SceneEnvironmentState& environ
         }
     }
     out["hdr"] = detected;
+    // A6.7: the background sun disk.
+    {
+        const ux3d::imgui::SunDiskEvaluation disk = sunDiskEvaluation(environment);
+        out["disk"] = {{"enabled", environment.sunDisk.enabled},
+                       {"visible", disk.visible},
+                       {"scale", agent::floatJson(environment.sunDisk.scale)},
+                       {"limbDarkening", environment.sunDisk.limbDarkening},
+                       {"angularRadius", agent::floatJson(glm::degrees(disk.angularRadius))},
+                       {"meanRadiance", vec3Json(disk.meanRadiance)},
+                       {"centreRadiance", vec3Json(disk.centreRadiance)},
+                       {"rangeScale", agent::floatJson(disk.rangeScale)}};
+    }
     // A3.2: the sun shadow settings and each viewport's cascades.
     out["shadows"] = sunShadowStateJson();
     return out;
@@ -1253,6 +1273,30 @@ void Application::registerAgentSettings()
     addSetting(floatSetting<VS>("decal_tolerance_mm", V, &VS::decalDepthToleranceMm,
                                               "Decal depth tolerance along the receiver normal (mm).",
                                               "--decal-tolerance <mm>", std::pair{0.0, 10.0}));
+    // --- Viewport: lens effect (A6.7; docs/ASOBO_EXTENSIONS_PHASE_6.md) ---
+    {
+        SettingSpec spec;
+        spec.key = "lens_flare";
+        spec.scope = V;
+        spec.type = SettingType::Enum;
+        spec.help = "Lens effect from the bloom mips: ghosts + halo, an anamorphic streak, or both (on = both). Off by "
+                    "default; part of the bloom chain, so bloom off removes it.";
+        spec.cliFlag = "--lens-flare <off|on|ghosts|streak|both>";
+        spec.enumValues = {"off", "ghosts", "streak", "both"};
+        spec.enumAliases = {{"on", "both"}, {"none", "off"}, {"starburst", "ghosts"}, {"anamorphic", "streak"}};
+        spec.get = [values = spec.enumValues](void* t) {
+            return json(values[static_cast<size_t>(std::clamp(static_cast<VS*>(t)->lensFlare, 0, 3))]);
+        };
+        spec.set = [values = spec.enumValues](void* t, const json& v, std::string&) {
+            static_cast<VS*>(t)->lensFlare =
+                static_cast<int>(std::find(values.begin(), values.end(), v.get<std::string>()) - values.begin());
+            return true;
+        };
+        addSetting(std::move(spec));
+    }
+    addSetting(floatSetting<VS>("lens_flare_intensity", V, &VS::lensFlareIntensity,
+                                "Strength of the lens effect (1 = default).", "--lens-flare-intensity <x>",
+                                std::pair{0.0, 10.0}));
     // --- Viewport: ambient occlusion (A3.5; docs/ASOBO_EXTENSIONS_PHASE_3.md) ---
     {
         SettingSpec enabled;
@@ -1645,6 +1689,54 @@ void Application::registerAgentSettings()
     addSetting(floatSetting<ES>("sun_angular_radius", E, &ES::sunAngularRadius,
                                 "Sun angular radius in degrees (widens the specular highlight; 0.27 = the real sun).",
                                 "--sun-angular-radius <deg>", std::pair{0.0, 10.0}));
+    // A6.7 sun disk (SunDisk.h): background only, never in the IBL input.
+    {
+        SettingSpec spec;
+        spec.key = "sun_disk";
+        spec.scope = E;
+        spec.type = SettingType::Bool;
+        spec.help = "Sun disk in the background (both environment sources) while the sun is on: mean radiance "
+                    "E / (pi sin^2 R), limb-darkened, never in the IBL input.";
+        spec.cliFlag = "--sun-disk <on|off>";
+        spec.get = [](void* t) { return json(static_cast<ES*>(t)->sunDisk.enabled); };
+        spec.set = [](void* t, const json& v, std::string&) {
+            static_cast<ES*>(t)->sunDisk.enabled = v.get<bool>();
+            return true;
+        };
+        addSetting(std::move(spec));
+    }
+    {
+        SettingSpec spec;
+        spec.key = "sun_disk_scale";
+        spec.scope = E;
+        spec.type = SettingType::Float;
+        spec.help = "Artistic size multiplier of the sun disk's angular radius (1 = sun_angular_radius); the disk keeps "
+                    "the sun's illuminance, so a larger disk is dimmer. The A3.1 highlight is not scaled.";
+        spec.cliFlag = "--sun-disk-scale <x>";
+        spec.hasRange = true;
+        spec.minimum = 0.0;
+        spec.maximum = ux3d::imgui::sundisk::kMaxScale;
+        spec.get = [](void* t) { return agent::floatJson(static_cast<ES*>(t)->sunDisk.scale); };
+        spec.set = [](void* t, const json& v, std::string&) {
+            static_cast<ES*>(t)->sunDisk.scale = static_cast<float>(v.get<double>());
+            return true;
+        };
+        addSetting(std::move(spec));
+    }
+    {
+        SettingSpec spec;
+        spec.key = "sun_disk_limb_darkening";
+        spec.scope = E;
+        spec.type = SettingType::Bool;
+        spec.help = "Limb darkening of the sun disk (Hestroffer & Magnan power law; off = uniform disk, same mean).";
+        spec.cliFlag = "--sun-disk-limb-darkening <on|off>";
+        spec.get = [](void* t) { return json(static_cast<ES*>(t)->sunDisk.limbDarkening); };
+        spec.set = [](void* t, const json& v, std::string&) {
+            static_cast<ES*>(t)->sunDisk.limbDarkening = v.get<bool>();
+            return true;
+        };
+        addSetting(std::move(spec));
+    }
     // A6.2 procedural sky (SceneEnvironmentState; model and units in SkyAtmosphere.h).
     {
         SettingSpec spec = indexEnumSetting<ES>("environment", E, &ES::environmentSource, {"hdr", "sky"},

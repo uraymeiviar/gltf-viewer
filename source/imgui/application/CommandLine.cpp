@@ -564,6 +564,11 @@ std::optional<int> Application::configure(int argc, char** argv)
             const std::string value = toLowerAscii(argv[++i]);
             if (value != "on" && value != "off") return 1;
             if (!applyCliSetting(SettingScope::Viewport, "ssao", value, "--ssao")) return 1;
+        } else if (arg == "--lens-flare" && i + 1 < argc) {
+            // A6.7: lens effect from the bloom mips (per viewport, off by default).
+            if (!applyCliSetting(SettingScope::Viewport, "lens_flare", toLowerAscii(argv[++i]), "--lens-flare")) return 1;
+        } else if (arg == "--lens-flare-intensity" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "lens_flare_intensity", argv[++i], "--lens-flare-intensity")) return 1;
         } else if (arg == "--ssao-radius" && i + 1 < argc) {
             if (!applyCliSetting(SettingScope::Viewport, "ssao_radius", argv[++i], "--ssao-radius")) return 1;
         } else if (arg == "--ssao-intensity" && i + 1 < argc) {
@@ -874,6 +879,14 @@ std::optional<int> Application::configure(int argc, char** argv)
             if (!applyCliSetting(SettingScope::Environment, "sun_intensity", argv[++i], "--sun-intensity")) return 1;
         } else if (arg == "--sun-angular-radius" && i + 1 < argc) {
             if (!applyCliSetting(SettingScope::Environment, "sun_angular_radius", argv[++i], "--sun-angular-radius")) return 1;
+        } else if (arg == "--sun-disk" && i + 1 < argc) {
+            // A6.7: the background sun disk (on by default while the sun is on).
+            if (!applyCliSetting(SettingScope::Environment, "sun_disk", toLowerAscii(argv[++i]), "--sun-disk")) return 1;
+        } else if (arg == "--sun-disk-scale" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Environment, "sun_disk_scale", argv[++i], "--sun-disk-scale")) return 1;
+        } else if (arg == "--sun-disk-limb-darkening" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Environment, "sun_disk_limb_darkening", toLowerAscii(argv[++i]),
+                                 "--sun-disk-limb-darkening")) return 1;
         } else if (arg == "--environment" && i + 1 < argc) {
             // A6.2: hdr (the panorama, default) or sky (the procedural sky).
             if (!applyCliSetting(SettingScope::Environment, "environment", toLowerAscii(argv[++i]), "--environment")) return 1;

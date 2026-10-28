@@ -7,6 +7,7 @@
 #include <glm/glm.hpp>
 #include <string>
 
+#include "imgui/SunDisk.h"
 #include "imgui/TimeOfDay.h"
 
 namespace ux3d::imgui {
@@ -70,6 +71,8 @@ struct SceneEnvironmentState {
     glm::vec3 sunColor = glm::vec3(1.0f);
     float sunIntensity = 8.0f;
     float sunAngularRadius = 0.27f; // degrees; the real sun is 0.2666 deg
+    // A6.7: the sun disk in the background (SunDisk.h); drawn only while the sun is on and the background is shown.
+    SunDiskSettings sunDisk;
 
     // A6.2 environment source (EnvironmentSource in SkyAtmosphere.h): 0 = the HDR panorama (default), 1 = the
     // procedural sky. In procedural mode the background is the sky, the IBL cubes are filtered from it (A6.3), the

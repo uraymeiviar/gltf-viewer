@@ -31,6 +31,9 @@ struct HdrPostProcessParams {
     bool bloomEnabled = true;
     float bloomIntensity = 0.04f;
     float bloomRadius = 1.0f;
+    // A6.7 lens effect from the bloom mips: 0 off, 1 ghosts + halo, 2 anamorphic streak, 3 both.
+    int lensFlare = 0;
+    float lensFlareIntensity = 1.0f;
     // Phase 3: Auto-Exposure
     bool autoExposure = false;
     float exposureCompensationEv = 0.0f;
@@ -122,7 +125,9 @@ private:
     void ensureTaaBuffers(int width, int height);
     void ensureBloomBuffers(int width, int height);
     void releaseBloomTargets();
-    GLuint renderBloom(GLuint inputHdrTexture, int width, int height, const HdrPostProcessParams& params);
+    GLuint renderBloom(GLuint inputHdrTexture, int width, int height, const HdrPostProcessParams& params, float exposure);
+    // A6.7: adds the lens effect into bloom level 0 (before the upsample chain) from the downsampled levels 1 and 3.
+    void renderLensFlare(int width, int height, const HdrPostProcessParams& params, float exposure);
     void ensureMeterBuffers();
     void releaseMeterTargets();
     float updateAutoExposure(GLuint inputHdrTexture, int width, int height, const HdrPostProcessParams& params);
@@ -171,6 +176,17 @@ private:
     GLint m_buSrcTexLoc = -1;
     GLint m_buTexelSizeLoc = -1;
     GLint m_buFilterRadiusLoc = -1;
+
+    // A6.7 lens effect (compiled on first use, so it costs nothing while off)
+    GLuint m_lensProgram = 0;
+    bool m_lensProgramTried = false;
+    GLint m_lensSourceLoc = -1;
+    GLint m_lensBlurLoc = -1;
+    GLint m_lensModeLoc = -1;
+    GLint m_lensScaleLoc = -1;
+    GLint m_lensExposureLoc = -1;
+    GLint m_lensAspectLoc = -1;
+    GLint m_lensTexelLoc = -1;
 
     GLuint m_bloomFbo[kBloomMips] = {};
     GLuint m_bloomTexture[kBloomMips] = {};

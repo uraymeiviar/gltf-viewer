@@ -33,6 +33,8 @@ private:
     static void renderTimeOfDay(SceneEnvironmentState& env, SceneRevisions& revisions);
     // A6.2 / A6.3: Sky & Atmosphere (environment source, atmosphere parameters, refinement status).
     static void renderSky(SceneEnvironmentState& env, const SkyStatus* sky, SceneRevisions& revisions);
+    // A6.7: Sun Disk (on/off, size multiplier, limb darkening).
+    static void renderSunDisk(SceneEnvironmentState& env, SceneRevisions& revisions);
 };
 
 } // namespace ux3d::imgui

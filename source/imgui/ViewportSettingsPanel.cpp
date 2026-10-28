@@ -498,6 +498,31 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
             ImGui::EndTabItem();
         }
 
+        // -------------------------------------------------------------
+        // Tab 4: Post (A6.7 lens effect; after the existing tabs so they keep their places)
+        // -------------------------------------------------------------
+        if (ImGui::BeginTabItem("Post")) {
+            ImGui::SeparatorText(ICON_MDI_FLARE " Lens Effect");
+            const char* lensModes[] = { "Off", "Ghosts + Halo", "Anamorphic Streak", "Ghosts + Streak" };
+            int lens = std::clamp(state.lensFlare, 0, 3);
+            if (ImGui::Combo("Lens Effect", &lens, lensModes, IM_ARRAYSIZE(lensModes))) {
+                state.lensFlare = lens;
+                revisions.mark(SceneChange::ViewportSettings);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Screen-space lens ghosts, a halo and/or a horizontal streak from very bright light\n"
+                                  "(the sun disk, its mirror highlights), built from the bloom mips.\n"
+                                  "Part of the bloom chain: Scene Inspector -> Bloom off removes it.");
+            }
+            ImGui::BeginDisabled(state.lensFlare == 0);
+            if (ImGui::SliderFloat("Lens Intensity", &state.lensFlareIntensity, 0.0f, 10.0f, "%.2f", ImGuiSliderFlags_Logarithmic)) {
+                revisions.mark(SceneChange::ViewportSettings);
+            }
+            ImGui::EndDisabled();
+            ImGui::TextDisabled("Glare itself is the scene's bloom (Scene Inspector -> Environment).");
+            ImGui::EndTabItem();
+        }
+
         ImGui::EndTabBar();
     }
 }

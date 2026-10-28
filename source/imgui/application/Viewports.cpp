@@ -56,7 +56,18 @@ void Application::drawViewports(FrameContext& frame)
     const bool skyActive = proceduralSky && skyEnvironment.active() && gltfLayer != nullptr && gltfLayer->isExternalEnvironment();
     if (gltfLayer != nullptr) {
         auto* skyMaterial = std::get<1>(gltfLayer->getResourceManager().getCubeMapTuple());
-        if (skyMaterial != nullptr) skyMaterial->defines.defineIf(skyActive, "PROCEDURAL_SKY");
+        if (skyMaterial != nullptr) {
+            skyMaterial->defines.defineIf(skyActive, "PROCEDURAL_SKY");
+            // A6.7: the sun disk in the background while the sun is on (the define is absent otherwise, so the
+            // background is unchanged). It reads the A3.1 sun direction from the EnvironmentBlock.
+            const ux3d::imgui::SunDiskEvaluation disk = sunDiskEvaluation(activeEnvironment);
+            skyMaterial->defines.defineIf(disk.visible, "SUN_DISK");
+            if (disk.visible) {
+                const glm::vec3 radiance = disk.meanRadiance * disk.rangeScale;
+                skyMaterial->setUniform("u_SunDisk", ux3d::math::vec4(disk.angularRadius, activeEnvironment.sunDisk.limbDarkening ? 1.0f : 0.0f, 0.0f, 0.0f));
+                skyMaterial->setUniform("u_SunDiskRadiance", ux3d::math::vec3(radiance.r, radiance.g, radiance.b));
+            }
+        }
     }
 
     // Viewports drawn this frame share one scene traversal (see GltfRenderLayer).
@@ -1120,6 +1131,8 @@ void Application::drawViewports(FrameContext& frame)
             postParams.bloomEnabled = ux3d::imgui::RenderQuality::allowBloom(activeEnvironment.bloomEnabled) && !ssrDebugOverlay;
             postParams.bloomIntensity = activeEnvironment.bloomIntensity;
             postParams.bloomRadius = activeEnvironment.bloomRadius;
+            postParams.lensFlare = vp->settings.lensFlare;
+            postParams.lensFlareIntensity = vp->settings.lensFlareIntensity;
             postParams.autoExposure = activeEnvironment.autoExposure;
             postParams.startFromManualEv = activeEnvironment.autoExposureStartFromManual;
             postParams.exposureCompensationEv = activeEnvironment.exposureCompensationEV;

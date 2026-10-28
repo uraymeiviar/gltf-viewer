@@ -115,6 +115,22 @@ Commands run on the render thread between frames, strictly in order. Multi-frame
 - `set_camera` mirrors the requested eye offset's x and y (eye = target + (-dx, -dy, dz)); check `get_camera` when an
   exact viewing direction matters (for example probing the sky at a given direction).
 
+## Sun disk and glare (A6.7)
+
+- While the sun is on (HDR with `sun true`, the time-of-day clock, or the procedural sky) the background shows the
+  sun's disk at the sun direction: angular radius `sun_angular_radius` x `sun_disk_scale`, mean radiance
+  E / (pi sin^2 R) with E the sun illuminance (in the sky: the transmittance colour), limb-darkened
+  (`sun_disk_limb_darkening`, mean unchanged). It is never in the IBL (the sun light is the directional light), so
+  diffuse lighting does not change with it. Keys (environment): `sun_disk` (default true), `sun_disk_scale` (1),
+  `sun_disk_limb_darkening` (true). `get_state` `sun.disk` reports `visible`, the effective `angularRadius`,
+  `meanRadiance`, `centreRadiance` and `rangeScale` (the real sun exceeds the half-float scene target: the drawn
+  disk is scaled by it so its brightest channel is 32000).
+- `probe` reads the disk's linear radiance (with `rangeScale`). Mirror-like surfaces and windshields show the sun
+  through the A3.1 specular highlight (GGX widened by the angular radius: peak E / (pi tan^2 R), the disk's size).
+- Glare is the scene bloom (`bloom`, `bloom_intensity`): `bloom false` leaves the disk with a sharp edge. The lens
+  effect is per viewport: `set_viewport_setting lens_flare ghosts|streak|both|off` (default off; `on` = both) and
+  `lens_flare_intensity` (1); it is built from the bloom mips and only light far above white flares.
+
 ## Ground (A3.6)
 
 - `set_viewport_setting ground plane` replaces the editor grid by an infinite horizontal ground plane in the scene
