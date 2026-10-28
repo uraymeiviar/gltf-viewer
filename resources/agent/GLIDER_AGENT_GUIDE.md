@@ -93,6 +93,28 @@ Commands run on the render thread between frames, strictly in order. Multi-frame
 - Debug views `shadowcascades` (red/green/blue/yellow per cascade, grey beyond) and `shadowvisibility` (1 lit,
   0 shadowed; `probe` reads the value directly).
 
+## Procedural sky (A6.2 / A6.3)
+
+- `set_environment environment sky` replaces the HDR panorama by a physically based atmosphere (Hillaire 2020 LUTs,
+  Earth parameters): the background is the sky, the IBL (diffuse, specular, sheen, so reflections, SSR fallback and
+  sky portals too) is filtered from it, and the sun is always on: its direction is the time-of-day sun
+  (`time_of_day_mode true`) or `sun_dir`, its colour and illuminance come from the atmosphere (it reddens and dims
+  towards the horizon; `sun_color`, `sun_intensity`, `sun_mode` and the HDR rotation/intensity/blur do not apply).
+  `environment hdr` (the default) brings the panorama back.
+- Units: 1 environment unit = 12,800 lux; the top-of-atmosphere sun is 10, about 9 at the ground at noon.
+- Keys: `sky_mie` (aerosol density x, 1 = clear), `sky_ozone`, `sky_ground_albedo` (grey albedo below the horizon,
+  -1 = the active viewport's A3.6 plane albedo, else 0.3); renderer-wide (through `set_viewport_setting`):
+  `sky_time_slicing` (default true), `sky_budget_ms` (default 2.5).
+- When the sky changes (time, sun, parameters) the background follows at once; the lighting cubes are re-filtered
+  at 128 px over a few frames and swapped in when complete, then refined to the quality preset's sizes once the sky
+  is still (a few seconds at High). `get_state` `sky.refine.state` is `updating`, `waiting`, `refining` or
+  `converged`: before a capture or probe that must show the final lighting, repeat `capture(settle_frames=16)` until
+  it is `converged` (or set `sky_time_slicing false`, which filters every change before the next frame).
+- `get_state` `sky` also reports the sun transmittance and illuminance, the effective ground albedo and its source,
+  and the extra GPU time per frame (`stats.gpuMsMax`, stated limit 4 ms).
+- `set_camera` mirrors the requested eye offset's x and y (eye = target + (-dx, -dy, dz)); check `get_camera` when an
+  exact viewing direction matters (for example probing the sky at a given direction).
+
 ## Ground (A3.6)
 
 - `set_viewport_setting ground plane` replaces the editor grid by an infinite horizontal ground plane in the scene

@@ -2,7 +2,7 @@
 
 [Journal index](ASOBO_EXTENSIONS_JOURNAL.md) · [Extension reference](ASOBO_EXTENSIONS_REFERENCE.md) · [Validation rules](RENDERER_OPTIMIZATION_VALIDATION.md)
 
-**Status:** In progress: A6.1 done.
+**Status:** In progress: A6.1, A6.2 and A6.3 done.
 
 **Entry:** A3.1 and A3.2 (sun and shadows). **Goal:** a dynamic, configurable time of day emulating MSFS (user
 priority 6). The sun, sky, environment lighting, exposure and emissive day/night all follow one time-of-day
@@ -82,25 +82,123 @@ setting, and changing it is seamless.
     value = reported fade, steepest rise 0.75 per degree), automatic day/night flips (state and render path),
     registry/CLI, play, and mode off byte-identical to the baseline. Review captures:
     `scripts/review_time_of_day.py` (E195 on the ground plane at the six presets).
-- [ ] **A6.2 — Procedural sky (R4). Owner: Claude.** A physically based sky model (for example
+- [x] **A6.2 — Procedural sky (R4). Owner: Claude.** A physically based sky model (for example
   Hosek–Wilkie or a Bruneton-style precomputed atmosphere) rendered as the background and as the source of
   environment lighting, replacing the fixed HDR in time-of-day mode. The HDR stays available as an option.
   - **Tests:**
     - sky color and luminance against the model's reference values;
     - a smooth transition through sunset.
   - **Lower hemisphere:** the model's ground albedo comes from the A3.6 ground choice, so below the horizon the
-    environment shows a lit ground instead of nothing; without a ground plane a neutral albedo is used. A3.6 left
-    the value ready: `ViewportInstance::groundAlbedo` (`header/imgui/ViewportInstance.h`, with `groundPlaneActive`; the
+    environment shows a lit ground instead of nothing; without a ground plane a neutral albedo is used. A3.6 left the
+    value ready: `ViewportInstance::groundAlbedo` (`header/imgui/ViewportInstance.h`, with `groundPlaneActive`; the
     plane's average albedo, `GroundSettings::averageAlbedo()`), refreshed every render of a viewport; take it from
     the active viewport while `groundPlaneActive`, and keep the HDR's own lower half otherwise (also in `get_state`
     `ground.albedo`).
-- [ ] **A6.3 — Dynamic environment lighting (R4). Owner: Claude.** Re-filter the sky into the diffuse and specular
+  - **Done 2026-10-28.** Code: `header/imgui/SkyAtmosphere.h` (parameters, units, CPU transmittance),
+    `header/imgui/SkyEnvironment.h` (LUTs, source cube, time-sliced IBL; header-only), `resources/shaders/sky_common.glsl`
+    (sky-view LUT mapping and lookup), `resources/shaders/sky_passes.frag` (the four passes), `cubemap.frag`
+    (`PROCEDURAL_SKY` background), `Application::updateSkyEnvironment` / `effectiveSun` / `skyStateJson`
+    (`source/imgui/application/Commands.cpp`), `SceneInspector::renderSky`.
+    - **Model:** Hillaire 2020 ("A Scalable and Production Ready Sky and Atmosphere Rendering Technique", EGSR):
+      transmittance LUT 256 x 64 (Bruneton 2017 parameterisation, 128 steps), multiple-scattering LUT 32 x 32 (Psi_ms:
+      isotropic second order over 64 directions x 32 steps, geometric series 1 / (1 - f_ms), ground included),
+      sky-view LUT 192 x 108 (Hillaire's non-linear horizon mapping, 48 quadratic steps, single scattering with the
+      Rayleigh and Cornette-Shanks Mie phases plus Psi_ms, energy-conserving integration, a Lambert ground where the
+      ray ends on it). Earth (Bruneton 2017 / Hillaire 2020): radii 6360 / 6460 km; Rayleigh (5.802, 13.558, 33.1) e-3
+      /km, 8 km; Mie scattering 3.996e-3, extinction 4.440e-3 /km, 1.2 km, g 0.8; ozone (0.650, 1.881, 0.085) e-3 /km
+      in a 10..40 km tent. Observer 50 m above the ground, world +Y its zenith, the sun white at the top of the
+      atmosphere. Fragment passes (`#version 410`), so the sky works on every 4.1+ context: no compute, no
+      unavailable state. LUTs are RGBA32F; transmittance and multiple scattering are rebuilt only when the atmosphere
+      parameters change, the sky view when the sun moves. No aerial perspective on the model (the A3.6 plane keeps
+      its own haze).
+    - **Units:** one constant, `sky::kLuxPerEnvironmentUnit`: 1 environment unit = 12,800 lux (radiance x sr). The
+      top-of-atmosphere sun (128 klux) is 10 units; at the ground the sun gives 8.86 at 30 degrees, 9.32 at 60 (the
+      A3.1 default is 8), a white Lambert surface facing it reflects about 2.8; the clear sky is 0.16 at the zenith
+      with the sun 60 degrees up (2.1 kcd/m^2) and 0.6-0.9 near the horizon. The default exposure (EV 0, ACES Hill)
+      shows noon readable (review captures); A6.4 refines exposure.
+    - **Environment source** (scene-level, `environment hdr|sky`, Scene Inspector → *Sky & Atmosphere*, a header after
+      Sun & Time of Day, collapsed by default so the existing controls keep their places): *HDR* (default) is the
+      panorama, byte-identical to before also with every sky setting changed. *Procedural sky*: the background is the
+      sky-view LUT drawn per pixel (it follows the sun in the same frame), the environment rotation/intensity/blur
+      are identity, the HDR is released (its sun detection and removal do not run), and the A3.1 sun is always on:
+      direction = the A6.1 clock's sun (else the Manual angles), illuminance = 10 x the transmittance towards it
+      (CPU, 512-step quadrature, the same atmosphere) x the A6.1 fade, so it reddens and dims near the horizon and is
+      off below it; `sun_color`, `sun_intensity` and `sun_mode` do not apply. Hooks: `cubemap.frag` marks where A6.7
+      adds the sun disk (background only, after filtering) and A6.6 the moon and stars.
+    - **Parameters:** `sky_mie` (Mie density x, 1 = clear; 0..20), `sky_ozone` (on/off), `sky_ground_albedo` (grey
+      override 0..1; -1 = automatic: the active viewport's A3.6 plane albedo while it draws the plane, else 0.3, Earth's
+      mean albedo). `get_state` / profile report `sky`: parameters, effective ground albedo and its source, sun
+      direction / transmittance / illuminance, refinement state, GPU statistics, memory.
+  - **Check:** `scripts/validate_sky.py` (quick regression, serial list). Reference: `scripts/sky_reference.py`, an
+    independent float64 numpy implementation of the same model (direct transmittance quadrature along every ray,
+    2000-step single scattering per direction, Psi_ms at 64 x 64 from 256 directions; nothing shared with the GPU
+    LUTs), values frozen in the script (`--regenerate-references`). Background radiance at 9 directions for a 60 and
+    a 5 degree sun: worst luminance error 1.8%, worst channel 1.9% (tolerance 4% / 5%); sun transmittance at 6
+    elevations within 0.005% (tolerance 0.5%) and the renderer's sun = 10 x transmittance; noon zenith bluer than the
+    horizon (blue share 0.59 vs 0.42); horizon towards the sun red/blue 0.51 at 60 degrees, 11.5 at 2 degrees;
+    zenith and two horizon directions fall monotonically for sun elevations 10 .. -6 degrees; Mie 4 brightens and
+    whitens the zenith, ozone keeps the twilight zenith blue, the automatic ground albedo equals the A3.6 plane's;
+    HDR source byte-identical to the baseline (HelloCube default and with the sky settings, two E195 ASOBO views).
+  - **Deviations:** the sky is selected by `environment sky` rather than tied to time-of-day mode (either sun
+    source works with it); the source/atmosphere controls are in a new *Sky & Atmosphere* header (not inside the
+    Environment header) so existing UI probes keep their positions; the lower hemisphere is the model's lit ground
+    (sun only: the ground receives no sky irradiance in Hillaire's model, so it is a little darker than a full
+    radiosity solution); no aerial perspective.
+- [x] **A6.3 — Dynamic environment lighting (R4). Owner: Claude.** Re-filter the sky into the diffuse and specular
   environment cubemaps as time changes, without hitches. A full filter costs about 100–700 ms depending on the
   quality preset (Phase 7), so filtering is spread over frames and done at a reduced size while time is moving,
   then refined when it stops.
   - **Tests:**
     - no frame spike above a stated budget while time is moving;
     - the converged result matches a full filter.
+  - **Done 2026-10-28.** `header/imgui/SkyEnvironment.h`.
+    - **Pipeline:** the sky-view LUT is rendered into a source cube (`PASS_CUBE`, the IBL sampler's face orientation),
+      mipmapped, and filtered by `ibl_filtering.frag` compiled with ShaderCache's prefix and driven with
+      `IBLSampler::applyFilter`'s uniforms: Lambertian, GGX mips 0..levels and Charlie sheen mips, plus the GGX/Charlie
+      BRDF LUTs once (512 samples). The renderer's `EnvironmentMap` wraps non-owned handles
+      (`GltfRenderLayer::setExternalEnvironment`); a swap only re-points its three cube samplers and mip counts
+      (`EnvironmentMap::retargetCubes`), so no command cache is rebuilt. IBL lighting, reflections, the SSR fallback,
+      sky portals and the A3.6 plane's haze all read those cubes and so follow the sky.
+    - **Double buffering:** outputs are written to a set that is not displayed and swapped in only when every pass of
+      its job is complete (`incompleteSwaps` counts violations: 0). Sets: one at the configured quality, two fast.
+    - **While the sky changes** (time slider, play, sun, parameters): a fast job (cube 128, irradiance 32, GGX 128 /
+      Lambertian 256 / sheen 32 samples, or less when the preset is smaller) renders its source cube from the current
+      LUT at once, then runs its passes in row bands (scissor) within the frame budget; when complete it is swapped
+      in and the next fast job starts from the then-current sky. GGX mip 0 uses one sample (every importance sample is
+      the normal at roughness 0, so the configured count gives the same value).
+    - **When the sky is still** (10 frames) and the front set is fast: a refine job at the quality preset's sizes and
+      samples (the source cube's faces and mip chain are work items too) runs the same way and is swapped in when
+      complete; a sky change aborts it. Activation and a quality change filter synchronously once (like an HDR load).
+      `sky_time_slicing false` filters every change synchronously before the frame (the reference path).
+    - **Budget:** each piece of work is followed by a GL_TIMESTAMP query; per kind of work (pass, target size,
+      source size) the largest of the last 8 measured costs per sample-texel plans the next frames, an unmeasured
+      kind is assumed 8 x the dearest measured one (it starts with a thin band). Aim `sky_budget_ms` = 2.5 ms of
+      extra GPU time per frame; stated limit 4 ms. The quality preset's sizes and samples are the refined target;
+      the fast set is a temporary state the UI shows (*Updating / Reduced, refining soon / Refining n% / Converged*).
+  - **Check (validate_sky.py):** while time plays (1200 x, 240 frames, High preset): every time-sliced frame below
+    4 ms (max 2.2-2.4 ms, mean 0.8-1.6 ms over runs on this machine), 45-206 complete fast jobs swapped, no
+    refinement while moving; after stopping, refined to 1024 px in 176-240 frames, max 2.7-2.9 ms per frame including
+    the refinement; white Lambert sphere
+    (probes at normals the sun cannot reach) against the reference irradiance: 0.3% / 0.3% (60 degree sun, away /
+    down), 1.0% / 7.9% (5 degree sun; the down-facing value is a few hundredths and the filter's mip-lod sampling blurs
+    the bright horizon into it; tolerance 10%); converged time-sliced cubes equal a synchronous full filter exactly
+    (difference 0); E195 at dusk with the sky, time of day, shadows and the ground plane: finite, zero GL errors.
+  - **Costs:** (GPU, this machine, measured with the timestamps above) sky-view LUT 0.02 ms per sun change;
+    transmittance + multiple-scattering LUTs 0.64 ms per parameter change; a fast job's source cube 0.16 ms; a fast job
+    completes in 1-4 frames (100-200 swaps in 240 played frames); refinement at High (cube 1024, irradiance 1024, 2048
+    Lambertian / 1024 GGX samples) 239 ms of GPU work over about 180-250 frames (about 3-4 s at 60 fps), at
+    Performance (512 / 32 / 256 samples) 13 ms over 55 frames; activation / quality change: one synchronous filter
+    (about 10 ms of CPU to queue it, the GPU cost of an HDR filter). Memory (cubes, LUTs, the fast source cube): 411 MB
+    at High (RGBA32F), 40 MB at Performance; the configured-size source cube exists only while a refinement runs.
+  - **Review:** `build/review/sky/contact_sheet.png` (`scripts/review_sky.py`): E195 on the concrete plane at dawn
+    (warm low sun, orange horizon, long shadow), noon and afternoon (blue sky, white horizon, sharp shadows, model
+    readable at EV 0), sunset and dusk (dark at EV 0; with auto exposure an orange horizon under a pink-purple belt and
+    a purple-lit aircraft at sunset, only a red horizon glow at dusk), the DA62 cockpit at noon (blue sky through the
+    windows, interior lit) and sunset (sky gradient in the windows, interior dark; readable with auto exposure), the
+    sky alone towards the setting sun at EV 0 and +4 (red-orange glow at the horizon fading upwards). Exposure for
+    twilight is A6.4's.
+  - **Deviations:** the budget is a GPU-time aim measured per kind of work, not a fixed number of faces per frame;
+    the configured-quality refinement takes a few seconds at High (it is limited to the same per-frame budget).
 - [ ] **A6.4 — Exposure and tone mapping (R3). Owner: Claude.** Exposure that keeps noon, dusk and night readable,
   either an MSFS-like auto exposure (eye adaptation) or presets per time of day, and the tone-mapping curve
   closest to MSFS. Both are judged against the reference screenshots.

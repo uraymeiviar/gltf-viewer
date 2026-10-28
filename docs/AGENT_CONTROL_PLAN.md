@@ -346,7 +346,7 @@ environment `exposure`, `tone_mapping`, `hdr_rotation`, `hdr_intensity`, `hdr_bl
 `msfs_emissive_scale`, `bloom`, `bloom_intensity`, `bloom_radius`, `auto_exposure`, `exposure_compensation`,
 `background`, `clear_color`, `ibl`, `punctual_lights`, the A3.1 sun keys and the A6.1 clock (`time_of_day_mode`,
 `date`, `time`, `utc_offset`, `latitude`, `longitude`, `heading`, `time_preset`, `sun_refraction`,
-`night_threshold`, `time_playing`, `time_scale`; `time_of_day` is the emissive day/night/auto switch); renderer `msfs_emissive`, `grid_mode` (saved preference).
+`night_threshold`, `time_playing`, `time_scale`; `time_of_day` is the emissive day/night/auto switch), the A6.2 sky (`environment`, `sky_mie`, `sky_ozone`, `sky_ground_albedo`); renderer `msfs_emissive`, `grid_mode` (saved preference), `sky_time_slicing`, `sky_budget_ms`.
 
 ### 7.2 Registering a setting
 

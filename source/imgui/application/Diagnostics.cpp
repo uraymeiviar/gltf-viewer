@@ -1014,6 +1014,7 @@ void Application::finishFrame(FrameContext& frame, int displayW, int displayH)
         report.camera = getCameraJson(activeViewport);
         report.sun = sunStateJson(activeEnvironment);
         report.timeOfDay = timeOfDayStateJson(activeEnvironment);
+        if (activeEnvironment.environmentSource != 0) report.sky = skyStateJson(activeEnvironment);
         report.ssao = ssaoStateJson();
         if (!reportNodeArgs.empty()) {
             for (const auto& spec : reportNodeArgs) {

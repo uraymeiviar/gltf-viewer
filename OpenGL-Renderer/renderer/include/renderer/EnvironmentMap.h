@@ -38,6 +38,11 @@ public:
     const gl::Sampler& getSheenLUTSampler() const { return m_sheenLUTSampler; }
 
     const gl::Uniform& getMipCount() const { return m_mipCount; }
+
+    // A6.3: points the cube samplers at other texture names (a dynamic environment swapping in newly filtered cubes)
+    // and updates the mip counts. The samplers, uniforms and this map stay the same objects, so the commands that
+    // reference them stay valid. Only for maps whose cube textures do not own their handles.
+    void retargetCubes(GLuint diffuse, GLuint specular, GLuint sheen, uint32_t mipCount);
     const gl::Uniform& getSheenMipCount() const { return m_sheenMipCount; }
 
 private:

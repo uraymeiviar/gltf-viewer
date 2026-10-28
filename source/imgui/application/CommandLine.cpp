@@ -874,6 +874,21 @@ std::optional<int> Application::configure(int argc, char** argv)
             if (!applyCliSetting(SettingScope::Environment, "sun_intensity", argv[++i], "--sun-intensity")) return 1;
         } else if (arg == "--sun-angular-radius" && i + 1 < argc) {
             if (!applyCliSetting(SettingScope::Environment, "sun_angular_radius", argv[++i], "--sun-angular-radius")) return 1;
+        } else if (arg == "--environment" && i + 1 < argc) {
+            // A6.2: hdr (the panorama, default) or sky (the procedural sky).
+            if (!applyCliSetting(SettingScope::Environment, "environment", toLowerAscii(argv[++i]), "--environment")) return 1;
+        } else if (arg == "--sky-mie" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Environment, "sky_mie", argv[++i], "--sky-mie")) return 1;
+        } else if (arg == "--sky-ozone" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Environment, "sky_ozone", toLowerAscii(argv[++i]), "--sky-ozone")) return 1;
+        } else if (arg == "--sky-ground-albedo" && i + 1 < argc) {
+            std::string albedo = toLowerAscii(argv[++i]);
+            if (albedo == "auto") albedo = "-1";
+            if (!applyCliSetting(SettingScope::Environment, "sky_ground_albedo", albedo, "--sky-ground-albedo")) return 1;
+        } else if (arg == "--sky-time-slicing" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Renderer, "sky_time_slicing", toLowerAscii(argv[++i]), "--sky-time-slicing")) return 1;
+        } else if (arg == "--sky-budget-ms" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Renderer, "sky_budget_ms", argv[++i], "--sky-budget-ms")) return 1;
         } else if (const char* clockKey = timeOfDayFlagSetting(arg); clockKey != nullptr && i + 1 < argc) {
             // A6.1 clock flags: the same registry keys as set_environment (--time-of-day keeps the emissive switch).
             if (!applyCliSetting(SettingScope::Environment, clockKey, toLowerAscii(argv[++i]), arg.c_str())) return 1;

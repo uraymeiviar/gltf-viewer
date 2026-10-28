@@ -230,7 +230,8 @@ void SceneInspector::render(SceneEnvironmentState& env,
                             ux3d::renderer::CommandGenerator* commandGenerator,
                             ux3d::renderer::GltfRenderLayer* gltfLayer,
                             SceneRevisions& revisions,
-                            ux3d::gltf::Scene* scene)
+                            ux3d::gltf::Scene* scene,
+                            const SkyStatus* sky)
 {
     if (scene != nullptr) {
         ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), ICON_MDI_IMAGE_FILTER_HDR " Scene ID: %u", scene->m_ID);
@@ -275,6 +276,8 @@ void SceneInspector::render(SceneEnvironmentState& env,
                 auto path = ux3d::imgui::StdFileSystem::instance().toPath(selection[0].c_str());
                 gltfLayer->setEnvironmentMap(path);
                 if (gltfLayer->filterEnvironmentMap()) {
+                    // A6.2: loading a panorama selects it as the environment source.
+                    env.environmentSource = static_cast<int>(EnvironmentSource::Hdr);
                     env.currentHdrPath = selection[0];
                     env.iblEnabled = true;
                     if (commandGenerator != nullptr) {
@@ -446,6 +449,90 @@ void SceneInspector::render(SceneEnvironmentState& env,
         renderSun(env, gltfLayer, revisions);
         renderTimeOfDay(env, revisions);
     }
+
+    // A6.2 / A6.3: after the existing headers (collapsed by default), so their controls keep their places.
+    const bool skyOpen = ImGui::CollapsingHeader("Sky & Atmosphere");
+    UiProbe::item("scene.sky", 0);
+    if (skyOpen) {
+        renderSky(env, sky, revisions);
+    }
+}
+
+void SceneInspector::renderSky(SceneEnvironmentState& env, const SkyStatus* sky, SceneRevisions& revisions)
+{
+    const char* sourceNames[] = { "HDR panorama", "Procedural sky" };
+    if (ImGui::Combo("Environment Source", &env.environmentSource, sourceNames, 2)) {
+        revisions.mark(SceneChange::RenderSettings);
+    }
+    UiProbe::item("scene.sky.source", 0);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Procedural sky: a physically based atmosphere (Hillaire 2020) as the background and the\n"
+                          "source of the image-based lighting, re-filtered as the sun moves. The HDR stays available.");
+    }
+    if (env.environmentSource != static_cast<int>(EnvironmentSource::ProceduralSky)) {
+        return;
+    }
+
+    if (sky != nullptr && sky->active) {
+        const ImVec4 green(0.13f, 0.67f, 0.42f, 1.0f), amber(1.0f, 0.8f, 0.2f, 1.0f);
+        switch (sky->state) {
+        case SkyRefineState::Converged:
+            ImGui::TextColored(green, ICON_MDI_CHECK " Lighting converged (%u px cubes)", sky->cubeSize);
+            break;
+        case SkyRefineState::Updating:
+            ImGui::TextColored(amber, ICON_MDI_REFRESH " Updating lighting (%u px, %.0f%%)", sky->cubeSize, sky->progress * 100.0f);
+            break;
+        case SkyRefineState::WaitingToRefine:
+            ImGui::TextColored(amber, ICON_MDI_REFRESH " Reduced lighting (%u px), refining soon", sky->cubeSize);
+            break;
+        case SkyRefineState::Refining:
+            ImGui::TextColored(amber, ICON_MDI_REFRESH " Refining lighting to %u px: %.0f%%", sky->targetSize, sky->progress * 100.0f);
+            break;
+        default:
+            break;
+        }
+        UiProbe::item("scene.sky.refine", 0);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("While the sky changes, the IBL cubes are re-filtered at a reduced size, spread over frames,\n"
+                              "and swapped in when complete; once it is still they are refined to the quality preset's sizes.\n"
+                              "Extra GPU time per frame: last %.2f ms, max %.2f ms (aim %.1f ms).",
+                              sky->gpuMsLast, sky->gpuMsMax, sky->budgetMs);
+        }
+    } else {
+        ImGui::TextDisabled("Starting the procedural sky...");
+    }
+
+    if (ImGui::SliderFloat("Mie Density", &env.skyMieDensity, 0.0f, 10.0f, "%.2f x", ImGuiSliderFlags_Logarithmic)) {
+        revisions.mark(SceneChange::RenderSettings);
+    }
+    UiProbe::item("scene.sky.mie", 0);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Aerosol (haze) density relative to a clear sky: larger values whiten the sky and widen the glow\n"
+                          "around the sun.");
+    }
+    if (ImGui::Checkbox("Ozone", &env.skyOzone)) {
+        revisions.mark(SceneChange::RenderSettings);
+    }
+    UiProbe::item("scene.sky.ozone", 0);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Ozone absorption keeps the twilight sky blue overhead.");
+    }
+    bool overrideAlbedo = env.skyGroundAlbedo >= 0.0f;
+    if (ImGui::Checkbox("Override Ground Albedo", &overrideAlbedo)) {
+        env.skyGroundAlbedo = overrideAlbedo ? (sky != nullptr ? sky->groundAlbedo.g : sky::kNeutralGroundAlbedo) : -1.0f;
+        revisions.mark(SceneChange::RenderSettings);
+    }
+    UiProbe::item("scene.sky.ground_albedo", 0);
+    if (overrideAlbedo) {
+        if (ImGui::SliderFloat("Ground Albedo", &env.skyGroundAlbedo, 0.0f, 1.0f, "%.2f")) {
+            revisions.mark(SceneChange::RenderSettings);
+        }
+    } else if (sky != nullptr) {
+        ImGui::TextDisabled("Ground albedo %.2f %.2f %.2f (%s)", sky->groundAlbedo.r, sky->groundAlbedo.g, sky->groundAlbedo.b,
+                            sky->groundFromPlane ? "the viewport's ground plane" : "neutral, no ground plane");
+    }
+    ImGui::TextDisabled("Sun: always on, from the Time of Day clock or the Sun angles;");
+    ImGui::TextDisabled("its colour and intensity come from the atmosphere.");
 }
 
 } // namespace ux3d::imgui

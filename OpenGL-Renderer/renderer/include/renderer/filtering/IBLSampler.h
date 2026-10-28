@@ -71,6 +71,9 @@ public:
 
     void init(const filesystem::Path& _panoramaImage, const InitizalizationParameters& initizalizationParameters = InitizalizationParameters());
     bool filter();
+    // A6.2: frees every texture (the filtered cubes, LUTs and the panorama) while another environment is in use; the
+    // next init loads again.
+    void release();
 
     // IBL textures for use in rendering (only available after init and filter)
     GLuint lambertianTextureID = 0;

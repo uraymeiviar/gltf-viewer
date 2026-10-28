@@ -41,6 +41,12 @@ public:
 
     std::tuple<gl::Texture*, uint32_t> loadCubeMapTexture(const filesystem::Path& path);
     EnvironmentMap* loadEnvironmentMap(const IBLSampler& iblSampler);
+    // A6.2: an environment map over cube and LUT textures another system owns and fills (ownsHandles false: the map's
+    // textures never delete them).
+    EnvironmentMap* loadEnvironmentMap(GLuint lambertian, GLuint ggx, GLuint sheen, GLuint ggxLut, GLuint charlieLut,
+                                       GLuint sheenLut, uint32_t mipCount, bool ownsHandles);
+    // A6.2: the sky-view LUT the background samples while the cube material defines PROCEDURAL_SKY (0 otherwise).
+    void setSkyViewTexture(GLuint handle);
 
     OpaquePass* getOpaquePass() const { return m_opaquePass; }
     TransmissiveBlitPass* getTransmissiveBlitPass() const { return m_transmissiveBlitPass; }
@@ -75,6 +81,7 @@ protected:
     void initCubeMap();
     Mesh* m_cubeMapMesh;
     Material* m_cubeMapMaterial;
+    gl::Texture* m_skyViewTexture = nullptr; // A6.2: borrowed handle, never deleted here
 
     void initGround();
     Mesh* m_groundMesh = nullptr;

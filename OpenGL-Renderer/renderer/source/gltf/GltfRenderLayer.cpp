@@ -2561,11 +2561,30 @@ void GltfRenderLayer::setEnvironmentMap(const filesystem::Path& panoramaIrradian
     }
 
     m_resourceManager.destroyAllOf<EnvironmentMap>();
+    m_externalEnvironment = false;
     m_environmentMapPath = panoramaIrradiancePath;
     m_iblSampler.setSamplingParamters(iblSampling);
     m_iblSampler.init(panoramaIrradiancePath, iblParameters);
 
     m_activeEnvironmentMap = m_resourceManager.loadEnvironmentMap(m_iblSampler);
+}
+
+void GltfRenderLayer::setExternalEnvironment(GLuint lambertian, GLuint ggx, GLuint sheen, GLuint ggxLut, GLuint charlieLut,
+                                             GLuint sheenLut, uint32_t mipCount)
+{
+    m_resourceManager.destroyAllOf<EnvironmentMap>();
+    m_iblSampler.release();
+    m_environmentMapPath = filesystem::Path();
+    m_externalEnvironment = true;
+    m_activeEnvironmentMap = m_resourceManager.loadEnvironmentMap(lambertian, ggx, sheen, ggxLut, charlieLut, sheenLut,
+                                                                  mipCount, false);
+}
+
+void GltfRenderLayer::retargetExternalEnvironment(GLuint lambertian, GLuint ggx, GLuint sheen, uint32_t mipCount)
+{
+    if (m_externalEnvironment && m_activeEnvironmentMap != nullptr) {
+        m_activeEnvironmentMap->retargetCubes(lambertian, ggx, sheen, mipCount);
+    }
 }
 
 bool GltfRenderLayer::filterEnvironmentMap()

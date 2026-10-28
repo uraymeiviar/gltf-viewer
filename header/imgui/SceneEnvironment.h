@@ -71,6 +71,16 @@ struct SceneEnvironmentState {
     float sunIntensity = 8.0f;
     float sunAngularRadius = 0.27f; // degrees; the real sun is 0.2666 deg
 
+    // A6.2 environment source (EnvironmentSource in SkyAtmosphere.h): 0 = the HDR panorama (default), 1 = the
+    // procedural sky. In procedural mode the background is the sky, the IBL cubes are filtered from it (A6.3), the
+    // HDR rotation/intensity/blur do not apply, and the sun is always on: its direction is the time-of-day sun (or the
+    // Manual angles), its colour and illuminance come from the atmosphere transmittance towards it (times the A6.1
+    // fade), replacing sun_color / sun_intensity / sun_mode.
+    int environmentSource = 0;
+    float skyMieDensity = 1.0f;     // multiplies the Mie (aerosol) density; 1 = clear sky (Hillaire 2020 / Bruneton)
+    bool skyOzone = true;           // ozone absorption
+    float skyGroundAlbedo = -1.0f;  // grey ground albedo below the horizon; < 0 = automatic (A3.6 plane, else 0.3)
+
     bool operator==(const SceneEnvironmentState&) const = default;
 };
 

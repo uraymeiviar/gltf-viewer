@@ -16,6 +16,7 @@
 #include "imgui/StatusBar.h"
 #include "imgui/ResourcesPanel.h"
 #include "imgui/ViewportInstance.h"
+#include "imgui/SkyEnvironment.h"
 #include "imgui/ViewportOverrides.h"
 #include "imgui/SelfCheckResult.h"
 #include "imgui/UiScenarioHarness.h"
@@ -380,6 +381,16 @@ private:
     void advanceTimeOfDay(float deltaSeconds);
     // A3.5: every viewport's SSAO settings, whether its last render applied the term, memory and GPU time.
     nlohmann::json ssaoStateJson() const;
+    // A6.2 / A6.3: the procedural sky's atmosphere for a scene environment (the ground albedo resolved through the
+    // active viewport's A3.6 plane), the sun direction it is lit from, the per-frame update (LUTs, time-sliced IBL,
+    // environment map hand-over) and its state for get_state and profile reports.
+    ux3d::imgui::AtmosphereParameters skyAtmosphere(const ux3d::imgui::SceneEnvironmentState& environment) const;
+    glm::vec3 skySunDirection(const ux3d::imgui::SceneEnvironmentState& environment) const;
+    bool skyGroundFromPlane() const;
+    void updateSkyEnvironment(const ux3d::imgui::SceneEnvironmentState& environment, FrameContext& frame);
+    void releaseSkyEnvironment();
+    nlohmann::json skyStateJson(const ux3d::imgui::SceneEnvironmentState& environment) const;
+    ux3d::imgui::SkyStatus skyStatus(const ux3d::imgui::SceneEnvironmentState& environment) const;
     // A3.2: renders the viewport's cascaded sun shadow map (one depth pass per cascade, before the forward
     // scene) and sets the shadow frame values, or releases the map and disables the shadow term. Leaves
     // the viewport's scene target bound. groundHeight: the height of the A3.6 ground plane when the viewport
@@ -561,6 +572,13 @@ private:
     bool s_disableWireframeCache = false;
     // --msfs-emissive off: ASOBO assets use the clamped core emissive factor (A/B reference).
     bool s_disableMsfsEmissive = false;
+    // A6.3: the procedural sky's environment (LUTs, filtered cubes, time-sliced jobs). Renderer-wide settings:
+    // sky_time_slicing off filters every sky change synchronously at the configured quality (the reference path);
+    // sky_budget_ms is the GPU time per frame the time-sliced work aims at (stated limit 4 ms).
+    ux3d::imgui::SkyEnvironment skyEnvironment;
+    bool s_skyTimeSlicing = true;
+    float s_skyBudgetMs = 2.5f;
+    bool s_skyFailureLogged = false;
     // --disable-shared-traversal: every viewport traverses the scene itself (A/B reference).
     bool s_disableSharedTraversal = false;
     uint64_t s_pickCulledTotal = 0;

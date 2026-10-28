@@ -31,6 +31,8 @@ Quick tier (equivalence only: byte-identical viewport images, identical selectio
   switches and files without portals against the baseline),
   validate_time_of_day.py (A6.1 solar/lunar position against reference tables, presets, heading, fade, automatic
   day/night, registry/CLI; mode off against the baseline),
+  validate_sky.py (A6.2/A6.3 procedural sky against a float64 reference, sunset, sun transmittance, IBL following the
+  sky, time-sliced budget and swaps; the HDR source against the baseline),
   validate_asobo_decal_modes.py,
   validate_agent_control.py (control pipe, shared command registry, MCP shim; CLI flags against the baseline),
   validate_viewport_image.py (Viewport capture/save/copy, capture folder setting)
@@ -115,6 +117,7 @@ serial_jobs = [
     ("ssao", ["scripts/validate_ssao.py", "--baseline-exe", str(baseline)]),
     ("asobo_sky_portal", ["scripts/validate_asobo_sky_portal.py", "--baseline-exe", str(baseline)]),
     ("time_of_day", ["scripts/validate_time_of_day.py", "--baseline-exe", str(baseline)]),
+    ("sky", ["scripts/validate_sky.py", "--baseline-exe", str(baseline)]),
     ("asobo_packaged", ["scripts/validate_asobo_packaged.py"]),
     ("asobo_decal_modes", ["scripts/validate_asobo_decal_modes.py", "--baseline-exe", str(baseline)]),
     ("texture_dds", ["scripts/validate_texture_dds.py"]),

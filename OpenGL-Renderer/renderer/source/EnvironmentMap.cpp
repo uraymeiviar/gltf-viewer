@@ -54,3 +54,13 @@ void ux3d::renderer::EnvironmentMap::setSheenLUT(const gl::Texture* texture, con
     m_sheenLUTSampler.texture = texture;
     m_sheenLUTSampler.samplerState = samplerState;
 }
+
+void ux3d::renderer::EnvironmentMap::retargetCubes(GLuint diffuse, GLuint specular, GLuint sheen, uint32_t mipCount)
+{
+    // The textures were created non-const by the resource manager; the samplers only expose them as const.
+    if (m_diffuseSampler.texture != nullptr) const_cast<gl::Texture*>(m_diffuseSampler.texture)->handle = diffuse;
+    if (m_specularSampler.texture != nullptr) const_cast<gl::Texture*>(m_specularSampler.texture)->handle = specular;
+    if (m_sheenSampler.texture != nullptr) const_cast<gl::Texture*>(m_sheenSampler.texture)->handle = sheen;
+    m_mipCount.write(static_cast<int32_t>(mipCount));
+    m_sheenMipCount.write(static_cast<int32_t>(mipCount));
+}

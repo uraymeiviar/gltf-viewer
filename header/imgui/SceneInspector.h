@@ -4,6 +4,7 @@
 
 #include "imgui/SceneEnvironment.h"
 #include "imgui/SceneRevisions.h"
+#include "imgui/SkyAtmosphere.h"
 
 namespace ux3d::gltf {
 class Scene;
@@ -22,13 +23,16 @@ public:
                        ux3d::renderer::CommandGenerator* commandGenerator,
                        ux3d::renderer::GltfRenderLayer* gltfLayer,
                        SceneRevisions& revisions,
-                       ux3d::gltf::Scene* scene = nullptr);
+                       ux3d::gltf::Scene* scene = nullptr,
+                       const SkyStatus* sky = nullptr);
 
 private:
     // A3.1: Environment -> Sun section.
     static void renderSun(SceneEnvironmentState& env, ux3d::renderer::GltfRenderLayer* gltfLayer, SceneRevisions& revisions);
     // A6.1: Environment -> Time of Day section (date, time, place, heading, presets, play).
     static void renderTimeOfDay(SceneEnvironmentState& env, SceneRevisions& revisions);
+    // A6.2 / A6.3: Sky & Atmosphere (environment source, atmosphere parameters, refinement status).
+    static void renderSky(SceneEnvironmentState& env, const SkyStatus* sky, SceneRevisions& revisions);
 };
 
 } // namespace ux3d::imgui

@@ -442,6 +442,8 @@ int Application::run(int argc, char** argv)
     decalPrepassLayer.reset();
     shadowCasterLayer.reset();
     sunShadowCamera.reset();
+    // A6.2: the procedural sky's textures, while the GL context still exists.
+    releaseSkyEnvironment();
     if (gltfLayer != nullptr) {
         gltfLayer.reset();
     }

@@ -278,6 +278,14 @@ void IBLSampler::init(const filesystem::Path& _panoramaImage, const Initizalizat
         m_initizalizationParameters.halfFloat ? "RGBA16F" : "RGBA32F");
 }
 
+void IBLSampler::release()
+{
+    destroyRuntimeResources();
+    destroyResources();
+    m_samplerStatus = SamplerStatus();
+    m_environmentSun = EnvironmentSun();
+}
+
 void IBLSampler::destroyRuntimeResources()
 {
     if (panoramaTextureID != 0) {

@@ -380,6 +380,7 @@ json Application::agentStateJson()
     st["glErrors"] = s_glErrorTotal;
     st["sun"] = sunStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene));
     st["timeOfDay"] = timeOfDayStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene));
+    st["sky"] = skyStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene));
     st["ssao"] = ssaoStateJson();
     if (activeViewport != nullptr) {
         // A3.6: the active viewport's ground. height/albedo are what the last render used (the albedo is what A6.2
@@ -426,6 +427,22 @@ json Application::agentStateJson()
 EffectiveSun Application::effectiveSun(const ux3d::imgui::SceneEnvironmentState& environment) const
 {
     EffectiveSun sun;
+    if (environment.environmentSource == static_cast<int>(ux3d::imgui::EnvironmentSource::ProceduralSky)) {
+        // A6.2: the sun is always on; its direction is the time-of-day sun (or the Manual angles), its colour and
+        // illuminance the top-of-atmosphere sun through the atmosphere towards it (reddened and dimmed near the
+        // horizon), times the A6.1 fade while the clock drives it.
+        float fade = 1.0f;
+        if (environment.clock.enabled) {
+            const ux3d::imgui::TimeOfDayEvaluation tod = ux3d::imgui::evaluateTimeOfDay(environment.clock);
+            sun.direction = ux3d::imgui::sunDirectionFromAngles(tod.gliderAzimuth, tod.gliderElevation);
+            fade = tod.fade;
+        } else {
+            sun.direction = ux3d::imgui::sunDirectionFromAngles(environment.sunAzimuth, environment.sunElevation);
+        }
+        sun.illuminance = ux3d::imgui::skySunIlluminance(skyAtmosphere(environment), sun.direction) * fade;
+        sun.enabled = 0.2126f * sun.illuminance.r + 0.7152f * sun.illuminance.g + 0.0722f * sun.illuminance.b > 0.0f;
+        return sun;
+    }
     if (environment.clock.enabled) {
         // A6.1: the solar position through the heading; colour and intensity are the Manual sun's, faded to 0
         // across -1..+1 degrees of lighting elevation (the sun is disabled once the fade reaches 0).
@@ -451,6 +468,182 @@ EffectiveSun Application::effectiveSun(const ux3d::imgui::SceneEnvironmentState&
     }
     sun.enabled = true;
     return sun;
+}
+
+ux3d::imgui::AtmosphereParameters Application::skyAtmosphere(const ux3d::imgui::SceneEnvironmentState& environment) const
+{
+    ux3d::imgui::AtmosphereParameters p;
+    p.mieDensity = std::max(environment.skyMieDensity, 0.0f);
+    p.ozone = environment.skyOzone;
+    if (environment.skyGroundAlbedo >= 0.0f) {
+        p.groundAlbedo = glm::vec3(std::min(environment.skyGroundAlbedo, 1.0f));
+    } else if (skyGroundFromPlane()) {
+        // A3.6: the active viewport's plane albedo (ViewportInstance::groundAlbedo holds the same value after its
+        // render; the settings give it before the first render too, so a startup capture needs no second filter).
+        p.groundAlbedo = glm::clamp(activeViewport->settings.ground.averageAlbedo(), glm::vec3(0.0f), glm::vec3(1.0f));
+    } else {
+        p.groundAlbedo = glm::vec3(ux3d::imgui::sky::kNeutralGroundAlbedo);
+    }
+    return p;
+}
+
+bool Application::skyGroundFromPlane() const
+{
+    // The viewport draws the A3.6 plane in shaded views only (Viewports.cpp, groundPlane).
+    return activeViewport != nullptr && activeViewport->settings.ground.mode == ux3d::imgui::GroundMode::Plane &&
+           activeViewport->settings.renderMode == ux3d::renderer::RenderMode::None;
+}
+
+glm::vec3 Application::skySunDirection(const ux3d::imgui::SceneEnvironmentState& environment) const
+{
+    if (environment.clock.enabled) {
+        const ux3d::imgui::TimeOfDayEvaluation tod = ux3d::imgui::evaluateTimeOfDay(environment.clock);
+        return ux3d::imgui::sunDirectionFromAngles(tod.gliderAzimuth, tod.gliderElevation);
+    }
+    return ux3d::imgui::sunDirectionFromAngles(environment.sunAzimuth, environment.sunElevation);
+}
+
+void Application::updateSkyEnvironment(const ux3d::imgui::SceneEnvironmentState& environment, FrameContext& frame)
+{
+    using ux3d::imgui::SkyEnvironment;
+    SkyEnvironment::Inputs in;
+    in.atmosphere = skyAtmosphere(environment);
+    in.sunDirection = skySunDirection(environment);
+    // The effective render-quality IBL fields (RenderQuality::applyIblParameters keeps them in the layer).
+    in.ibl.cubeSize = gltfLayer->iblParameters.textureSize;
+    in.ibl.lambertianSize = gltfLayer->iblParameters.lambertianSize;
+    in.ibl.lutSize = gltfLayer->iblParameters.lutResolution;
+    in.ibl.halfFloat = gltfLayer->iblParameters.halfFloat;
+    in.ibl.ggxSamples = gltfLayer->iblSampling.ggxSampleCount;
+    in.ibl.lambertianSamples = gltfLayer->iblSampling.lambertianSampleCount;
+    in.ibl.sheenSamples = gltfLayer->iblSampling.sheenSampleCount;
+    in.ibl.lodBias = gltfLayer->iblSampling.lodBias;
+    in.timeSlicing = s_skyTimeSlicing;
+    in.budgetMs = s_skyBudgetMs;
+    in.frame = frame.number;
+    const auto start = ux3d::imgui::profiling::Clock::now();
+    const SkyEnvironment::Result result = skyEnvironment.update(in);
+    frame.markStage("sky.update", start);
+    if (result == SkyEnvironment::Result::Failed) {
+        if (!s_skyFailureLogged) {
+            ux3d::core::logError("Procedural sky: the sky or IBL filter programs could not be created");
+            s_skyFailureLogged = true;
+        }
+        return;
+    }
+    if (result == SkyEnvironment::Result::Reattach || !gltfLayer->isExternalEnvironment()) {
+        gltfLayer->setExternalEnvironment(skyEnvironment.frontLambertian(), skyEnvironment.frontGgx(), skyEnvironment.frontSheen(),
+                                          skyEnvironment.ggxLut(), skyEnvironment.charlieLut(), skyEnvironment.sheenLut(),
+                                          skyEnvironment.frontMipCount());
+        scenarioEnvironmentPath = "procedural sky";
+        scenarioEnvironmentLoaded = true;
+        sceneRevisions.mark(ux3d::imgui::SceneChange::RenderSettings);
+    } else if (result == SkyEnvironment::Result::Retarget) {
+        gltfLayer->retargetExternalEnvironment(skyEnvironment.frontLambertian(), skyEnvironment.frontGgx(),
+                                               skyEnvironment.frontSheen(), skyEnvironment.frontMipCount());
+        sceneRevisions.mark(ux3d::imgui::SceneChange::RenderSettings);
+    }
+    gltfLayer->getResourceManager().setSkyViewTexture(skyEnvironment.skyViewLut());
+    auto* skyMaterial = std::get<1>(gltfLayer->getResourceManager().getCubeMapTuple());
+    if (skyMaterial != nullptr) {
+        skyMaterial->setUniform("u_SkySunDirection", ux3d::math::vec3(in.sunDirection.x, in.sunDirection.y, in.sunDirection.z));
+        skyMaterial->setUniform("u_SkyParams", ux3d::math::vec4(static_cast<float>(ux3d::imgui::sky::kBottomRadiusKm),
+                                                                static_cast<float>(ux3d::imgui::sky::kTopRadiusKm),
+                                                                static_cast<float>(ux3d::imgui::sky::kBottomRadiusKm +
+                                                                                   ux3d::imgui::sky::kObserverAltitudeKm),
+                                                                ux3d::imgui::sky::kSolarIlluminance));
+    }
+}
+
+void Application::releaseSkyEnvironment()
+{
+    if (gltfLayer != nullptr) {
+        if (gltfLayer->isExternalEnvironment()) gltfLayer->retargetExternalEnvironment(0, 0, 0, 1);
+        gltfLayer->getResourceManager().setSkyViewTexture(0);
+    }
+    skyEnvironment.release();
+}
+
+ux3d::imgui::SkyStatus Application::skyStatus(const ux3d::imgui::SceneEnvironmentState& environment) const
+{
+    ux3d::imgui::SkyStatus status;
+    const bool procedural = environment.environmentSource == static_cast<int>(ux3d::imgui::EnvironmentSource::ProceduralSky);
+    status.active = procedural && skyEnvironment.active();
+    status.state = status.active ? skyEnvironment.state() : ux3d::imgui::SkyRefineState::Inactive;
+    status.progress = skyEnvironment.progress();
+    status.cubeSize = skyEnvironment.frontSize();
+    status.targetSize = skyEnvironment.config().cubeSize;
+    status.gpuMsLast = skyEnvironment.stats().gpuMsLast;
+    status.gpuMsMax = skyEnvironment.stats().gpuMsMax;
+    status.budgetMs = s_skyBudgetMs;
+    status.groundAlbedo = skyAtmosphere(environment).groundAlbedo;
+    status.groundFromPlane = environment.skyGroundAlbedo < 0.0f && skyGroundFromPlane();
+    return status;
+}
+
+json Application::skyStateJson(const ux3d::imgui::SceneEnvironmentState& environment) const
+{
+    using namespace ux3d::imgui;
+    auto vec3Json = [](const glm::vec3& v) { return json{agent::floatJson(v.x), agent::floatJson(v.y), agent::floatJson(v.z)}; };
+    const bool procedural = environment.environmentSource == static_cast<int>(EnvironmentSource::ProceduralSky);
+    const AtmosphereParameters atmosphere = skyAtmosphere(environment);
+    const glm::vec3 sunDirection = skySunDirection(environment);
+    const glm::vec3 transmittance = atmosphereTransmittance(atmosphere, sunDirection);
+    const SkyEnvironment::Stats& stats = skyEnvironment.stats();
+    const char* albedoSource = environment.skyGroundAlbedo >= 0.0f ? "override"
+                               : skyGroundFromPlane() ? "plane" : "neutral";
+    float sunAzimuth = 0.0f, sunElevation = 0.0f;
+    sunAnglesFromDirection(sunDirection, sunAzimuth, sunElevation);
+    const SkyRefineState refineState = procedural && skyEnvironment.active() ? skyEnvironment.state() : SkyRefineState::Inactive;
+    json out = {
+        {"source", procedural ? "sky" : "hdr"},
+        {"active", procedural && skyEnvironment.active()},
+        {"model", "Hillaire 2020 (transmittance, multiple-scattering and sky-view LUTs), Bruneton 2017 Earth atmosphere"},
+        {"mieDensity", agent::floatJson(atmosphere.mieDensity)},
+        {"ozone", atmosphere.ozone},
+        {"groundAlbedo", vec3Json(atmosphere.groundAlbedo)},
+        {"groundAlbedoSource", albedoSource},
+        {"observerAltitudeKm", sky::kObserverAltitudeKm},
+        {"units", {{"luxPerUnit", sky::kLuxPerEnvironmentUnit},
+                   {"solarIlluminanceLux", sky::kSolarIlluminanceLux},
+                   {"solarIlluminance", agent::floatJson(sky::kSolarIlluminance)}}},
+        {"sunDirection", vec3Json(sunDirection)},
+        {"sunAzimuth", agent::floatJson(sunAzimuth)},
+        {"sunElevation", agent::floatJson(sunElevation)},
+        {"sunTransmittance", vec3Json(transmittance)},
+        {"sunIlluminance", vec3Json(transmittance * sky::kSolarIlluminance)},
+        {"timeSlicing", s_skyTimeSlicing},
+        {"budgetMs", agent::floatJson(s_skyBudgetMs)},
+        {"statedBudgetMs", SkyEnvironment::kStatedBudgetMs},
+        {"refine", {{"state", skyRefineStateName(refineState)},
+                    {"progress", agent::floatJson(skyEnvironment.progress())},
+                    {"frontSize", skyEnvironment.frontSize()},
+                    {"frontMipCount", skyEnvironment.frontMipCount()},
+                    {"targetSize", skyEnvironment.config().cubeSize},
+                    {"skyVersion", skyEnvironment.skyVersion()},
+                    {"frontVersion", skyEnvironment.frontVersion()}}},
+        {"stats", {{"synchronousBuilds", stats.synchronousBuilds},
+                   {"lastSynchronousMs", stats.lastSynchronousMs},
+                   {"fastJobs", stats.fastJobs},
+                   {"refineJobs", stats.refineJobs},
+                   {"abortedRefines", stats.abortedRefines},
+                   {"swaps", stats.swaps},
+                   {"incompleteSwaps", stats.incompleteSwaps},
+                   {"lutAtmosphereBuilds", stats.lutAtmosphereBuilds},
+                   {"lutSkyViewBuilds", stats.lutSkyViewBuilds},
+                   {"slicedFrames", stats.slicedFrames},
+                   {"overBudgetFrames", stats.overBudgetFrames},
+                   {"gpuMsLast", stats.gpuMsLast},
+                   {"gpuMsMax", stats.gpuMsMax},
+                   {"gpuMsMean", stats.slicedFrames > 0 ? stats.gpuMsSum / static_cast<double>(stats.slicedFrames) : 0.0},
+                   {"refineFrames", stats.refineFrames},
+                   {"refineGpuMsSum", stats.refineGpuMsSum},
+                   {"msPerMegaUnit", stats.msPerMegaUnit},
+                   {"skyViewLutMs", stats.skyViewLutMs},
+                   {"atmosphereLutsMs", stats.atmosphereLutsMs},
+                   {"fastSourceMs", stats.fastSourceMs}}},
+        {"memoryBytes", skyEnvironment.memoryBytes()}};
+    return out;
 }
 
 int Application::effectiveDayNight(const ux3d::imgui::SceneEnvironmentState& environment)
@@ -593,8 +786,9 @@ json Application::sunStateJson(const ux3d::imgui::SceneEnvironmentState& environ
     const EffectiveSun sun = effectiveSun(environment);
     float azimuth = 0.0f, elevation = 0.0f;
     ux3d::imgui::sunAnglesFromDirection(sun.direction, azimuth, elevation);
-    json out = {{"enabled", environment.sunEnabled || environment.clock.enabled},
-                {"mode", environment.clock.enabled ? "time_of_day"
+    const bool proceduralSky = environment.environmentSource == static_cast<int>(ux3d::imgui::EnvironmentSource::ProceduralSky);
+    json out = {{"enabled", environment.sunEnabled || environment.clock.enabled || proceduralSky},
+                {"mode", proceduralSky ? "sky" : environment.clock.enabled ? "time_of_day"
                          : environment.sunMode == static_cast<int>(ux3d::imgui::SunMode::FromHdr) ? "hdr" : "manual"},
                 {"active", sun.enabled},
                 {"direction", vec3Json(sun.direction)},
@@ -1451,8 +1645,61 @@ void Application::registerAgentSettings()
     addSetting(floatSetting<ES>("sun_angular_radius", E, &ES::sunAngularRadius,
                                 "Sun angular radius in degrees (widens the specular highlight; 0.27 = the real sun).",
                                 "--sun-angular-radius <deg>", std::pair{0.0, 10.0}));
+    // A6.2 procedural sky (SceneEnvironmentState; model and units in SkyAtmosphere.h).
+    {
+        SettingSpec spec = indexEnumSetting<ES>("environment", E, &ES::environmentSource, {"hdr", "sky"},
+                                                "Environment source: the HDR panorama, or the procedural sky (Hillaire 2020 "
+                                                "atmosphere: background, IBL filtered from it, sun colour and illuminance from "
+                                                "its transmittance; the sun is always on).",
+                                                "--environment <hdr|sky>");
+        spec.aliases = {"environment_source"};
+        spec.enumAliases = {{"procedural", "sky"}, {"panorama", "hdr"}};
+        addSetting(std::move(spec));
+    }
+    addSetting(floatSetting<ES>("sky_mie", E, &ES::skyMieDensity,
+                                "Procedural sky: Mie (aerosol) density multiplier; 1 = clear sky, larger = hazier.",
+                                "--sky-mie <x>", std::pair{0.0, 20.0}));
+    addSetting(boolSetting<ES>("sky_ozone", E, &ES::skyOzone, "Procedural sky: ozone absorption.", "--sky-ozone <on|off>"));
+    addSetting(floatSetting<ES>("sky_ground_albedo", E, &ES::skyGroundAlbedo,
+                                "Procedural sky: grey ground albedo below the horizon; -1 = automatic (the active viewport's "
+                                "A3.6 ground plane albedo, else 0.3).",
+                                "--sky-ground-albedo <x|auto>", std::pair{-1.0, 1.0}));
 
     // --- Renderer-wide ---
+    {
+        SettingSpec spec;
+        spec.key = "sky_time_slicing";
+        spec.scope = R;
+        spec.type = SettingType::Bool;
+        spec.help = "Procedural sky: spread IBL re-filtering over frames (reduced size while the sky changes, refined when "
+                    "it stops). Off filters every change at the configured quality before the frame (reference path).";
+        spec.cliFlag = "--sky-time-slicing <on|off>";
+        spec.defaultValue = true;
+        spec.get = [this](void*) { return json(s_skyTimeSlicing); };
+        spec.set = [this](void*, const json& v, std::string&) {
+            s_skyTimeSlicing = v.get<bool>();
+            return true;
+        };
+        addSetting(std::move(spec));
+    }
+    {
+        SettingSpec spec;
+        spec.key = "sky_budget_ms";
+        spec.scope = R;
+        spec.type = SettingType::Float;
+        spec.help = "Procedural sky: GPU milliseconds per frame the time-sliced IBL work aims at (stated limit 4 ms).";
+        spec.cliFlag = "--sky-budget-ms <ms>";
+        spec.hasRange = true;
+        spec.minimum = 0.1;
+        spec.maximum = 100.0;
+        spec.defaultValue = 2.5;
+        spec.get = [this](void*) { return agent::floatJson(s_skyBudgetMs); };
+        spec.set = [this](void*, const json& v, std::string&) {
+            s_skyBudgetMs = static_cast<float>(v.get<double>());
+            return true;
+        };
+        addSetting(std::move(spec));
+    }
     {
         SettingSpec spec;
         spec.key = "msfs_emissive";

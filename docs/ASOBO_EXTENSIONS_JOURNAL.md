@@ -42,7 +42,7 @@ MSFS as practical, while still opening any glTF.
 | A3 | [Sun, shadows, macro lights (deferred), SSS, ambient occlusion, ground plane, sky portals](ASOBO_EXTENSIONS_PHASE_3.md) | In progress (A3.1, A3.2, A3.4, A3.5, A3.6, A3.7 done) |
 | A4 | [Glass, windshields, glow (bloom), fresnel and ghost opacity](ASOBO_EXTENSIONS_PHASE_4.md) | Planned |
 | A5 | [Detail map, UV options, parallax window, wind flex](ASOBO_EXTENSIONS_PHASE_5.md) | A5.1 done |
-| A6 | [Time of day: sky, dynamic environment lighting, exposure, night sky, sun glare, optional ocean](ASOBO_EXTENSIONS_PHASE_6.md) | Planned |
+| A6 | [Time of day: sky, dynamic environment lighting, exposure, night sky, sun glare, optional ocean](ASOBO_EXTENSIONS_PHASE_6.md) | In progress (A6.1, A6.2, A6.3 done) |
 | A7 | [Remaining extensions: layered BRDFs, overlays, metadata, simulator-only](ASOBO_EXTENSIONS_PHASE_7.md) | Planned |
 
 Shared documents:

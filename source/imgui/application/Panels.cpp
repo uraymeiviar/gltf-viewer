@@ -41,9 +41,10 @@ void Application::drawPanels(FrameContext& frame)
         if (ImGui::Begin(WND_INSPECTOR, &showInspector)) {
             if (selection.type == ux3d::imgui::SelectionType::Scene) {
                 auto* inspectedScene = selection.selectedScene != nullptr ? selection.selectedScene : activeScene;
-                ux3d::imgui::SceneInspector::render(getSceneEnvironment(sceneEnvironments, gltfModel, inspectedScene),
-                                                    commandGenerator.get(), gltfLayer.get(), sceneRevisions,
-                                                    inspectedScene);
+                auto& inspectedEnvironment = getSceneEnvironment(sceneEnvironments, gltfModel, inspectedScene);
+                const ux3d::imgui::SkyStatus sky = skyStatus(inspectedEnvironment);
+                ux3d::imgui::SceneInspector::render(inspectedEnvironment, commandGenerator.get(), gltfLayer.get(),
+                                                    sceneRevisions, inspectedScene, &sky);
             } else {
                 ux3d::imgui::ElementInspector::render(selection, gltfModel, sceneRevisions, &animationPlayer,
                                                       gltfLayer.get(), &viewports, commandGenerator.get());

@@ -23,7 +23,17 @@ void Application::drawViewports(FrameContext& frame)
     // Viewport Windows (Multi-Viewport)
     // -------------------------------------------------------------
     auto& activeEnvironment = getSceneEnvironment(sceneEnvironments, gltfModel, activeScene);
-    if (gltfLayer != nullptr && (ux3d::imgui::RenderQuality::allowIbl() || ux3d::imgui::RenderQuality::allowSkybox(activeEnvironment.showBackground))) {
+    const bool proceduralSky =
+        activeEnvironment.environmentSource == static_cast<int>(ux3d::imgui::EnvironmentSource::ProceduralSky);
+    if (gltfLayer != nullptr && proceduralSky &&
+        (ux3d::imgui::RenderQuality::allowIbl() || ux3d::imgui::RenderQuality::allowSkybox(activeEnvironment.showBackground))) {
+        // A6.2 / A6.3: the procedural sky's LUTs and time-sliced IBL; the HDR is not loaded meanwhile.
+        updateSkyEnvironment(activeEnvironment, frame);
+    } else if (gltfLayer != nullptr && (ux3d::imgui::RenderQuality::allowIbl() || ux3d::imgui::RenderQuality::allowSkybox(activeEnvironment.showBackground))) {
+        if (skyEnvironment.active()) {
+            // Back to the HDR: the cleared environment path makes the block below load it again.
+            releaseSkyEnvironment();
+        }
         const auto desiredEnvPath = resolveHdrPath(activeEnvironment.currentHdrPath, rendererResourcesDir);
         // A3.1: while the sun is on (either mode) the HDR's own sun is removed from the panorama, so
         // switching the sun re-loads and re-filters the environment once (never per frame).
@@ -41,6 +51,12 @@ void Application::drawViewports(FrameContext& frame)
                 }
             }
         }
+    }
+    // The background draws the sky-view LUT while the procedural environment is attached (cubemap.frag).
+    const bool skyActive = proceduralSky && skyEnvironment.active() && gltfLayer != nullptr && gltfLayer->isExternalEnvironment();
+    if (gltfLayer != nullptr) {
+        auto* skyMaterial = std::get<1>(gltfLayer->getResourceManager().getCubeMapTuple());
+        if (skyMaterial != nullptr) skyMaterial->defines.defineIf(skyActive, "PROCEDURAL_SKY");
     }
 
     // Viewports drawn this frame share one scene traversal (see GltfRenderLayer).
@@ -830,9 +846,10 @@ void Application::drawViewports(FrameContext& frame)
                 commandGenerator->setToneMapping(ux3d::renderer::ToneMappingsEnum::ACES_NARKOWICZ);
             }
             commandGenerator->setExposure(std::pow(2.0f, activeEnvironment.exposureEV));
-            commandGenerator->setEnvironmentMapIntensity(activeEnvironment.hdrIntensity);
-            commandGenerator->setEnvironmentMapRotation(activeEnvironment.hdrRotation);
-            commandGenerator->setEnvironmentMapBlurNormalized(activeEnvironment.hdrBlur);
+            // A6.2: the procedural sky is in world space; the HDR's intensity, rotation and blur do not apply to it.
+            commandGenerator->setEnvironmentMapIntensity(skyActive ? 1.0f : activeEnvironment.hdrIntensity);
+            commandGenerator->setEnvironmentMapRotation(skyActive ? 0.0f : activeEnvironment.hdrRotation);
+            commandGenerator->setEnvironmentMapBlurNormalized(skyActive ? 0.0f : activeEnvironment.hdrBlur);
             commandGenerator->setIBLEnabled(activeEnvironment.iblEnabled && ux3d::imgui::RenderQuality::allowIbl());
             commandGenerator->setPunctualLightsEnabled(ux3d::imgui::RenderQuality::allowLights(activeEnvironment.punctualLightsEnabled));
             {

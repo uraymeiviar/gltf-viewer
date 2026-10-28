@@ -119,6 +119,26 @@ void GltfResourceManager::initCubeMap()
     m_cubeMapMaterial->renderPass = m_opaquePass;
     m_cubeMapMaterial->defines.define("LINEAR_OUTPUT", 1);
     m_cubeMapMaterial->isDoubleSided = true;
+    // A6.2: the procedural sky's sky-view LUT and parameters (cubemap.frag reads them only with PROCEDURAL_SKY; the
+    // HDR program has no such uniforms, so they are never bound there). Created here so later writes never move
+    // the storage the commands point at.
+    m_skyViewTexture = create<gl::Texture>(m_gl, 0u, gl::TextureTarget::Texture2d, false);
+    renderer::gl::SamplerState skySamplerState;
+    skySamplerState.minFilter = renderer::gl::TextureMinFilter::Linear;
+    skySamplerState.magFilter = renderer::gl::TextureMagFilter::Linear;
+    skySamplerState.wrapS = renderer::gl::TextureWrap::ClampToEdge;
+    skySamplerState.wrapT = renderer::gl::TextureWrap::ClampToEdge;
+    skySamplerState.wrapR = renderer::gl::TextureWrap::ClampToEdge;
+    m_cubeMapMaterial->samplers.emplace_back("u_SkyViewLUT", m_skyViewTexture, create<renderer::gl::SamplerState>(skySamplerState));
+    m_cubeMapMaterial->setUniform("u_SkySunDirection", math::vec3(0.0f, 1.0f, 0.0f));
+    m_cubeMapMaterial->setUniform("u_SkyParams", math::vec4(6360.0f, 6460.0f, 6360.05f, 10.0f));
+}
+
+void GltfResourceManager::setSkyViewTexture(GLuint handle)
+{
+    if (m_skyViewTexture != nullptr) {
+        m_skyViewTexture->handle = handle;
+    }
 }
 
 void GltfResourceManager::initGround()
@@ -214,14 +234,22 @@ std::tuple<gl::Texture*, uint32_t> GltfResourceManager::loadCubeMapTexture(const
 
 EnvironmentMap* GltfResourceManager::loadEnvironmentMap(const IBLSampler& _iblSampler)
 {
+    return loadEnvironmentMap(_iblSampler.lambertianTextureID, _iblSampler.ggxTextureID, _iblSampler.sheenTextureID,
+                              _iblSampler.ggxLUTTextureID, _iblSampler.charlieLUTTextureID, _iblSampler.sheenLUTTextureID,
+                              _iblSampler.getMipmapLevels(), true);
+}
+
+EnvironmentMap* GltfResourceManager::loadEnvironmentMap(GLuint lambertian, GLuint ggx, GLuint sheen, GLuint ggxLut,
+                                                        GLuint charlieLut, GLuint sheenLut, uint32_t mipCount, bool ownsHandles)
+{
     renderer::EnvironmentMap envMap(m_gl);
 
-    auto lambertianTexture = create<gl::Texture>(m_gl, _iblSampler.lambertianTextureID, gl::TextureTarget::TextureCubeMap);
-    auto ggxTexture = create<gl::Texture>(m_gl, _iblSampler.ggxTextureID, gl::TextureTarget::TextureCubeMap);
-    auto sheenTexture = create<gl::Texture>(m_gl, _iblSampler.sheenTextureID, gl::TextureTarget::TextureCubeMap);
-    auto ggxLUTTexture = create<gl::Texture>(m_gl, _iblSampler.ggxLUTTextureID, gl::TextureTarget::Texture2d);
-    auto charlieLUTTexture = create<gl::Texture>(m_gl, _iblSampler.charlieLUTTextureID, gl::TextureTarget::Texture2d);
-    auto sheenLUTTexture = create<gl::Texture>(m_gl, _iblSampler.sheenLUTTextureID, gl::TextureTarget::Texture2d);
+    auto lambertianTexture = create<gl::Texture>(m_gl, lambertian, gl::TextureTarget::TextureCubeMap, ownsHandles);
+    auto ggxTexture = create<gl::Texture>(m_gl, ggx, gl::TextureTarget::TextureCubeMap, ownsHandles);
+    auto sheenTexture = create<gl::Texture>(m_gl, sheen, gl::TextureTarget::TextureCubeMap, ownsHandles);
+    auto ggxLUTTexture = create<gl::Texture>(m_gl, ggxLut, gl::TextureTarget::Texture2d, ownsHandles);
+    auto charlieLUTTexture = create<gl::Texture>(m_gl, charlieLut, gl::TextureTarget::Texture2d, ownsHandles);
+    auto sheenLUTTexture = create<gl::Texture>(m_gl, sheenLut, gl::TextureTarget::Texture2d, ownsHandles);
 
     renderer::gl::SamplerState samplerState;
     samplerState.minFilter = renderer::gl::TextureMinFilter::Linear;
@@ -236,14 +264,14 @@ EnvironmentMap* GltfResourceManager::loadEnvironmentMap(const IBLSampler& _iblSa
     samplerState.wrapS = renderer::gl::TextureWrap::ClampToEdge;
     samplerState.wrapT = renderer::gl::TextureWrap::ClampToEdge;
     samplerState.wrapR = renderer::gl::TextureWrap::ClampToEdge;
-    envMap.setSpecular(ggxTexture, create<renderer::gl::SamplerState>(samplerState), _iblSampler.getMipmapLevels());
+    envMap.setSpecular(ggxTexture, create<renderer::gl::SamplerState>(samplerState), mipCount);
 
     samplerState.minFilter = renderer::gl::TextureMinFilter::LinearMipmapLinear;
     samplerState.magFilter = renderer::gl::TextureMagFilter::Linear;
     samplerState.wrapS = renderer::gl::TextureWrap::ClampToEdge;
     samplerState.wrapT = renderer::gl::TextureWrap::ClampToEdge;
     samplerState.wrapR = renderer::gl::TextureWrap::ClampToEdge;
-    envMap.setSheen(sheenTexture, create<renderer::gl::SamplerState>(samplerState), _iblSampler.getMipmapLevels());
+    envMap.setSheen(sheenTexture, create<renderer::gl::SamplerState>(samplerState), mipCount);
 
     samplerState.minFilter = renderer::gl::TextureMinFilter::Linear;
     samplerState.magFilter = renderer::gl::TextureMagFilter::Linear;

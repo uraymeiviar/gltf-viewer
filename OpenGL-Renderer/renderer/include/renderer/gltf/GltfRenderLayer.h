@@ -140,6 +140,14 @@ public:
     bool getEnvironmentSunRemoval() const { return m_iblSampler.getSunRemoval(); }
     const EnvironmentSun& getEnvironmentSun() const { return m_iblSampler.getEnvironmentSun(); }
     EnvironmentMap* getActiveEnvironmentMap() { return m_activeEnvironmentMap; }
+    // A6.2 / A6.3: an environment whose cubes and LUTs another system owns and fills (the procedural sky). The HDR
+    // sampler's textures are freed and the environment map path is cleared, so selecting an HDR again re-loads it
+    // (setEnvironmentMap ends external mode). retargetExternalEnvironment points the same map at newly filtered cubes
+    // (the commands referencing its samplers stay valid).
+    void setExternalEnvironment(GLuint lambertian, GLuint ggx, GLuint sheen, GLuint ggxLut, GLuint charlieLut,
+                                GLuint sheenLut, uint32_t mipCount);
+    void retargetExternalEnvironment(GLuint lambertian, GLuint ggx, GLuint sheen, uint32_t mipCount);
+    bool isExternalEnvironment() const { return m_externalEnvironment; }
     void enableCubeMap(bool enable) { m_cubeMapEnabled = enable; };
 
     void setActiveGltfCameraByNode(const gltf::Node* cameraNode);
@@ -334,6 +342,7 @@ private:
     EnvironmentMap* m_activeEnvironmentMap = nullptr;
     const gltf::Gltf* m_buffersUploadedForScene = nullptr;
     filesystem::Path m_environmentMapPath;
+    bool m_externalEnvironment = false;
     bool m_cubeMapEnabled = true;
     const gltf::Scene* m_gltfScene;
     size_t m_max2DTextureSize = 0;

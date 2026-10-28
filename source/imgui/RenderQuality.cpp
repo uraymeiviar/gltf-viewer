@@ -747,7 +747,8 @@ void RenderQuality::updateAuto(double frameMs, ux3d::renderer::GltfRenderLayer* 
     const auto desired = effective();
     if (layer && (!s_haveAppliedIbl || !desired.sameIbl(s_appliedIbl))) {
         applyIblParameters(*layer);
-        if (layer->getActiveEnvironmentMap() != nullptr) {
+        // A6.2: the procedural sky reads the layer's IBL parameters every frame and rebuilds itself.
+        if (layer->getActiveEnvironmentMap() != nullptr && !layer->isExternalEnvironment()) {
             const auto path = layer->getEnvironmentMapPath();
             const core::loading::Timer timer(core::loading::Ibl);
             layer->setEnvironmentMap(path);
@@ -1036,7 +1037,7 @@ void RenderQuality::drawSettings(ux3d::renderer::GltfRenderLayer* layer, SceneRe
     // The preset also sets the IBL fields, which are edited in the Scene Inspector.
     if (!s.sameIbl(before) && layer != nullptr) {
         applyIblParameters(*layer);
-        if (layer->getActiveEnvironmentMap() != nullptr) {
+        if (layer->getActiveEnvironmentMap() != nullptr && !layer->isExternalEnvironment()) {
             const auto path = layer->getEnvironmentMapPath();
             layer->setEnvironmentMap(path);
             layer->filterEnvironmentMap();
@@ -1091,7 +1092,7 @@ void RenderQuality::drawIblSettings(ux3d::renderer::GltfRenderLayer* layer, Scen
     }
     if (layer != nullptr) {
         applyIblParameters(*layer);
-        if (layer->getActiveEnvironmentMap() != nullptr) {
+        if (layer->getActiveEnvironmentMap() != nullptr && !layer->isExternalEnvironment()) {
             const auto path = layer->getEnvironmentMapPath();
             layer->setEnvironmentMap(path);
             layer->filterEnvironmentMap();
