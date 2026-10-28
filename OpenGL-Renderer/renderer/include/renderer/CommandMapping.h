@@ -151,6 +151,10 @@ protected:
         // A2.2: decal-class commands carry the polygon offset; the class is part of the
         // signature because it is not otherwise visible in the material's uniform storage.
         uint32_t drawOrderClass = 0;
+        // A3.2: the shadow caster copies' depth bias (Material::depthBias*).
+        float depthBiasSlope = 0.0f;
+        float depthBiasUnits = 0.0f;
+        bool depthBias = false;
         bool useIBL = false;
         bool usePunctualLights = false;
         bool operator==(const CommandSignature&) const = default;

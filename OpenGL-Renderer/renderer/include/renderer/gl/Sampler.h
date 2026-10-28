@@ -19,6 +19,8 @@ struct SamplerState {
     TextureWrap wrapS = TextureWrap::Repeat;
     TextureWrap wrapT = TextureWrap::Repeat;
     TextureWrap wrapR = TextureWrap::Repeat;
+    // A3.2: depth-comparison sampling (GL_COMPARE_REF_TO_TEXTURE, GL_LEQUAL) for shadow samplers.
+    bool compareRefToTexture = false;
 
     bool operator==(const SamplerState& other) const noexcept
     {
@@ -26,7 +28,8 @@ struct SamplerState {
                magFilter == other.magFilter &&
                wrapS == other.wrapS &&
                wrapT == other.wrapT &&
-               wrapR == other.wrapR;
+               wrapR == other.wrapR &&
+               compareRefToTexture == other.compareRefToTexture;
     }
     bool operator!=(const SamplerState& other) const noexcept
     {
@@ -42,6 +45,9 @@ struct core::Hash<renderer::gl::SamplerState> {
     {
         Hasher h(_seed);
         h << state.minFilter << state.magFilter << state.wrapS << state.wrapT << state.wrapR;
+        if (state.compareRefToTexture) {
+            h << state.compareRefToTexture;
+        }
         return h.getHash();
     }
 };

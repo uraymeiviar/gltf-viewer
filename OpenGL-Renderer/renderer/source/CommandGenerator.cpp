@@ -86,6 +86,17 @@ ux3d::renderer::CommandGenerator::CommandGenerator(gl::GL* gl, const filesystem:
     }
     m_ssrDepth = std::make_unique<gl::Texture>(gl, 0, gl::TextureTarget::Texture2d, false);
     m_ssrDepthSampler = std::make_unique<gl::Sampler>("u_SsrDepth", m_ssrDepth.get(), m_decalSamplerState.get());
+    // A3.2: hardware depth comparison with bilinear filtering (2x2 PCF per lookup), clamped at the edges.
+    m_sunShadowTexture = std::make_unique<gl::Texture>(gl, 0, gl::TextureTarget::Texture2dArray, false);
+    m_sunShadowSamplerState = std::make_unique<gl::SamplerState>();
+    m_sunShadowSamplerState->minFilter = gl::TextureMinFilter::Linear;
+    m_sunShadowSamplerState->magFilter = gl::TextureMagFilter::Linear;
+    m_sunShadowSamplerState->wrapS = gl::TextureWrap::ClampToEdge;
+    m_sunShadowSamplerState->wrapT = gl::TextureWrap::ClampToEdge;
+    m_sunShadowSamplerState->wrapR = gl::TextureWrap::ClampToEdge;
+    m_sunShadowSamplerState->compareRefToTexture = true;
+    m_sunShadowSampler = std::make_unique<gl::Sampler>("u_SunShadowMap", m_sunShadowTexture.get(),
+                                                       m_sunShadowSamplerState.get());
     setSsrOptions(true, 1, 0.5f);
     m_ssrDepthFloat.write(0);
     m_ssrFrame.write(0.0f);
@@ -141,8 +152,11 @@ void ux3d::renderer::CommandGenerator::bindFrameBlocks()
     // int u_AsoboFresnelFadeApplied at 112, int u_AsoboGhostEffectApplied at 116,
     // int u_AsoboAlphaDitherApplied at 120, float u_AsoboDitherFrame at 124,
     // A3.1: vec3 u_SunDirection at 128, int u_SunEnabled at 140, vec3 u_SunIlluminance at 144,
-    // float u_SunAngularRadius at 156 (160 bytes).
-    uint8_t environment[160] = {};
+    // float u_SunAngularRadius at 156,
+    // A3.2: mat4 u_ShadowMatrices[4] at 160, vec4 u_ShadowSplits at 416, vec4 u_ShadowTexelSizes at 432,
+    // vec4 u_ShadowParams at 448, int u_ShadowEnabled at 464, int u_ShadowCascadeCount at 468,
+    // int u_ShadowFilter at 472, float u_ShadowMapSize at 476 (480 bytes).
+    uint8_t environment[480] = {};
     if (m_environmentMapRotationUniform.byteSize() == 36) {
         for (size_t column = 0; column < 3; ++column) {
             std::memcpy(environment + column * 16, m_environmentMapRotationUniform.bytes() + column * 12, 12);
@@ -174,6 +188,18 @@ void ux3d::renderer::CommandGenerator::bindFrameBlocks()
     std::memcpy(environment + 140, &m_sunEnabled, 4);
     std::memcpy(environment + 144, &m_sunIlluminance[0], 12);
     std::memcpy(environment + 156, &m_sunAngularRadius, 4);
+    if (m_sunShadow.enabled) {
+        for (size_t i = 0; i < 4; ++i) {
+            std::memcpy(environment + 160 + i * 64, &m_sunShadow.matrices[i][0][0], 64);
+        }
+        std::memcpy(environment + 416, &m_sunShadow.splits[0], 16);
+        std::memcpy(environment + 432, &m_sunShadow.texelSizes[0], 16);
+        const glm::vec4 params(m_sunShadow.nearDepth, m_sunShadow.fadeStart, m_sunShadow.fadeEnd, m_sunShadow.normalBias);
+        std::memcpy(environment + 448, &params[0], 16);
+        const int32_t shadowInts[3] = { 1, m_sunShadow.cascadeCount, m_sunShadow.filter };
+        std::memcpy(environment + 464, shadowInts, 12);
+        std::memcpy(environment + 476, &m_sunShadow.mapSize, 4);
+    }
     uploadFrameBlock(m_environmentBlock, gl::kEnvironmentBlockBinding, environment, sizeof(environment));
 }
 

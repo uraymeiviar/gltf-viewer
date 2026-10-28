@@ -269,6 +269,9 @@ int Application::run(int argc, char** argv)
     decalPrepassLayer = std::make_unique<ux3d::renderer::DecalPrepassLayer>(gladGL.get());
     // A2.2: the accumulation pass draws the decals the prepass excluded.
     decalAccumulationLayer = std::make_unique<ux3d::renderer::DecalAccumulationLayer>(gladGL.get());
+    // A3.2: the sun shadow caster pass.
+    shadowCasterLayer = std::make_unique<ux3d::renderer::ShadowCasterLayer>(gladGL.get());
+    sunShadowCamera = std::make_unique<ux3d::renderer::Camera>(gladGL.get());
     // P5.2: the one picking target shared by all viewports, a single pixel.
     pickingTarget.resize(1, 1, 1);
 
@@ -437,6 +440,8 @@ int Application::run(int argc, char** argv)
     // material copies hold no GL objects, but the buffer's textures and FBOs do.
     releaseDecalBuffer();
     decalPrepassLayer.reset();
+    shadowCasterLayer.reset();
+    sunShadowCamera.reset();
     if (gltfLayer != nullptr) {
         gltfLayer.reset();
     }

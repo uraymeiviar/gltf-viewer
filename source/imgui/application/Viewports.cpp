@@ -52,6 +52,8 @@ void Application::drawViewports(FrameContext& frame)
             vp->antiAliasing.releaseTargets();
             vp->overlayFbo = ux3d::imgui::Framebuffer();
             vp->hasCachedImage = false;
+            vp->sunShadowMap.release();
+            vp->sunShadowActive = false;
             continue;
         }
 
@@ -68,6 +70,8 @@ void Application::drawViewports(FrameContext& frame)
             vp->antiAliasing.releaseTargets();
             vp->overlayFbo = ux3d::imgui::Framebuffer();
             vp->hasCachedImage = false;
+            vp->sunShadowMap.release();
+            vp->sunShadowActive = false;
             ImGui::End();
             continue;
         }
@@ -580,6 +584,14 @@ void Application::drawViewports(FrameContext& frame)
                 decalBuffer.clearTargets();
                 vp->sceneFbo.bind();
                 glViewport(0, 0, vpW, vpH);
+            }
+
+            // A3.2: the sun's shadow map for this viewport, before the forward scene is built (the caster
+            // pass builds its own unculled scene, so off-screen casters still cast). Off: no pass at all.
+            {
+                const auto shadowStart = ux3d::imgui::profiling::Clock::now();
+                updateSunShadows(*vp, frame, view, proj, activeEnvironment, !isWireframeMode, vpW, vpH);
+                if (vp->sunShadowActive) frame.markStage("shadow.render", shadowStart);
             }
 
             const auto createSceneStart = ux3d::imgui::profiling::Clock::now();
@@ -1453,6 +1465,196 @@ bool Application::viewportNeedsDecalBuffer(const ux3d::imgui::ViewportInstance& 
                && viewport.settings.asobo.applies("ASOBO_material_geometry_decal"))
         || (gltfLayer->hasBlendGbufferMaterials()
             && viewport.settings.asobo.applies("ASOBO_material_blend_gbuffer"));
+}
+
+void Application::updateSunShadows(ux3d::imgui::ViewportInstance& vp, FrameContext& frame, const glm::mat4& view,
+                                   const glm::mat4& projection, const ux3d::imgui::SceneEnvironmentState& environment,
+                                   bool shadingAllowed, int vpW, int vpH)
+{
+    ux3d::renderer::CommandGenerator::SunShadowParameters parameters; // disabled
+    const EffectiveSun sun = effectiveSun(environment);
+    const ux3d::imgui::RenderQualitySettings quality = ux3d::imgui::RenderQuality::effective();
+    const bool wanted = sun.enabled && quality.shadows && shadingAllowed && gltfLayer != nullptr && commandGenerator != nullptr
+        && glRenderer != nullptr && shadowCasterLayer != nullptr && sunShadowCamera != nullptr && activeScene != nullptr;
+    const auto disable = [&] {
+        vp.sunShadowMap.release();
+        vp.sunShadowSetup = ux3d::renderer::ShadowCascadeSetup();
+        vp.sunShadowActive = false;
+        if (commandGenerator != nullptr) commandGenerator->setSunShadow(parameters);
+    };
+    if (!wanted) {
+        disable();
+        return;
+    }
+
+    // The viewport's unculled scene: the casters, and (with the receivers) the extent the cascades are cut to.
+    gltfLayer->frustumCulling = false;
+    gltfLayer->asoboOptions = vp.settings.asobo;
+    gltfLayer->materialExtensionOptions = vp.settings.materialExtensions;
+    auto [casterScene, casterMapping] = gltfLayer->createScene(activeScene);
+
+    // Cascades fitted to this viewport's (unjittered) frustum, cut to the scene's extent.
+    ux3d::renderer::ShadowCascadeInput input;
+    input.view = view;
+    input.projection = projection;
+    input.directionToSun = sun.direction;
+    input.cascadeCount = std::clamp(quality.shadowCascades, 2, 4);
+    input.resolution = static_cast<int>(quality.shadowResolution);
+    input.maxDistance = quality.shadowDistance;
+    input.splitLambda = quality.shadowSplitLambda;
+    {
+        // Tight bounds from the drawables' static POSITION boxes (world space, current pose). Skinned, morphed
+        // and quantized primitives cannot be bounded that way: the loose node extents (bounding spheres of
+        // the accessor boxes) are added for them.
+        ux3d::math::vec3 lo(0.0f);
+        ux3d::math::vec3 hi(0.0f);
+        bool bounded = false;
+        const size_t unbounded = gltfLayer->boundDrawables(casterScene.drawables, casterMapping, lo, hi, bounded);
+        glm::vec3 sceneMin(lo);
+        glm::vec3 sceneMax(hi);
+        if (unbounded > 0 || !bounded) {
+            const ux3d::gltf::Extends& extents = getCachedSceneExtents(activeScene, gltfModel, gltfLayer.get());
+            const glm::vec3 extentsMin(extents.min);
+            const glm::vec3 extentsMax(extents.max);
+            sceneMin = bounded ? glm::min(sceneMin, extentsMin) : extentsMin;
+            sceneMax = bounded ? glm::max(sceneMax, extentsMax) : extentsMax;
+        }
+        if (std::isfinite(sceneMin.x + sceneMin.y + sceneMin.z + sceneMax.x + sceneMax.y + sceneMax.z)
+            && sceneMax.x >= sceneMin.x && sceneMax.y >= sceneMin.y && sceneMax.z >= sceneMin.z) {
+            const glm::vec3 margin(0.01f * glm::length(sceneMax - sceneMin) + 0.01f);
+            input.hasSceneBounds = true;
+            input.sceneMin = sceneMin - margin;
+            input.sceneMax = sceneMax + margin;
+        }
+    }
+    const ux3d::renderer::ShadowCascadeSetup setup = ux3d::renderer::fitShadowCascades(input);
+    if (!setup.valid || !vp.sunShadowMap.ensure(input.resolution, setup.count)) {
+        disable();
+        vp.sceneFbo.bind();
+        glViewport(0, 0, vpW, vpH);
+        return;
+    }
+
+    // Casters: every primitive of the unculled scene that casts (ShadowCasterLayer rules); each cascade
+    // then culls them against its own light volume.
+    ux3d::renderer::ShadowCasterLayer::Options options;
+    options.asoboEnabled = vp.settings.asobo.enabled;
+    options.applyShadowOptions = vp.settings.asobo.applies("ASOBO_material_shadow_options");
+    options.applyMaterialCode = vp.settings.asobo.applies("ASOBO_material_code");
+    options.slopeBias = quality.shadowSlopeBias;
+    options.constantBias = quality.shadowConstantBias;
+    // The caster copies follow their sources when the model, a material or the render settings change.
+    uint64_t sourceRevision = gltfLayer->getGltfGeneration();
+    for (const auto change : { ux3d::imgui::SceneChange::Material, ux3d::imgui::SceneChange::Extension,
+                               ux3d::imgui::SceneChange::RenderSettings, ux3d::imgui::SceneChange::ViewportSettings }) {
+        sourceRevision = sourceRevision * 0x9E3779B97F4A7C15ULL + sceneRevisions.revision(change);
+    }
+    options.sourceRevision = sourceRevision;
+    options.modelGeneration = gltfLayer->getSceneGeneration();
+    ux3d::core::LinkedList<std::tuple<ux3d::renderer::Mesh*, ux3d::renderer::Material*>> casters;
+    shadowCasterLayer->collect(casterScene.drawables,
+                               [&casterMapping](const ux3d::renderer::Mesh* mesh) {
+                                   return casterMapping.find(const_cast<ux3d::renderer::Mesh*>(mesh)) != casterMapping.end();
+                               },
+                               options, casters);
+
+    // Frame values the caster shader reads (getBaseColor, the A1.7 dither); the dither pattern stays fixed.
+    commandGenerator->setSunShadow(parameters);
+    commandGenerator->setAsoboAlphaDither(vp.settings.asobo.applies("ASOBO_material_alphamode_dither"));
+    commandGenerator->setAsoboDitherFrame(0.0f);
+    commandGenerator->setAsoboUVOptions(vp.settings.asobo.applies("ASOBO_material_UV_options"));
+    commandGenerator->setAsoboDetailMap(vp.settings.asobo.applies("ASOBO_material_detail_map"));
+    commandGenerator->setAsoboWindshieldVertexColorMask(vp.settings.asobo.applies("ASOBO_material_windshield_v3"));
+
+    int currentLayer = 0;
+    shadowCasterLayer->prePass = [&vp, &currentLayer] { vp.sunShadowMap.bindLayer(currentLayer, false); };
+    shadowCasterLayer->postPass = [&vp, vpW, vpH] {
+        vp.sceneFbo.bind();
+        glViewport(0, 0, vpW, vpH);
+    };
+    for (int c = 0; c < setup.count; ++c) {
+        const ux3d::renderer::ShadowCascade& cascade = setup.cascades[static_cast<size_t>(c)];
+        currentLayer = c;
+        sunShadowCamera->setTransform(ux3d::math::mat4x4(glm::inverse(cascade.lightView)));
+        sunShadowCamera->setProjection(ux3d::math::mat4x4(cascade.lightProjection));
+        ux3d::renderer::RendererScene shadowScene;
+        shadowScene.camera = sunShadowCamera.get();
+        shadowScene.environmentMap = casterScene.environmentMap;
+        shadowScene.lights = casterScene.lights;
+        shadowScene.drawables = casters;
+        gltfLayer->cullToClip(shadowScene.drawables, casterMapping, cascade.lightProjection * cascade.lightView);
+        // Cleared here: a cascade without casters runs no pass, but must not keep an old map.
+        vp.sunShadowMap.bindLayer(c, true);
+        commandGenerator->update(shadowScene);
+        glRenderer->setGpuFrameContext(frame.number, vp.id, "shadow");
+        glRenderer->draw({ commandGenerator.get() });
+    }
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    vp.sceneFbo.bind();
+    glViewport(0, 0, vpW, vpH);
+
+    parameters.enabled = true;
+    parameters.texture = vp.sunShadowMap.texture();
+    parameters.cascadeCount = setup.count;
+    parameters.filter = static_cast<int>(quality.shadowFilter);
+    parameters.mapSize = static_cast<float>(input.resolution);
+    parameters.normalBias = quality.shadowNormalBias;
+    for (int c = 0; c < setup.count; ++c) {
+        const auto& cascade = setup.cascades[static_cast<size_t>(c)];
+        parameters.matrices[static_cast<size_t>(c)] = cascade.textureFromWorld;
+        parameters.splits[c] = cascade.splitFar;
+        parameters.texelSizes[c] = cascade.texelWorld;
+    }
+    parameters.nearDepth = setup.nearDepth;
+    parameters.fadeStart = setup.fadeStart;
+    parameters.fadeEnd = setup.fadeEnd;
+    commandGenerator->setSunShadow(parameters);
+    vp.sunShadowSetup = setup;
+    vp.sunShadowActive = true;
+}
+
+nlohmann::json Application::sunShadowStateJson() const
+{
+    const ux3d::imgui::RenderQualitySettings configured = ux3d::imgui::RenderQuality::settings();
+    const ux3d::imgui::RenderQualitySettings quality = ux3d::imgui::RenderQuality::effective();
+    nlohmann::json out = {{"enabled", configured.shadows},
+                          {"resolution", quality.shadowResolution},
+                          {"cascadeCount", quality.shadowCascades},
+                          {"maxDistance", agent::floatJson(quality.shadowDistance)},
+                          {"filter", ux3d::imgui::RenderQuality::shadowFilterName(quality.shadowFilter)},
+                          {"splitLambda", agent::floatJson(quality.shadowSplitLambda)},
+                          {"normalBias", agent::floatJson(quality.shadowNormalBias)},
+                          {"slopeBias", agent::floatJson(quality.shadowSlopeBias)},
+                          {"constantBias", agent::floatJson(quality.shadowConstantBias)}};
+    nlohmann::json viewportsJson = nlohmann::json::array();
+    for (const auto& vp : viewports) {
+        if (vp == nullptr) continue;
+        nlohmann::json entry = {{"viewport", vp->id}, {"active", vp->sunShadowActive},
+                                {"memoryBytes", vp->sunShadowMap.bytes()}};
+        if (vp->sunShadowActive) {
+            nlohmann::json cascades = nlohmann::json::array();
+            for (int c = 0; c < vp->sunShadowSetup.count; ++c) {
+                const auto& cascade = vp->sunShadowSetup.cascades[static_cast<size_t>(c)];
+                cascades.push_back({{"near", agent::floatJson(cascade.splitNear)},
+                                    {"far", agent::floatJson(cascade.splitFar)},
+                                    {"radius", agent::floatJson(cascade.radius)},
+                                    {"texelWorld", agent::floatJson(cascade.texelWorld)},
+                                    {"depthRange", agent::floatJson(cascade.depthRange)},
+                                    {"lightOrigin", {agent::floatJson(cascade.lightOrigin.x), agent::floatJson(cascade.lightOrigin.y)}}});
+            }
+            entry["cascades"] = cascades;
+            entry["casters"] = shadowCasterLayer != nullptr ? shadowCasterLayer->getStats().casters : 0;
+        }
+        viewportsJson.push_back(entry);
+    }
+    out["viewports"] = viewportsJson;
+    if (shadowCasterLayer != nullptr) {
+        const auto& stats = shadowCasterLayer->getStats();
+        out["excluded"] = {{"notOpaquePass", stats.notOpaquePass}, {"decals", stats.decals}, {"glass", stats.glass},
+                           {"invisible", stats.invisible}, {"noCastShadow", stats.noCastShadow}};
+        out["materialCopies"] = shadowCasterLayer->getMaterialCopies();
+    }
+    return out;
 }
 
 void Application::releaseDecalBuffer()

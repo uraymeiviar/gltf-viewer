@@ -53,4 +53,20 @@ layout(std140) uniform EnvironmentBlock
     int u_SunEnabled;
     vec3 u_SunIlluminance;
     float u_SunAngularRadius;
+
+    // A3.2 cascaded sun shadow maps (shadow.glsl; docs/ASOBO_EXTENSIONS_PHASE_3.md, A3.2). Per viewport:
+    // u_ShadowMatrices[i] maps a world position to cascade i's shadow-map texture space (xy in 0..1, z the
+    // window depth 0..1). u_ShadowSplits[i]: the view depth (metres in front of the camera) where cascade i
+    // ends. u_ShadowTexelSizes[i]: world size of one shadow-map texel of cascade i.
+    // u_ShadowParams: x = view depth where cascade 0 starts, y/z = view depth where the shadow starts / ends
+    // fading out (only when the max distance cuts the scene), w = normal offset in texels.
+    // u_ShadowEnabled is 0 whenever the sun or its shadows are off: the sun term is then unshadowed.
+    mat4 u_ShadowMatrices[4];
+    vec4 u_ShadowSplits;
+    vec4 u_ShadowTexelSizes;
+    vec4 u_ShadowParams;
+    int u_ShadowEnabled;
+    int u_ShadowCascadeCount;
+    int u_ShadowFilter; // 0 hard (one bilinear compare), 1 PCF (3x3 bilinear compares), 2 soft (rotated Poisson)
+    float u_ShadowMapSize; // texels per side
 };

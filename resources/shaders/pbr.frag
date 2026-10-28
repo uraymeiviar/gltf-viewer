@@ -30,6 +30,7 @@ precision highp float;
 #include <asobo_windshield.glsl>
 #include <asobo_dither.glsl>
 #include <asobo_sss.glsl>
+#include <shadow.glsl>
 #include <material_info.glsl>
 
 #ifdef MATERIAL_IRIDESCENCE
@@ -723,8 +724,9 @@ void main()
     // single pixel; GGX stays normalised, so the reflected energy is unchanged.
     if (u_SunEnabled != 0)
     {
-        // A3.2 shadow hook: multiply the cascaded shadow-map visibility in here (1.0 = unshadowed).
-        float sunVisibility = 1.0;
+        // A3.2: cascaded shadow-map visibility of the sun (1.0 exactly while shadows are off), looked up
+        // with the normal offset along the geometric normal.
+        float sunVisibility = sunShadowVisibility(v_Position, normalInfo.ng);
         vec3 sunIntensity = u_SunIlluminance * sunVisibility;
         float sunWiden = 0.5 * tan(u_SunAngularRadius);
         vec3 sunL = normalize(u_SunDirection);
@@ -777,14 +779,26 @@ void main()
 #endif
         }
 #ifdef ASOBO_SSS
-        // A3.4: wrap and back-lit translucency, as for the punctual lights. Note for A3.2: the shadow
-        // term (sunVisibility) belongs only on the front (wrapped) part; the transmitted part needs the
-        // shadow seen from the light's side of the surface, so it must not simply reuse sunVisibility.
+        // A3.4: wrap and back-lit translucency, as for the punctual lights. A3.2: the front (wrapped)
+        // part takes sunVisibility; the transmitted part takes the visibility sampled at the back side of
+        // the surface (normal offset along -ng): a thin sheet lit from behind is not shadowed by itself,
+        // while light through a closed, thick body is blocked by the body's sun-facing side.
         vec3 sunSssHalf = sunL + v;
         float sunSssVdotH = dot(sunSssHalf, sunSssHalf) > 1e-12 ? clampedDot(v, normalize(sunSssHalf)) : 0.0;
-        f_diffuse += asoboSssDirectDiffuse(sunIntensity, dot(n, sunL), sunNdotL, sunSssVdotH, sunNdotV,
-            materialInfo.f0, materialInfo.f90, materialInfo.c_diff, materialInfo.specularWeight,
-            asoboSssColor, asoboSssTransmission);
+        if (u_ShadowEnabled == 0) {
+            f_diffuse += asoboSssDirectDiffuse(sunIntensity, dot(n, sunL), sunNdotL, sunSssVdotH, sunNdotV,
+                materialInfo.f0, materialInfo.f90, materialInfo.c_diff, materialInfo.specularWeight,
+                asoboSssColor, asoboSssTransmission);
+        } else {
+            float sunBackVisibility = sunShadowVisibility(v_Position, -normalInfo.ng);
+            // Wrapped part (transmission 0 leaves only the wrap) and transmitted part, each with its visibility.
+            f_diffuse += asoboSssDirectDiffuse(sunIntensity, dot(n, sunL), sunNdotL, sunSssVdotH, sunNdotV,
+                materialInfo.f0, materialInfo.f90, materialInfo.c_diff, materialInfo.specularWeight,
+                asoboSssColor, 0.0);
+            f_diffuse += asoboSssTransmittedDiffuse(u_SunIlluminance * sunBackVisibility, dot(n, sunL), sunNdotV,
+                materialInfo.f0, materialInfo.f90, materialInfo.c_diff, materialInfo.specularWeight,
+                asoboSssColor, asoboSssTransmission);
+        }
 #endif
 #ifdef MATERIAL_TRANSMISSION
         {
@@ -1052,6 +1066,14 @@ vec3 specularTexture = vec3(1.0);
 #if DEBUG == DEBUG_IRIDESCENCE_THICKNESS
     g_finalColor.rgb = linearTosRGB(vec3(materialInfo.iridescenceThickness / 1200.0));
 #endif
+#endif
+// A3.2 shadow debug views (raw values, no tone mapping): the cascade colour darkened by the shadow, and
+// the sun visibility term itself (1 = lit, 0 = shadowed; 1 everywhere while the sun or its shadows are off).
+#if DEBUG == DEBUG_SHADOW_CASCADES
+    g_finalColor = vec4(sunShadowCascadeDebugColor(v_Position, normalInfo.ng), 1.0);
+#endif
+#if DEBUG == DEBUG_SHADOW_VISIBILITY
+    g_finalColor = vec4(vec3(u_SunEnabled != 0 ? sunShadowVisibility(v_Position, normalInfo.ng) : 1.0), 1.0);
 #endif
 #if DEBUG == DEBUG_SSR && defined(ASOBO_WINDSHIELD_SSR)
     vec4 ssrDebug = traceWindshield(n, v, normalInfo.ng, v_Position);

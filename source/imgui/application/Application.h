@@ -29,6 +29,7 @@
 #include "renderer/DecalPrepassLayer.h"
 #include "renderer/DecalAccumulationLayer.h"
 #include "renderer/PickingRenderLayer.h"
+#include "renderer/ShadowCasterLayer.h"
 #include "renderer/gltf/GltfRenderLayer.h"
 #include "renderer/TransformHierarchyNode.h"
 
@@ -350,6 +351,13 @@ private:
     // the HDR rotation and scaled by the HDR intensity) and its state for get_state and profile reports.
     EffectiveSun effectiveSun(const ux3d::imgui::SceneEnvironmentState& environment) const;
     nlohmann::json sunStateJson(const ux3d::imgui::SceneEnvironmentState& environment) const;
+    // A3.2: renders the viewport's cascaded sun shadow map (one depth pass per cascade, before the forward
+    // scene) and sets the shadow frame values, or releases the map and disables the shadow term. Leaves
+    // the viewport's scene target bound.
+    void updateSunShadows(ux3d::imgui::ViewportInstance& vp, FrameContext& frame, const glm::mat4& view,
+                          const glm::mat4& projection, const ux3d::imgui::SceneEnvironmentState& environment,
+                          bool shadingAllowed, int vpW, int vpH);
+    nlohmann::json sunShadowStateJson() const;
     nlohmann::json probePixel(ux3d::imgui::ViewportInstance* vp, int x, int y, bool withPick);
     nlohmann::json probeRegion(ux3d::imgui::ViewportInstance* vp, int x0, int y0, int x1, int y1);
 
@@ -397,6 +405,10 @@ private:
     // A2.2: the decal accumulation pass; it removes the decal draws from the forward scene.
     std::unique_ptr<ux3d::renderer::DecalAccumulationLayer> decalAccumulationLayer;
     ux3d::imgui::DecalBuffer decalBuffer;
+    // A3.2: the sun shadow caster pass and the light camera its cascades draw with (shared by all viewports;
+    // each viewport keeps its own shadow map).
+    std::unique_ptr<ux3d::renderer::ShadowCasterLayer> shadowCasterLayer;
+    std::unique_ptr<ux3d::renderer::Camera> sunShadowCamera;
     ux3d::renderer::ReverseMapping currentReverseMapping;
     std::vector<std::unique_ptr<ux3d::imgui::ViewportInstance>> viewports;
     ux3d::imgui::ViewportInstance* activeViewport = nullptr;

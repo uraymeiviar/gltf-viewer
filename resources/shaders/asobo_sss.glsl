@@ -66,6 +66,15 @@ vec3 asoboSssDirectDiffuse(vec3 intensity, float rawNdotL, float NdotL, float Vd
     return intensity * (wrapped + transmitted);
 }
 
+// Only the transmitted part of asoboSssDirectDiffuse (A3.2: the sun shadows it with the visibility of the
+// surface's back side, separately from the wrapped front part).
+vec3 asoboSssTransmittedDiffuse(vec3 intensity, float rawNdotL, float NdotV, vec3 f0, vec3 f90, vec3 diffuseColor,
+                                float specularWeight, vec3 sssColor, float transmission)
+{
+    return intensity * asoboSssBackFactor(rawNdotL, sssColor, transmission)
+        * BRDF_lambertian(f0, f90, diffuseColor, specularWeight, NdotV);
+}
+
 // IBL translucency: the diffuse irradiance from the opposite side (backIrradiance = getDiffuseLight(-n)),
 // transmitted with the weight of a direct light from straight behind and the same N.V Fresnel. The IBL
 // diffuse convention has no 1/pi (diffuse = c_diff * irradiance).

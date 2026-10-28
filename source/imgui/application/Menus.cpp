@@ -43,6 +43,8 @@ constexpr ShadingModeInfo s_shadingModes[] = {
     {"Decal Prepass Normal", ux3d::renderer::RenderMode::DecalPrepassNormal, nullptr, false},
     {"SSR", ux3d::renderer::RenderMode::SSR, nullptr, false},
     {"SSR Ray", ux3d::renderer::RenderMode::SSRRay, nullptr, false},
+    {"Shadow Cascades", ux3d::renderer::RenderMode::ShadowCascades, nullptr, false},
+    {"Shadow Visibility", ux3d::renderer::RenderMode::ShadowVisibility, nullptr, false},
     {"Shading Normal", ux3d::renderer::RenderMode::ShadingNormal, nullptr, false},
     {"Alpha", ux3d::renderer::RenderMode::Alpha, nullptr, false},
     {"", ux3d::renderer::RenderMode::None, nullptr, true},
@@ -147,6 +149,10 @@ ux3d::renderer::RenderMode Application::getRenderModeFromIndex(int idx)
         return ux3d::renderer::RenderMode::SSR;
     case 33:
         return ux3d::renderer::RenderMode::SSRRay;
+    case 34:
+        return ux3d::renderer::RenderMode::ShadowCascades;
+    case 35:
+        return ux3d::renderer::RenderMode::ShadowVisibility;
     default:
         return ux3d::renderer::RenderMode::None;
     }
@@ -288,6 +294,10 @@ int Application::getIndexFromRenderMode(ux3d::renderer::RenderMode mode)
         return 32;
     case RM::SSRRay:
         return 33;
+    case RM::ShadowCascades:
+        return 34;
+    case RM::ShadowVisibility:
+        return 35;
     default:
         return 0;
     }
@@ -321,6 +331,10 @@ const char* Application::getRenderModeLabel(ux3d::renderer::RenderMode mode)
         return "SSR";
     case RM::SSRRay:
         return "SSR Ray";
+    case RM::ShadowCascades:
+        return "Shadow Cascades";
+    case RM::ShadowVisibility:
+        return "Shadow Visibility";
     case RM::Alpha:
         return "Alpha";
     case RM::Occlusion:

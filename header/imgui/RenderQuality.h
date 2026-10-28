@@ -24,6 +24,13 @@ enum class QualityPreset {
     Custom = 3,
 };
 
+// A3.2: sun shadow filter (shadow.glsl).
+enum class ShadowFilter {
+    Hard = 0, // one bilinear hardware compare
+    Pcf = 1,  // 3x3 bilinear compares (smooth 4x4-texel footprint)
+    Soft = 2, // 16 rotated Poisson compares, radius 2.5 texels
+};
+
 enum class GridMode {
     ScreenRay = 0, // full-screen ray cast with gl_FragDepth (original)
     PlaneMesh = 1, // rasterized plane around the camera; keeps early depth testing
@@ -43,12 +50,31 @@ struct RenderQualitySettings {
     GridMode gridMode = GridMode::ScreenRay;
     float renderScale = 1.0f;         // viewport render resolution relative to its panel size
 
+    // A3.2 cascaded sun shadow maps (only while the sun is on). The quality fields (on/off, resolution,
+    // cascades, distance, filter) are part of the four quality presets; the split lambda and the bias
+    // values are tuning values kept across preset changes.
+    bool shadows = true;
+    uint32_t shadowResolution = 2048; // 1024 / 2048 / 4096 texels per cascade side
+    int shadowCascades = 3;           // 2..4
+    float shadowDistance = 200.0f;    // view depth (scene units, metres) where the shadows end
+    ShadowFilter shadowFilter = ShadowFilter::Pcf;
+    float shadowSplitLambda = 0.75f;  // practical split scheme: 0 uniform .. 1 logarithmic
+    float shadowNormalBias = 1.0f;    // receiver normal offset, in shadow-map texels
+    float shadowSlopeBias = 2.0f;     // caster glPolygonOffset factor
+    float shadowConstantBias = 1.0f;  // caster glPolygonOffset units
+
     bool operator==(const RenderQualitySettings&) const = default;
 
     static RenderQualitySettings fromPreset(QualityPreset preset);
     bool sameIbl(const RenderQualitySettings& other) const;
     // Estimated GPU memory of the filtered IBL textures that stay resident.
     uint64_t estimatedIblBytes() const;
+    // A3.2: GPU memory of one viewport's shadow map (32-bit depth, every cascade); 0 when shadows are off.
+    uint64_t estimatedShadowBytes() const;
+    // Copies the shadow tuning values (lambda, biases) that preset changes keep.
+    void copyShadowTuning(const RenderQualitySettings& from);
+    // Copies every shadow field.
+    void copyShadows(const RenderQualitySettings& from);
 };
 
 // The four editable user profiles. Selection 0 is Auto; 1..4 address these profiles.
@@ -68,6 +94,11 @@ public:
     static bool autoActive();
     static bool allowIbl();
     static bool allowBloom(bool requested);
+    // A3.2: a user or agent edit of a shadow setting pins the shadow group for this session (Auto quality
+    // then uses the configured values instead of its cheaper start).
+    static void pinShadows();
+    static bool validShadowResolution(uint32_t value);
+    static const char* shadowFilterName(ShadowFilter filter);
     static ViewportSettingsState effectiveViewport(ViewportSettingsState& configured);
     static const std::string& autoStatus();
     static int autoLevel();

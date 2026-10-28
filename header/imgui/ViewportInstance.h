@@ -6,6 +6,8 @@
 #include "imgui/AntiAliasing.h"
 #include "imgui/ViewportSettingsPanel.h"
 #include "imgui/SceneRevisions.h"
+#include "imgui/SunShadowMap.h"
+#include "renderer/CascadedShadows.h"
 #include "renderer/Camera.h"
 #include "renderer/PickingRenderLayer.h"
 #include "renderViewInput/CameraActor.h"
@@ -75,6 +77,11 @@ struct ViewportInstance {
     // SSR overlays meter a normally shaded scene, so diagnostic colours never drive EV.
     Framebuffer ssrExposureFbo;
     std::unique_ptr<AntiAliasing> ssrExposureAa;
+    // A3.2: the sun's cascaded shadow map, fitted to this viewport's frustum (released while the sun or its
+    // shadows are off), and the cascades of its last render (reports and get_state).
+    SunShadowMap sunShadowMap;
+    ux3d::renderer::ShadowCascadeSetup sunShadowSetup;
+    bool sunShadowActive = false;
 
     // Material variants live as long as this viewport. The model generation covers
     // full reloads and material-only Inspector/ASOBO syncs; viewport settings cover

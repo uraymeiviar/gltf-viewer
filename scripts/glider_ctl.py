@@ -106,9 +106,11 @@ class GliderPipe:
                 self._file = open(self.name, "r+b", buffering=0)
                 break
             except OSError as error:
-                busy = getattr(error, "winerror", None) == ERROR_PIPE_BUSY
-                if time.time() > deadline or not (busy or isinstance(error, FileNotFoundError)):
-                    raise GliderError("connect_failed", f"cannot open {self.name}: {error}")
+                # Busy, not yet created, or briefly between pipe instances (seen as EINVAL right after
+                # launch): all transient, so retry until the deadline.
+                if time.time() > deadline:
+                    raise GliderError("connect_failed", f"cannot open {self.name}: {error} "
+                                      f"(winerror {getattr(error, 'winerror', None)})")
                 time.sleep(0.05)
         # Synchronous pipe handles serialise reads and writes, so there is no reader thread:
         # replies are polled with PeekNamedPipe, which also gives read timeouts.

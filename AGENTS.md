@@ -312,6 +312,19 @@ build/bin/Release/Glider.exe
   `--hdr-rotation`, colour, integrated illuminance x HDR intensity). While the sun is on, the HDR's own sun is
   removed from the IBL and background (one re-filter); off (default) is byte-identical. `get_state` and
   `--profile-report` include a `sun` object. See `docs/ASOBO_EXTENSIONS_PHASE_3.md` (A3.1).
+- `--shadows on|off`, `--shadow-resolution <1024|2048|4096>`, `--shadow-cascades <2..4>`, `--shadow-distance <m>`,
+  `--shadow-filter <hard|pcf|soft>`, `--shadow-split-lambda <0..1>`, `--shadow-normal-bias <texels>`,
+  `--shadow-slope-bias <x>`, `--shadow-constant-bias <x>`: A3.2 cascaded shadow maps of the sun (drawn only while
+  the sun is on; default on, 2048 x 3 cascades, 200 m, PCF, lambda 0.75, biases 1 / 2 / 1). Renderer-wide
+  (Viewport Settings → Quality → Sun Shadows; the quality fields are part of the four presets in
+  `[QualityProfiles]`, all of them in `[RenderQuality]`; Auto starts at 1024 x 2 and steps up to the configured
+  values); registry keys `shadows`, `shadow_resolution`, `shadow_cascades`, `shadow_distance`, `shadow_filter`,
+  `shadow_split_lambda`, `shadow_normal_bias`, `shadow_slope_bias`, `shadow_constant_bias` (saved preferences:
+  `set_persist(true)` over the pipe). Each viewport keeps its own map, fitted to its frustum (size² x cascades x
+  4 bytes: 48 MiB at the default), released while the sun or its shadows are off. `--debug-view shadowcascades`
+  and `shadowvisibility` show the cascades and the visibility term; `sun.shadows` in `get_state` and
+  `--profile-report` lists each viewport's cascades. Sun off and shadows off are byte-identical to before. See
+  `docs/ASOBO_EXTENSIONS_PHASE_3.md` (A3.2).
 - `--time-of-day <day|night>`: Scene environment time of day (day=0 [default], night=1). Controls `ASOBO_material_emissive` day/night multipliers (`emissiveDayMultiplier` during day, `emissiveNightMultiplier` at night). Also editable in Scene Inspector → Environment.
 - `--set-asobo-param <material> <extension> <param> <value>` (repeatable): edits a material's ASOBO extension parameter in memory after loading (by material name or index), using the same code path as the Inspector UI (`ExtensionInspector::setMaterialAsoboParameter` + `GltfRenderLayer::updateMaterialStates`).
 - `--quality-preset <auto|low|med|mid|high|ultra>`: select the editable renderer-wide preset. Interactive startup defaults to Auto, which adapts toward Ultra. The viewport dropdown has Auto/Low/Mid/High/Ultra; **File → Settings → Quality Presets** edits and resets the four definitions. They are saved in the portable `settings.ini` (`[QualityProfiles]`; same fallback and isolated rules as other settings). Texture-cap changes refresh images without reopening the model. Legacy `--quality` retains its existing meanings. See `docs/QUALITY_PRESETS_AND_TELEMETRY.md`.

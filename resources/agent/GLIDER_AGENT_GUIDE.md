@@ -76,7 +76,14 @@ Commands run on the render thread between frames, strictly in order. Multi-frame
 - Switching the sun on or off re-filters the environment once (the HDR's sun is removed while it is on), so
   the next capture may take a moment longer. `get_state` returns `sun` (effective direction, angles,
   illuminance, and `hdr`: the detected HDR sun).
-- No shadows yet (A3.2): the sun lights interiors through the airframe.
+- Shadows (A3.2): on by default while the sun is on, renderer-wide keys through `set_viewport_setting`:
+  `shadows`, `shadow_resolution` (1024/2048/4096), `shadow_cascades` (2-4), `shadow_distance` (scene units:
+  metres for MSFS files, centimetres for some samples), `shadow_filter` (hard/pcf/soft), `shadow_split_lambda`,
+  `shadow_normal_bias`, `shadow_slope_bias`, `shadow_constant_bias`. They are saved preferences: call
+  `set_persist(true)` first. `get_state` `sun.shadows` lists each viewport's cascades (depth range, radius,
+  texel size) and the caster counts.
+- Debug views `shadowcascades` (red/green/blue/yellow per cascade, grey beyond) and `shadowvisibility` (1 lit,
+  0 shadowed; `probe` reads the value directly).
 
 ## Pitfalls
 

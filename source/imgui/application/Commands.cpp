@@ -444,6 +444,8 @@ json Application::sunStateJson(const ux3d::imgui::SceneEnvironmentState& environ
         }
     }
     out["hdr"] = detected;
+    // A3.2: the sun shadow settings and each viewport's cascades.
+    out["shadows"] = sunShadowStateJson();
     return out;
 }
 
@@ -948,6 +950,106 @@ void Application::registerAgentSettings()
             return true;
         };
         addSetting(std::move(spec));
+    }
+
+    // --- Renderer-wide: A3.2 sun shadows (RenderQualitySettings; saved preferences like grid_mode) ---
+    {
+        using RQS = ux3d::imgui::RenderQualitySettings;
+        const RQS defaults;
+        auto shadowSpec = [](std::string key, SettingType type, std::string help, std::string cli) {
+            SettingSpec spec;
+            spec.key = std::move(key);
+            spec.scope = SettingScope::Renderer;
+            spec.type = type;
+            spec.help = std::move(help);
+            spec.cliFlag = std::move(cli);
+            spec.persisted = true;
+            return spec;
+        };
+        {
+            SettingSpec spec = shadowSpec("shadows", SettingType::Bool,
+                                          "Cascaded sun shadow maps (drawn only while the sun is on).", "--shadows <on|off>");
+            spec.defaultValue = defaults.shadows;
+            spec.get = [](void*) { return json(ux3d::imgui::RenderQuality::settings().shadows); };
+            spec.set = [](void*, const json& v, std::string&) {
+                ux3d::imgui::RenderQuality::settings().shadows = v.get<bool>();
+                ux3d::imgui::RenderQuality::pinShadows();
+                return true;
+            };
+            addSetting(std::move(spec));
+        }
+        {
+            SettingSpec spec = shadowSpec("shadow_resolution", SettingType::Enum,
+                                          "Shadow map size per cascade (texels per side).", "--shadow-resolution <1024|2048|4096>");
+            spec.enumValues = {"1024", "2048", "4096"};
+            spec.defaultValue = std::to_string(defaults.shadowResolution);
+            spec.get = [](void*) { return json(std::to_string(ux3d::imgui::RenderQuality::settings().shadowResolution)); };
+            spec.set = [](void*, const json& v, std::string&) {
+                ux3d::imgui::RenderQuality::settings().shadowResolution =
+                    static_cast<uint32_t>(std::stoul(v.get<std::string>()));
+                ux3d::imgui::RenderQuality::pinShadows();
+                return true;
+            };
+            addSetting(std::move(spec));
+        }
+        {
+            SettingSpec spec = shadowSpec("shadow_cascades", SettingType::Int, "Number of shadow cascades.",
+                                          "--shadow-cascades <2..4>");
+            spec.hasRange = true;
+            spec.minimum = 2.0;
+            spec.maximum = 4.0;
+            spec.defaultValue = defaults.shadowCascades;
+            spec.get = [](void*) { return json(ux3d::imgui::RenderQuality::settings().shadowCascades); };
+            spec.set = [](void*, const json& v, std::string&) {
+                ux3d::imgui::RenderQuality::settings().shadowCascades = v.get<int>();
+                ux3d::imgui::RenderQuality::pinShadows();
+                return true;
+            };
+            addSetting(std::move(spec));
+        }
+        {
+            SettingSpec spec = shadowSpec("shadow_filter", SettingType::Enum,
+                                          "Shadow filter: hard (1 bilinear compare), pcf (3x3), soft (16 rotated Poisson).",
+                                          "--shadow-filter <hard|pcf|soft>");
+            spec.enumValues = {"hard", "pcf", "soft"};
+            spec.defaultValue = ux3d::imgui::RenderQuality::shadowFilterName(defaults.shadowFilter);
+            spec.get = [](void*) {
+                return json(ux3d::imgui::RenderQuality::shadowFilterName(ux3d::imgui::RenderQuality::settings().shadowFilter));
+            };
+            spec.set = [](void*, const json& v, std::string&) {
+                const std::string name = v.get<std::string>();
+                ux3d::imgui::RenderQuality::settings().shadowFilter = name == "hard" ? ux3d::imgui::ShadowFilter::Hard
+                    : name == "soft" ? ux3d::imgui::ShadowFilter::Soft : ux3d::imgui::ShadowFilter::Pcf;
+                ux3d::imgui::RenderQuality::pinShadows();
+                return true;
+            };
+            addSetting(std::move(spec));
+        }
+        const auto floatShadow = [&](std::string key, float RQS::*member, std::string help, std::string cli, double lo, double hi) {
+            SettingSpec spec = shadowSpec(std::move(key), SettingType::Float, std::move(help), std::move(cli));
+            spec.hasRange = true;
+            spec.minimum = lo;
+            spec.maximum = hi;
+            spec.defaultValue = agent::floatJson(defaults.*member);
+            spec.get = [member](void*) { return agent::floatJson(ux3d::imgui::RenderQuality::settings().*member); };
+            spec.set = [member](void*, const json& v, std::string&) {
+                ux3d::imgui::RenderQuality::settings().*member = v.get<float>();
+                ux3d::imgui::RenderQuality::pinShadows();
+                return true;
+            };
+            addSetting(std::move(spec));
+        };
+        floatShadow("shadow_distance", &RQS::shadowDistance, "View depth (metres) where the sun shadows end.",
+                    "--shadow-distance <m>", 1.0, 100000.0);
+        floatShadow("shadow_split_lambda", &RQS::shadowSplitLambda,
+                    "Cascade splits: 0 uniform .. 1 logarithmic (practical split scheme).", "--shadow-split-lambda <0..1>",
+                    0.0, 1.0);
+        floatShadow("shadow_normal_bias", &RQS::shadowNormalBias, "Receiver normal offset in shadow-map texels.",
+                    "--shadow-normal-bias <x>", 0.0, 100.0);
+        floatShadow("shadow_slope_bias", &RQS::shadowSlopeBias, "Caster slope-scaled depth bias (glPolygonOffset factor).",
+                    "--shadow-slope-bias <x>", 0.0, 100.0);
+        floatShadow("shadow_constant_bias", &RQS::shadowConstantBias, "Caster constant depth bias (glPolygonOffset units).",
+                    "--shadow-constant-bias <x>", 0.0, 100.0);
     }
 }
 

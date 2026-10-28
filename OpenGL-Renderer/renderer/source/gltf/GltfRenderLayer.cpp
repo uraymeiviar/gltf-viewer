@@ -2825,6 +2825,50 @@ size_t GltfRenderLayer::cullToClip(core::LinkedList<std::tuple<Mesh*, Material*>
     return removed;
 }
 
+size_t GltfRenderLayer::boundDrawables(const core::LinkedList<std::tuple<Mesh*, Material*>>& drawables,
+                                       const ReverseMapping& reverseMapping, math::vec3& lo, math::vec3& hi,
+                                       bool& bounded) const
+{
+    size_t unbounded = 0;
+    bounded = false;
+    for (const auto& meshMat : drawables) {
+        Mesh* mesh = std::get<Mesh*>(meshMat);
+        const auto nodeIt = mesh != nullptr ? reverseMapping.find(mesh) : reverseMapping.end();
+        if (nodeIt == reverseMapping.end()) {
+            continue; // not a glTF primitive (cube map, transmission helpers)
+        }
+        const gltf::Mesh* gltfMesh = nodeIt->second->getMesh();
+        bool found = false;
+        if (gltfMesh != nullptr) {
+            for (const auto& gltfPrimitive : gltfMesh->getPrimitives()) {
+                const auto meshIt = m_meshMapping.map.find(std::tuple(nodeIt->second, gltfMesh, &gltfPrimitive));
+                if (meshIt == m_meshMapping.map.end() || meshIt->second != mesh) {
+                    continue;
+                }
+                math::vec3 boxLo;
+                math::vec3 boxHi;
+                if (getStaticPositionBounds(gltfPrimitive, *mesh, boxLo, boxHi)) {
+                    found = true;
+                    const math::mat4x4& transform = mesh->getTransform();
+                    for (int corner = 0; corner < 8; ++corner) {
+                        const math::vec3 point(transform * math::vec4((corner & 1) ? boxHi.x : boxLo.x,
+                                                                      (corner & 2) ? boxHi.y : boxLo.y,
+                                                                      (corner & 4) ? boxHi.z : boxLo.z, 1.0f));
+                        lo = bounded ? math::min(lo, point) : point;
+                        hi = bounded ? math::max(hi, point) : point;
+                        bounded = true;
+                    }
+                }
+                break;
+            }
+        }
+        if (!found) {
+            ++unbounded;
+        }
+    }
+    return unbounded;
+}
+
 const GltfRenderLayer::SceneTraversal& GltfRenderLayer::traverseScene(const gltf::Scene* gltfScene)
 {
     SceneTraversal& t = m_traversal;

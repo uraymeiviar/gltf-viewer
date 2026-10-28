@@ -30,7 +30,7 @@ namespace {
 
 bool s_persistenceEnabled = true;
 bool s_autoSuppressed = false;
-bool s_pinIbl = false, s_pinScale = false, s_pinAA = false, s_pinSsr = false, s_pinBloom = false;
+bool s_pinIbl = false, s_pinScale = false, s_pinAA = false, s_pinSsr = false, s_pinBloom = false, s_pinShadow = false;
 int s_autoLevel = 0, s_autoCeiling = 6;
 unsigned s_autoSamples = 0;
 double s_autoMs = 0;
@@ -52,6 +52,10 @@ QualityProfile defaultProfile(int index)
 {
     QualityProfile p;
     p.render.autoQuality = false;
+    // A3.2 sun shadows: Low 1024 x 2 hard, Mid 1024 x 3 PCF, High 2048 x 3 PCF (the default), Ultra 2048 x 4 soft.
+    p.render.shadowResolution = index <= 1 ? 1024 : 2048;
+    p.render.shadowCascades = index == 0 ? 2 : (index == 3 ? 4 : 3);
+    p.render.shadowFilter = index == 0 ? ShadowFilter::Hard : (index == 3 ? ShadowFilter::Soft : ShadowFilter::Pcf);
     if (index == 0) {
         p.textureMaxSize = 512; p.skybox = p.ibl = false;
         p.render.gridMode = GridMode::PlaneMesh;
@@ -76,6 +80,13 @@ const uint32_t kIrradianceSizes[] = { 0, 32, 64, 128, 256 };
 const uint32_t kLutSizes[] = { 128, 256, 512, 1024 };
 const uint32_t kSampleCounts[] = { 128, 256, 512, 1024 };
 const float kRenderScales[] = { 0.5f, 0.67f, 0.75f, 0.85f, 1.0f };
+const uint32_t kShadowResolutions[] = { 1024, 2048, 4096 };
+constexpr float kShadowDistanceMin = 1.0f;
+constexpr float kShadowDistanceMax = 100000.0f;
+
+bool validShadowDistance(float value) { return std::isfinite(value) && value >= kShadowDistanceMin && value <= kShadowDistanceMax; }
+bool validShadowLambda(float value) { return std::isfinite(value) && value >= 0.0f && value <= 1.0f; }
+bool validShadowBias(float value) { return std::isfinite(value) && value >= 0.0f && value <= 100.0f; }
 
 template <typename T, size_t N>
 bool isOneOf(T value, const T (&values)[N])
@@ -230,6 +241,17 @@ bool readQualityProfiles(SettingsFile& settings)
         } else if (field == "scale") {
             float f = 1.0f;
             if (parseFloat(value, f) && setChecked(profile.render.renderScale, f, kRenderScales)) {} else invalid = true;
+        } else if (field == "shadows") {
+            if (parseBool(value, b)) profile.render.shadows = b; else invalid = true;
+        } else if (field == "shadowResolution") {
+            if (parseUint(value, u) && setChecked(profile.render.shadowResolution, u, kShadowResolutions)) {} else invalid = true;
+        } else if (field == "shadowCascades") {
+            if (parseInt(value, i) && i >= 2 && i <= 4) profile.render.shadowCascades = i; else invalid = true;
+        } else if (field == "shadowDistance") {
+            float f = 0.0f;
+            if (parseFloat(value, f) && validShadowDistance(f)) profile.render.shadowDistance = f; else invalid = true;
+        } else if (field == "shadowFilter") {
+            if (parseInt(value, i) && i >= 0 && i <= 2) profile.render.shadowFilter = static_cast<ShadowFilter>(i); else invalid = true;
         }
     }
     if (invalid) {
@@ -275,6 +297,24 @@ bool readRenderQuality(SettingsFile& store)
             }
         } else if (entry.first == "renderScale") {
             if (parseFloat(entry.second, f)) { if (setChecked(s.renderScale, f, kRenderScales)) parsedAny = true; }
+        } else if (entry.first == "shadows") {
+            if (parseBool(entry.second, b)) { s.shadows = b; parsedAny = true; }
+        } else if (entry.first == "shadowResolution") {
+            if (parseUint(entry.second, u)) { if (setChecked(s.shadowResolution, u, kShadowResolutions)) parsedAny = true; }
+        } else if (entry.first == "shadowCascades") {
+            if (parseInt(entry.second, i) && i >= 2 && i <= 4) { s.shadowCascades = i; parsedAny = true; }
+        } else if (entry.first == "shadowDistance") {
+            if (parseFloat(entry.second, f) && validShadowDistance(f)) { s.shadowDistance = f; parsedAny = true; }
+        } else if (entry.first == "shadowFilter") {
+            if (parseInt(entry.second, i) && i >= 0 && i <= 2) { s.shadowFilter = static_cast<ShadowFilter>(i); parsedAny = true; }
+        } else if (entry.first == "shadowSplitLambda") {
+            if (parseFloat(entry.second, f) && validShadowLambda(f)) { s.shadowSplitLambda = f; parsedAny = true; }
+        } else if (entry.first == "shadowNormalBias") {
+            if (parseFloat(entry.second, f) && validShadowBias(f)) { s.shadowNormalBias = f; parsedAny = true; }
+        } else if (entry.first == "shadowSlopeBias") {
+            if (parseFloat(entry.second, f) && validShadowBias(f)) { s.shadowSlopeBias = f; parsedAny = true; }
+        } else if (entry.first == "shadowConstantBias") {
+            if (parseFloat(entry.second, f) && validShadowBias(f)) { s.shadowConstantBias = f; parsedAny = true; }
         }
     }
     if (parsedAny) {
@@ -355,6 +395,32 @@ bool RenderQualitySettings::sameIbl(const RenderQualitySettings& other) const
         && iblSpecularSamples == other.iblSpecularSamples;
 }
 
+uint64_t RenderQualitySettings::estimatedShadowBytes() const
+{
+    if (!shadows) {
+        return 0;
+    }
+    return static_cast<uint64_t>(shadowResolution) * shadowResolution * static_cast<uint64_t>(std::clamp(shadowCascades, 2, 4)) * 4u;
+}
+
+void RenderQualitySettings::copyShadowTuning(const RenderQualitySettings& from)
+{
+    shadowSplitLambda = from.shadowSplitLambda;
+    shadowNormalBias = from.shadowNormalBias;
+    shadowSlopeBias = from.shadowSlopeBias;
+    shadowConstantBias = from.shadowConstantBias;
+}
+
+void RenderQualitySettings::copyShadows(const RenderQualitySettings& from)
+{
+    shadows = from.shadows;
+    shadowResolution = from.shadowResolution;
+    shadowCascades = from.shadowCascades;
+    shadowDistance = from.shadowDistance;
+    shadowFilter = from.shadowFilter;
+    copyShadowTuning(from);
+}
+
 uint64_t RenderQualitySettings::estimatedIblBytes() const
 {
     const uint32_t texelBytes = iblHalfFloat ? 8u : 16u;
@@ -393,9 +459,11 @@ void RenderQuality::selectProfile(int selection)
     s_selectedProfile = selection; s_profilesActive = true;
     ++s_profileVersion;
     const auto& p = targetProfile();
+    const RenderQualitySettings before = settings();
     settings() = p.render; settings().autoQuality = selection == 0;
+    settings().copyShadowTuning(before);
     s_autoSuppressed = false; s_showRuntimeUi = true; s_textureRefresh = true;
-    s_pinIbl = s_pinScale = s_pinAA = s_pinSsr = s_pinBloom = false;
+    s_pinIbl = s_pinScale = s_pinAA = s_pinSsr = s_pinBloom = s_pinShadow = false;
     s_autoLevel = 0; s_autoCeiling = 6; s_autoSamples = 0; s_autoMs = 0;
     s_autoWindow = std::chrono::steady_clock::now();
     save();
@@ -456,6 +524,16 @@ void RenderQuality::drawProfilesEditor(SceneRevisions& revisions)
         const char* grids[] = {"Screen ray","Mesh"};
         if (ImGui::Combo("Ground grid",&grid,grids,2)) { p.render.gridMode = static_cast<GridMode>(grid); changed = true; }
         changed |= ImGui::SliderFloat("Render scale",&p.render.renderScale,.5f,1.f,"%.2f");
+        // A3.2 sun shadows (used only while the sun is on).
+        changed |= ImGui::Checkbox("Sun shadows",&p.render.shadows);
+        changed |= sizeCombo("Shadow map size",p.render.shadowResolution,kShadowResolutions,"");
+        changed |= ImGui::SliderInt("Shadow cascades",&p.render.shadowCascades,2,4);
+        changed |= ImGui::DragFloat("Shadow distance",&p.render.shadowDistance,1.0f,kShadowDistanceMin,kShadowDistanceMax,"%.0f m",ImGuiSliderFlags_AlwaysClamp);
+        {
+            int filter = static_cast<int>(p.render.shadowFilter);
+            const char* filters[] = {"Hard","PCF","Soft"};
+            if (ImGui::Combo("Shadow filter",&filter,filters,3)) { p.render.shadowFilter = static_cast<ShadowFilter>(filter); changed = true; }
+        }
         ImGui::PopItemWidth();
         if (changed) {
             save();
@@ -473,6 +551,17 @@ bool RenderQuality::allowBloom(bool requested)
     if (initialized && requested != previous) s_pinBloom = true;
     initialized = true; previous = requested;
     return requested && (!s_profilesActive || s_pinBloom || targetProfile().bloom) && (!autoActive() || s_pinBloom || s_autoLevel >= 4);
+}
+void RenderQuality::pinShadows() { s_pinShadow = true; }
+bool RenderQuality::validShadowResolution(uint32_t value) { return isOneOf(value, kShadowResolutions); }
+const char* RenderQuality::shadowFilterName(ShadowFilter filter)
+{
+    switch (filter) {
+    case ShadowFilter::Hard: return "hard";
+    case ShadowFilter::Soft: return "soft";
+    case ShadowFilter::Pcf: break;
+    }
+    return "pcf";
 }
 const std::string& RenderQuality::autoStatus() { return s_autoStatus; }
 int RenderQuality::autoLevel() { return s_autoLevel; }
@@ -526,6 +615,13 @@ RenderQualitySettings RenderQuality::effective()
         result.iblSpecularSamples = std::min(result.iblSpecularSamples, 256u);
     }
     if (!s_pinScale && s_autoLevel < 6) result.renderScale = std::min(result.renderScale, .75f);
+    // A3.2: Auto starts the shadows cheaper (1024, two cascades, at most PCF) and steps up to the configured
+    // values; it never switches them off and never goes above the configured choice.
+    if (!s_pinShadow && s_autoLevel < 4) {
+        result.shadowResolution = std::min(result.shadowResolution, s_autoLevel < 2 ? 1024u : 2048u);
+        if (s_autoLevel < 2) result.shadowCascades = std::min(result.shadowCascades, 2);
+        if (result.shadowFilter == ShadowFilter::Soft) result.shadowFilter = ShadowFilter::Pcf;
+    }
     return result;
 }
 
@@ -579,6 +675,7 @@ void RenderQuality::configureAuto(int argc, char** argv)
         s_pinAA |= arg == "--aa" || arg == "--msaa" || arg == "--post-aa";
         s_pinSsr |= arg == "--ssr" || arg == "--ssr-quality";
         s_pinBloom |= arg == "--bloom" || arg == "--bloom-intensity" || arg == "--bloom-radius";
+        s_pinShadow |= arg == "--shadows" || arg.starts_with("--shadow-");
     }
     s_autoSuppressed = deterministic && !explicitAuto;
     s_profilesActive = explicitProfile || (!deterministic && !legacyQuality);
@@ -592,6 +689,9 @@ void RenderQuality::configureAuto(int argc, char** argv)
             settings().iblHalfFloat = before.iblHalfFloat;
         }
         if (s_pinScale) settings().renderScale = before.renderScale;
+        // A3.2: command-line shadow values win over the profile; the tuning values are not part of profiles.
+        if (s_pinShadow) settings().copyShadows(before);
+        else settings().copyShadowTuning(before);
     }
     if (explicitProfile) s_autoSuppressed = deterministic && s_selectedProfile != 0;
     s_autoWindow = std::chrono::steady_clock::now();
@@ -723,6 +823,11 @@ void RenderQuality::save()
         if (profile.render.iblHalfFloat != defaults.render.iblHalfFloat) add("halfFloat", boolText(profile.render.iblHalfFloat));
         if (profile.render.gridMode != defaults.render.gridMode) add("grid", intText(static_cast<int>(profile.render.gridMode)));
         if (profile.render.renderScale != defaults.render.renderScale) add("scale", floatText(profile.render.renderScale));
+        if (profile.render.shadows != defaults.render.shadows) add("shadows", boolText(profile.render.shadows));
+        if (profile.render.shadowResolution != defaults.render.shadowResolution) add("shadowResolution", intText(profile.render.shadowResolution));
+        if (profile.render.shadowCascades != defaults.render.shadowCascades) add("shadowCascades", intText(profile.render.shadowCascades));
+        if (profile.render.shadowDistance != defaults.render.shadowDistance) add("shadowDistance", floatText(profile.render.shadowDistance));
+        if (profile.render.shadowFilter != defaults.render.shadowFilter) add("shadowFilter", intText(static_cast<int>(profile.render.shadowFilter)));
     }
     store.replaceSection("QualityProfiles", std::move(profileEntries));
 
@@ -738,6 +843,15 @@ void RenderQuality::save()
     if (current.iblSpecularSamples != defaults.iblSpecularSamples) qualityEntries.emplace_back("iblSpecularSamples", intText(current.iblSpecularSamples));
     if (current.gridMode != defaults.gridMode) qualityEntries.emplace_back("gridMode", intText(static_cast<int>(current.gridMode)));
     if (current.renderScale != defaults.renderScale) qualityEntries.emplace_back("renderScale", floatText(current.renderScale));
+    if (current.shadows != defaults.shadows) qualityEntries.emplace_back("shadows", boolText(current.shadows));
+    if (current.shadowResolution != defaults.shadowResolution) qualityEntries.emplace_back("shadowResolution", intText(current.shadowResolution));
+    if (current.shadowCascades != defaults.shadowCascades) qualityEntries.emplace_back("shadowCascades", intText(current.shadowCascades));
+    if (current.shadowDistance != defaults.shadowDistance) qualityEntries.emplace_back("shadowDistance", floatText(current.shadowDistance));
+    if (current.shadowFilter != defaults.shadowFilter) qualityEntries.emplace_back("shadowFilter", intText(static_cast<int>(current.shadowFilter)));
+    if (current.shadowSplitLambda != defaults.shadowSplitLambda) qualityEntries.emplace_back("shadowSplitLambda", floatText(current.shadowSplitLambda));
+    if (current.shadowNormalBias != defaults.shadowNormalBias) qualityEntries.emplace_back("shadowNormalBias", floatText(current.shadowNormalBias));
+    if (current.shadowSlopeBias != defaults.shadowSlopeBias) qualityEntries.emplace_back("shadowSlopeBias", floatText(current.shadowSlopeBias));
+    if (current.shadowConstantBias != defaults.shadowConstantBias) qualityEntries.emplace_back("shadowConstantBias", floatText(current.shadowConstantBias));
     store.replaceSection("RenderQuality", std::move(qualityEntries));
 
     store.save();
@@ -747,9 +861,12 @@ bool RenderQuality::parseArgument(int argc, char** argv, int& i, std::string& er
 {
     const std::string arg = argv[i];
     if (arg == "--show-telemetry") { s_showRuntimeUi = true; return true; }
+    const bool shadowFlag = arg == "--shadows" || arg == "--shadow-resolution" || arg == "--shadow-cascades"
+        || arg == "--shadow-distance" || arg == "--shadow-filter" || arg == "--shadow-split-lambda"
+        || arg == "--shadow-normal-bias" || arg == "--shadow-slope-bias" || arg == "--shadow-constant-bias";
     const bool takesValue = arg == "--quality-preset" || arg == "--auto-quality" || arg == "--quality" || arg == "--ibl-size" || arg == "--ibl-irradiance-size"
         || arg == "--ibl-lut-size" || arg == "--ibl-precision" || arg == "--ibl-samples"
-        || arg == "--grid-mode" || arg == "--render-scale";
+        || arg == "--grid-mode" || arg == "--render-scale" || shadowFlag;
     if (!takesValue) {
         return false;
     }
@@ -773,12 +890,40 @@ bool RenderQuality::parseArgument(int argc, char** argv, int& i, std::string& er
         ok = value == "on" || value == "off";
         s.autoQuality = value == "on";
     } else if (arg == "--quality") {
-        const bool autoQuality = s.autoQuality;
+        const RenderQualitySettings before = s;
         if (value == "high") s = RenderQualitySettings::fromPreset(QualityPreset::High);
         else if (value == "balanced") s = RenderQualitySettings::fromPreset(QualityPreset::Balanced);
         else if (value == "performance") s = RenderQualitySettings::fromPreset(QualityPreset::Performance);
         else ok = false;
-        s.autoQuality = autoQuality;
+        s.autoQuality = before.autoQuality;
+        s.copyShadows(before); // the legacy presets predate the sun shadows and leave them alone
+    } else if (shadowFlag) {
+        // A3.2 sun shadows; the same values the registry settings accept.
+        float f = 0.0f;
+        if (arg == "--shadows") {
+            ok = value == "on" || value == "off";
+            if (ok) s.shadows = value == "on";
+        } else if (arg == "--shadow-resolution") {
+            ok = setChecked(s.shadowResolution, u, kShadowResolutions);
+        } else if (arg == "--shadow-cascades") {
+            int cascades = 0;
+            ok = parseInt(value, cascades) && cascades >= 2 && cascades <= 4;
+            if (ok) s.shadowCascades = cascades;
+        } else if (arg == "--shadow-distance") {
+            ok = parseFloat(value, f) && validShadowDistance(f);
+            if (ok) s.shadowDistance = f;
+        } else if (arg == "--shadow-filter") {
+            ok = value == "hard" || value == "pcf" || value == "soft";
+            if (ok) s.shadowFilter = value == "hard" ? ShadowFilter::Hard : value == "soft" ? ShadowFilter::Soft : ShadowFilter::Pcf;
+        } else if (arg == "--shadow-split-lambda") {
+            ok = parseFloat(value, f) && validShadowLambda(f);
+            if (ok) s.shadowSplitLambda = f;
+        } else {
+            ok = parseFloat(value, f) && validShadowBias(f);
+            if (ok && arg == "--shadow-normal-bias") s.shadowNormalBias = f;
+            if (ok && arg == "--shadow-slope-bias") s.shadowSlopeBias = f;
+            if (ok && arg == "--shadow-constant-bias") s.shadowConstantBias = f;
+        }
     } else {
         s.preset = QualityPreset::Custom;
         if (arg == "--ibl-size") ok = setChecked(s.iblCubeSize, u, kCubeSizes);
@@ -840,6 +985,44 @@ void RenderQuality::drawSettings(ux3d::renderer::GltfRenderLayer* layer, SceneRe
     }
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip("Renders the 3D view at a fraction of its window size and stretches it.\nFor weak GPUs; lowers sharpness.");
+    }
+
+    // A3.2: cascaded shadow maps of the sun (Scene Inspector > Environment > Sun). Renderer-wide; each
+    // viewport keeps its own map, fitted to its view.
+    ImGui::SeparatorText("Sun Shadows");
+    bool shadowChanged = ImGui::Checkbox("Sun shadows", &s.shadows);
+    UiProbe::item("quality.shadows", s.shadows ? 1 : 0);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Cascaded shadow maps for the sun. Only drawn while the sun is on.");
+    ImGui::BeginDisabled(!s.shadows);
+    shadowChanged |= sizeCombo("Shadow Map Size", s.shadowResolution, kShadowResolutions, "");
+    shadowChanged |= ImGui::SliderInt("Cascades", &s.shadowCascades, 2, 4);
+    shadowChanged |= ImGui::DragFloat("Max Distance", &s.shadowDistance, 1.0f, kShadowDistanceMin, kShadowDistanceMax, "%.0f m",
+                                      ImGuiSliderFlags_AlwaysClamp);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("View depth where the shadows end (they are also cut to the scene's extent).");
+    {
+        int filter = static_cast<int>(s.shadowFilter);
+        const char* filters[] = { "Hard", "PCF", "Soft" };
+        if (ImGui::Combo("Filter", &filter, filters, 3)) {
+            s.shadowFilter = static_cast<ShadowFilter>(filter);
+            shadowChanged = true;
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Hard: 1 bilinear compare. PCF: 3x3 compares. Soft: 16 rotated Poisson compares.");
+    }
+    shadowChanged |= ImGui::SliderFloat("Split Lambda", &s.shadowSplitLambda, 0.0f, 1.0f, "%.2f");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Cascade split scheme: 0 uniform, 1 logarithmic.");
+    shadowChanged |= ImGui::DragFloat("Normal Bias", &s.shadowNormalBias, 0.05f, 0.0f, 10.0f, "%.2f texels", ImGuiSliderFlags_AlwaysClamp);
+    shadowChanged |= ImGui::DragFloat("Slope Bias", &s.shadowSlopeBias, 0.05f, 0.0f, 10.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+    shadowChanged |= ImGui::DragFloat("Constant Bias", &s.shadowConstantBias, 0.1f, 0.0f, 100.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
+    ImGui::TextDisabled("Shadow map memory: %.0f MiB per viewport", static_cast<double>(s.estimatedShadowBytes()) / (1024.0 * 1024.0));
+    const RenderQualitySettings shadowEffective = effective();
+    if (s.shadows && (shadowEffective.shadowResolution != s.shadowResolution || shadowEffective.shadowCascades != s.shadowCascades
+                      || shadowEffective.shadowFilter != s.shadowFilter)) {
+        ImGui::TextDisabled("Auto quality: %u x %d cascades for now", shadowEffective.shadowResolution, shadowEffective.shadowCascades);
+    }
+    ImGui::EndDisabled();
+    if (shadowChanged) {
+        s_pinShadow = true;
+        revisions.mark(SceneChange::RenderSettings);
     }
 
     if (custom) {

@@ -125,6 +125,9 @@ CommandMapping::CommandSignature CommandMapping::makeSignature(const Mesh& mesh,
     sig.drawOrderClass = static_cast<uint32_t>(material.drawOrderClass)
         | (material.decalBiasActive ? 0x100u : 0u)
         | (material.drawOrderActive ? 0x200u : 0u);
+    sig.depthBias = material.depthBiasEnabled;
+    sig.depthBiasSlope = material.depthBiasEnabled ? material.depthBiasSlope : 0.0f;
+    sig.depthBiasUnits = material.depthBiasEnabled ? material.depthBiasUnits : 0.0f;
     return sig;
 }
 
@@ -140,7 +143,9 @@ void CommandMapping::update(const core::LinkedList<MeshMaterialTuple>& drawables
     // command itself is reused while its signature is unchanged, but the units depend on
     // the current near/far planes and view distance.
     const auto applyDecalDepthBias = [camera](CmdDesc& desc, const Mesh& mesh) {
-        if (!desc.command.polygonOffsetEnabled || camera == nullptr) {
+        // A3.2: a material's own depth bias (shadow casters) is fixed, not the decal's physical bias.
+        if (!desc.command.polygonOffsetEnabled || camera == nullptr
+            || (desc.material != nullptr && desc.material->depthBiasEnabled)) {
             return;
         }
         desc.command.polygonOffsetUnits =
@@ -538,6 +543,8 @@ gl::Program* CommandMapping::buildProgram(const Mesh& meshRef, const Material& m
 
     fragmentDefines.define("DEBUG_SSR", static_cast<int>(RenderMode::SSR));
     fragmentDefines.define("DEBUG_SSR_RAY", static_cast<int>(RenderMode::SSRRay));
+    fragmentDefines.define("DEBUG_SHADOW_CASCADES", static_cast<int>(RenderMode::ShadowCascades));
+    fragmentDefines.define("DEBUG_SHADOW_VISIBILITY", static_cast<int>(RenderMode::ShadowVisibility));
     fragmentDefines.defineAllOf(mesh->defines);
     fragmentDefines.defineAllOf(material->defines);
 
@@ -650,7 +657,7 @@ std::optional<CmdDesc> CommandMapping::makeCommand(MeshMaterialTuple meshMat)
         (m_scene.m_activeCamera != nullptr ? 6u : 0u) + 5u +
         (m_scene.m_useIBL ? 1u : 0u) +
         m_scene.m_lights.getUniforms().size() + 1u);
-    command->samplers.reserve(material->samplers.size() + 2u + 6u);
+    command->samplers.reserve(material->samplers.size() + 2u + 6u + 1u);
 
     // Compile vertex and fragment shaders, and pass proper defines to both.
     // Program selection is cached on its exact inputs (P4.6).
@@ -685,6 +692,12 @@ std::optional<CmdDesc> CommandMapping::makeCommand(MeshMaterialTuple meshMat)
         // the slope factor keeps the bias growing with the surface angle.
         command->polygonOffsetFactor = -1.0f;
         command->polygonOffsetUnits = -32.0f; // refreshed by update() before use
+    }
+    if (material->depthBiasEnabled) {
+        // A3.2: the sun shadow caster pass pushes depth away from the sun (slope-scaled plus constant).
+        command->polygonOffsetEnabled = true;
+        command->polygonOffsetFactor = material->depthBiasSlope;
+        command->polygonOffsetUnits = material->depthBiasUnits;
     }
 
     if (mesh->indexBuffer != nullptr) {
@@ -778,6 +791,12 @@ std::optional<CmdDesc> CommandMapping::makeCommand(MeshMaterialTuple meshMat)
         for (const auto& sampler : m_scene.m_decalSamplers) {
             command->samplers.push_back(sampler.get());
         }
+    }
+    // A3.2: the sun shadow map, for the programs that include shadow.glsl (pbr.frag). Last, so every other
+    // sampler keeps its texture unit (rendering without the sun is unchanged). The executor logs
+    // "Using too many textures" if a program ever exceeds the unit limit with it.
+    if (material->fragmentShader == "pbr.frag") {
+        command->samplers.push_back(m_scene.m_sunShadowSampler.get());
     }
 
     // P8.1a: resolve the program's bindings once instead of by name on every draw, and

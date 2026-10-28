@@ -275,6 +275,11 @@ public:
     // not know (cube map, transmission copies) are kept. Returns the number removed.
     size_t cullToClip(core::LinkedList<std::tuple<Mesh*, Material*>>& drawables, const ReverseMapping& reverseMapping,
                       const math::mat4x4& clipFromWorld) const;
+    // A3.2: the world-space AABB (lo, hi) of the drawables' static POSITION bounds, with the same per-primitive
+    // bounds cullToClip uses. Returns the number of scene drawables it could not bound (skinned, morphed,
+    // quantized); bounded is false when none could be bounded.
+    size_t boundDrawables(const core::LinkedList<std::tuple<Mesh*, Material*>>& drawables, const ReverseMapping& reverseMapping,
+                          math::vec3& lo, math::vec3& hi, bool& bounded) const;
 
 private:
     struct SceneTraversal {

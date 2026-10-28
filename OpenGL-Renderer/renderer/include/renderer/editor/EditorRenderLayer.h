@@ -64,6 +64,9 @@ enum class RenderMode : uint32_t {
     DecalPrepassNormal,
     SSR,
     SSRRay,
+    // A3.2: sun shadow cascades (index colours) and the sun visibility term.
+    ShadowCascades,
+    ShadowVisibility,
 
 };
 

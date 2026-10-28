@@ -96,6 +96,11 @@ public:
     // A2.2: the viewport applies ASOBO_material_geometry_decal, so decal-class draws get their
     // depth bias. Set per viewport next to drawOrderActive; off renders the file as without ASOBO.
     bool decalBiasActive = false;
+    // A3.2: a constant plus slope-scaled depth bias (glPolygonOffset(depthBiasSlope, depthBiasUnits)) for
+    // this material's draws. Only the sun shadow caster copies set it.
+    bool depthBiasEnabled = false;
+    float depthBiasSlope = 0.0f;
+    float depthBiasUnits = 0.0f;
     // A7.1: the material compiles the anisotropic lobe. khrAnisotropy: KHR_materials_anisotropy with
     // a non-zero strength (its display switch is RenderSettings::enableAnisotropy).
     // asoboAnisotropy: ASOBO_material_anisotropic_v2 with its texture bound; createScene defines

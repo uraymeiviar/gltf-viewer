@@ -72,7 +72,10 @@ GLuint ux3d::renderer::gl::SamplerCache::getOrCreateSampler(const SamplerState& 
     m_gl->samplerParameteri(sampler, GL_TEXTURE_WRAP_T, static_cast<GLint>(state.wrapT));
     m_gl->samplerParameteri(sampler, GL_TEXTURE_WRAP_R, static_cast<GLint>(state.wrapR));
 
-    if (m_gl->supportsAnisotropicFiltering()) {
+    if (state.compareRefToTexture) {
+        m_gl->samplerParameteri(sampler, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+        m_gl->samplerParameteri(sampler, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+    } else if (m_gl->supportsAnisotropicFiltering()) {
         m_gl->samplerParameterf(sampler, GL_TEXTURE_MAX_ANISOTROPY_EXT, m_gl->maxTextureMaxAnisotropy());
     }
 

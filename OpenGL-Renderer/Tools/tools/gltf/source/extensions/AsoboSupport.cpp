@@ -41,7 +41,7 @@ const std::vector<SupportInfo>& supportTable()
         {"ASOBO_material_parallax_window", Support::NotYetSupported, "A5", ""},
         {"ASOBO_material_pearlescent", Support::NotYetSupported, "A7", ""},
         {"ASOBO_material_sail", Support::NotYetSupported, "A7", ""},
-        {"ASOBO_material_shadow_options", Support::NotYetSupported, "A3", ""},
+        {"ASOBO_material_shadow_options", Support::Rendered, "A3.2", "noCastShadow removes the material from the sun shadow pass"},
         {"ASOBO_material_windshield", Support::Partial, "A4.2", "MSFS 2020 reflection/SSR, lit scratch/fingerprint scattering, detail reflection, secondary details, icing; wipers and rain out of scope"},
         {"ASOBO_material_windshield_v3", Support::Partial, "A4.2", "reflection/SSR, lit scratch/fingerprint scattering, detail reflection, secondary details, micro-scratches, icing; wipers, insects, rain and refraction out of scope"},
         {"ASOBO_normal_map_convention", Support::Rendered, "A1.2", "DirectX convention flips normal-map green"},

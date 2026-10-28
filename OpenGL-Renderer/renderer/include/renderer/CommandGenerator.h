@@ -123,6 +123,29 @@ public:
         m_sunIlluminance = illuminance;
         m_sunAngularRadius = angularRadius;
     }
+    // A3.2: the active viewport's cascaded sun shadow map (EnvironmentBlock u_Shadow*, sampler u_SunShadowMap).
+    // texture: a GL_TEXTURE_2D_ARRAY of depth layers, one per cascade (0 when shadows are off; the shaders then
+    // never sample it). Values are per viewport; the frame block is uploaded at every draw.
+    struct SunShadowParameters {
+        bool enabled = false;
+        GLuint texture = 0;
+        int cascadeCount = 0;
+        int filter = 1; // 0 hard, 1 PCF, 2 soft
+        float mapSize = 1.0f;
+        float normalBias = 1.0f; // texels
+        std::array<glm::mat4, 4> matrices { glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f) };
+        glm::vec4 splits = glm::vec4(0.0f);
+        glm::vec4 texelSizes = glm::vec4(0.0f);
+        float nearDepth = 0.0f;
+        float fadeStart = 3.0e38f;
+        float fadeEnd = 3.0e38f;
+    };
+    void setSunShadow(const SunShadowParameters& shadow)
+    {
+        m_sunShadow = shadow;
+        m_sunShadowTexture->handle = shadow.enabled ? shadow.texture : 0;
+    }
+    const SunShadowParameters& getSunShadow() const { return m_sunShadow; }
     void setSsrOptions(bool enabled, int quality, float sky) {
         m_ssrOptions.write(math::vec3(enabled ? 1.0f : 0.0f, quality == 0 ? 256.0f : quality == 2 ? 1024.0f : 512.0f, sky));
     }
@@ -199,6 +222,11 @@ protected:
     glm::vec3 m_sunDirection = glm::vec3(0.0f, 1.0f, 0.0f);
     glm::vec3 m_sunIlluminance = glm::vec3(0.0f);
     float m_sunAngularRadius = 0.0f;
+    // A3.2 sun shadow map (borrowed texture handle; stable wrapper and comparison sampler).
+    SunShadowParameters m_sunShadow;
+    std::unique_ptr<gl::Texture> m_sunShadowTexture;
+    std::unique_ptr<gl::SamplerState> m_sunShadowSamplerState;
+    std::unique_ptr<gl::Sampler> m_sunShadowSampler;
     // A2.2: six borrowed views of the shared accumulation targets and their samplers. The
     // wrappers live as long as the generator; setDecalTargets refreshes only the handles.
     std::array<std::unique_ptr<gl::Texture>, 6> m_decalTextures;
