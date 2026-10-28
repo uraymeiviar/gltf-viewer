@@ -23,7 +23,9 @@ Quick tier (equivalence only: byte-identical viewport images, identical selectio
   validate_asobo_support.py, validate_asobo_draworder.py, validate_asobo_packaged.py,
   validate_asobo_uv_options.py
   validate_asobo_occlusion_strength.py, validate_asobo_fresnel_ghost.py, validate_asobo_dither.py,
-  validate_asobo_anisotropy.py, validate_asobo_sss.py, validate_asobo_decal_modes.py
+  validate_asobo_anisotropy.py, validate_asobo_sss.py, validate_asobo_decal_modes.py,
+  validate_agent_control.py (control pipe, shared command registry, MCP shim; CLI flags against the baseline),
+  validate_viewport_image.py (Viewport capture/save/copy, capture folder setting)
 Full tier adds:
   --with-ab (each feature against its own switch), validate_p5_1.py against the baseline, and
   validate_p8_5.py's 10,000-drawable grid and MSAA/TAA fixture copies.
@@ -103,6 +105,8 @@ serial_jobs = [
     ("asobo_decal_modes", ["scripts/validate_asobo_decal_modes.py", "--baseline-exe", str(baseline)]),
     ("texture_dds", ["scripts/validate_texture_dds.py"]),
     ("texture_ktx2", ["scripts/validate_texture_ktx2.py", "--baseline-exe", str(baseline)]),
+    ("agent_control", ["scripts/validate_agent_control.py", "--baseline-exe", str(baseline)]),
+    ("viewport_image", ["scripts/validate_viewport_image.py"]),
 ]
 if args.tier == "full":
     jobs.append(("p5_1", ["scripts/validate_p5_1.py", "--pre-exe", str(baseline)]))

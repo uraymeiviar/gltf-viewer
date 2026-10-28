@@ -1,6 +1,8 @@
 # Agent Control Channel (Live Remote Control for Agents)
 
-Status: **Phase 0 implemented** (see [LIVE_SCRIPT_CONTROL.md](LIVE_SCRIPT_CONTROL.md) for live file-watching follow mode and CLI framing). Higher phases (named pipe, sockets, web UI) remain proposals.
+Status: **Phase 0, Phase 1 and Phase 3 implemented** (Phase 0: [LIVE_SCRIPT_CONTROL.md](LIVE_SCRIPT_CONTROL.md);
+Phase 1 and 3: section 7 below, including the deviations from this plan). Phase 2 is partly done (`get_camera`,
+`set_camera`, `pick`, `node_screen_rect`, `set_render_mode`, `open_model`, `log_tail` exist); Phase 4 remains a proposal.
 
 This plan lets an AI agent (Claude Code, Codex, Gemini/agy, DeepSeek or a plain Python script) operate a
 **running** Glider instance — the one the user sees on screen — instead of launching a new process with
@@ -136,7 +138,9 @@ executable it is talking to.
 
 ### 3.5 Python MCP shim (`scripts/glider_mcp.py`)
 
-- Uses the official `mcp` Python SDK, stdio transport.
+- Implemented without the `mcp` SDK (section 7.4): the JSON-RPC 2.0 framing over stdio and the `initialize`,
+  `notifications/initialized`, `tools/list`, `tools/call`, `ping` and `resources/*` methods are written by hand
+  (protocol `2025-06-18`, `2024-11-05` accepted).
 - On start: finds running instances (`\\.\pipe\glider-*`). One → attach. Several → attach to the one named by
   `--pid`, or report the list. None → optionally launch `build/bin/Release/Glider.exe --control-pipe` (or a path
   given by `--exe`) and attach.
@@ -215,12 +219,17 @@ Nodes are addressed by name (exact, then case-insensitive, then unique substring
 | Command | Kind | Description |
 |---|---|---|
 | `capture(viewport?, width?, height?, settle_frames?, overlays?, encoding?)` | multi-frame | Render and return the viewport image (PNG). `overlays=false` hides grid, gizmo and selection box. |
+| `save_viewport_image(path?, viewport?)` | immediate | Save the viewport's current image as a PNG (the same pixels as `capture` and the Viewport menu). Without `path`: a unique `Glider_<model>_<yyyyMMdd-HHmmss>.png` in the capture folder (File > Settings > Captures, default `<Pictures>\Glider`); returns the path. Never opens a dialog. |
+| `copy_viewport_image(viewport?)` | immediate | Copy the viewport's current image to the Windows clipboard as `CF_DIB` plus `PNG`. Never opens a dialog. |
 | `pick(x, y)` | multi-frame | Node, mesh, primitive and material at a pixel of the last capture's coordinate frame, plus world hit position (picking FBO + depth). |
 | `node_screen_rect(node)` | immediate | Projected OBB rectangle in capture pixels, or `offscreen`/`hidden`/`occluded`. |
+| `probe(x, y, viewport?)` | immediate | At a pixel in capture coordinates: linear HDR scene colour before TAA, bloom and tone mapping (resolved scene target), final LDR colour, depth, reconstructed world position and the picked node/mesh/primitive/material. 1x1 reads on demand; no per-frame cost, no rendering or TAA-history change. |
+| `probe_region(x0, y0, x1, y1, viewport?)` | immediate | Min/max/mean linear HDR luminance and RGB over a rectangle of the same scene target. |
 | `set_render_mode(mode)` | immediate | Shaded/Wireframe and Debug Render Modes (same names as `--debug-view`). |
-| `set_viewport_setting(key, value)` | immediate | Phase 3: settings from Viewport Settings (AA, SSR, grid, ASOBO switches, wireframe). |
-| `set_environment(key, value)` | immediate | Phase 3: exposure, tone mapping, HDR rotation, time of day, emissive scale. |
-| `set_material_param(material, extension, param, value)` | immediate | Phase 3: same path as `--set-asobo-param` / Inspector. |
+| `set_viewport_setting(key, value, viewport?)` / `get_viewport_setting(key?)` | immediate | Phase 3: settings from Viewport Settings (AA, SSR, grid, render mode, ASOBO switches, wireframe) and the renderer-wide keys. |
+| `set_environment(key, value)` / `get_environment(key?)` | immediate | Phase 3: exposure, tone mapping, HDR rotation, time of day, emissive scale, bloom, clear colour. |
+| `set_material_param(material, extension, param, value)` / `get_material_param` | immediate | Phase 3: same path as `--set-asobo-param` / Inspector. |
+| `list_settings(scope?)` | immediate | Every setting key with scope, type, range or values, current value, default and CLI flag. |
 | `open_model(path, without_textures?)` | multi-frame | Open a model; replies when the first model frame is ready, with load timings. |
 | `validate` | immediate | Validation summary and issues (same engine as the Validation panel). |
 
@@ -302,3 +311,104 @@ capture via `stbi_write_png`) already does most of the work behind each command.
   commands win, and the user simply sees the result; revisit if it proves annoying.
 - **Guide placement:** whether `--agent-guide --format skill` should also be installed by the release package.
 - **AGENTS.md** should gain a short section pointing to this channel once Phase 1 lands.
+
+---
+
+## 7. Implementation (Phase 1 and Phase 3)
+
+### 7.1 What was built
+
+| Part | Where |
+|---|---|
+| Command and setting registry (names, JSON-schema arguments, help, kind, timeouts, text form, legacy aliases) | `header/imgui/CommandRegistry.h`, `source/imgui/CommandRegistry.cpp` |
+| Commands, settings, readback probes, pipe pump, `--agent-guide` | `source/imgui/application/Commands.cpp` |
+| Named-pipe listener (`\\.\pipe\glider-<pid>`, current-user DACL, `PIPE_REJECT_REMOTE_CLIENTS`, first-instance flag, one client, busy reply for a second client, clean shutdown, `glfwPostEmptyEvent` wake) | `header/imgui/ControlPipe.h`, `source/imgui/ControlPipe.cpp` |
+| `--ui-script` / `--ui-script-follow`: every live command runs through the registry | `header/imgui/UiScenarioHarness.h` (`UiScenarioFrame::runCommand`) |
+| CLI flags through the registry | `source/imgui/application/CommandLine.cpp` (`applyCliSetting`, `selectNodeAction`, `isolateNodeAction`, `frameNodeAction`, `setMaterialParamAction`) |
+| File > Settings > Agent Control tab, status-bar "Agent connected" | `source/imgui/SearchPathsPanel.cpp`, `source/imgui/StatusBar.cpp` |
+| Embedded guide | `resources/agent/GLIDER_AGENT_GUIDE.md` (packed into the VFS) |
+| MCP server (stdio, no dependencies) and plain client | `scripts/glider_mcp.py`, `scripts/glider_ctl.py` |
+| Check | `scripts/validate_agent_control.py` (registered in `run_regression.py`) |
+
+Commands (the generated reference is in `Glider.exe --agent-guide`): `describe`, `guide`, `get_state` (`state`),
+`list_nodes`, `log_tail`, `set_persist`, `quit`, `select`, `clear_selection`, `isolate`, `exit_isolate`
+(`exitisolate`), `frame_node` (`frame`), `set_view` (`view`), `get_camera`, `set_camera` (`camera`), `capture`,
+`node_screen_rect` (`noderect`), `pick`, `probe`, `probe_region`, `set_render_mode` (`debugview`), `open_model`
+(`open`), `reset`, `set_viewport_setting`, `get_viewport_setting`, `set_environment`, `get_environment`,
+`list_settings`, `set_material_param`, `get_material_param`. Names in brackets are the Phase 0 script names; they
+keep their Phase 0 argument syntax and JSONL result shapes.
+
+Settings: viewport `aa`, `msaa`, `post_aa`, `render_mode` (alias `debug_view`), `grid`, `scene_bounding_box`,
+`selection_box`, `node_gizmo`, `force_double_sided`, `invert_winding`, `wireframe_overlay`, `wireframe_color`,
+`wireframe_blend`, `ssr`, `ssr_quality`, `interior_sky_reflection`, `windshield_icing`, `decal_tolerance_mm`,
+`asobo`, `show_invisible_materials` and one switch per rendered ASOBO extension (keyed by the extension name);
+environment `exposure`, `tone_mapping`, `hdr_rotation`, `hdr_intensity`, `hdr_blur`, `time_of_day`,
+`msfs_emissive_scale`, `bloom`, `bloom_intensity`, `bloom_radius`, `auto_exposure`, `exposure_compensation`,
+`background`, `clear_color`, `ibl`, `punctual_lights`; renderer `msfs_emissive`, `grid_mode` (saved preference).
+
+### 7.2 Registering a setting
+
+A setting is registered once in `Application::registerAgentSettings()` (`Commands.cpp`); the CLI flag,
+`set_*`/`get_*`, `list_settings`, the scripts and the guide table all read the same entry:
+
+```cpp
+// A field of ViewportSettingsState (scope Viewport) or SceneEnvironmentState (scope Environment):
+addSetting(floatSetting<VS>("sun_elevation", V, &VS::sunElevation, "Sun elevation in degrees.",
+                            "--sun-elevation <deg>", std::pair{-90.0, 90.0}));
+addSetting(boolSetting<ES>("shadows", E, &ES::shadowsEnabled, "Sun shadows.", "--shadows <on|off>"));
+addSetting(indexEnumSetting<VS>("ao_quality", V, &VS::aoQuality, {"low", "medium", "high"}, "AO samples."));
+// Anything else: a SettingSpec with get/set lambdas (see "render_mode", "wireframe_color", "grid_mode").
+```
+
+and, for a CLI flag, one line in `configure()`:
+
+```cpp
+} else if (arg == "--sun-elevation" && i + 1 < argc) {
+    if (!applyCliSetting(SettingScope::Viewport, "sun_elevation", argv[++i], "--sun-elevation")) return 1;
+```
+
+The default is read from a default-constructed struct, range and enum checks come from the entry, text values
+(CLI, scripts) are parsed with `std::stof` exactly as the CLI always has, and the setter only writes state:
+`set_viewport_setting` marks `ViewportSettings` and resets that viewport's TAA history, `set_environment` marks
+`RenderSettings`. Mark `persisted = true` for a value stored in `settings.ini`; the pipe then requires
+`set_persist(true)`.
+
+### 7.3 Deviations from this plan (and why)
+
+- **MCP SDK not used** (§3.5): the `mcp` package is not installed and must not be. `glider_mcp.py` implements the
+  stdio JSON-RPC framing and the five required methods (plus `resources/list`/`read` for the guide) by hand;
+  stdout carries only protocol messages.
+- **Drain point**: pipe requests are drained in `finishFrame` (after the frame is rendered, before the swap), right
+  before the UI script runs, not at the start of the frame. Both run between frames on the GL thread; this keeps
+  pipe, `--ui-script` and Phase 0 timing identical (a job dispatched in frame N first advances in frame N+1, so
+  `capture` with 8 settle frames reads frame N+8 on every path).
+- **`reset` restores the startup state**, not the built-in defaults: viewport settings and the scene environment
+  as the startup flags left them (e.g. a harness's `--aa none`), the model reloaded and the camera fitted.
+- **Persistence**: pipe commands never write `settings.ini`. Instead of a per-session store, recent files are not
+  recorded for loads a pipe command starts, and saved preferences (`grid_mode`) are refused with
+  `persist_required` until `set_persist(true)`; with it they are saved like a UI edit. Viewport and environment
+  settings are not persisted by Glider, so no other guard is needed.
+- **`capture`** reads the viewport texture at its current size; `width`/`height` are not implemented (the agent
+  resizes the window or uses `get_state` for the size). `overlays=false` hides the grid, scene box and selection
+  box for that capture only. The capture path defaults to `%TEMP%/glider-agent/<pid>/capture_<n>.png`.
+- **Loads are queued**: inside a frame `loadGltfModel` queues the file for the next frame (as File > Open does), so
+  `open_model` and `reset` wait for the queued load, then settle 4 frames (the Phase 0 `open` wait).
+- **One registry, one parser**: script lines use the registry's positional text form (`set_viewport_setting ssr
+  off`); the Phase 0 names keep their own parsers (`camera` with comma vectors, `isolate <node> children`).
+- **Phase 2 commands** `get_camera`, `set_camera`, `pick`, `node_screen_rect`, `set_render_mode`, `open_model`,
+  `log_tail` exist because Phase 0 already had them; `orbit`, `zoom`, `pan`, `look_at`, `set_hidden`,
+  `select_parent`, `select_first_child` and `validate` do not yet.
+- **`--agent-guide`** also accepts `--format skill <dir>` (writes `<dir>/glider-control/SKILL.md`).
+- **Startup-only flags** (`--env`, IBL sizes, quality presets, `--grid-mode`, window and isolation flags) keep their
+  own parsing, as allowed; `--grid-mode` and the registry's `grid_mode` write the same field.
+
+### 7.4 Verification
+
+`scripts/validate_agent_control.py [--baseline-exe <baseline>]`: the Phase 1 exit gate (isolate, frame from iso,
+capture, the node dominates the image), pipe = `--ui-script` = CLI captures (byte-identical), `set_*` against the
+matching CLI flags (byte-identical: SSR off, `--asobo-disable`, exposure, a material parameter, wireframe, tone
+mapping/time of day/emissive scale, debug view) and `get_*`, `probe` on an unlit quad and on the `--clear-color`
+background (linear value within 2e-3; the next capture is unchanged), no `settings.ini` change from pipe commands,
+a refused second client, the MCP stdio session (initialize, tools/list, a capture returning image content), the
+guide, zero GL errors, and with `--baseline-exe` CLI captures using every flag now routed through the registry
+against the baseline binary.

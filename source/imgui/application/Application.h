@@ -19,6 +19,8 @@
 #include "imgui/ViewportOverrides.h"
 #include "imgui/SelfCheckResult.h"
 #include "imgui/UiScenarioHarness.h"
+#include "imgui/CommandRegistry.h"
+#include "imgui/ControlPipe.h"
 #include "imgui/IconsMaterialDesignIcons.h"
 #include "gltf/Gltf.h"
 #include "gltf/Utils.h"
@@ -174,6 +176,8 @@ private:
     bool captureViewportTexture(GLuint texture, int width, int height, const std::string& path,
                                 const std::string& region, uint64_t frame, bool firstFrame, double timeSeconds,
                                 ux3d::imgui::profiling::CaptureRecord& record);
+    // Reads a texture back as RGBA8, bottom row first (the glGetTexImage order).
+    bool readTexturePixels(GLuint texture, int width, int height, std::vector<uint8_t>& pixels, double& readbackMs);
     ux3d::imgui::SelfCheckResult runConsoleLogLayoutSelfCheck(bool forceFailure);
     void logMessage(const std::string& msg, ImVec4 color = ImVec4(0.85f, 0.85f, 0.88f, 1.0f),
                     ux3d::core::LogLevel level = ux3d::core::LogLevel::Info);
@@ -248,6 +252,8 @@ private:
     ux3d::renderer::RenderMode getRenderModeFromIndex(int idx);
     std::optional<ux3d::renderer::RenderMode> getRenderModeFromName(const std::string& name);
     int getIndexFromRenderMode(ux3d::renderer::RenderMode mode);
+    std::vector<std::string> renderModeNames();
+    std::string renderModeName(ux3d::renderer::RenderMode mode);
     const char* getRenderModeLabel(ux3d::renderer::RenderMode mode);
     std::vector<const ux3d::gltf::Node*> collectSceneCameraNodes(const ux3d::gltf::Scene* scene);
     void setupDefaultDockLayout(ImGuiID dockspaceId, ImVec2 size, bool force = false);
@@ -268,6 +274,23 @@ private:
     void synchronizeScene(FrameContext& frame);
     void createViewport(const ux3d::gltf::Node* cameraNode);
     void drawViewportMenuBody();
+    // Viewport image capture, save and copy (ViewportImage.cpp). The registry `capture`
+    // command, the Viewport menu items and the save/copy commands read the same texture.
+    struct ViewportImageResult {
+        std::string path;
+        int width = 0;
+        int height = 0;
+        uint64_t hash = 0;
+        uint32_t viewport = 0;
+    };
+    bool viewportImageSource(const ux3d::imgui::ViewportInstance* vp, GLuint& texture, int& width, int& height) const;
+    bool viewportImageAvailable(const ux3d::imgui::ViewportInstance* vp) const;
+    // Empty path: the capture folder with a unique Glider_<model>_<time>.png name.
+    bool saveViewportImage(ux3d::imgui::ViewportInstance* vp, const std::string& path, ViewportImageResult& result,
+                           std::string& error);
+    bool copyViewportImage(ux3d::imgui::ViewportInstance* vp, ViewportImageResult& result, std::string& error);
+    void drawViewportImageMenuItems();
+    void saveViewportViewAs(ux3d::imgui::ViewportInstance* vp);
     void drawShadingMenu(ux3d::imgui::ViewportInstance& viewport);
     void showViewportMenuFor(ux3d::imgui::ViewportInstance* vp);
     void drawMenus(FrameContext& frame);
@@ -281,6 +304,43 @@ private:
     void releaseDecalBuffer();
     bool writeDecalPrepassCheck(const std::string& path, ux3d::imgui::ViewportInstance& viewport);
     int drainGLErrors(const char* where);
+
+    // Agent control channel (Commands.cpp, docs/AGENT_CONTROL_PLAN.md). One registry serves
+    // the CLI, --ui-script / --ui-script-follow and the control pipe.
+    void registerAgentCommands();
+    void registerAgentSettings();
+    // Per frame, in finishFrame: advance the running multi-frame job, then run queued pipe
+    // requests. The UI script runs after it in the same frame.
+    void pumpAgentCommands();
+    bool agentWorkPending() const;
+    bool startControlPipe();
+    void stopControlPipe();
+    void drawAgentControlSettings();
+    std::string buildAgentGuide();
+    int writeAgentGuide(const std::string& path, const std::string& format);
+    // UiScenarioFrame::runCommand: a script line through the registry, legacy result shapes.
+    bool runScriptCommand(const std::string& cmd, const std::vector<std::string>& tokens, const std::string& line,
+                          std::function<void(bool, const std::string&, const nlohmann::json&)> done);
+    void runPipeRequest(const ux3d::imgui::ControlPipe::Request& request);
+    // Shared actions: the CLI flags and the registry commands call the same code.
+    void selectNodeAction(ux3d::gltf::Node* node);
+    void isolateNodeAction(ux3d::gltf::Node* node, bool withChildren);
+    void frameNodeAction(ux3d::gltf::Node* node, std::optional<ux3d::editor::CameraOrientation> view, float margin);
+    bool setMaterialParamAction(const std::string& material, const std::string& extension, const std::string& param,
+                                const nlohmann::json& value, std::string& error);
+    // Applies one registered setting to a viewport, an environment or the renderer. Writes
+    // state only; callers mark revisions.
+    bool applySettingValue(ux3d::imgui::agent::SettingScope scope, const std::string& key, const nlohmann::json& value,
+                           ux3d::imgui::ViewportSettingsState* viewport, ux3d::imgui::SceneEnvironmentState* environment,
+                           std::string& error);
+    // CLI form of applySettingValue on the active viewport / active scene environment.
+    bool applyCliSetting(ux3d::imgui::agent::SettingScope scope, const std::string& key, const std::string& value,
+                         const char* flag);
+    ux3d::imgui::ViewportInstance* findViewportById(uint32_t id);
+    nlohmann::json legacyStateJson();
+    nlohmann::json agentStateJson();
+    nlohmann::json probePixel(ux3d::imgui::ViewportInstance* vp, int x, int y, bool withPick);
+    nlohmann::json probeRegion(ux3d::imgui::ViewportInstance* vp, int x0, int y0, int x1, int y1);
 
     static double wallClockMs()
     {
@@ -513,6 +573,25 @@ private:
     bool s_benchmarkReportAttempted = false;
     bool s_benchmarkReportWritten = false;
     std::vector<ux3d::imgui::profiling::FrameSample> s_benchmarkSamples;
+
+    // Agent control channel state.
+    ux3d::imgui::agent::CommandRegistry agentRegistry;
+    bool agentRegistryReady = false;
+    std::unique_ptr<ux3d::imgui::ControlPipe> controlPipe;
+    bool controlPipeArg = false;
+    std::string controlPipeError;
+    std::deque<ux3d::imgui::ControlPipe::Request> agentPipeBacklog;
+    uint64_t agentPipeSession = 0;
+    bool agentPersist = false;      // set_persist(true) for the current pipe client
+    bool agentNoPersistScope = false; // a pipe command is running without persistence
+    bool queuedLoadNoPersist = false; // the queued load came from such a command
+    uint64_t agentCaptureSerial = 0;
+    uint64_t agentCommandsRun = 0;
+    // reset returns here: the viewport settings and scene environment after startup flags.
+    ux3d::imgui::ViewportSettingsState agentStartupViewportSettings;
+    ux3d::imgui::SceneEnvironmentState agentStartupEnvironment;
+    // CLI environment flags, replayed onto every scene environment after the model loads.
+    std::vector<std::pair<std::string, std::string>> cliEnvironmentSettings;
 
     ux3d::imgui::SharedOverrideState s_sharedOverrides;
     uint64_t s_overrideApplyTotal = 0; // cumulative, for UI-script snapshots

@@ -85,20 +85,12 @@ struct UiScenarioFrame {
     std::function<bool(bool)> setAnimationPlaying;
     std::function<bool(uint32_t)> splitViewport;
     std::function<bool(const std::string&, const std::string&, const std::string&, const std::string&)> setAsoboParam;
-    std::function<nlohmann::json(const std::string&, const std::string&, float)> frameNode;
-    std::function<bool(const std::string&)> selectNode;
-    // Names close to an unmatched node query, for error messages (ambiguous or missing).
-    std::function<std::string(const std::string&)> nodeCandidates;
-    std::function<bool(const std::string&, bool)> isolateNode;
-    std::function<bool()> exitIsolate;
-    std::function<bool(const std::string&)> setView;
-    std::function<bool(const glm::vec3&, const glm::vec3&, const std::optional<float>&, const std::optional<float>&, const std::optional<float>&)> setCamera;
-    std::function<bool(const std::string&)> captureViewport;
-    std::function<nlohmann::json(const std::string&)> getNodeRect;
-    std::function<nlohmann::json(int, int)> pickPixel;
-    std::function<bool(const std::string&)> setDebugView;
-    std::function<nlohmann::json()> getState;
-    std::function<nlohmann::json()> getCameraState;
+    // Live commands (frame, select, capture, ... and every newer registry command) run through
+    // the shared command registry (docs/AGENT_CONTROL_PLAN.md). Returns false when cmd is not a
+    // registry command; done is called now, or in a later frame for multi-frame commands.
+    std::function<bool(const std::string& cmd, const std::vector<std::string>& tokens, const std::string& line,
+                       std::function<void(bool ok, const std::string& error, const nlohmann::json& result)> done)>
+        runCommand;
 };
 
 // Drives real ImGui frames from a text script (--ui-script) by queueing mouse,
@@ -253,31 +245,9 @@ public:
 
         if (m_waitFrames > 0) {
             --m_waitFrames;
-            if (m_waitFrames == 0 && !m_pendingCapturePath.empty()) {
-                bool ok = frame.captureViewport && frame.captureViewport(m_pendingCapturePath);
-                if (ok) {
-                    nlohmann::json res;
-                    res["path"] = m_pendingCapturePath;
-                    res["camera"] = frame.getCameraState ? frame.getCameraState() : nlohmann::json::object();
-                    writeResult(m_pendingCaptureLine, "capture", true, "", res);
-                } else {
-                    reportError(m_pendingCaptureLine, "capture", "capture failed: " + m_pendingCapturePath);
-                }
-                m_pendingCapturePath.clear();
-            }
-            if (m_waitFrames == 0 && !m_pendingOpenPath.empty()) {
-                nlohmann::json res;
-                res["path"] = m_pendingOpenPath;
-                res["loaded"] = true;
-                if (frame.getState) {
-                    res["state"] = frame.getState();
-                }
-                writeResult(m_pendingOpenLine, "open", true, "", res);
-                m_pendingOpenPath.clear();
-            }
             return;
         }
-        if (!m_queue.empty()) {
+        if (!m_queue.empty() || m_commandPending) {
             return;
         }
         if (m_waitUntil > std::chrono::steady_clock::now()) {
@@ -289,7 +259,7 @@ public:
             const uint64_t cmdLine = m_commandLines[m_next];
             ++m_next;
             execute(command, cmdLine, window, frame);
-            if (m_scroll.active || m_waitFrames > 0 || !m_queue.empty()
+            if (m_scroll.active || m_waitFrames > 0 || !m_queue.empty() || m_commandPending
                 || m_waitUntil > std::chrono::steady_clock::now()) {
                 return;
             }
@@ -329,10 +299,9 @@ private:
     uint64_t m_fileLinesRead = 0;
     std::vector<uint64_t> m_commandLines;
 
-    std::string m_pendingCapturePath;
-    uint64_t m_pendingCaptureLine = 0;
-    std::string m_pendingOpenPath;
-    uint64_t m_pendingOpenLine = 0;
+    // A registry command (capture, open, ...) is still running; later lines wait for it.
+    bool m_commandPending = false;
+    bool m_dispatching = false;
 
     void writeResult(uint64_t lineNum, const std::string& cmd, bool ok, const std::string& error, const nlohmann::json& result)
     {
@@ -788,162 +757,26 @@ private:
                 snap(args, window, frame);
                 if (m_followMode) writeResult(cmdLine, "snap", true, "", args.size() > 1 ? args[1] : "snap");
             }
-        } else if (cmd == "frame") {
-            if (need(2)) {
-                std::string spec = args[1];
-                std::string viewPreset = args.size() > 2 ? args[2] : "";
-                float margin = 1.0f;
-                if (args.size() > 3) {
-                    try { margin = std::stof(args[3]); } catch (...) {}
-                }
-                if (frame.frameNode) {
-                    nlohmann::json res = frame.frameNode(spec, viewPreset, margin);
-                    if (!res.is_null() && !res.empty()) {
-                        writeResult(cmdLine, "frame", true, "", res);
+        } else if (frame.runCommand) {
+            m_commandPending = true;
+            m_dispatching = true;
+            const bool known = frame.runCommand(cmd, args, line,
+                [this, cmdLine, cmd](bool ok, const std::string& error, const nlohmann::json& result) {
+                    m_commandPending = false;
+                    // A multi-frame command finished during this frame's tick: like the Phase 0
+                    // capture/open waits, the next line runs in the following frame.
+                    if (!m_dispatching) m_waitFrames = 1;
+                    if (ok) {
+                        writeResult(cmdLine, cmd, true, "", result);
                     } else {
-                        reportError(cmdLine, "frame", "node not found: " + spec + (frame.nodeCandidates ? frame.nodeCandidates(spec) : std::string()));
+                        reportError(cmdLine, cmd, error);
                     }
-                }
+                });
+            m_dispatching = false;
+            if (!known) {
+                m_commandPending = false;
+                reportError(cmdLine, cmd, "unknown command: " + line);
             }
-        } else if (cmd == "select") {
-            if (need(2)) {
-                if (frame.selectNode && frame.selectNode(args[1])) {
-                    writeResult(cmdLine, "select", true, "", args[1]);
-                } else {
-                    reportError(cmdLine, "select", "node not found: " + args[1] + (frame.nodeCandidates ? frame.nodeCandidates(args[1]) : std::string()));
-                }
-            }
-        } else if (cmd == "isolate") {
-            if (need(2)) {
-                bool children = (args.size() > 2 && (args[2] == "children" || args[2] == "with_children" || args[2] == "1" || args[2] == "true"));
-                if (frame.isolateNode && frame.isolateNode(args[1], children)) {
-                    writeResult(cmdLine, "isolate", true, "", args[1]);
-                } else {
-                    reportError(cmdLine, "isolate", "node not found: " + args[1] + (frame.nodeCandidates ? frame.nodeCandidates(args[1]) : std::string()));
-                }
-            }
-        } else if (cmd == "exitisolate") {
-            if (frame.exitIsolate && frame.exitIsolate()) {
-                writeResult(cmdLine, "exitisolate", true, "", "none");
-            } else {
-                reportError(cmdLine, "exitisolate", "exit isolate failed");
-            }
-        } else if (cmd == "view") {
-            if (need(2)) {
-                if (frame.setView && frame.setView(args[1])) {
-                    writeResult(cmdLine, "view", true, "", args[1]);
-                } else {
-                    reportError(cmdLine, "view", "unknown view: " + args[1]);
-                }
-            }
-        } else if (cmd == "camera") {
-            // camera <eye x,y,z> <target x,y,z> [fov]
-            glm::vec3 eye(0.0f), target(0.0f);
-            std::optional<float> fov;
-            bool parsed = false;
-            std::optional<float> nearPlane, farPlane;
-            if (args.size() >= 3 && args[1].find(',') != std::string::npos && args[2].find(',') != std::string::npos) {
-                float ex = 0, ey = 0, ez = 0, tx = 0, ty = 0, tz = 0;
-                char c1, c2, c3, c4;
-                std::istringstream s1(args[1]);
-                std::istringstream s2(args[2]);
-                if ((s1 >> ex >> c1 >> ey >> c2 >> ez) && (s2 >> tx >> c3 >> ty >> c4 >> tz)) {
-                    eye = glm::vec3(ex, ey, ez);
-                    target = glm::vec3(tx, ty, tz);
-                    if (args.size() > 3) {
-                        try { fov = std::stof(args[3]); } catch (...) {}
-                    }
-                    if (args.size() > 4 && args[4].find(',') != std::string::npos) {
-                        float zn = 0, zf = 0;
-                        char c5;
-                        std::istringstream s4(args[4]);
-                        if (s4 >> zn >> c5 >> zf) {
-                            nearPlane = zn;
-                            farPlane = zf;
-                        }
-                    }
-                    parsed = true;
-                }
-            } else if (args.size() >= 7) {
-                try {
-                    eye = glm::vec3(std::stof(args[1]), std::stof(args[2]), std::stof(args[3]));
-                    target = glm::vec3(std::stof(args[4]), std::stof(args[5]), std::stof(args[6]));
-                    if (args.size() > 7) {
-                        fov = std::stof(args[7]);
-                    }
-                    if (args.size() > 9) {
-                        nearPlane = std::stof(args[8]);
-                        farPlane = std::stof(args[9]);
-                    }
-                    parsed = true;
-                } catch (...) {}
-            }
-            if (parsed && frame.setCamera && frame.setCamera(eye, target, fov, nearPlane, farPlane)) {
-                writeResult(cmdLine, "camera", true, "", frame.getCameraState ? frame.getCameraState() : nlohmann::json::object());
-            } else {
-                reportError(cmdLine, "camera", "invalid camera arguments: " + line);
-            }
-        } else if (cmd == "capture") {
-            if (need(2)) {
-                m_pendingCapturePath = args[1];
-                m_pendingCaptureLine = cmdLine;
-                int settle = 8;
-                if (args.size() > 2) {
-                    try { settle = std::stoi(args[2]); } catch (...) {}
-                }
-                m_waitFrames = settle;
-            }
-        } else if (cmd == "noderect") {
-            if (need(2)) {
-                if (frame.getNodeRect) {
-                    nlohmann::json res = frame.getNodeRect(args[1]);
-                    if (!res.is_null() && !res.empty()) {
-                        writeResult(cmdLine, "noderect", true, "", res);
-                    } else {
-                        reportError(cmdLine, "noderect", "node not found: " + args[1] + (frame.nodeCandidates ? frame.nodeCandidates(args[1]) : std::string()));
-                    }
-                }
-            }
-        } else if (cmd == "pick") {
-            if (need(3)) {
-                if (frame.pickPixel) {
-                    int x = 0, y = 0;
-                    try {
-                        x = std::stoi(args[1]);
-                        y = std::stoi(args[2]);
-                        nlohmann::json res = frame.pickPixel(x, y);
-                        writeResult(cmdLine, "pick", true, "", res);
-                    } catch (...) {
-                        reportError(cmdLine, "pick", "invalid coordinates: " + line);
-                    }
-                }
-            }
-        } else if (cmd == "debugview") {
-            if (need(2)) {
-                if (frame.setDebugView && frame.setDebugView(args[1])) {
-                    writeResult(cmdLine, "debugview", true, "", args[1]);
-                } else {
-                    reportError(cmdLine, "debugview", "unknown debug view: " + args[1]);
-                }
-            }
-        } else if (cmd == "state") {
-            if (frame.getState) {
-                writeResult(cmdLine, "state", true, "", frame.getState());
-            }
-        } else if (cmd == "open") {
-            if (need(2)) {
-                std::string path = pathArgument(line);
-                if (frame.loadModel && frame.loadModel(path)) {
-                    m_pendingOpenPath = path;
-                    m_pendingOpenLine = cmdLine;
-                    m_waitFrames = kSettleFrames;
-                } else {
-                    reportError(cmdLine, "open", "failed to open: " + path);
-                }
-            }
-        } else if (cmd == "quit") {
-            writeResult(cmdLine, "quit", true, "", "quitting");
-            glfwSetWindowShouldClose(window, GLFW_TRUE);
         } else {
             reportError(cmdLine, cmd, "unknown command: " + line);
         }

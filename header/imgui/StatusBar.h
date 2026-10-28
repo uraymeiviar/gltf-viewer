@@ -41,7 +41,8 @@ public:
                        bool& showValidation,
                        const LogSeverityCounts& logCounts,
                        AntiAliasing* antiAliasing = nullptr,
-                       const std::string& agentScript = "");
+                       const std::string& agentScript = "",
+                       const std::string& agentPipeClient = "");
 };
 
 } // namespace ux3d::imgui

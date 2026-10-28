@@ -11,7 +11,7 @@ import struct
 import zstandard
 
 def pack_resources(resources_dir, output_zst_path, output_cpp_path):
-    subdirs = ["shaders", "fonts", "environments", "sampleGltf", "schemas", "icons"]
+    subdirs = ["shaders", "fonts", "environments", "sampleGltf", "schemas", "icons", "agent"]
     files_to_pack = []
 
     for subdir in subdirs:

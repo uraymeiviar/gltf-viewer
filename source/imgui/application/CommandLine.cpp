@@ -186,7 +186,7 @@ ux3d::gltf::Node* Application::findNode(const std::string& spec, std::vector<std
     return nullptr;
 }
 
-namespace {
+// Shared with get_material_param (Commands.cpp).
 nlohmann::json asoboValueToJson(const ux3d::gltf::asobo::Value& value)
 {
     return std::visit([](const auto& v) -> nlohmann::json {
@@ -205,6 +205,7 @@ nlohmann::json asoboValueToJson(const ux3d::gltf::asobo::Value& value)
     }, value);
 }
 
+namespace {
 // --asobo-report: the typed ASOBO extension model of the loaded file (A0.1), read by
 // scripts/validate_asobo_model.py.
 bool writeAsoboReport(const ux3d::gltf::Gltf& gltf, const std::string& path)
@@ -273,6 +274,10 @@ bool writeAsoboReport(const ux3d::gltf::Gltf& gltf, const std::string& path)
 
 std::optional<int> Application::configure(int argc, char** argv)
 {
+    using ux3d::imgui::agent::SettingScope;
+    // Runtime-safe viewport and environment flags apply through the agent setting registry
+    // (Commands.cpp), so the CLI, scripts and the control pipe share one code path.
+    registerAgentCommands();
     auto& startupProfile = ux3d::imgui::profiling::startupProfile();
     modelToLoad = resolveSampleModelPath();
     std::string reloadModelArg;
@@ -348,26 +353,10 @@ std::optional<int> Application::configure(int argc, char** argv)
     glm::vec4 cliClearColor(1.0f);
     bool cliHdrProvided = false;
     std::string cliHdrPath;
-    bool cliHdrRotationProvided = false;
-    float cliHdrRotation = 0.0f;
+    // The other environment flags are recorded in cliEnvironmentSettings (applyCliSetting).
     bool cliExposureProvided = false;
-    float cliExposureEV = 0.0f;
-    bool cliToneMappingProvided = false;
-    int cliToneMappingIdx = 1;
-    bool cliBloomProvided = false;
-    bool cliBloomEnabled = true;
-    bool cliBloomIntensityProvided = false;
-    float cliBloomIntensity = 0.04f;
-    bool cliBloomRadiusProvided = false;
-    float cliBloomRadius = 1.0f;
     bool cliAutoExposureProvided = false;
     bool cliAutoExposure = false;
-    bool cliExposureCompensationProvided = false;
-    float cliExposureCompensationEV = 0.0f;
-    bool cliMsfsEmissiveScaleProvided = false;
-    float cliMsfsEmissiveScale = 0.001f;
-    bool cliTimeOfDayProvided = false;
-    int cliTimeOfDay = 0;
 
     auto parseDisplayOptions = [](const std::string& spec, ux3d::imgui::HierarchyDisplayOptions& options) {
         std::stringstream stream(spec);
@@ -476,44 +465,36 @@ std::optional<int> Application::configure(int argc, char** argv)
         } else if (arg == "--disable-shared-traversal") {
             s_disableSharedTraversal = true;
         } else if (arg == "--show-invisible-materials") {
-            activeViewport->settings.asobo.setApplied("ASOBO_material_invisible", false);
-            activeViewport->settings.asobo.setApplied("ASOBO_material_environment_occluder", false);
+            if (!applyCliSetting(SettingScope::Viewport, "show_invisible_materials", "on", "--show-invisible-materials")) return 1;
         } else if (arg == "--decal-tolerance" && i + 1 < argc) {
-            const std::string value = argv[++i];
-            float mm = 0.0f;
-            size_t parsed = 0;
-            try {
-                mm = std::stof(value, &parsed);
-            } catch (...) {
-                parsed = 0;
-            }
-            if (parsed != value.size() || !std::isfinite(mm) || mm < 0.0f || mm > 10.0f) {
+            if (!applyCliSetting(SettingScope::Viewport, "decal_tolerance_mm", argv[++i], "--decal-tolerance")) {
                 std::fprintf(stderr, "--decal-tolerance must be a number from 0 to 10 mm\n");
                 return 1;
             }
-            activeViewport->settings.decalDepthToleranceMm = mm;
         } else if (arg == "--hide-grid") {
-            activeViewport->settings.showGrid = false;
+            if (!applyCliSetting(SettingScope::Viewport, "grid", "off", "--hide-grid")) return 1;
         } else if (arg == "--ssr" && i + 1 < argc) {
             const std::string value = toLowerAscii(argv[++i]);
             if (value != "on" && value != "off") return 1;
-            activeViewport->settings.screenSpaceReflections = value == "on";
+            if (!applyCliSetting(SettingScope::Viewport, "ssr", value, "--ssr")) return 1;
         } else if (arg == "--ssr-quality" && i + 1 < argc) {
-            const std::string value = toLowerAscii(argv[++i]);
-            if (value != "low" && value != "medium" && value != "high") return 1;
-            activeViewport->settings.ssrQuality = value == "low" ? 0 : value == "high" ? 2 : 1;
+            if (!applyCliSetting(SettingScope::Viewport, "ssr_quality", toLowerAscii(argv[++i]), "--ssr-quality")) return 1;
         } else if (arg == "--interior-sky-reflection" && i + 1 < argc) {
-            const float value = std::stof(argv[++i]);
-            if (!std::isfinite(value) || value < 0.0f || value > 1.0f) return 1;
-            activeViewport->settings.interiorSkyReflection = value;
+            if (!applyCliSetting(SettingScope::Viewport, "interior_sky_reflection", argv[++i], "--interior-sky-reflection")) return 1;
         } else if (arg == "--windshield-icing" && i + 1 < argc) {
-            const float value = std::stof(argv[++i]);
-            if (!std::isfinite(value) || value < 0.0f || value > 1.0f) return 1;
-            activeViewport->settings.windshieldIcing = value;
+            if (!applyCliSetting(SettingScope::Viewport, "windshield_icing", argv[++i], "--windshield-icing")) return 1;
         } else if (arg == "--asobo" && i + 1 < argc) {
-            activeViewport->settings.asobo.enabled = toLowerAscii(argv[++i]) != "off";
+            // Anything but "off" keeps the extensions on, as before.
+            const bool on = toLowerAscii(argv[++i]) != "off";
+            if (!applyCliSetting(SettingScope::Viewport, "asobo", on ? "on" : "off", "--asobo")) return 1;
         } else if (arg == "--asobo-disable" && i + 1 < argc) {
-            activeViewport->settings.asobo.setApplied(argv[++i], false);
+            const std::string extension = argv[++i];
+            if (agentRegistry.findSetting(SettingScope::Viewport, extension) != nullptr) {
+                if (!applyCliSetting(SettingScope::Viewport, extension, "off", "--asobo-disable")) return 1;
+            } else {
+                // Extensions without a viewport switch keep the direct path.
+                activeViewport->settings.asobo.setApplied(extension, false);
+            }
         } else if (arg == "--set-asobo-param" && i + 4 < argc) {
             AsoboParamEditArg edit;
             edit.material = argv[++i];
@@ -524,30 +505,25 @@ std::optional<int> Application::configure(int argc, char** argv)
         } else if (arg == "--disable-wireframe-cache") {
             s_disableWireframeCache = true;
         } else if (arg == "--msfs-emissive" && i + 1 < argc) {
-            s_disableMsfsEmissive = toLowerAscii(argv[++i]) == "off";
+            const bool off = toLowerAscii(argv[++i]) == "off";
+            if (!applyCliSetting(SettingScope::Renderer, "msfs_emissive", off ? "off" : "on", "--msfs-emissive")) return 1;
         } else if (arg == "--wireframe-overlay") {
-            activeViewport->settings.wireframeOverlay = true;
+            if (!applyCliSetting(SettingScope::Viewport, "wireframe_overlay", "on", "--wireframe-overlay")) return 1;
         } else if (arg == "--wireframe-color" && i + 1 < argc) {
             float r = 1.0f, g = 1.0f, b = 1.0f, a = 1.0f;
             const char* val = argv[++i];
             int count = std::sscanf(val, "%f,%f,%f,%f", &r, &g, &b, &a);
             if (count < 3) return 1;
             if (count == 3) a = 1.0f;
-            activeViewport->settings.wireframeColor = glm::vec4(r, g, b, a);
-        } else if (arg == "--wireframe-blend" && i + 1 < argc) {
-            std::string modeStr = toLowerAscii(argv[++i]);
-            if (modeStr == "normal") {
-                activeViewport->settings.wireframeBlend = ux3d::imgui::WireframeBlendMode::Normal;
-            } else if (modeStr == "additive") {
-                activeViewport->settings.wireframeBlend = ux3d::imgui::WireframeBlendMode::Additive;
-            } else if (modeStr == "invert") {
-                activeViewport->settings.wireframeBlend = ux3d::imgui::WireframeBlendMode::Invert;
-            } else if (modeStr == "xor") {
-                activeViewport->settings.wireframeBlend = ux3d::imgui::WireframeBlendMode::XOR;
-            } else {
-                std::fprintf(stderr, "Invalid --wireframe-blend: %s\n", modeStr.c_str());
+            // sscanf's floats, passed on unchanged as the colour array.
+            std::string error;
+            if (!applySettingValue(SettingScope::Viewport, "wireframe_color", nlohmann::json{r, g, b, a},
+                                   &activeViewport->settings, nullptr, error)) {
+                std::fprintf(stderr, "Invalid --wireframe-color: %s\n", error.c_str());
                 return 1;
             }
+        } else if (arg == "--wireframe-blend" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "wireframe_blend", toLowerAscii(argv[++i]), "--wireframe-blend")) return 1;
         } else if (arg == "--disable-instancing") {
             s_disableInstancing = true;
             commandGenerator->getCommandMapping().setInstancingEnabled(false);
@@ -609,6 +585,11 @@ std::optional<int> Application::configure(int argc, char** argv)
             uiReportPath = argv[++i];
         } else if (arg == "--isolated" || arg == "--no-persist") {
             s_isolatedState = true; // Also applied by the pre-scan.
+        } else if (arg == "--control-pipe") {
+            controlPipeArg = true;
+        } else if (arg == "--agent-guide" || arg == "--format") {
+            // Handled by the pre-scan in Application::run, which exits before the window opens.
+            if (i + 1 < argc && argv[i + 1][0] != '-') ++i;
         } else if (arg == "--ui-script-follow" && i + 1 < argc) {
             uiScriptFollowPath = argv[++i];
             s_isolatedState = true;
@@ -738,9 +719,9 @@ std::optional<int> Application::configure(int argc, char** argv)
         } else if (arg == "--blend-selfcheck-case" && i + 1 < argc) {
             blendSelfCheckCase = argv[++i];
         } else if (arg == "--force-double-sided") {
-            activeViewport->settings.forceDoubleSided = true;
+            if (!applyCliSetting(SettingScope::Viewport, "force_double_sided", "on", "--force-double-sided")) return 1;
         } else if (arg == "--invert-winding") {
-            activeViewport->settings.invertWinding = true;
+            if (!applyCliSetting(SettingScope::Viewport, "invert_winding", "on", "--invert-winding")) return 1;
         } else if (arg == "--selfcheck-force-failure") {
             selfCheckForceFailure = true;
         } else if ((arg == "--env" || arg == "--hdr") && i + 1 < argc) {
@@ -763,19 +744,9 @@ std::optional<int> Application::configure(int argc, char** argv)
                 logMessage("Loaded environment map: " + customHdr);
             }
         } else if ((arg == "--aa" || arg == "--anti-aliasing") && i + 1 < argc) {
-            std::string aaVal = argv[++i];
-            if (aaVal == "none" || aaVal == "0")
-                activeViewport->settings.setLegacyAA(0);
-            else if (aaVal == "msaa2" || aaVal == "1")
-                activeViewport->settings.setLegacyAA(1);
-            else if (aaVal == "msaa4" || aaVal == "2")
-                activeViewport->settings.setLegacyAA(2);
-            else if (aaVal == "msaa8" || aaVal == "3")
-                activeViewport->settings.setLegacyAA(3);
-            else if (aaVal == "fxaa" || aaVal == "4")
-                activeViewport->settings.setLegacyAA(4);
-            else if (aaVal == "taa" || aaVal == "5")
-                activeViewport->settings.setLegacyAA(5);
+            // Unknown values are ignored, as before (the setting takes the names and 0..5).
+            std::string error;
+            applySettingValue(SettingScope::Viewport, "aa", std::string(argv[++i]), &activeViewport->settings, nullptr, error);
         } else if ((arg == "--msaa" || arg == "--post-aa" || arg == "--bloom" ||
                     arg == "--bloom-intensity" || arg == "--bloom-radius" ||
                     arg == "--auto-exposure" || arg == "--exposure-compensation" ||
@@ -785,35 +756,30 @@ std::optional<int> Application::configure(int argc, char** argv)
             float r, g, b;
             if (std::sscanf(argv[++i], "%f,%f,%f", &r, &g, &b) != 3) return 1;
             auto& env = getSceneEnvironment(sceneEnvironments, gltfModel, activeScene);
+            std::string error;
+            applySettingValue(SettingScope::Environment, "clear_color", nlohmann::json{r, g, b}, nullptr, &env, error);
+            applySettingValue(SettingScope::Environment, "background", false, nullptr, &env, error);
             cliClearProvided = true;
-            cliClearColor = env.clearColor = glm::vec4(r, g, b, 1.0f);
-            env.showBackground = false;
+            cliClearColor = env.clearColor;
         } else if (arg == "--hdr-rotation" && i + 1 < argc) {
-            cliHdrRotation = std::stof(argv[++i]);
-            cliHdrRotationProvided = true;
-            getSceneEnvironment(sceneEnvironments, gltfModel, activeScene).hdrRotation = cliHdrRotation;
+            if (!applyCliSetting(SettingScope::Environment, "hdr_rotation", argv[++i], "--hdr-rotation")) return 1;
         } else if (arg == "--exposure" && i + 1 < argc) {
-            cliExposureEV = std::stof(argv[++i]);
+            if (!applyCliSetting(SettingScope::Environment, "exposure", argv[++i], "--exposure")) return 1;
             cliExposureProvided = true;
-            getSceneEnvironment(sceneEnvironments, gltfModel, activeScene).exposureEV = cliExposureEV;
         } else if (arg == "--tone-mapping" && i + 1 < argc) {
-            std::string tmVal = toLowerAscii(argv[++i]);
-            if (tmVal == "pbr_neutral" || tmVal == "neutral" || tmVal == "0")
-                cliToneMappingIdx = 0;
-            else if (tmVal == "aces_hill" || tmVal == "hill" || tmVal == "1")
-                cliToneMappingIdx = 1;
-            else if (tmVal == "aces_narkowicz" || tmVal == "narkowicz" || tmVal == "2")
-                cliToneMappingIdx = 2;
-            cliToneMappingProvided = true;
-            getSceneEnvironment(sceneEnvironments, gltfModel, activeScene).toneMappingIdx = cliToneMappingIdx;
+            // An unknown value selected ACES Hill before; it still does.
+            const std::string tmVal = toLowerAscii(argv[++i]);
+            if (!applyCliSetting(SettingScope::Environment, "tone_mapping", tmVal, "--tone-mapping")) {
+                applyCliSetting(SettingScope::Environment, "tone_mapping", "hill", "--tone-mapping");
+            }
         } else if (arg == "--render-mode" && i + 1 < argc) {
-            std::string rmVal = toLowerAscii(argv[++i]);
+            // Only wireframe and shaded; other values are ignored, as before.
+            const std::string rmVal = toLowerAscii(argv[++i]);
+            std::string error;
             if (rmVal == "wireframe" || rmVal == "1") {
-                activeViewport->settings.renderMode = ux3d::renderer::RenderMode::Wireframe;
-                activeViewport->settings.renderModeIdx = 1;
+                applySettingValue(SettingScope::Viewport, "render_mode", "wireframe", &activeViewport->settings, nullptr, error);
             } else if (rmVal == "default" || rmVal == "shaded" || rmVal == "0" || rmVal == "none") {
-                activeViewport->settings.renderMode = ux3d::renderer::RenderMode::None;
-                activeViewport->settings.renderModeIdx = 0;
+                applySettingValue(SettingScope::Viewport, "render_mode", "shaded", &activeViewport->settings, nullptr, error);
             }
         } else if (std::string qualityError; ux3d::imgui::RenderQuality::parseArgument(argc, argv, i, qualityError)) {
             // Already applied by the pre-scan; this only skips the flag and its value.
@@ -825,67 +791,28 @@ std::optional<int> Application::configure(int argc, char** argv)
     for (int i = 1; i + 1 < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--msaa") {
-            const std::string value = argv[++i];
-            if (value == "0" || value == "2" || value == "4" || value == "8")
-                activeViewport->settings.msaaIdx = value == "0" ? 0 : value == "2" ? 1 : value == "4" ? 2 : 3;
-            else { std::fprintf(stderr, "Invalid --msaa: %s\n", value.c_str()); return 1; }
+            if (!applyCliSetting(SettingScope::Viewport, "msaa", argv[++i], "--msaa")) return 1;
         } else if (arg == "--post-aa") {
-            const std::string value = argv[++i];
-            if (value == "none" || value == "fxaa" || value == "taa")
-                activeViewport->settings.postAAIdx = value == "none" ? 0 : value == "fxaa" ? 1 : 2;
-            else { std::fprintf(stderr, "Invalid --post-aa: %s\n", value.c_str()); return 1; }
+            if (!applyCliSetting(SettingScope::Viewport, "post_aa", argv[++i], "--post-aa")) return 1;
         } else if (arg == "--bloom") {
-            const std::string val = toLowerAscii(argv[++i]);
-            if (val == "on" || val == "1" || val == "true") {
-                cliBloomEnabled = true;
-            } else if (val == "off" || val == "0" || val == "false") {
-                cliBloomEnabled = false;
-            } else {
-                std::fprintf(stderr, "Invalid --bloom: %s\n", val.c_str());
-                return 1;
-            }
-            cliBloomProvided = true;
-            getSceneEnvironment(sceneEnvironments, gltfModel, activeScene).bloomEnabled = cliBloomEnabled;
+            if (!applyCliSetting(SettingScope::Environment, "bloom", toLowerAscii(argv[++i]), "--bloom")) return 1;
         } else if (arg == "--bloom-intensity") {
-            cliBloomIntensity = std::stof(argv[++i]);
-            cliBloomIntensityProvided = true;
-            getSceneEnvironment(sceneEnvironments, gltfModel, activeScene).bloomIntensity = cliBloomIntensity;
+            if (!applyCliSetting(SettingScope::Environment, "bloom_intensity", argv[++i], "--bloom-intensity")) return 1;
         } else if (arg == "--bloom-radius") {
-            cliBloomRadius = std::stof(argv[++i]);
-            cliBloomRadiusProvided = true;
-            getSceneEnvironment(sceneEnvironments, gltfModel, activeScene).bloomRadius = cliBloomRadius;
+            if (!applyCliSetting(SettingScope::Environment, "bloom_radius", argv[++i], "--bloom-radius")) return 1;
         } else if (arg == "--auto-exposure") {
-            const std::string val = toLowerAscii(argv[++i]);
-            if (val == "on" || val == "1" || val == "true" || val == "auto") {
-                cliAutoExposure = true;
-            } else if (val == "off" || val == "0" || val == "false" || val == "manual") {
-                cliAutoExposure = false;
-            } else {
-                std::fprintf(stderr, "Invalid --auto-exposure: %s\n", val.c_str());
-                return 1;
-            }
+            std::string val = toLowerAscii(argv[++i]);
+            if (val == "auto") val = "on";
+            if (val == "manual") val = "off";
+            if (!applyCliSetting(SettingScope::Environment, "auto_exposure", val, "--auto-exposure")) return 1;
             cliAutoExposureProvided = true;
-            getSceneEnvironment(sceneEnvironments, gltfModel, activeScene).autoExposure = cliAutoExposure;
+            cliAutoExposure = getSceneEnvironment(sceneEnvironments, gltfModel, activeScene).autoExposure;
         } else if (arg == "--exposure-compensation") {
-            cliExposureCompensationEV = std::stof(argv[++i]);
-            cliExposureCompensationProvided = true;
-            getSceneEnvironment(sceneEnvironments, gltfModel, activeScene).exposureCompensationEV = cliExposureCompensationEV;
+            if (!applyCliSetting(SettingScope::Environment, "exposure_compensation", argv[++i], "--exposure-compensation")) return 1;
         } else if (arg == "--msfs-emissive-scale" && i + 1 < argc) {
-            cliMsfsEmissiveScale = std::stof(argv[++i]);
-            cliMsfsEmissiveScaleProvided = true;
-            getSceneEnvironment(sceneEnvironments, gltfModel, activeScene).msfsEmissiveScale = cliMsfsEmissiveScale;
+            if (!applyCliSetting(SettingScope::Environment, "msfs_emissive_scale", argv[++i], "--msfs-emissive-scale")) return 1;
         } else if (arg == "--time-of-day" && i + 1 < argc) {
-            const std::string todVal = toLowerAscii(argv[++i]);
-            if (todVal == "night" || todVal == "1") {
-                cliTimeOfDay = 1;
-            } else if (todVal == "day" || todVal == "0") {
-                cliTimeOfDay = 0;
-            } else {
-                std::fprintf(stderr, "Invalid --time-of-day: %s (expected day or night)\n", todVal.c_str());
-                return 1;
-            }
-            cliTimeOfDayProvided = true;
-            getSceneEnvironment(sceneEnvironments, gltfModel, activeScene).timeOfDay = cliTimeOfDay;
+            if (!applyCliSetting(SettingScope::Environment, "time_of_day", toLowerAscii(argv[++i]), "--time-of-day")) return 1;
         }
     }
 
@@ -1175,8 +1102,7 @@ std::optional<int> Application::configure(int argc, char** argv)
         if (!isolateNodeArg.empty()) {
             ux3d::gltf::Node* node = findNodeExact(isolateNodeArg);
             if (node != nullptr) {
-                gltfLayer->setIsolation(node, false);
-                sceneRevisions.mark(ux3d::imgui::SceneChange::Visibility);
+                isolateNodeAction(node, false);
                 // Select and frame it through the --select-node path below, as before.
                 selectNodeArg = isolateNodeArg;
             }
@@ -1184,26 +1110,15 @@ std::optional<int> Application::configure(int argc, char** argv)
         if (!selectNodeArg.empty()) {
             ux3d::gltf::Node* node = findNodeExact(selectNodeArg);
             if (node != nullptr) {
-                selection.selectNode(node);
-                ux3d::imgui::SceneHierarchyPanel::requestScrollToSelectedNode();
-                if (activeViewport) {
-                    focusCameraOnNode(node, gltfModel, gltfLayer.get(), activeViewport->cameraActor,
-                                      activeViewport->antiAliasing, sceneRevisions);
-                }
+                selectNodeAction(node);
+                frameNodeAction(node, std::nullopt, 1.0f);
             }
         }
         if (!frameNodeArg.empty()) {
             ux3d::gltf::Node* node = findNode(frameNodeArg);
             if (node != nullptr) {
-                selection.selectNode(node);
-                ux3d::imgui::SceneHierarchyPanel::requestScrollToSelectedNode();
-                if (activeViewport) {
-                    if (frameViewArg.has_value()) {
-                        activeViewport->cameraActor.orientUserCamera(frameViewArg.value());
-                    }
-                    focusCameraOnNode(node, gltfModel, gltfLayer.get(), activeViewport->cameraActor,
-                                      activeViewport->antiAliasing, sceneRevisions, frameMarginArg);
-                }
+                selectNodeAction(node);
+                frameNodeAction(node, frameViewArg, frameMarginArg);
             }
         }
         if (!hideNodeArg.empty()) {
@@ -1312,8 +1227,8 @@ std::optional<int> Application::configure(int argc, char** argv)
     }
 
     for (const auto& edit : setAsoboParamArgs) {
-        if (!ux3d::imgui::ExtensionInspector::instance().setMaterialAsoboParameter(
-                gltfModel, edit.material, edit.extension, edit.param, edit.value, sceneRevisions)) {
+        std::string editError;
+        if (!setMaterialParamAction(edit.material, edit.extension, edit.param, edit.value, editError)) {
             std::fprintf(stderr, "Failed --set-asobo-param %s %s %s %s\n", edit.material.c_str(),
                          edit.extension.c_str(), edit.param.c_str(), edit.value.c_str());
             return 1;
@@ -1327,26 +1242,19 @@ std::optional<int> Application::configure(int argc, char** argv)
         return writeAsoboReport(gltfModel, asoboReportPath) ? 0 : 1;
     }
 
-    if (cliClearProvided || cliHdrProvided || cliHdrRotationProvided || cliExposureProvided || cliToneMappingProvided ||
-        cliBloomProvided || cliBloomIntensityProvided || cliBloomRadiusProvided ||
-        cliAutoExposureProvided || cliExposureCompensationProvided ||
-        cliMsfsEmissiveScaleProvided || cliTimeOfDayProvided) {
+    // Loading a model resets the scene environments, so the environment flags are replayed
+    // onto every scene's environment through the same setting registry.
+    if (cliClearProvided || cliHdrProvided || !cliEnvironmentSettings.empty()) {
         for (auto& env : sceneEnvironments) {
             if (cliClearProvided) { env.showBackground = false; env.clearColor = cliClearColor; }
             if (cliHdrProvided) env.currentHdrPath = cliHdrPath;
-            if (cliHdrRotationProvided) env.hdrRotation = cliHdrRotation;
-            if (cliExposureProvided) env.exposureEV = cliExposureEV;
-            if (cliToneMappingProvided) env.toneMappingIdx = cliToneMappingIdx;
-            if (cliBloomProvided) env.bloomEnabled = cliBloomEnabled;
-            if (cliBloomIntensityProvided) env.bloomIntensity = cliBloomIntensity;
-            if (cliBloomRadiusProvided) env.bloomRadius = cliBloomRadius;
+            for (const auto& [key, value] : cliEnvironmentSettings) {
+                std::string error;
+                applySettingValue(SettingScope::Environment, key, value, nullptr, &env, error);
+            }
             if (cliAutoExposureProvided) {
-                env.autoExposure = cliAutoExposure;
                 env.autoExposureStartFromManual = cliAutoExposure && cliExposureProvided;
             }
-            if (cliExposureCompensationProvided) env.exposureCompensationEV = cliExposureCompensationEV;
-            if (cliMsfsEmissiveScaleProvided) env.msfsEmissiveScale = cliMsfsEmissiveScale;
-            if (cliTimeOfDayProvided) env.timeOfDay = cliTimeOfDay;
         }
     }
 
@@ -1405,9 +1313,9 @@ std::optional<int> Application::configure(int argc, char** argv)
 
     if (!debugViewArg.empty() && activeViewport != nullptr) {
         const std::optional<ux3d::renderer::RenderMode> mode = getRenderModeFromName(debugViewArg);
-        if (mode.has_value()) {
-            activeViewport->settings.renderMode = mode.value();
-            activeViewport->settings.renderModeIdx = getIndexFromRenderMode(mode.value());
+        std::string debugViewError;
+        if (mode.has_value() && applySettingValue(SettingScope::Viewport, "render_mode", debugViewArg,
+                                                  &activeViewport->settings, nullptr, debugViewError)) {
             sceneRevisions.mark(ux3d::imgui::SceneChange::ViewportSettings);
             std::printf("Debug view: %s\n", getRenderModeLabel(mode.value()));
         } else {

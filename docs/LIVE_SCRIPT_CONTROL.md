@@ -87,6 +87,30 @@ If a command fails or is unrecognized, `ok` is `false`, `error` details the issu
 | `open` | `<path>` | Opens a new glTF/GLB asset; waits until the first model frame is rendered. | String confirming opened model path. |
 | `quit` | *(none)* | Cleanly closes Glider with exit code 0. | String confirming exit. |
 
+### 3.1 Commands come from the shared registry
+
+Since Phase 3 of [AGENT_CONTROL_PLAN.md](AGENT_CONTROL_PLAN.md) these commands are not implemented in the script
+harness any more: `--ui-script`, `--ui-script-follow` and the control pipe (`--control-pipe`) all dispatch through
+one command registry (`header/imgui/CommandRegistry.h`, `source/imgui/application/Commands.cpp`). The names in the
+table above are aliases of the registry commands (`frame` = `frame_node`, `noderect` = `node_screen_rect`,
+`debugview` = `set_render_mode`, `state` = `get_state`, `open` = `open_model`, `view` = `set_view`, `camera` =
+`set_camera`, `exitisolate` = `exit_isolate`); they keep the argument syntax and the JSONL result shapes shown here.
+
+Every other registry command can be used in a script with its own name and positional arguments, e.g.
+
+```text
+set_viewport_setting ssr off
+set_environment exposure 1.5
+set_material_param Glass ASOBO_material_fresnel_fade fresnelOpacityOffset 0.5
+probe 400 300
+list_settings environment
+```
+
+Their results are the registry results (the same objects the pipe returns). `Glider.exe --agent-guide <file>`
+writes the full, generated command and settings reference. The UI-testing commands (`click`, `drag`, `snap`,
+`vpsetting`, `aamode`, `asoboparam`, ...) stay in the harness. A command that runs over several frames (`capture`,
+`open`, `reset`) holds back the following lines until it has replied, as before.
+
 ---
 
 ## 4. Python Client: `scripts/glider_live.py`

@@ -26,7 +26,8 @@ void StatusBar::render(ux3d::gltf::Gltf& gltfModel,
                        bool& showValidation,
                        const LogSeverityCounts& logCounts,
                        AntiAliasing* antiAliasing,
-                       const std::string& agentScript)
+                       const std::string& agentScript,
+                       const std::string& agentPipeClient)
 {
     const ImGuiViewport* mainViewport = ImGui::GetMainViewport();
     float statusBarHeight = ImGui::GetFrameHeight() + 8.0f;
@@ -344,6 +345,15 @@ void StatusBar::render(ux3d::gltf::Gltf& gltfModel,
         if (!agentScript.empty()) {
             ImGui::SameLine();
             ImGui::TextDisabled("Agent script: %s", agentScript.c_str());
+        }
+        // Shown while an agent client is connected to the control pipe.
+        if (!agentPipeClient.empty()) {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(0.13f, 0.67f, 0.42f, 1.0f), ICON_MDI_ROBOT " Agent connected");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("An agent is driving this Glider through %s.\nFile > Settings > Agent Control turns the pipe off.",
+                                  agentPipeClient.c_str());
+            }
         }
     }
     ImGui::End();

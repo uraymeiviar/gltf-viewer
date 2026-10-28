@@ -104,6 +104,7 @@ void Application::addRecentFile(std::vector<std::string>& files, const std::stri
 {
     if (path.empty()) return;
     if (s_isolatedState) return; // Do not touch user-persisted state in scenario runs.
+    if (agentNoPersistScope) return; // Pipe commands do not save settings without set_persist(true).
     std::string normPath = path;
     for (char& c : normPath) {
         if (c == '\\') c = '/';

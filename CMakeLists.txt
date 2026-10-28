@@ -75,6 +75,14 @@ set(GLIDER_SOURCES
 	"source/imgui/application/Viewports.cpp"
 	"source/imgui/application/Diagnostics.cpp"
 	"source/imgui/application/Frame.cpp"
+	"source/imgui/application/Commands.cpp"
+	"source/imgui/CommandRegistry.cpp"
+	"source/imgui/CaptureSettings.cpp"
+	"source/imgui/application/ViewportImage.cpp"
+	"header/imgui/CommandRegistry.h"
+	"header/imgui/CaptureSettings.h"
+	"source/imgui/ControlPipe.cpp"
+	"header/imgui/ControlPipe.h"
 	"source/imgui/Profiling.cpp"
 	"header/imgui/Profiling.h"
 	"source/imgui/GladGL.cpp"
@@ -168,7 +176,8 @@ file(GLOB_RECURSE GLIDER_PACKED_RESOURCES CONFIGURE_DEPENDS
 	"${CMAKE_CURRENT_SOURCE_DIR}/resources/environments/*"
 	"${CMAKE_CURRENT_SOURCE_DIR}/resources/sampleGltf/*"
 	"${CMAKE_CURRENT_SOURCE_DIR}/resources/schemas/*"
-	"${CMAKE_CURRENT_SOURCE_DIR}/resources/icons/*")
+	"${CMAKE_CURRENT_SOURCE_DIR}/resources/icons/*"
+	"${CMAKE_CURRENT_SOURCE_DIR}/resources/agent/*")
 add_custom_command(
 	OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/source/imgui/EmbeddedResources.cpp"
 	       "${CMAKE_CURRENT_SOURCE_DIR}/resources/resources.vfs.zst"

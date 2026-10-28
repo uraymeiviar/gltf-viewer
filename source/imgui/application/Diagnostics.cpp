@@ -304,6 +304,32 @@ uint64_t Application::hashBytesFnv1a64(const uint8_t* data, size_t size)
     return value;
 }
 
+bool Application::readTexturePixels(GLuint texture, int width, int height, std::vector<uint8_t>& pixels, double& readbackMs)
+{
+    pixels.assign(static_cast<size_t>(width) * static_cast<size_t>(height) * 4u, 0);
+    GLint previousTexture = 0;
+    GLint previousPackAlignment = 4;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &previousTexture);
+    glGetIntegerv(GL_PACK_ALIGNMENT, &previousPackAlignment);
+    while (glGetError() != GL_NO_ERROR) {
+    }
+
+    const auto readbackStart = ux3d::imgui::profiling::Clock::now();
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+    const GLenum readError = glGetError();
+    glPixelStorei(GL_PACK_ALIGNMENT, previousPackAlignment);
+    glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(previousTexture));
+    readbackMs = ux3d::imgui::profiling::elapsedMs(readbackStart);
+
+    if (readError != GL_NO_ERROR) {
+        std::fprintf(stderr, "Capture failed: glGetTexImage error 0x%X\n", readError);
+        return false;
+    }
+    return true;
+}
+
 bool Application::captureViewportTexture(GLuint texture, int width, int height, const std::string& path,
                                          const std::string& region, uint64_t frame, bool firstFrame, double timeSeconds,
                                          ux3d::imgui::profiling::CaptureRecord& record)
@@ -329,25 +355,8 @@ bool Application::captureViewportTexture(GLuint texture, int width, int height, 
         std::filesystem::create_directories(outputPath.parent_path(), directoryError);
     }
 
-    std::vector<uint8_t> pixels(static_cast<size_t>(width) * static_cast<size_t>(height) * 4u);
-    GLint previousTexture = 0;
-    GLint previousPackAlignment = 4;
-    glGetIntegerv(GL_TEXTURE_BINDING_2D, &previousTexture);
-    glGetIntegerv(GL_PACK_ALIGNMENT, &previousPackAlignment);
-    while (glGetError() != GL_NO_ERROR) {
-    }
-
-    const auto readbackStart = ux3d::imgui::profiling::Clock::now();
-    glBindTexture(GL_TEXTURE_2D, texture);
-    glPixelStorei(GL_PACK_ALIGNMENT, 1);
-    glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
-    const GLenum readError = glGetError();
-    glPixelStorei(GL_PACK_ALIGNMENT, previousPackAlignment);
-    glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(previousTexture));
-    record.readbackMs = ux3d::imgui::profiling::elapsedMs(readbackStart);
-
-    if (readError != GL_NO_ERROR) {
-        std::fprintf(stderr, "Capture failed: glGetTexImage error 0x%X\n", readError);
+    std::vector<uint8_t> pixels;
+    if (!readTexturePixels(texture, width, height, pixels, record.readbackMs)) {
         return false;
     }
 
@@ -951,7 +960,7 @@ void Application::finishFrame(FrameContext& frame, int displayW, int displayH)
     }
 
     // Automation runs read GL errors instead of letting them go unnoticed.
-    if (uiScenario.active() || !s_decalPrepassCheckPath.empty() || !s_profileReportPath.empty()) {
+    if (uiScenario.active() || !s_decalPrepassCheckPath.empty() || !s_profileReportPath.empty() || controlPipe != nullptr) {
         drainGLErrors("frame");
     }
     const bool profileReportReady = !s_profileReportPath.empty() && !s_profileReportAttempted &&
@@ -1117,6 +1126,9 @@ void Application::finishFrame(FrameContext& frame, int displayW, int displayH)
             }
         }
     }
+
+    // Agent channel: advance the running multi-frame job, then run queued pipe requests.
+    pumpAgentCommands();
 
     if (uiScenario.active()) {
         ux3d::imgui::UiScenarioFrame uiFrame;
@@ -1385,122 +1397,9 @@ void Application::finishFrame(FrameContext& frame, int displayW, int displayH)
             return ux3d::imgui::ExtensionInspector::instance().setMaterialAsoboParameter(
                 gltfModel, matName, extName, paramName, value, sceneRevisions);
         };
-        uiFrame.frameNode = [&](const std::string& spec, const std::string& viewStr, float margin) -> nlohmann::json {
-            auto* node = findNode(spec);
-            if (!node || !activeViewport) return nullptr;
-            selection.selectNode(node);
-            ux3d::imgui::SceneHierarchyPanel::requestScrollToSelectedNode();
-            sceneRevisions.mark(ux3d::imgui::SceneChange::Selection);
-            if (!viewStr.empty()) {
-                auto ori = parseCameraOrientation(viewStr);
-                if (ori.has_value()) {
-                    activeViewport->cameraActor.orientUserCamera(ori.value());
-                }
-            }
-            focusCameraOnNode(node, gltfModel, gltfLayer.get(), activeViewport->cameraActor,
-                              activeViewport->antiAliasing, sceneRevisions, margin);
-            return getCameraJson(activeViewport);
-        };
-        uiFrame.nodeCandidates = [&](const std::string& spec) -> std::string {
-            std::vector<std::string> candidates;
-            findNode(spec, &candidates);
-            if (candidates.empty()) return {};
-            std::string text = " (candidates: ";
-            for (size_t i = 0; i < candidates.size(); ++i) text += (i ? ", " : "") + candidates[i];
-            return text + ")";
-        };
-        uiFrame.selectNode = [&](const std::string& spec) -> bool {
-            auto* node = findNode(spec);
-            if (!node) return false;
-            selection.selectNode(node);
-            ux3d::imgui::SceneHierarchyPanel::requestScrollToSelectedNode();
-            sceneRevisions.mark(ux3d::imgui::SceneChange::Selection);
-            return true;
-        };
-        uiFrame.isolateNode = [&](const std::string& spec, bool children) -> bool {
-            auto* node = findNode(spec);
-            if (!node || !gltfLayer) return false;
-            gltfLayer->setIsolation(node, children);
-            selection.selectNode(node);
-            ux3d::imgui::SceneHierarchyPanel::requestScrollToSelectedNode();
-            sceneRevisions.mark(ux3d::imgui::SceneChange::Visibility);
-            return true;
-        };
-        uiFrame.exitIsolate = [&]() -> bool {
-            if (!gltfLayer) return false;
-            gltfLayer->setIsolation(nullptr, false);
-            sceneRevisions.mark(ux3d::imgui::SceneChange::Visibility);
-            return true;
-        };
-        uiFrame.setView = [&](const std::string& preset) -> bool {
-            if (!activeViewport) return false;
-            auto ori = parseCameraOrientation(preset);
-            if (!ori.has_value()) return false;
-            activeViewport->cameraActor.orientUserCamera(ori.value());
-            activeViewport->antiAliasing.resetHistory();
-            sceneRevisions.mark(ux3d::imgui::SceneChange::ViewCamera);
-            return true;
-        };
-        uiFrame.setCamera = [&](const glm::vec3& eye, const glm::vec3& target, const std::optional<float>& fov,
-                                const std::optional<float>& nearPlane, const std::optional<float>& farPlane) -> bool {
-            if (!activeViewport) return false;
-            activeViewport->cameraActor.setCameraEyeAndTarget(eye, target);
-            auto* cam = activeViewport->cameraActor.getUserCamera();
-            if (cam != nullptr) {
-                float fovY = (fov.has_value() && fov.value() > 0.1f) ? glm::radians(fov.value()) : cam->getYFoV();
-                float zn = nearPlane.has_value() ? nearPlane.value() : cam->getZNearPlane();
-                float zf = farPlane.has_value() ? farPlane.value() : cam->getZFarPlane();
-                if (fov.has_value() || nearPlane.has_value() || farPlane.has_value()) {
-                    cam->setPerspective(cam->getAspectRatio(), fovY, zn, zf);
-                }
-            }
-            activeViewport->antiAliasing.resetHistory();
-            sceneRevisions.mark(ux3d::imgui::SceneChange::ViewCamera);
-            return true;
-        };
-        uiFrame.captureViewport = [&](const std::string& path) -> bool {
-            if (!activeViewport) return false;
-            int vpW = activeViewport->sceneFbo.getWidth();
-            int vpH = activeViewport->sceneFbo.getHeight();
-            GLuint tex = activeViewport->cachedDisplayTexture;
-            if (tex == 0) tex = activeViewport->overlayFbo.getColorTexture();
-            if (tex == 0) tex = activeViewport->sceneFbo.getColorTexture();
-            ux3d::imgui::profiling::CaptureRecord rec;
-            return captureViewportTexture(tex, vpW, vpH, path, "viewport-texture", frameCount, false, 0.0, rec);
-        };
-        uiFrame.getNodeRect = [&](const std::string& spec) -> nlohmann::json {
-            auto* node = findNode(spec);
-            if (!node || !activeViewport) return nullptr;
-            return computeNodeScreenRect(node, activeViewport);
-        };
-        uiFrame.pickPixel = [&](int x, int y) -> nlohmann::json {
-            if (!activeViewport) return nullptr;
-            return performPickAtPixel(x, y, activeViewport);
-        };
-        uiFrame.setDebugView = [&](const std::string& name) -> bool {
-            if (!activeViewport) return false;
-            auto mode = getRenderModeFromName(name);
-            if (!mode.has_value()) return false;
-            activeViewport->settings.renderMode = mode.value();
-            activeViewport->settings.renderModeIdx = getIndexFromRenderMode(mode.value());
-            activeViewport->antiAliasing.resetHistory();
-            sceneRevisions.mark(ux3d::imgui::SceneChange::RenderSettings);
-            return true;
-        };
-        uiFrame.getState = [&]() -> nlohmann::json {
-            nlohmann::json st;
-            st["model"] = currentFilePath.empty() ? modelToLoad : currentFilePath;
-            st["selection"] = describeUiSelection(selection);
-            st["isolation"] = (gltfLayer && gltfLayer->getIsolationRoot())
-                ? (gltfLayer->getIsolationRoot()->hasName() ? gltfLayer->getIsolationRoot()->getName() : ("Node " + std::to_string(gltfLayer->getIsolationRoot()->m_ID)))
-                : "none";
-            st["camera"] = getCameraJson(activeViewport);
-            st["nodeCount"] = gltfModel.getNodes().size();
-            st["materialCount"] = gltfModel.getElements<ux3d::gltf::Material>().size();
-            return st;
-        };
-        uiFrame.getCameraState = [&]() -> nlohmann::json {
-            return getCameraJson(activeViewport);
+        uiFrame.runCommand = [this](const std::string& cmd, const std::vector<std::string>& tokens, const std::string& line,
+                                    std::function<void(bool, const std::string&, const nlohmann::json&)> done) {
+            return runScriptCommand(cmd, tokens, line, std::move(done));
         };
         uiScenario.endFrame(window, uiFrame);
         if (uiScenario.failed()) {

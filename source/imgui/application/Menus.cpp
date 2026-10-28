@@ -185,6 +185,39 @@ std::optional<ux3d::renderer::RenderMode> Application::getRenderModeFromName(con
     return std::nullopt;
 }
 
+std::vector<std::string> Application::renderModeNames()
+{
+    // The agent registry's render_mode values: the View menu labels, lower case without
+    // spaces, which getRenderModeFromName accepts.
+    std::vector<std::string> names{"shaded"};
+    for (const ShadingModeInfo& info : s_shadingModes) {
+        if (info.isSeparator || info.mode == ux3d::renderer::RenderMode::None) {
+            continue;
+        }
+        std::string name;
+        for (char c : toLowerAscii(info.label)) {
+            if (c != ' ' && c != '_' && c != '-') {
+                name.push_back(c);
+            }
+        }
+        names.push_back(name);
+    }
+    return names;
+}
+
+std::string Application::renderModeName(ux3d::renderer::RenderMode mode)
+{
+    if (mode == ux3d::renderer::RenderMode::None) {
+        return "shaded";
+    }
+    for (const std::string& name : renderModeNames()) {
+        if (getRenderModeFromName(name) == mode) {
+            return name;
+        }
+    }
+    return "shaded";
+}
+
 int Application::getIndexFromRenderMode(ux3d::renderer::RenderMode mode)
 {
     using RM = ux3d::renderer::RenderMode;
@@ -515,6 +548,9 @@ void Application::drawViewportMenuBody()
         drawShadingMenu(*activeViewport);
         ImGui::EndMenu();
     }
+
+    ImGui::Separator();
+    drawViewportImageMenuItems();
 }
 
 void Application::drawShadingMenu(ux3d::imgui::ViewportInstance& viewport)
@@ -688,7 +724,9 @@ void Application::drawMenus(FrameContext& frame)
         }
 
         // Viewport Menu (Replaces previous View menu)
-        if (ImGui::BeginMenu("Viewport")) {
+        const bool viewportMenuOpen = ImGui::BeginMenu("Viewport");
+        UiProbe::item("menu.viewport", 0, viewportMenuOpen);
+        if (viewportMenuOpen) {
             drawViewportMenuBody();
             ImGui::EndMenu();
         }

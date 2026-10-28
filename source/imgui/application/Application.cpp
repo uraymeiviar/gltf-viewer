@@ -15,6 +15,10 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#endif
 
 namespace ux3d::imgui::application {
 
@@ -39,9 +43,18 @@ int Application::run(int argc, char** argv)
     std::string profileReportArg;
     int requestedWidth = 0;
     int requestedHeight = 0;
+    bool agentGuideArg = false;
+    std::string agentGuidePath;
+    std::string agentGuideFormat;
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
-        if (arg == "--isolated" || arg == "--no-persist") {
+        if (arg == "--agent-guide") {
+            agentGuideArg = true;
+            if (i + 1 < argc && argv[i + 1][0] != '-') agentGuidePath = argv[++i];
+        } else if (arg == "--format" && i + 1 < argc) {
+            agentGuideFormat = toLowerAscii(argv[++i]);
+            if (agentGuideArg && agentGuidePath.empty() && i + 1 < argc && argv[i + 1][0] != '-') agentGuidePath = argv[++i];
+        } else if (arg == "--isolated" || arg == "--no-persist") {
             isolatedArg = true;
         } else if (arg == "--ui-script-follow") {
             isolatedArg = true;
@@ -91,8 +104,33 @@ int Application::run(int argc, char** argv)
     const auto startupStart = ux3d::imgui::profiling::Clock::now();
 
     // Initialize embedded Virtual File System (decompresses runtime resources in-memory)
+#ifdef _WIN32
+    // --agent-guide without a file writes the guide to stdout: keep the VFS status line out of it.
+    const bool guideToStdout = agentGuideArg && agentGuidePath.empty() && agentGuideFormat != "skill";
+    int savedStdout = -1;
+    if (guideToStdout) {
+        std::fflush(stdout);
+        savedStdout = _dup(1);
+        const int nul = _open("NUL", _O_WRONLY);
+        if (savedStdout >= 0 && nul >= 0) _dup2(nul, 1);
+        if (nul >= 0) _close(nul);
+    }
     ux3d::imgui::EmbeddedVFS::instance().initialize();
+    if (savedStdout >= 0) {
+        std::fflush(stdout);
+        _dup2(savedStdout, 1);
+        _close(savedStdout);
+    }
+#else
+    ux3d::imgui::EmbeddedVFS::instance().initialize();
+#endif
     ux3d::imgui::profiling::startupProfile().vfsDecompressMs = ux3d::imgui::profiling::elapsedMs(startupStart);
+
+    // --agent-guide [file] [--format skill <dir>]: the embedded guide plus the command table
+    // generated from the registry. Never opens a window.
+    if (agentGuideArg) {
+        return writeAgentGuide(agentGuidePath, agentGuideFormat);
+    }
 
     glfwSetErrorCallback(glfw_error_callback);
     if (!glfwInit()) {
@@ -272,6 +310,10 @@ int Application::run(int argc, char** argv)
     gltfLayer->renderSettings.enableSpecular = true;
 
     if (const auto exitCode = configure(argc, argv)) return *exitCode;
+    // The agent `reset` command returns to the state the startup flags produced.
+    if (activeViewport != nullptr) agentStartupViewportSettings = activeViewport->settings;
+    agentStartupEnvironment = getSceneEnvironment(sceneEnvironments, gltfModel, activeScene);
+    if (controlPipeArg) startControlPipe();
     // P0.2 startup snapshot: load/decode, renderer upload, validation and IBL
     // are measured separately. Counter state is then reset for frame sampling.
     {
@@ -336,7 +378,8 @@ int Application::run(int argc, char** argv)
                                        !s_decalPrepassCheckPath.empty() ||
                                        (!s_captureViewportPath.empty() && !s_captureAttempted) ||
                                        (!s_profileReportPath.empty() && !s_profileReportAttempted) ||
-                                       (!scenarioReportPath.empty() && frameCount <= SCENARIO_REPORT_FRAME);
+                                       (!scenarioReportPath.empty() && frameCount <= SCENARIO_REPORT_FRAME) ||
+                                       agentWorkPending();
         if (!s_disableIdleWait && !automationPending && idleQuietFrames >= kIdleQuietFrames) {
             const double waitStart = glfwGetTime();
             ux3d::imgui::waitForEvents(
@@ -373,6 +416,8 @@ int Application::run(int argc, char** argv)
     }
 
     // Cleanup
+    stopControlPipe();
+    agentRegistry.cancelAll("shutting_down", "Glider is closing");
     releaseTextureRefreshSnapshot();
     ux3d::imgui::RenderQuality::releaseGpuSamples();
     ux3d::imgui::ElementInspector::clearPreviewCache();

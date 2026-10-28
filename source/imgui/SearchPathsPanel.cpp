@@ -2,6 +2,7 @@
 
 #include "imgui/SearchPathsPanel.h"
 #include "imgui/AppSettings.h"
+#include "imgui/CaptureSettings.h"
 #include "imgui/IconsMaterialDesignIcons.h"
 #include "imgui/RenderQuality.h"
 #include "imgui/UiProbe.h"
@@ -229,7 +230,8 @@ static void renderSearchPathsContent(bool* pOpen, std::function<void()> onReload
     }
 }
 
-void renderSearchPathsWindow(bool* pOpen, std::function<void()> onReloadModel, SceneRevisions* revisions)
+void renderSearchPathsWindow(bool* pOpen, std::function<void()> onReloadModel, SceneRevisions* revisions,
+                             std::function<void()> drawAgentControl)
 {
     if (pOpen && !*pOpen) return;
     ImGui::SetNextWindowSize(ImVec2(680,650),ImGuiCond_FirstUseEver);
@@ -252,6 +254,20 @@ void renderSearchPathsWindow(bool* pOpen, std::function<void()> onReloadModel, S
                 if (ImGui::Button("Close")) { if (pOpen) *pOpen = false; }
                 UiProbe::item("settings.close",0);
                 ImGui::EndTabItem();
+            }
+            const bool captures = ImGui::BeginTabItem("Captures");
+            UiProbe::item("settings.tab.captures",0);
+            if (captures) {
+                CaptureSettings::drawSettings();
+                ImGui::EndTabItem();
+            }
+            if (drawAgentControl) {
+                const bool agent = ImGui::BeginTabItem("Agent Control");
+                UiProbe::item("settings.tab.agent",0);
+                if (agent) {
+                    drawAgentControl();
+                    ImGui::EndTabItem();
+                }
             }
             ImGui::EndTabBar();
         }

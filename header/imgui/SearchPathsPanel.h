@@ -8,6 +8,8 @@ namespace ux3d::imgui {
 class SceneRevisions;
 
 // Renders the Asset Search Paths configuration dialog
-void renderSearchPathsWindow(bool* pOpen, std::function<void()> onReloadModel = nullptr, SceneRevisions* revisions = nullptr);
+// drawAgentControl, when set, adds the Agent Control tab.
+void renderSearchPathsWindow(bool* pOpen, std::function<void()> onReloadModel = nullptr, SceneRevisions* revisions = nullptr,
+                             std::function<void()> drawAgentControl = nullptr);
 
 } // namespace ux3d::imgui

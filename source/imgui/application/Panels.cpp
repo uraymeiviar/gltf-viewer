@@ -94,7 +94,7 @@ void Application::drawPanels(FrameContext& frame)
                 loadGltfModel(currentFilePath, gltfModel, activeScene, selection, currentFilePath, viewports,
                               gltfLayer.get(), animationPlayer, sceneRevisions, sceneEnvironments);
             }
-        }, &sceneRevisions);
+        }, &sceneRevisions, [this]() { drawAgentControlSettings(); });
     }
 
     drawLogger();

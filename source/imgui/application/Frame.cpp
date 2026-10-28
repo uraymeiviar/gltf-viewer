@@ -27,8 +27,11 @@ void Application::runFrame()
     if (!queuedLoadPath.empty()) {
         const std::string path = std::exchange(queuedLoadPath, {});
         const bool withoutTextures = std::exchange(queuedLoadWithoutTextures, false);
+        // A load queued by a pipe command keeps that command's no-persist scope (recent files).
+        agentNoPersistScope = std::exchange(queuedLoadNoPersist, false);
         modelLoaded = loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports,
             gltfLayer.get(), animationPlayer, sceneRevisions, sceneEnvironments, false, withoutTextures);
+        agentNoPersistScope = false;
         updateWindowTitle(window, currentFilePath);
     }
     auto& io = ImGui::GetIO();
@@ -91,7 +94,8 @@ void Application::runFrame()
     ux3d::imgui::StatusBar::render(gltfModel, gltfLayer.get(), animationPlayer, sceneRevisions, showLogger,
                                    showStatistics, showValidation, s_consoleLogs.counts(),
                                    activeViewport ? &activeViewport->antiAliasing : nullptr,
-                                   uiScriptFollowPath);
+                                   uiScriptFollowPath,
+                                   controlPipe && controlPipe->clientConnected() ? controlPipe->name() : std::string());
     frame.markStage("ui.statusBar", statusBarStart);
 
     // Rendering main window
