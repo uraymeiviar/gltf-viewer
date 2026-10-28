@@ -77,6 +77,9 @@ public:
     void setPunctualLightsEnabled(bool _enabled);
     void setEnvironmentMapRotation(float _rotation);
     const glm::mat3x3& getEnvironmentMapRotation() const { return m_environmentMapRotation; }
+    // The u_EnvRotation matrix setEnvironmentMapRotation writes for `degrees` (shaders sample the cube map at
+    // u_EnvRotation * worldDirection).
+    static glm::mat3x3 environmentRotationMatrix(float degrees);
     void setEnvironmentMapBlurNormalized(float _blur);
     void setEnvironmentMapIntensity(float _value);
     void setToneMapping(ToneMappingsEnum _toneMapping);
@@ -109,6 +112,17 @@ public:
     void setTimeOfDay(int timeOfDay);
     void setAsoboMaterialEmissiveApplied(bool applied);
     void setAsoboOcclusionStrengthApplied(bool applied);
+    // A3.1: the sun, a directional light evaluated by pbr.frag through the punctual-light BRDF path.
+    // directionToSun: world space, unit, from the surface towards the sun; illuminance: linear RGB
+    // illuminance (colour x intensity, environment radiance units x sr); angularRadius in radians (the
+    // specular lobe is widened by it). Frame-block values (EnvironmentBlock), not per-draw uniforms.
+    void setSun(bool enabled, const glm::vec3& directionToSun, const glm::vec3& illuminance, float angularRadius)
+    {
+        m_sunEnabled = enabled ? 1 : 0;
+        m_sunDirection = directionToSun;
+        m_sunIlluminance = illuminance;
+        m_sunAngularRadius = angularRadius;
+    }
     void setSsrOptions(bool enabled, int quality, float sky) {
         m_ssrOptions.write(math::vec3(enabled ? 1.0f : 0.0f, quality == 0 ? 256.0f : quality == 2 ? 1024.0f : 512.0f, sky));
     }
@@ -180,6 +194,11 @@ protected:
     gl::Uniform m_asoboDitherFrameUniform;
     gl::Uniform m_windshieldIcingUniform;
     gl::Uniform m_asoboOcclusionStrengthUniform;
+    // A3.1 sun (EnvironmentBlock u_SunDirection, u_SunEnabled, u_SunIlluminance, u_SunAngularRadius).
+    int32_t m_sunEnabled = 0;
+    glm::vec3 m_sunDirection = glm::vec3(0.0f, 1.0f, 0.0f);
+    glm::vec3 m_sunIlluminance = glm::vec3(0.0f);
+    float m_sunAngularRadius = 0.0f;
     // A2.2: six borrowed views of the shared accumulation targets and their samplers. The
     // wrappers live as long as the generator; setDecalTargets refreshes only the handles.
     std::array<std::unique_ptr<gl::Texture>, 6> m_decalTextures;

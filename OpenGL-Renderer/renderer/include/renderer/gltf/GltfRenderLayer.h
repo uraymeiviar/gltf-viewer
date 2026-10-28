@@ -134,6 +134,11 @@ public:
     void setEnvironmentMap(const filesystem::Path& panoramaIrradiancePath);
     bool filterEnvironmentMap();
     const filesystem::Path& getEnvironmentMapPath() const { return m_environmentMapPath; }
+    // A3.1: remove the panorama's own sun from the next setEnvironmentMap (IBL and background), and the sun
+    // found in the current panorama (cube-map space; see EnvironmentSun).
+    void setEnvironmentSunRemoval(bool remove) { m_iblSampler.setSunRemoval(remove); }
+    bool getEnvironmentSunRemoval() const { return m_iblSampler.getSunRemoval(); }
+    const EnvironmentSun& getEnvironmentSun() const { return m_iblSampler.getEnvironmentSun(); }
     EnvironmentMap* getActiveEnvironmentMap() { return m_activeEnvironmentMap; }
     void enableCubeMap(bool enable) { m_cubeMapEnabled = enable; };
 

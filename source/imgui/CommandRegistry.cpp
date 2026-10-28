@@ -212,6 +212,7 @@ const char* CommandRegistry::typeName(SettingType type)
     case SettingType::Enum: return "enum";
     case SettingType::Color3: return "color3";
     case SettingType::Color4: return "color4";
+    case SettingType::Vec2: return "vec2";
     }
     return "bool";
 }
@@ -289,6 +290,23 @@ bool CommandRegistry::coerceSetting(const SettingSpec& spec, const nlohmann::jso
             if (!checkRange(component)) return false;
         }
         if (spec.type == SettingType::Color4 && numbers->size() == 3) numbers->push_back(1.0);
+        out = *numbers;
+        return true;
+    }
+    case SettingType::Vec2: {
+        // Two numbers ("a,b" or [a, b]); the range, when set, applies to both.
+        auto numbers = parseNumberList(value);
+        if (!numbers || numbers->size() != 2) {
+            error = spec.key + " expects two numbers [a, b] (text: a,b)";
+            return false;
+        }
+        for (double component : *numbers) {
+            if (!std::isfinite(component)) {
+                error = spec.key + " expects finite numbers";
+                return false;
+            }
+            if (!checkRange(component)) return false;
+        }
         out = *numbers;
         return true;
     }

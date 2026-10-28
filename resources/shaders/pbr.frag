@@ -716,6 +716,90 @@ void main()
     }
 #endif
 
+    // A3.1: the sun, a directional light from the EnvironmentBlock, evaluated with the same BRDF terms as
+    // the punctual lights above (diffuse, specular incl. anisotropy and iridescence, sheen, clearcoat,
+    // transmission, A3.4 SSS). Its specular lobe is widened by the sun's angular radius (roughness widening,
+    // Karis 2013: alpha' = alpha + tan(radius) / 2), so a mirror shows a disk-sized highlight instead of a
+    // single pixel; GGX stays normalised, so the reflected energy is unchanged.
+    if (u_SunEnabled != 0)
+    {
+        // A3.2 shadow hook: multiply the cascaded shadow-map visibility in here (1.0 = unshadowed).
+        float sunVisibility = 1.0;
+        vec3 sunIntensity = u_SunIlluminance * sunVisibility;
+        float sunWiden = 0.5 * tan(u_SunAngularRadius);
+        vec3 sunL = normalize(u_SunDirection);
+        vec3 sunH = normalize(sunL + v);
+        float sunNdotL = clampedDot(n, sunL);
+        float sunNdotV = clampedDot(n, v);
+        float sunNdotH = clampedDot(n, sunH);
+        float sunVdotH = clampedDot(v, sunH);
+        float sunAlpha = min(materialInfo.alphaRoughness + sunWiden, 1.0);
+        if (sunNdotL > 0.0 || sunNdotV > 0.0)
+        {
+#ifdef MATERIAL_IRIDESCENCE
+            f_diffuse += sunIntensity * sunNdotL * BRDF_lambertianIridescence(materialInfo.f0, materialInfo.f90, iridescenceFresnel, materialInfo.iridescenceFactor, materialInfo.c_diff, materialInfo.specularWeight, sunVdotH);
+#else
+            f_diffuse += sunIntensity * sunNdotL * BRDF_lambertian(materialInfo.f0, materialInfo.f90, materialInfo.c_diff, materialInfo.specularWeight, sunVdotH);
+#endif
+#ifdef MATERIAL_ANISOTROPY
+            if (materialInfo.anisotropyStrength > 0.0) {
+                vec3 sunAnisotropyF = F_Schlick(materialInfo.f0, materialInfo.f90, sunVdotH);
+#ifdef MATERIAL_IRIDESCENCE
+                sunAnisotropyF = mix(sunAnisotropyF, iridescenceFresnel, materialInfo.iridescenceFactor);
+#endif
+                f_specular += sunIntensity * sunNdotL * materialInfo.specularWeight * BRDF_specularGGXAnisotropy(sunAnisotropyF,
+                    min(materialInfo.anisotropyAlpha + sunWiden, 1.0), materialInfo.anisotropyStrength, n, v, sunL, sunH,
+                    materialInfo.anisotropicT, materialInfo.anisotropicB);
+            } else
+#endif
+            {
+#ifdef MATERIAL_IRIDESCENCE
+            f_specular += sunIntensity * sunNdotL * BRDF_specularGGXIridescence(materialInfo.f0, materialInfo.f90, iridescenceFresnel, sunAlpha, materialInfo.iridescenceFactor, materialInfo.specularWeight, sunVdotH, sunNdotL, sunNdotV, sunNdotH);
+#else
+            f_specular += sunIntensity * sunNdotL * BRDF_specularGGX(materialInfo.f0, materialInfo.f90, sunAlpha, materialInfo.specularWeight, sunVdotH, sunNdotL, sunNdotV, sunNdotH);
+#endif
+            }
+
+#ifdef MATERIAL_SHEEN
+            f_sheen += sunIntensity * getPunctualRadianceSheen(materialInfo.sheenColorFactor, materialInfo.sheenRoughnessFactor, sunNdotL, sunNdotV, sunNdotH);
+            albedoSheenScaling = min(albedoSheenScaling, min(1.0 - max3(materialInfo.sheenColorFactor) * albedoSheenScalingLUT(sunNdotV, materialInfo.sheenRoughnessFactor),
+                1.0 - max3(materialInfo.sheenColorFactor) * albedoSheenScalingLUT(sunNdotL, materialInfo.sheenRoughnessFactor)));
+#endif
+
+#ifdef MATERIAL_CLEARCOAT
+            {
+                vec3 ccN = materialInfo.clearcoatNormal;
+                float ccAlpha = min(materialInfo.clearcoatRoughness * materialInfo.clearcoatRoughness + sunWiden, 1.0);
+                float ccNdotL = clampedDot(ccN, sunL);
+                f_clearcoat += sunIntensity * ccNdotL * BRDF_specularGGX(materialInfo.clearcoatF0, materialInfo.clearcoatF90, ccAlpha, 1.0,
+                    sunVdotH, ccNdotL, clampedDot(ccN, v), clampedDot(ccN, sunH));
+            }
+#endif
+        }
+#ifdef ASOBO_SSS
+        // A3.4: wrap and back-lit translucency, as for the punctual lights. Note for A3.2: the shadow
+        // term (sunVisibility) belongs only on the front (wrapped) part; the transmitted part needs the
+        // shadow seen from the light's side of the surface, so it must not simply reuse sunVisibility.
+        vec3 sunSssHalf = sunL + v;
+        float sunSssVdotH = dot(sunSssHalf, sunSssHalf) > 1e-12 ? clampedDot(v, normalize(sunSssHalf)) : 0.0;
+        f_diffuse += asoboSssDirectDiffuse(sunIntensity, dot(n, sunL), sunNdotL, sunSssVdotH, sunNdotV,
+            materialInfo.f0, materialInfo.f90, materialInfo.c_diff, materialInfo.specularWeight,
+            asoboSssColor, asoboSssTransmission);
+#endif
+#ifdef MATERIAL_TRANSMISSION
+        {
+            vec3 sunTransmissionRay = getVolumeTransmissionRay(n, v, materialInfo.thickness, materialInfo.ior, u_ModelMatrix);
+            vec3 sunPointToLight = sunL - sunTransmissionRay;
+            vec3 sunTransmitted = sunIntensity * getPunctualRadianceTransmission(n, v, normalize(sunPointToLight), sunAlpha,
+                materialInfo.f0, materialInfo.f90, materialInfo.c_diff, materialInfo.ior);
+#ifdef MATERIAL_VOLUME
+            sunTransmitted = applyVolumeAttenuation(sunTransmitted, length(sunTransmissionRay), materialInfo.attenuationColor, materialInfo.attenuationDistance);
+#endif
+            f_transmission += sunTransmitted;
+        }
+#endif
+    }
+
     f_emissive = u_EmissiveFactor;
     if (u_AsoboEmissiveActive != 0) {
         f_emissive *= u_MsfsEmissiveScale;

@@ -68,6 +68,16 @@ Commands run on the render thread between frames, strictly in order. Multi-frame
 - Edits stay in memory. The glTF file is never written; extensions are never added or removed
   (`set_material_param` edits parameters of extensions the material already has).
 
+## Sun (A3.1)
+
+- `set_environment sun true`, then `sun_dir [az, el]` (degrees; azimuth around +Y from +Z towards +X, elevation
+  above the horizon), `sun_intensity` (illuminance in the HDR's units: a white Lambert surface facing the sun
+  reflects colour x intensity / pi), `sun_color`, `sun_mode "hdr"` (the HDR's own sun).
+- Switching the sun on or off re-filters the environment once (the HDR's sun is removed while it is on), so
+  the next capture may take a moment longer. `get_state` returns `sun` (effective direction, angles,
+  illuminance, and `hdr`: the detected HDR sun).
+- No shadows yet (A3.2): the sun lights interiors through the airframe.
+
 ## Pitfalls
 
 - **Minimised window**: `capture` fails with `window_minimized`; restore the window first.

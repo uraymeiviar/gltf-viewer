@@ -139,8 +139,10 @@ void ux3d::renderer::CommandGenerator::bindFrameBlocks()
     // int u_AsoboDetailMapEnabled at 96, float u_WindshieldIcing at 100,
     // int u_AsoboOcclusionStrengthApplied at 104, int u_AsoboUVOptionsEnabled at 108,
     // int u_AsoboFresnelFadeApplied at 112, int u_AsoboGhostEffectApplied at 116,
-    // int u_AsoboAlphaDitherApplied at 120, float u_AsoboDitherFrame at 124 (128 bytes).
-    uint8_t environment[128] = {};
+    // int u_AsoboAlphaDitherApplied at 120, float u_AsoboDitherFrame at 124,
+    // A3.1: vec3 u_SunDirection at 128, int u_SunEnabled at 140, vec3 u_SunIlluminance at 144,
+    // float u_SunAngularRadius at 156 (160 bytes).
+    uint8_t environment[160] = {};
     if (m_environmentMapRotationUniform.byteSize() == 36) {
         for (size_t column = 0; column < 3; ++column) {
             std::memcpy(environment + column * 16, m_environmentMapRotationUniform.bytes() + column * 12, 12);
@@ -168,6 +170,10 @@ void ux3d::renderer::CommandGenerator::bindFrameBlocks()
     place(environment, 116, 4, m_asoboGhostEffectUniform);
     place(environment, 120, 4, m_asoboAlphaDitherUniform);
     place(environment, 124, 4, m_asoboDitherFrameUniform);
+    std::memcpy(environment + 128, &m_sunDirection[0], 12);
+    std::memcpy(environment + 140, &m_sunEnabled, 4);
+    std::memcpy(environment + 144, &m_sunIlluminance[0], 12);
+    std::memcpy(environment + 156, &m_sunAngularRadius, 4);
     uploadFrameBlock(m_environmentBlock, gl::kEnvironmentBlockBinding, environment, sizeof(environment));
 }
 
@@ -272,6 +278,11 @@ void ux3d::renderer::CommandGenerator::setEnvironmentMapRotation(float _rotation
 {
     m_environmentMapRotation = math::rotate(math::radians(_rotation), math::vec3(0, 1, 0));
     m_environmentMapRotationUniform.write(m_environmentMapRotation);
+}
+
+glm::mat3x3 ux3d::renderer::CommandGenerator::environmentRotationMatrix(float degrees)
+{
+    return glm::mat3x3(math::rotate(math::radians(degrees), math::vec3(0, 1, 0)));
 }
 
 void ux3d::renderer::CommandGenerator::setEnvironmentMapBlurNormalized(float _blur)

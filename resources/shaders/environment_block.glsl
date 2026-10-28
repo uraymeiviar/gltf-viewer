@@ -44,4 +44,13 @@ layout(std140) uniform EnvironmentBlock
     // pattern per TAA accumulation frame and is 0 without TAA.
     int u_AsoboAlphaDitherApplied;
     float u_AsoboDitherFrame;
+
+    // A3.1 sun: a directional light, scene-level (docs/ASOBO_EXTENSIONS_PHASE_3.md, A3.1).
+    // u_SunDirection: world space, unit, from the surface towards the sun. u_SunIlluminance: linear RGB
+    // illuminance on a surface facing the sun, in the environment's radiance units x sr (a white Lambert
+    // surface facing it reflects u_SunIlluminance / pi). u_SunAngularRadius: radians.
+    vec3 u_SunDirection;
+    int u_SunEnabled;
+    vec3 u_SunIlluminance;
+    float u_SunAngularRadius;
 };

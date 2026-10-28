@@ -631,6 +631,9 @@ bool writeProfileReport(const std::string& path, const ProfileReport& report)
         { "capture", captureToJson(report.capture) }
     };
 
+    if (!report.sun.is_null()) {
+        document["sun"] = report.sun;
+    }
     if (!report.camera.is_null() && !report.camera.empty()) {
         document["camera"] = report.camera;
     }

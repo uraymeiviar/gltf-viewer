@@ -763,6 +763,18 @@ std::optional<int> Application::configure(int argc, char** argv)
             cliClearColor = env.clearColor;
         } else if (arg == "--hdr-rotation" && i + 1 < argc) {
             if (!applyCliSetting(SettingScope::Environment, "hdr_rotation", argv[++i], "--hdr-rotation")) return 1;
+        } else if (arg == "--sun" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Environment, "sun", toLowerAscii(argv[++i]), "--sun")) return 1;
+        } else if (arg == "--sun-mode" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Environment, "sun_mode", toLowerAscii(argv[++i]), "--sun-mode")) return 1;
+        } else if (arg == "--sun-dir" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Environment, "sun_dir", argv[++i], "--sun-dir")) return 1;
+        } else if (arg == "--sun-color" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Environment, "sun_color", argv[++i], "--sun-color")) return 1;
+        } else if (arg == "--sun-intensity" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Environment, "sun_intensity", argv[++i], "--sun-intensity")) return 1;
+        } else if (arg == "--sun-angular-radius" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Environment, "sun_angular_radius", argv[++i], "--sun-angular-radius")) return 1;
         } else if (arg == "--exposure" && i + 1 < argc) {
             if (!applyCliSetting(SettingScope::Environment, "exposure", argv[++i], "--exposure")) return 1;
             cliExposureProvided = true;

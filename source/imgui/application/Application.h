@@ -140,6 +140,13 @@ struct WindowState {
     bool maximized = false;
 };
 
+// A3.1: the sun the renderer draws this frame (world space; illuminance = colour x intensity).
+struct EffectiveSun {
+    bool enabled = false;
+    glm::vec3 direction = glm::vec3(0.0f, 1.0f, 0.0f);
+    glm::vec3 illuminance = glm::vec3(0.0f);
+};
+
 struct FrameContext {
     ux3d::imgui::profiling::Clock::time_point start;
     uint64_t number = 0;
@@ -339,6 +346,10 @@ private:
     ux3d::imgui::ViewportInstance* findViewportById(uint32_t id);
     nlohmann::json legacyStateJson();
     nlohmann::json agentStateJson();
+    // A3.1: the effective sun of a scene environment (Manual, or From HDR: the panorama's sun turned with
+    // the HDR rotation and scaled by the HDR intensity) and its state for get_state and profile reports.
+    EffectiveSun effectiveSun(const ux3d::imgui::SceneEnvironmentState& environment) const;
+    nlohmann::json sunStateJson(const ux3d::imgui::SceneEnvironmentState& environment) const;
     nlohmann::json probePixel(ux3d::imgui::ViewportInstance* vp, int x, int y, bool withPick);
     nlohmann::json probeRegion(ux3d::imgui::ViewportInstance* vp, int x0, int y0, int x1, int y1);
 

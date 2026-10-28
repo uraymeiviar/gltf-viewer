@@ -770,7 +770,9 @@ bool Application::writeScenarioReport(const std::string& reportPath, const std::
     out << ",\n";
     out << "    \"blur\": ";
     writeJsonNumber(out, environment.hdrBlur);
-    out << "\n";
+    out << ",\n";
+    // A3.1: the effective sun and the sun found in the HDR (the same object get_state returns).
+    out << "    \"sun\": " << sunStateJson(environment).dump() << "\n";
     out << "  },\n";
 
     out << "  \"settings\": {\n";
@@ -1010,6 +1012,7 @@ void Application::finishFrame(FrameContext& frame, int displayW, int displayH)
         report.firstFrameCapture = s_firstFrameCaptureRecord;
         report.capture = s_captureRecord;
         report.camera = getCameraJson(activeViewport);
+        report.sun = sunStateJson(activeEnvironment);
         if (!reportNodeArgs.empty()) {
             for (const auto& spec : reportNodeArgs) {
                 auto* node = findNode(spec);

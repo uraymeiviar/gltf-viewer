@@ -6,6 +6,8 @@
 #include "renderer/gl/GL.h"
 #include "renderer/gl/ShaderCache.h"
 
+#include "math/MatrixFunctions.h"
+
 namespace ux3d::renderer {
 struct InitizalizationParameters {
     // Upper bound for the specular, sheen and source cube faces; the panorama may lower it.
@@ -27,6 +29,31 @@ struct SamplingParameters {
     float lodBias = 0.0f;
 
     bool operator==(const SamplingParameters& rhs) const = default;
+};
+
+// A3.1: the sun found in the HDR panorama. Detection runs on every panorama load and only reads; the sun
+// region is removed from the panorama (before the cube map, the IBL filters and the background) only when
+// sun removal is requested. Rule (docs/ASOBO_EXTENSIONS_PHASE_3.md, A3.1):
+//  * seed: the brightest 1-degree block of the panorama (block-averaged luminance, so one hot texel does not
+//    win); sky level B: the median luminance of the ring 5..10 degrees around the seed;
+//  * region: the texels brighter than T = 4 B within 12 degrees of the seed that are 8-connected to a texel
+//    brighter than T within 2 degrees of the seed;
+//  * removal: every region texel is scaled to luminance T, keeping its hue (continuous at the region edge);
+//  * the sun is what removal takes away: illuminance E = sum((L - L') dw) (luminance of the RGB sum; dw the
+//    texel solid angle), colour = that RGB sum / E (luminance 1), direction = the E-weighted mean direction.
+// Directions are in cube-map space, the space the shaders sample with u_EnvRotation * worldDirection, so a
+// world direction is transpose(u_EnvRotation) * direction. Luminance is Rec. 709 (0.2126, 0.7152, 0.0722).
+struct EnvironmentSun {
+    bool found = false;
+    glm::vec3 direction = glm::vec3(0.0f, 1.0f, 0.0f); // unit, cube-map space, towards the sun
+    glm::vec3 color = glm::vec3(1.0f);                 // linear RGB, luminance 1
+    float illuminance = 0.0f;                          // HDR radiance units x sr
+    float skyLevel = 0.0f;                             // B, luminance
+    float threshold = 0.0f;                            // T, luminance
+    float peakLuminance = 0.0f;                        // brightest region texel
+    float solidAngle = 0.0f;                           // sr covered by the region
+    uint32_t texelCount = 0;
+    bool removed = false;                              // the region was removed from this load's panorama
 };
 
 struct SamplerStatus {
@@ -54,6 +81,13 @@ public:
     GLuint charlieLUTTextureID = 0;
 
     uint32_t getMipmapLevels() const;
+
+    // A3.1: remove the panorama's sun on the next init (it changes the filtered environment and the
+    // background, so the caller re-inits and re-filters after changing it).
+    void setSunRemoval(bool remove) { m_sunRemoval = remove; }
+    bool getSunRemoval() const { return m_sunRemoval; }
+    // The sun found in the panorama of the last init (EnvironmentSun.removed says whether it was removed).
+    const EnvironmentSun& getEnvironmentSun() const { return m_environmentSun; }
 
 private:
     GLuint createCubemapTexture(bool _withMipmaps, uint32_t _size, GLint _internalFormat);
@@ -83,5 +117,7 @@ private:
     SamplerStatus m_samplerStatus;
     InitizalizationParameters m_initizalizationParameters;
     SamplingParameters m_samplingParameters;
+    bool m_sunRemoval = false;
+    EnvironmentSun m_environmentSun;
 };
 }

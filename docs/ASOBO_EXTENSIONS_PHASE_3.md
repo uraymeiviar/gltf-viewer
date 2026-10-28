@@ -2,15 +2,70 @@
 
 [Journal index](ASOBO_EXTENSIONS_JOURNAL.md) · [Extension reference](ASOBO_EXTENSIONS_REFERENCE.md) · [Validation rules](RENDERER_OPTIMIZATION_VALIDATION.md)
 
-**Status:** In progress: A3.4 done (ahead of A3.1-A3.3).
+**Status:** In progress: A3.1 and A3.4 done (A3.4 ahead of A3.1).
 
 **Entry:** A2.2, the deferred lighting pass. **Goal:** shadows from a sun (user priority 4), and the remaining
 lighting features of user priority 5. The sun's direction is set by hand here and driven by time of day in A6.
 
 ## Tasks
 
-- [ ] **A3.1 — Sun light (R3). Owner: Claude.** A directional light with direction (azimuth and elevation, set by
-  hand), color and intensity, in Viewport Settings → *Sun*.
+- [x] **A3.1 — Sun light (R3). Owner: Claude.** A directional light with direction (azimuth and elevation, set by
+  hand), color and intensity, in ~~Viewport Settings~~ Scene Inspector → Environment → *Sun* (scene-level, like
+  exposure and time of day: one sun per glTF scene, shared by every viewport).
+  - **Done 2026-10-28.** Conventions (the reference for A3.2, A3.7 and A6; code: `header/imgui/SceneEnvironment.h`,
+    `IBLSampler.h` `EnvironmentSun`, `pbr.frag` after the punctual loop):
+    - **Angles:** glTF world space, Y up. Azimuth in degrees around +Y, measured from +Z towards +X (0 = the sun
+      in the +Z direction, 90 = +X); elevation in degrees above the XZ plane. Direction to the sun =
+      `(cos el sin az, sin el, cos el cos az)`. A6.1 sets these two angles (aircraft heading included).
+    - **Units:** intensity is the illuminance on a surface facing the sun, in the environment's radiance units x
+      steradian (an HDR texel of value L over solid angle w contributes L w). A white Lambert surface facing the
+      sun reflects `colour x intensity / pi`, exactly what the IBL gives for the same light inside the HDR, so
+      sun and IBL are balanced by construction. The colour is linear RGB of luminance 1 for white (the Kelvin
+      helper, Kang 2002 fit, and From HDR give luminance-1 colours). Default: off, az 135, el 45, white, 8,
+      angular radius 0.27 deg.
+    - **Modes:** *Manual* (the values above) and *From HDR*: the HDR's sun, turned with the HDR rotation
+      (`world = transpose(u_EnvRotation) * cube direction`) and scaled by the HDR intensity.
+    - **HDR sun detection** (on every panorama load, CPU, read only): seed = the brightest ~1-degree block; sky
+      level B = median luminance of the 5-10 degree ring; region = texels brighter than T = 4 B within 12 degrees,
+      8-connected to such a texel within 2 degrees. The sun is what removal takes away: illuminance =
+      luminance of `sum((L - L') dw)`, colour = that RGB sum / illuminance, direction = the excess-weighted mean.
+    - **HDR sun removal (no double sun):** while the sun is on, in **either** mode, every region texel is scaled to
+      luminance T keeping its hue (continuous at the region edge) before the cube map is built, so the IBL
+      filters and the background lose the HDR's sun and its energy moves to the analytic sun. Toggling the sun
+      re-loads and re-filters the environment once (100-700 ms); nothing re-filters per frame. Sun off: the HDR
+      and the IBL are exactly as before (byte-identical).
+    - **Default HDR's sun** (`default_hdr_env4k.hdr`): az 51.44, el 7.85 deg (rotation 0), illuminance 0.00658,
+      colour (1.51, 0.91, 0.37), 595 texels / 0.0014 sr, sky 2.02, peak 38.6. The sun sits behind clouds at
+      sunset: the sky gives about 2.5 on a horizontal surface, so From HDR adds almost nothing on this HDR, and
+      removal only flattens the brightest cloud edges near it. HDRs with a visible sun disk get a strong sun (the
+      synthetic check: direction within 0.02 deg, illuminance within 0.4%).
+    - **Shading:** `u_SunDirection`, `u_SunEnabled`, `u_SunIlluminance`, `u_SunAngularRadius` in the
+      EnvironmentBlock (offsets 128-159); `pbr.frag` runs the punctual-light terms (diffuse incl. iridescence,
+      specular incl. anisotropy, sheen, clearcoat, transmission/volume, `asoboSssDirectDiffuse`) under
+      `if (u_SunEnabled != 0)`. The specular lobe is widened by the angular radius (`alpha' = alpha + tan(r) / 2`,
+      Karis 2013; GGX stays normalised), so a mirror shows a disk-sized highlight. Only `pbr.frag` lights
+      surfaces (decal receivers and glass/windshield materials run through it).
+    - **Shadow hook (A3.2):** `float sunVisibility = 1.0;` multiplies the sun's intensity; A3.2 replaces it by the
+      cascaded shadow term. SSS: the visibility belongs on the wrapped front part only; the transmitted part needs
+      the shadow seen from the light's side (comment at the SSS call).
+    - **Settings / CLI:** `sun`, `sun_mode`, `sun_dir` (vec2 az,el), `sun_azimuth`, `sun_elevation`, `sun_color`,
+      `sun_intensity`, `sun_angular_radius` (`set_environment`, `list_settings`); `--sun on|off`,
+      `--sun-mode manual|hdr`, `--sun-dir <az,el>`, `--sun-color <r,g,b>`, `--sun-intensity <x>`,
+      `--sun-angular-radius <deg>`. `get_state` and `--profile-report` carry a `sun` object (effective sun and the
+      detected HDR sun).
+  - **Check:** `scripts/validate_sun.py` (quick regression, serial list): Lambert sphere (KHR_materials_specular 0,
+    black environment) lit from az 30 / el 20: fitted direction 0.12 deg off, fitted intensity -1.8%, brightest
+    plateau 1.9 px from N = L, terminator exact outside +-0.03 N.L, +90 deg azimuth turns the light by 89.3 deg,
+    pipe probes = intensity x N.L / pi within 2% + 2e-3; synthetic HDR From HDR: direction 0.015 deg, illuminance
+    -0.4%, rotation followed, sun disk gone from the background, IBL-lit sphere mean -1.1% against sun off;
+    default HDR detection stable across runs/quality presets; KHR punctual light + sun additive; SSS and
+    anisotropy respond, finite; mirror highlight grows with the radius; sun off byte-identical to the baseline
+    (HelloCube, fixtures, two E195 ASOBO views); zero GL errors.
+  - **Review:** `build/review/sun/contact_sheet.png` (`scripts/review_sun.py`): HelloCube, E195 exterior and DA62
+    cockpit with sun off / From HDR / two manual directions. The cockpit is lit through the airframe (no
+    shadows yet: A3.2).
+  - **Deviations:** the section lives in the Scene Inspector, not Viewport Settings; Manual mode also removes the
+    HDR's sun; no viewport sun-direction indicator yet.
   - **Intensity and the environment map:** the HDR environment already contains a sun, so the sun's intensity and
     the IBL are balanced to avoid lighting it twice. Until A6 provides a matching sky, a documented rule is used:
     for example, dimming the IBL's direct-sun contribution, or a sun-free default HDR.

@@ -536,6 +536,7 @@ struct ProfileReport {
     std::vector<nlohmann::json> nodes;
     std::vector<nlohmann::json> picks;
     nlohmann::json camera;
+    nlohmann::json sun; // A3.1: effective sun and the HDR's detected sun (get_state "sun")
 };
 
 struct BenchmarkReport {

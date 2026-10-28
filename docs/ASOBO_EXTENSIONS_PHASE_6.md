@@ -11,7 +11,8 @@ setting, and changing it is seamless.
 ## Tasks
 
 - [ ] **A6.1 — Solar position (R1). Owner: Claude.** Sun direction from date, time, latitude, longitude and
-  aircraft heading (a standard solar-position algorithm), driving the A3.1 sun.
+  aircraft heading (a standard solar-position algorithm), driving the A3.1 sun (its azimuth/elevation convention
+  and units are in [Phase 3, A3.1](ASOBO_EXTENSIONS_PHASE_3.md): azimuth from +Z towards +X around +Y).
   - **Settings:** Viewport Settings → *Time of Day*, with presets (dawn, noon, dusk, night) and a slider.
   - **Test:** sun azimuth and elevation against a published reference table.
 - [ ] **A6.2 — Procedural sky (R4). Owner: Claude.** A physically based sky model (for example
@@ -42,7 +43,9 @@ setting, and changing it is seamless.
 - [ ] **A6.7 — Sun disk and glare (R2). Owner: Claude.** A sun disk with limb darkening in the sky, so it appears
   in the background, in sky reflections and in SSR on the windshield; and a glare/bloom response through the
   existing bloom chain (optionally a lens-flare or starburst, user-selectable). The disk is excluded from the IBL
-  filter input so the sun is not counted twice (the A3.1 rule).
+  filter input so the sun is not counted twice (the A3.1 rule: while the sun is on, the HDR's own sun region is
+  clamped out of the panorama before filtering, `IBLSampler` `EnvironmentSun`; a sky model should add its disk
+  only to the background, after filtering).
   - **Tests:** the disk is at the A6.1 sun direction; bloom off removes the glare.
 - [ ] **A6.8 — Ocean (R3, optional, later). Owner: Claude.** An FFT ocean (Tessendorf) as the A3.6 *Ocean* ground
   choice, for seaplanes, carrier aircraft and showcase views. Not required for the exit gate.

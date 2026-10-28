@@ -25,7 +25,12 @@ void Application::drawViewports(FrameContext& frame)
     auto& activeEnvironment = getSceneEnvironment(sceneEnvironments, gltfModel, activeScene);
     if (gltfLayer != nullptr && (ux3d::imgui::RenderQuality::allowIbl() || ux3d::imgui::RenderQuality::allowSkybox(activeEnvironment.showBackground))) {
         const auto desiredEnvPath = resolveHdrPath(activeEnvironment.currentHdrPath, rendererResourcesDir);
-        if (gltfLayer->getEnvironmentMapPath().toString() != desiredEnvPath.toString()) {
+        // A3.1: while the sun is on (either mode) the HDR's own sun is removed from the panorama, so
+        // switching the sun re-loads and re-filters the environment once (never per frame).
+        const bool wantSunRemoval = activeEnvironment.sunEnabled;
+        const bool sunRemovalChanged = gltfLayer->getEnvironmentSunRemoval() != wantSunRemoval;
+        if (gltfLayer->getEnvironmentMapPath().toString() != desiredEnvPath.toString() || sunRemovalChanged) {
+            gltfLayer->setEnvironmentSunRemoval(wantSunRemoval);
             scenarioEnvironmentPath = desiredEnvPath.toString().c_str();
             scenarioEnvironmentLoaded = false;
             if (ux3d::imgui::StdFileSystem::instance().isFile(desiredEnvPath)) {
@@ -751,6 +756,11 @@ void Application::drawViewports(FrameContext& frame)
             commandGenerator->setEnvironmentMapBlurNormalized(activeEnvironment.hdrBlur);
             commandGenerator->setIBLEnabled(activeEnvironment.iblEnabled && ux3d::imgui::RenderQuality::allowIbl());
             commandGenerator->setPunctualLightsEnabled(ux3d::imgui::RenderQuality::allowLights(activeEnvironment.punctualLightsEnabled));
+            {
+                const EffectiveSun sun = effectiveSun(activeEnvironment);
+                commandGenerator->setSun(sun.enabled, sun.direction, sun.illuminance,
+                                         glm::radians(std::clamp(activeEnvironment.sunAngularRadius, 0.0f, 10.0f)));
+            }
             commandGenerator->setAsoboNormalMapConvention(
                 gltfLayer->usesDirectXNormalMaps() &&
                 vp->settings.asobo.applies("ASOBO_normal_map_convention"));

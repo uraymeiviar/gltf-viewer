@@ -23,6 +23,10 @@ public:
                        ux3d::renderer::GltfRenderLayer* gltfLayer,
                        SceneRevisions& revisions,
                        ux3d::gltf::Scene* scene = nullptr);
+
+private:
+    // A3.1: Environment -> Sun section.
+    static void renderSun(SceneEnvironmentState& env, ux3d::renderer::GltfRenderLayer* gltfLayer, SceneRevisions& revisions);
 };
 
 } // namespace ux3d::imgui

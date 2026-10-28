@@ -12,9 +12,194 @@
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 using namespace ux3d;
 using namespace ux3d::renderer;
+
+namespace {
+
+constexpr double kPi = 3.14159265358979323846;
+
+double texelLuminance(const float* texel)
+{
+    return 0.2126 * texel[0] + 0.7152 * texel[1] + 0.0722 * texel[2];
+}
+
+// Cube-map direction of panorama texel (column, row). ibl_panorama_to_cubemap.frag samples the panorama at
+// u = 0.5 + atan(z, x) / (2 pi), v = acos(y) / pi for the cube direction (x, y, z) once the render-to-face
+// orientation is taken into account (its face table is written with t pointing up, the cube faces store t
+// pointing down, so the shader's y is the cube's -y); texture row 0 (v = 0, the first decoded row, the top
+// of the file) is straight up.
+glm::dvec3 panoramaDirection(double column, double row, uint32_t width, uint32_t height)
+{
+    const double theta = (row + 0.5) / height * kPi;
+    const double phi = ((column + 0.5) / width - 0.5) * 2.0 * kPi;
+    return glm::dvec3(std::sin(theta) * std::cos(phi), std::cos(theta), std::sin(theta) * std::sin(phi));
+}
+
+// A3.1: finds the panorama's sun (see EnvironmentSun in IBLSampler.h for the rule) and, when `removed` is
+// not null, writes the panorama with the sun region scaled down to the threshold into it.
+EnvironmentSun detectEnvironmentSun(const float* pixels, uint32_t width, uint32_t height, uint32_t channels,
+                                    std::vector<float>* removed)
+{
+    EnvironmentSun sun;
+    if (pixels == nullptr || width < 8 || height < 4 || channels < 3) {
+        return sun;
+    }
+    const size_t texelCount = static_cast<size_t>(width) * height;
+    std::vector<float> luminance(texelCount);
+    for (size_t i = 0; i < texelCount; ++i) {
+        const double y = texelLuminance(pixels + i * channels);
+        luminance[i] = std::isfinite(y) && y > 0.0 ? static_cast<float>(y) : 0.0f;
+    }
+
+    // Seed: the brightest block of about one degree (mean luminance), so a single hot texel does not win.
+    const uint32_t block = std::max(1u, width / 360u);
+    double bestMean = -1.0;
+    uint32_t seedColumn = 0, seedRow = 0;
+    for (uint32_t by = 0; by < height; by += block) {
+        for (uint32_t bx = 0; bx < width; bx += block) {
+            double sum = 0.0;
+            uint32_t count = 0;
+            for (uint32_t y = by; y < std::min(height, by + block); ++y) {
+                for (uint32_t x = bx; x < std::min(width, bx + block); ++x) {
+                    sum += luminance[static_cast<size_t>(y) * width + x];
+                    ++count;
+                }
+            }
+            const double mean = count > 0 ? sum / count : 0.0;
+            if (mean > bestMean) {
+                bestMean = mean;
+                seedColumn = bx + std::min(block, width - bx) / 2;
+                seedRow = by + std::min(block, height - by) / 2;
+            }
+        }
+    }
+    const glm::dvec3 seed = panoramaDirection(seedColumn, seedRow, width, height);
+
+    // Rows that can lie within 12 degrees of the seed (all columns are tested by angle).
+    const double rowsPerDegree = height / 180.0;
+    const int rowMin = std::max(0, static_cast<int>(std::floor(seedRow - 13.0 * rowsPerDegree)));
+    const int rowMax = std::min(static_cast<int>(height) - 1, static_cast<int>(std::ceil(seedRow + 13.0 * rowsPerDegree)));
+    const double cos2 = std::cos(2.0 * kPi / 180.0), cos5 = std::cos(5.0 * kPi / 180.0);
+    const double cos10 = std::cos(10.0 * kPi / 180.0), cos12 = std::cos(12.0 * kPi / 180.0);
+
+    std::vector<float> ring;
+    for (int y = rowMin; y <= rowMax; ++y) {
+        for (uint32_t x = 0; x < width; ++x) {
+            const double c = glm::dot(panoramaDirection(x, y, width, height), seed);
+            if (c <= cos5 && c >= cos10) {
+                ring.push_back(luminance[static_cast<size_t>(y) * width + x]);
+            }
+        }
+    }
+    if (ring.empty()) {
+        return sun;
+    }
+    std::nth_element(ring.begin(), ring.begin() + ring.size() / 2, ring.end());
+    const double sky = ring[ring.size() / 2];
+    const double threshold = 4.0 * sky;
+    sun.skyLevel = static_cast<float>(sky);
+    sun.threshold = static_cast<float>(threshold);
+    if (!(threshold > 0.0)) {
+        return sun;
+    }
+
+    // Region: candidates (brighter than T, within 12 degrees) 8-connected to a candidate within 2 degrees.
+    // The window spans rows rowMin..rowMax and every column (columns wrap).
+    const int windowRows = rowMax - rowMin + 1;
+    std::vector<uint8_t> state(static_cast<size_t>(windowRows) * width, 0); // 1 candidate, 2 region
+    std::vector<size_t> stack;
+    for (int y = rowMin; y <= rowMax; ++y) {
+        for (uint32_t x = 0; x < width; ++x) {
+            const size_t w = static_cast<size_t>(y - rowMin) * width + x;
+            if (luminance[static_cast<size_t>(y) * width + x] <= threshold) {
+                continue;
+            }
+            const double c = glm::dot(panoramaDirection(x, y, width, height), seed);
+            if (c < cos12) {
+                continue;
+            }
+            state[w] = 1;
+            if (c >= cos2) {
+                state[w] = 2;
+                stack.push_back(w);
+            }
+        }
+    }
+    while (!stack.empty()) {
+        const size_t w = stack.back();
+        stack.pop_back();
+        const int wy = static_cast<int>(w / width);
+        const int wx = static_cast<int>(w % width);
+        for (int dy = -1; dy <= 1; ++dy) {
+            const int ny = wy + dy;
+            if (ny < 0 || ny >= windowRows) {
+                continue;
+            }
+            for (int dx = -1; dx <= 1; ++dx) {
+                const int nx = (wx + dx + static_cast<int>(width)) % static_cast<int>(width);
+                const size_t n = static_cast<size_t>(ny) * width + nx;
+                if (state[n] == 1) {
+                    state[n] = 2;
+                    stack.push_back(n);
+                }
+            }
+        }
+    }
+
+    // Excess over the clamped panorama: the sun's illuminance, colour and direction.
+    const double texelArea = (2.0 * kPi / width) * (kPi / height);
+    glm::dvec3 energy(0.0), weightedDirection(0.0);
+    double solidAngle = 0.0, peak = 0.0;
+    uint32_t count = 0;
+    if (removed != nullptr) {
+        removed->assign(pixels, pixels + texelCount * channels);
+    }
+    for (int y = rowMin; y <= rowMax; ++y) {
+        const double theta = (y + 0.5) / height * kPi;
+        const double dOmega = texelArea * std::sin(theta);
+        for (uint32_t x = 0; x < width; ++x) {
+            if (state[static_cast<size_t>(y - rowMin) * width + x] != 2) {
+                continue;
+            }
+            const size_t i = static_cast<size_t>(y) * width + x;
+            const double lum = luminance[i];
+            const double scale = threshold / lum;
+            const float* texel = pixels + i * channels;
+            const glm::dvec3 excess = glm::dvec3(texel[0], texel[1], texel[2]) * (1.0 - scale);
+            energy += excess * dOmega;
+            weightedDirection += panoramaDirection(x, y, width, height) * ((lum - threshold) * dOmega);
+            solidAngle += dOmega;
+            peak = std::max(peak, lum);
+            ++count;
+            if (removed != nullptr) {
+                for (uint32_t ch = 0; ch < 3; ++ch) {
+                    (*removed)[i * channels + ch] = static_cast<float>(texel[ch] * scale);
+                }
+            }
+        }
+    }
+    const double illuminance = 0.2126 * energy.r + 0.7152 * energy.g + 0.0722 * energy.b;
+    if (count == 0 || !(illuminance > 0.0) || glm::length(weightedDirection) <= 0.0) {
+        if (removed != nullptr) {
+            removed->clear();
+        }
+        return sun;
+    }
+    sun.found = true;
+    sun.direction = glm::vec3(glm::normalize(weightedDirection));
+    sun.color = glm::vec3(energy / illuminance);
+    sun.illuminance = static_cast<float>(illuminance);
+    sun.peakLuminance = static_cast<float>(peak);
+    sun.solidAngle = static_cast<float>(solidAngle);
+    sun.texelCount = count;
+    sun.removed = removed != nullptr;
+    return sun;
+}
+
+} // namespace
 
 IBLSampler::IBLSampler(gl::GL* gl, const filesystem::Path& _shaderPath)
     : m_shaderCache(gl, _shaderPath)
@@ -340,6 +525,33 @@ GLuint IBLSampler::loadTextureHDR(const filesystem::Path& _panoramaImagePath)
     if (!gl::checkGLError(m_gl, "IBLSampler: failed")) {
         return 0;
     }
+
+    // A3.1: find the panorama's sun (always; it only reads) and remove it when requested.
+    m_environmentSun = EnvironmentSun();
+    std::vector<float> sunRemovedPixels;
+    const uint32_t panoramaChannels = panoramaImage.getChannelCount();
+    const bool floatPixels = panoramaImage.getFormat() == image::Format::FLOAT &&
+                             (panoramaChannels == 3 || panoramaChannels == 4) &&
+                             panoramaImage.getPixelSize() == panoramaChannels * sizeof(float) &&
+                             panoramaImage.getPixels().size() >= static_cast<size_t>(panoramaImage.getWidth()) *
+                                 panoramaImage.getHeight() * panoramaImage.getPixelSize();
+    if (floatPixels) {
+        m_environmentSun = detectEnvironmentSun(reinterpret_cast<const float*>(panoramaImage.getPixels().data()),
+                                                panoramaImage.getWidth(), panoramaImage.getHeight(), panoramaChannels,
+                                                m_sunRemoval ? &sunRemovedPixels : nullptr);
+        // Logged only while the sun is in use, so runs without a sun keep their previous log.
+        if (m_environmentSun.found && m_sunRemoval) {
+            const glm::vec3& d = m_environmentSun.direction;
+            core::logInfo("IBLSampler: sun found (cube direction %.4f %.4f %.4f, illuminance %.5g, colour %.3f %.3f %.3f, "
+                          "%u texels, sky %.4g, threshold %.4g, peak %.4g)%s",
+                d.x, d.y, d.z, m_environmentSun.illuminance, m_environmentSun.color.r, m_environmentSun.color.g,
+                m_environmentSun.color.b, m_environmentSun.texelCount, m_environmentSun.skyLevel,
+                m_environmentSun.threshold, m_environmentSun.peakLuminance, m_environmentSun.removed ? ", removed" : "");
+        } else if (m_sunRemoval) {
+            core::logInfo("IBLSampler: no sun found in the panorama");
+        }
+    }
+
     GLuint targetTexture;
     m_gl->genTextures(1, &targetTexture);
     if (!gl::checkGLError(m_gl, "IBLSampler: genTextures failed")) {
@@ -361,7 +573,8 @@ GLuint IBLSampler::loadTextureHDR(const filesystem::Path& _panoramaImagePath)
         internalFormat = GL_RGBA32F;
         format = GL_RGBA;
     }
-    const void* data = panoramaImage.getPixels().data();
+    const void* data = sunRemovedPixels.empty() ? static_cast<const void*>(panoramaImage.getPixels().data())
+                                                : static_cast<const void*>(sunRemovedPixels.data());
     GLsizei width = panoramaImage.getWidth();
     GLsizei height = panoramaImage.getHeight();
 

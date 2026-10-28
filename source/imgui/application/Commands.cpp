@@ -378,7 +378,73 @@ json Application::agentStateJson()
     st["persist"] = agentPersist;
     st["frame"] = frameCount;
     st["glErrors"] = s_glErrorTotal;
+    st["sun"] = sunStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene));
     return st;
+}
+
+EffectiveSun Application::effectiveSun(const ux3d::imgui::SceneEnvironmentState& environment) const
+{
+    EffectiveSun sun;
+    if (!environment.sunEnabled) return sun;
+    if (environment.sunMode == static_cast<int>(ux3d::imgui::SunMode::FromHdr)) {
+        if (gltfLayer == nullptr || commandGenerator == nullptr) return sun;
+        const ux3d::renderer::EnvironmentSun& found = gltfLayer->getEnvironmentSun();
+        if (!found.found) return sun;
+        // The shaders sample the cube map at u_EnvRotation * worldDirection, so the world direction of
+        // the panorama's sun is the transpose (inverse) rotation of its cube-map direction.
+        const glm::mat3 rotation = ux3d::renderer::CommandGenerator::environmentRotationMatrix(environment.hdrRotation);
+        sun.direction = glm::normalize(glm::transpose(rotation) * found.direction);
+        sun.illuminance = found.color * (found.illuminance * environment.hdrIntensity);
+    } else {
+        sun.direction = ux3d::imgui::sunDirectionFromAngles(environment.sunAzimuth, environment.sunElevation);
+        sun.illuminance = environment.sunColor * environment.sunIntensity;
+    }
+    sun.enabled = true;
+    return sun;
+}
+
+json Application::sunStateJson(const ux3d::imgui::SceneEnvironmentState& environment) const
+{
+    auto vec3Json = [](const glm::vec3& v) {
+        return json{agent::floatJson(v.x), agent::floatJson(v.y), agent::floatJson(v.z)};
+    };
+    const EffectiveSun sun = effectiveSun(environment);
+    float azimuth = 0.0f, elevation = 0.0f;
+    ux3d::imgui::sunAnglesFromDirection(sun.direction, azimuth, elevation);
+    json out = {{"enabled", environment.sunEnabled},
+                {"mode", environment.sunMode == static_cast<int>(ux3d::imgui::SunMode::FromHdr) ? "hdr" : "manual"},
+                {"active", sun.enabled},
+                {"direction", vec3Json(sun.direction)},
+                {"azimuth", agent::floatJson(azimuth)},
+                {"elevation", agent::floatJson(elevation)},
+                {"illuminance", vec3Json(sun.illuminance)},
+                {"angularRadius", agent::floatJson(environment.sunAngularRadius)}};
+    json detected = nullptr;
+    if (gltfLayer != nullptr) {
+        const ux3d::renderer::EnvironmentSun& found = gltfLayer->getEnvironmentSun();
+        detected = {{"found", found.found}, {"removed", found.removed},
+                    {"skyLevel", agent::floatJson(found.skyLevel)}, {"threshold", agent::floatJson(found.threshold)}};
+        if (found.found) {
+            float cubeAzimuth = 0.0f, cubeElevation = 0.0f;
+            ux3d::imgui::sunAnglesFromDirection(found.direction, cubeAzimuth, cubeElevation);
+            const glm::mat3 rotation = ux3d::renderer::CommandGenerator::environmentRotationMatrix(environment.hdrRotation);
+            const glm::vec3 world = glm::normalize(glm::transpose(rotation) * found.direction);
+            float worldAzimuth = 0.0f, worldElevation = 0.0f;
+            ux3d::imgui::sunAnglesFromDirection(world, worldAzimuth, worldElevation);
+            detected["cubeDirection"] = vec3Json(found.direction);
+            detected["cubeAzimuth"] = agent::floatJson(cubeAzimuth);
+            detected["worldDirection"] = vec3Json(world);
+            detected["azimuth"] = agent::floatJson(worldAzimuth);
+            detected["elevation"] = agent::floatJson(worldElevation);
+            detected["color"] = vec3Json(found.color);
+            detected["illuminance"] = agent::floatJson(found.illuminance);
+            detected["peakLuminance"] = agent::floatJson(found.peakLuminance);
+            detected["solidAngle"] = agent::floatJson(found.solidAngle);
+            detected["texels"] = found.texelCount;
+        }
+    }
+    out["hdr"] = detected;
+    return out;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -777,6 +843,74 @@ void Application::registerAgentSettings()
     }
     addSetting(boolSetting<ES>("ibl", E, &ES::iblEnabled, "Image-based lighting."));
     addSetting(boolSetting<ES>("punctual_lights", E, &ES::punctualLightsEnabled, "KHR_lights_punctual lights."));
+    // A3.1 sun (SceneEnvironmentState: conventions there and in docs/ASOBO_EXTENSIONS_PHASE_3.md).
+    addSetting(boolSetting<ES>("sun", E, &ES::sunEnabled,
+                               "Sun (directional light). While on, the HDR's own sun is removed from IBL and background.",
+                               "--sun <on|off>"));
+    {
+        SettingSpec spec = indexEnumSetting<ES>("sun_mode", E, &ES::sunMode, {"manual", "hdr"},
+                                                "Sun from the manual angles/colour/intensity, or found in the HDR (turned with "
+                                                "hdr_rotation, scaled by hdr_intensity).",
+                                                "--sun-mode <manual|hdr>");
+        spec.enumAliases = {{"from_hdr", "hdr"}, {"fromhdr", "hdr"}};
+        addSetting(std::move(spec));
+    }
+    {
+        SettingSpec spec;
+        spec.key = "sun_dir";
+        spec.aliases = {"sun_direction"};
+        spec.scope = E;
+        spec.type = SettingType::Vec2;
+        spec.help = "Manual sun azimuth and elevation in degrees: azimuth around +Y from +Z towards +X, elevation above "
+                    "the horizon (glTF Y-up).";
+        spec.cliFlag = "--sun-dir <az,el>";
+        spec.get = [](void* t) {
+            const auto* env = static_cast<ES*>(t);
+            return json{agent::floatJson(env->sunAzimuth), agent::floatJson(env->sunElevation)};
+        };
+        spec.set = [](void* t, const json& v, std::string& error) {
+            const float elevation = v[1].get<float>();
+            if (elevation < -90.0f || elevation > 90.0f) {
+                error = "sun_dir elevation must be in [-90, 90]";
+                return false;
+            }
+            static_cast<ES*>(t)->sunAzimuth = v[0].get<float>();
+            static_cast<ES*>(t)->sunElevation = elevation;
+            return true;
+        };
+        addSetting(std::move(spec));
+    }
+    addSetting(floatSetting<ES>("sun_azimuth", E, &ES::sunAzimuth, "Manual sun azimuth in degrees (from +Z towards +X).",
+                                "--sun-dir <az,el>"));
+    addSetting(floatSetting<ES>("sun_elevation", E, &ES::sunElevation, "Manual sun elevation in degrees above the horizon.",
+                                "--sun-dir <az,el>", std::pair{-90.0, 90.0}));
+    {
+        SettingSpec spec;
+        spec.key = "sun_color";
+        spec.scope = E;
+        spec.type = SettingType::Color3;
+        spec.help = "Manual sun colour, linear RGB (luminance 1 keeps sun_intensity the illuminance).";
+        spec.cliFlag = "--sun-color <r,g,b>";
+        spec.hasRange = true;
+        spec.minimum = 0.0;
+        spec.maximum = 1000.0;
+        spec.get = [](void* t) {
+            const glm::vec3& c = static_cast<ES*>(t)->sunColor;
+            return json{agent::floatJson(c.r), agent::floatJson(c.g), agent::floatJson(c.b)};
+        };
+        spec.set = [](void* t, const json& v, std::string&) {
+            static_cast<ES*>(t)->sunColor = glm::vec3(v[0].get<float>(), v[1].get<float>(), v[2].get<float>());
+            return true;
+        };
+        addSetting(std::move(spec));
+    }
+    addSetting(floatSetting<ES>("sun_intensity", E, &ES::sunIntensity,
+                                "Manual sun illuminance (environment radiance units x sr; a white Lambert surface facing "
+                                "the sun reflects colour x intensity / pi).",
+                                "--sun-intensity <x>", std::pair{0.0, 1.0e6}));
+    addSetting(floatSetting<ES>("sun_angular_radius", E, &ES::sunAngularRadius,
+                                "Sun angular radius in degrees (widens the specular highlight; 0.27 = the real sun).",
+                                "--sun-angular-radius <deg>", std::pair{0.0, 10.0}));
 
     // --- Renderer-wide ---
     {
