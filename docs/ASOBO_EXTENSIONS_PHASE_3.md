@@ -1,4 +1,4 @@
-# Phase A3 — Sun, Shadows, Macro Lights, SSS
+# Phase A3 — Sun, Shadows, Macro Lights, SSS, AO, Ground, Sky Portals
 
 [Journal index](ASOBO_EXTENSIONS_JOURNAL.md) · [Extension reference](ASOBO_EXTENSIONS_REFERENCE.md) · [Validation rules](RENDERER_OPTIMIZATION_VALIDATION.md)
 
@@ -27,7 +27,7 @@ lighting features of user priority 5. The sun's direction is set by hand here an
     - stable under camera motion and TAA.
   - **Cost:** measured on the three-viewport setup. The shadow map is shared between viewports when the sun is
     the same.
-- [ ] **A3.3 — `ASOBO_macro_light` (R3). Owner: Claude.** Light gizmos, and a real light contribution through the
+- [ ] **A3.3 — `ASOBO_macro_light` (R3). Owner: Claude. Deferred (user, 2026-10-28).** Light gizmos, and a real light contribution through the
   punctual-light path.
   - Animated by the animation clock: flashing (frequency, duration, phase) and rotation.
   - Day/night behavior follows the time-of-day setting.
@@ -56,9 +56,61 @@ lighting features of user priority 5. The sun's direction is set by hand here an
     777 seat fur shells change in 4.6% of the frame (max 20 levels), gear handle knob 0.3% (max 25), MSFS 2020
     marshaller face/arms 4-7% (max 24, warmer skin on the sky-lit side), windsock fabric (orange `SSSColor`) 2.1%
     (max 65). With IBL only the effect is a mild glow on thin/convex parts; the wrap needs direct light (A3.1).
+- [ ] **A3.5 — Ambient occlusion for sky light (R3). Owner: Claude.** Shadows block only the sun; without this
+  the sky IBL reaches deep into cockpits and cabins and interiors look flat and too bright. Screen-space ambient
+  occlusion (GTAO or an equivalent SSAO) attenuates the diffuse IBL and, through a specular-occlusion term, the
+  specular IBL. It complements, not replaces, the authored occlusion maps (A1.3, A1.5, A1.10) and the
+  `ASOBO_material_environment_occluder` bounds, which limit sky light inside the cabin per object.
+  - **Settings:** per viewport, on/off, radius, intensity and quality (half or full resolution, sample count);
+    user-selectable, never lowered silently by Auto quality.
+  - **Interaction:** applied in HDR before TAA; temporally stable under TAA; the debug views gain an AO view.
+  - **Tests:**
+    - a box interior and an open plane: occlusion inside the box, none on the open plane;
+    - off gives the current image byte for byte;
+    - no halo along silhouettes against the sky.
+- [ ] **A3.6 — Ground plane (R3). Owner: Claude.** A ground choice per viewport: *Grid* (current), *Plane*
+  (an infinite ground at the model's lowest point or at y = 0, with a colour or a tiling material such as tarmac
+  or grass), and *Ocean* (A6.8). The plane receives the A3.2 sun shadow, which gives the aircraft's shadow on the
+  ground, and the grid can be drawn over it. It reuses the ray-traced grid path (`--grid-mode ray`) so it reaches
+  the horizon without a mesh.
+  - **Ground albedo:** the plane's average colour feeds the A6.2 sky's ground albedo, so the lower hemisphere of
+    the environment lighting (reflections on fuselage bellies and wing undersides) matches what is drawn. With
+    the fixed HDR the HDR's own lower half is kept.
+  - **Tests:** the shadow of a known occluder lands at the expected position on the plane; *Grid* keeps the
+    current image byte for byte.
+- [ ] **A3.7 — `ASOBO_sky_portal` (R3). Owner: Claude.** Window area lights that bring sky and sun light into
+  the cabin. Entry: A3.1 (and A3.2 for the sun term).
+  - **What the files carry (V, Blender exporter `io/com/extensions/light/asobo_skyportal_light.py`,
+    `io/com/msfs_light_utils.py`, `blender/msfs_lights.py`):** a node extension with `shape_type` (1 = disc, the
+    only portal shape), `source_radius` (Blender UI unit cm, exporter default 50), `inner_cone_angle` and
+    `outer_cone_angle` (degrees; SDK: the inner angle defines the portal circle, outer is always 180). No colour or
+    intensity: the light comes from the environment. The node's direction points into the cabin (the exporter
+    applies a 180° X rotation to Blender lights). It replaces any `KHR_lights_punctual` on the node. Sample:
+    DA62 SDK `Part_Interior_Cockpit/model/Cockpit_LOD00.gltf`, 8 portals (`PORTAL_Window_*`, `source_radius` 10,
+    inner 160, outer 180). No schema ships; add one under `resources/schemas/asobo/`.
+  - **SDK intent (V, *Exterior Lights → Sky Portals*):** placed on the outside of every window that shows an
+    interior, pointing inside, to "simulate additional sunlight" for the characters inside; used together with
+    `node_occlusion_factor` in `navigation_graph.cfg` (not glTF). The cockpit itself already carries baked
+    white-sky AO with bounces, so the portal mainly adds directional window light.
+  - **Proposed rendering (I):** each portal is a disc area light at the window, facing inward. Its radiance is the
+    sky seen through the window: the environment (A6.2 sky or the HDR) sampled at a rough prefiltered mip in the
+    portal's outward direction, plus the A3.1 sun when the sun direction passes through the disc (attenuated by
+    the A3.2 shadow map), with the inner/outer angles as the angular falloff. Disc lighting uses LTC
+    (linearly transformed cosines, Heitz 2016) or a representative-point approximation. To avoid lighting twice,
+    the portal adds only the part the baked AO removed (`(1 - ao)` weighting or a fixed fraction), decided against
+    the SDK's before/after images; calibration is inferred until an MSFS capture exists.
+  - **Interior only:** portals light interior materials (cockpit/cabin files), never the exterior.
+  - **Viewer:** a gizmo (two concentric circles and the direction, as in the exporter preview), the parameters in
+    the Inspector, and a per-viewport switch in MSFS Extensions (default on).
+  - **Tests:** off renders byte-identical to before; a portal facing a white plane lights a disc-shaped region
+    falling off with the cone angles; no light leaks outside the hull; DA62 cockpit before/after review.
+  - **Deferred, not planned:** `ASOBO_macro_light` (deprecated MSFS 2020 name), `ASOBO_street_light`,
+    `ASOBO_advanced_light` (user decision 2026-10-28; aircraft lights mostly live in `systems.cfg`, outside glTF).
 
 **Exit gate:**
 - Shadow tests pass.
 - `noCastShadow` is honored.
 - Exterior and cockpit views are reviewed against the reference screenshots at the same sun direction.
 - Cost and quality presets are recorded.
+- Cockpit interiors with AO are reviewed against the same references; the ground plane shows the aircraft's shadow.
+- The DA62 cockpit with sky portals is reviewed against the SDK's before/after example.

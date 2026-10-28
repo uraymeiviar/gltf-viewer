@@ -148,7 +148,10 @@ the planned behavior. Exact semantics are confirmed per task against the sources
 | `ASOBO_collision_object` | `collision_objects[]`: type (box, cylinder, sphere), translation, rotation, params | Collision shapes; optional wireframe overlay | Inspector | A7 |
 | `ASOBO_gizmo_object` | `gizmo_objects[]`: type, translation, rotation, params | Gizmo shapes; optional overlay | Inspector | A7 |
 | `ASOBO_tags` (schema inside the gizmo folder) | `tags[]` | Collision and gizmo categories (e.g. collision) | Inspector | A7 |
-| `ASOBO_macro_light` | color, intensity, cone angle, symmetry, flashing frequency/duration/phase, rotation speed, day/night cycle | Light gizmo, optionally a punctual light with animated flashing | Inspector | A3 |
+| `ASOBO_macro_light` (deprecated MSFS 2020 name; the 2024 exporter only imports it, as a street light) | color, intensity, cone angle, symmetry, flashing frequency/duration/phase, rotation speed, day/night cycle | Light gizmo, optionally a punctual light with animated flashing | Inspector | A3.3, deferred |
+| `ASOBO_sky_portal` (no schema shipped) | `shape_type` (1 = disc), `source_radius` (cm), `inner_cone_angle`, `outer_cone_angle` | Window area light carrying sky/sun light into the cabin; gizmo | Not listed | A3.7 |
+| `ASOBO_street_light` (no schema shipped) | macro_light parameters plus `random_phase`, `flare_enabled`, `flare_only` | MSFS 2024 successor of `ASOBO_macro_light` (scenery, vehicles) | Not listed | deferred |
+| `ASOBO_advanced_light` (no schema shipped) | shape (point, sphere, disc), source radius, inner/outer cone, colour, intensity, interior/exterior channels | Punctual or area light | Not listed | deferred |
 | `ASOBO_softbody_mesh` | `type` (`balloon`) | Metadata (physics) | Inspector | A7 |
 | `ASOBO_property_animation` | `channels[]` (sampler, target) | Animates material or other properties; map onto the existing `KHR_animation_pointer` support | Inspector | A7 (low priority) |
 | `ASOBO_animation_retargeting` | `id` | Node identity for retargeting animations between files | Inspector | A7 |
