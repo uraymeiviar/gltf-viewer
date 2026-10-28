@@ -507,7 +507,8 @@ def main():
             before, _ = shot(model, "base_" + name, NO_AA + flags, exe=baseline)
             check(now is not None and same(now, before), f"{name}: byte-identical to the baseline {baseline.name}")
         now, _ = shot(no_tangent, "now_no_tangent_off", NO_AA + black + ["--asobo-disable", ASOBO])
-        before, _ = shot(no_tangent, "base_no_tangent", NO_AA + black, exe=baseline)
+        # The same switch on both sides: a baseline from before A7.1 ignores it and renders isotropic anyway.
+        before, _ = shot(no_tangent, "base_no_tangent", NO_AA + black + ["--asobo-disable", ASOBO], exe=baseline)
         check(now is not None and same(now, before),
               "generated tangents for an ASOBO material without a normal map: switch-off equals the baseline")
         now = common_render(EXE, PLAIN_FIXTURE, "now_hierarchy", [], folder=OUT)

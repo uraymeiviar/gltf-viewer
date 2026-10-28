@@ -118,7 +118,7 @@ the planned behavior. Exact semantics are confirmed per task against the sources
 
 | Extension | Schema properties | Viewer meaning | Current | Phase |
 |---|---|---|---|---|
-| `ASOBO_material_SSS` | `SSSColor`, `opacityTexture` | Subsurface scattering approximation | Ignored | A3 |
+| `ASOBO_material_SSS` | `SSSColor` (RGBA in every file and exporter; schema says 2 items), `opacityTexture` | Subsurface scattering approximation | **Partial** (OPAQUE/MASK: wrapped diffuse tinted by `SSSColor` and back-lit translucency, IBL from -N and lights behind, x `SSSColor` x base colour x `1 - opacityTexture.r`; default white; formulas inferred, no blur, no sun/shadows yet) | A3.4 |
 | `ASOBO_material_sail` | `sailLightAbsorption` (0–1, requires double-sided) | Back-face lighting and translucency | Ignored | A7 |
 | `ASOBO_material_parallax_window` | `parallaxScale`, `roomSizeX/YScale`, `roomNumberXY`, `behindWindowMapTexture` | Interior mapping behind a flat window | Ignored | A5 |
 | `ASOBO_material_wind_flex` | `windFlexNormal` | Wind-animated detail normal; needs a viewer time/wind setting | Ignored | A5 |

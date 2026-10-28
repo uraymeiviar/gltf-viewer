@@ -29,6 +29,7 @@ precision highp float;
 #include <asobo_detail_map.glsl>
 #include <asobo_windshield.glsl>
 #include <asobo_dither.glsl>
+#include <asobo_sss.glsl>
 #include <material_info.glsl>
 
 #ifdef MATERIAL_IRIDESCENCE
@@ -495,6 +496,12 @@ void main()
 
     float albedoSheenScaling = 1.0;
 
+#ifdef ASOBO_SSS
+    // A3.4: SSS colour and transmission weight, after the decal layers changed the base colour.
+    vec3 asoboSssColor = u_AsoboSSSColor;
+    float asoboSssTransmission = getAsoboSssTransmission();
+#endif
+
 #ifdef MATERIAL_IRIDESCENCE
     vec3 iridescenceFresnel = materialInfo.f0;
     vec3 iridescenceF0 = materialInfo.f0;
@@ -540,6 +547,11 @@ void main()
     f_diffuse += getIBLRadianceLambertianIridescence(n, v, materialInfo.perceptualRoughness, materialInfo.c_diff, materialInfo.f0, iridescenceF0, materialInfo.iridescenceFactor, materialInfo.specularWeight);
 #else
     f_diffuse += getIBLRadianceLambertian(n, v, materialInfo.perceptualRoughness, materialInfo.c_diff, materialInfo.f0, materialInfo.specularWeight);
+#endif
+#ifdef ASOBO_SSS
+    // A3.4: translucency from the environment behind the surface; occlusion applies to it below.
+    f_diffuse += asoboSssBackRadiance(getDiffuseLight(-n), NdotV, materialInfo.f0, materialInfo.f90, materialInfo.c_diff,
+        materialInfo.specularWeight, asoboSssColor, asoboSssTransmission);
 #endif
 
 #ifdef MATERIAL_CLEARCOAT
@@ -673,6 +685,16 @@ void main()
                 materialInfo.clearcoatF0, materialInfo.clearcoatF90, materialInfo.clearcoatRoughness);
 #endif
         }
+#ifdef ASOBO_SSS
+        // A3.4: wrap and back-lit translucency on top of the core N.L diffuse above (also for lights
+        // behind the surface, which the block above skips). Black SSSColor adds exactly zero.
+        // The half vector is zero for a light exactly opposite the viewer: VdotH is then 0, not NaN.
+        vec3 sssHalf = l + v;
+        float sssVdotH = dot(sssHalf, sssHalf) > 1e-12 ? clampedDot(v, normalize(sssHalf)) : 0.0;
+        f_diffuse += asoboSssDirectDiffuse(getLighIntensity(light, pointToLight), dot(n, l), NdotL, sssVdotH, NdotV,
+            materialInfo.f0, materialInfo.f90, materialInfo.c_diff, materialInfo.specularWeight,
+            asoboSssColor, asoboSssTransmission);
+#endif
 
         // BDTF
 #ifdef MATERIAL_TRANSMISSION

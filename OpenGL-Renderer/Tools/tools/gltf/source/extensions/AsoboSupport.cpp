@@ -14,7 +14,7 @@ const std::vector<SupportInfo>& supportTable()
         {"ASOBO_extra_occlusion_texture", Support::NotYetSupported, "A1", ""},
         {"ASOBO_gizmo_object", Support::NotYetSupported, "A7", ""},
         {"ASOBO_macro_light", Support::NotYetSupported, "A3", ""},
-        {"ASOBO_material_SSS", Support::NotYetSupported, "A3", ""},
+        {"ASOBO_material_SSS", Support::Partial, "A3.4", "approximation, no screen-space scattering: wrapped diffuse tinted by SSSColor and back-lit translucency (IBL from -N, lights behind) x SSSColor x base colour x (1 - opacityTexture.r); formulas inferred (semantics section 18); no sun or shadows yet (A3.1)"},
         {"ASOBO_material_UV_options", Support::Rendered, "A5.2", "UV0 core/detail tiling, degree rotation about centre, positive UV offsets, then KHR transform and per-axis clamp; absent clamp keeps sampler wrap; UV1 and windshield layers untouched; clampUVZ ignored; order/sign inferred (semantics section 15)"},
         {"ASOBO_material_alphamode_dither", Support::Rendered, "A1.7", "4x4 Bayer screen-door discard on OPAQUE (and core \"DITHER\") materials, standard alpha; offset per frame under TAA; picking and decal prepass match"},
         {"ASOBO_material_anisotropic", Support::NotYetSupported, "A7.1", "deferred: MSFS 2020 v1 packing not established (SDK documents only an RG direction, no second roughness; the 2020 Blender preview reads R as amount and B as rotation; no v1 asset available)"},

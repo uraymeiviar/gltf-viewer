@@ -1301,4 +1301,104 @@ automatic per-aircraft rule. The original file stays unchanged.
 1. Is RG decoded as `2 * RG - 1` (assumed) or `[0, 1]`, and is the vector normalised or does its length scale the effect? Needs an MSFS reference capture of a known direction texture.
 2. Is the MSFS lobe GGX with `alpha = roughness^2` per axis, or a different anisotropic model (e.g. Ward / Ashikhmin)? Does roughness Y take `roughnessFactor`?
 3. v1: what do R, G (and B) of `anisotropicTexture` mean, and what is the second roughness?
-4. Hair uses the same texture; MSFS presumably combines it with SSS (A3), which Glider does not render.
+4. Hair uses the same texture; MSFS presumably combines it with SSS, which Glider approximates since A3.4 (section 18).
+
+## 18. `ASOBO_material_SSS` (A3.4, 2026-10-28)
+
+**Coverage: partial** (the payload and the defaults are documented; the scattering model is not). Glider renders an
+approximation (see **Glider rendering**).
+
+**Written when**
+
+- **V** 2024 Blender exporter: for the SSS and Hair material types it always writes `SSSColor` (`list(sss_color)`, the
+  full Blender colour) and `opacityTexture` when that slot is set (`io/com/extensions/material/asobo_material_sss.py:73-92`).
+  The importer sets the material type to SSS for any material with the extension (`:44-49`).
+- **V** MSFS 2020 3ds Max exporter (`C:\MSFS SDK\Tools\3dsMax\glTF-Exporter\3ds Max\Max2Babylon\FlightSim\FlightSimMaterialExporter.cs`):
+  the extension class has `float[] SSSColor` and `opacityTexture`, both `EmitDefaultValue = false` (`:223-231`); for
+  SSS and Hair it always assigns the 4-component colour read from the Max point4 property (`:680`, `:1080-1090`,
+  `:2047-2063`). The comment at `:2047` says "no Opacity map (sampler name in engine) assigned".
+- **V** MSFS 2020 Blender add-on (`H:\git-repos\msfs2020-blender-5.2.x-addons\io_scene_gltf2_msfs_2020\com\msfs_material_props.py:1225-1290`):
+  writes `SSSColor` (RGBA) and `opacityTexture` for SSS/Hair; the class comment says "This entire extension is disabled
+  for the time being".
+- **V** Survey (2026-10-28, `.gltf` under `E:\msfs-pkgs`, `F:\msfs-addons`, `C:\MSFS SDK`, `C:\MSFS 2024 SDK`): 199 files,
+  389 SSS materials. 376 (all 295 MSFS 2020 character materials in `asobo-simobjects-characters`, the 19 PMDG 777 VC
+  materials and others) write `{}`; 13 write a 4-item `SSSColor`: the windsock (`asobo-simobjects-landmarks` and the
+  SDK sample, `Windsock_LOD0x.gltf`, `[1, 0.524, 0.094, 1]`), the Wright Flyer (`Wright_Flyer_global_LOD01/02.gltf`,
+  `[0.033, 0.033, 0.033, 1]`) and the SDK `SampleMaterials.gltf` (SSS and Hair, `[1, 1, 1, 1]`). **No file has an
+  `opacityTexture`; no file has a 2- or 3-item `SSSColor`.** 48 character materials (hair cards) also carry
+  `ASOBO_material_alphamode_dither`; one is BLEND.
+
+**Properties**
+
+| Key | Type, default | Conversion | Schema | Source | St. |
+|---|---|---|---|---|---|
+| `SSSColor` | number array, **default `[1, 1, 1, 1]` (white)** | none; linear (tooltip "These values are linear") | `minItems 2`, `maxItems 2`, no description (`repo:resources/schemas/asobo/ASOBO_material_SSS/gltf.ASOBO_material_SSS.schema.json`; identical in both SDKs) | 2024 `blender/utils/msfs_material_utils.py:49` (default `[1.0, 1.0, 1.0, 1.0]`), property `asobo_material_sss.py:97-108` (`size=4`, min 0, max 1, "The RGBA components of the SSS color"); 3ds Max `Defaults.SSSColor = {1, 1, 1, 1}` (`FlightSimMaterialExporter.cs:230`), Max UI `SSSColor type:#point4 default:white` (`FlightSimMaterial.ms:504`); 2020 Blender `Defaults.SSSColor = [1.0, 1.0, 1.0, 1.0]` (`msfs_material_props.py:1230`) | V |
+| `opacityTexture` | textureInfo, optional | none | textureInfo | 2024 `asobo_material_sss.py:81-86`, label "Opacity" (`msfs_material_utils.py:223`); Max `OpacityTex ... --named like the sampler in engine side (for SSS)` (`FlightSimMaterial.ms:759`) | V |
+
+**SDK text (verbatim facts)**
+
+- **V** 2020 SDK `Materials.htm:243-244` (material types): "This material type will be used to simulate skin."; `:862-863`
+  (textures): "SSS stands for sub-surface scattering. This material type mimics the effect of light bouncing through a
+  surface and coming back out, for example with skin." It lists Base Color, ORM, Normal, Emissive and no SSS-specific
+  texture or parameter.
+- **V** 2024 SDK `flightsim-material-parameters.md:354-360` (SSS Colour): the colour used as the "glow" from the
+  scattered light, blended with the incoming light after it has been scattered through the material ("a slight pink
+  after passing through the skin of a character model").
+- **V** 2024 SDK `flightsim-material-textures.md:303-319`: SSS uses the standard textures plus "Opacity: *Not currently
+  used in the simulation.*"
+- **V** 2024 SDK `plugins/gltf-schemas.md:411-428`: the JSON example writes a **4-item** `SSSColor`
+  (`[0.018, 0.8, 0.03, 1]`) and an `opacityTexture`, against its own schema's 2 items.
+- **V** Decals land on SSS receivers (`flightsim-materials.md:97`; phase 2 receiver classes).
+- **V** In 3ds Max the SSS colour picker is visible but disabled (`SSSColor.enabled = false`, `FlightSimMaterial.ms:1081-1083`),
+  so 2020 Max files always carry white; the Max preview shader declares `p_SSSColorFactor` and `p_opacityTex`
+  (`FlightSimMaterial_Shader.fx:53-54`, `:170-171`) without an SSS shading model. The 2024 Blender preview sets only
+  the Principled BSDF subsurface colour (`blender/material/msfs_material_sss.py:86-93`).
+
+**The 2- versus 4-component question**
+
+- **V** Every writer (three exporters), every file found and the SDK's own JSON example use 4 items (RGBA).
+- **I** The schema's `minItems 2 / maxItems 2` is a schema error (probably copied from a two-component property).
+  Glider accepts 3 (RGB) and 4 (RGBA) items and ignores alpha (every file has alpha 1; no source gives it a
+  meaning). A 2-item list has no defined meaning: the typed model reports `ASOBO_VALUE_RANGE` ("the schema expects
+  3-4", a warning in the Validation panel) and uses the default white. The typed table's override lives in
+  `scripts/generate_asobo_specs.py` (`ITEM_COUNTS`, `EXPORTER_DEFAULTS`); the JSON schema file is unchanged.
+
+**opacityTexture**
+
+- **V** The 2024 SDK says it is not used; no file carries one; the 3ds Max comment calls it the engine sampler's name.
+- **I** Glider reads it as an opacity in the SSS sense (as in Unreal's subsurface "Opacity"): red channel, linear,
+  transmission weight `t = 1 - r` (white = opaque, no light through; black = fully translucent); without the
+  texture `t = 1`. A missing image (the loader's placeholder) is ignored rather than read as opaque.
+
+**Glider rendering (A3.4)**
+
+For OPAQUE and MASK materials (BLEND, `KHR_materials_transmission` and unlit materials keep the core shading), with
+`s = clamp(SSSColor.rgb, 0, 1)`, `t` as above, `c` the diffuse colour (base colour after the decal layers, times
+`1 - metallic`), `x = dot(N, L)` unclamped, `w = 0.5 s` and `k = 0.5` (**I**: both constants are chosen, not published):
+
+- Direct lights: the core `clamp(x, 0, 1) * BRDF_lambertian(V.H)` gets
+  `(front - clamp(x, 0, 1)) * BRDF_lambertian(V.H) + back * BRDF_lambertian(N.V)` added, with
+  `front = clamp((x + w) / (1 + w), 0, 1)` (wrapped diffuse, per channel, so the terminator is tinted toward
+  `SSSColor`) and `back = k s t clamp(-x, 0, 1)` (light from behind, tinted by `SSSColor` x base colour; its Fresnel
+  weight uses N.V because it leaves through the front). `front + back <= 1` for every `x`, so no point receives
+  more than a surface facing the light. Lights behind the surface are evaluated too.
+- IBL: `+ k s t (1 - specularWeight F(N.V)) c E(-N)`, `E` the Lambertian irradiance map (the diffuse irradiance
+  arriving from the opposite side), before ambient occlusion and the decal AO.
+- `SSSColor = 0` adds exactly zero (byte-identical to the material without the extension). With the default
+  white, a back-lit thin surface transmits half of the light a facing surface receives.
+- The direct-light term is one function, `asoboSssDirectDiffuse` (`resources/shaders/asobo_sss.glsl`), taking the
+  light's irradiance and direction; the A3.1 sun will call it like the punctual lights.
+- Dither (A1.7) and the decal receiver path (A2.2) are independent of it: dithered SSS shells keep their pattern,
+  decal layers change the base colour and normal before SSS reads them.
+- Per-viewport switch `ASOBO_material_SSS` (Viewport Settings → MSFS Extensions, `--asobo-disable ASOBO_material_SSS`,
+  `--asobo off`): off compiles the core variant.
+- Not done: no screen-space or texture-space blur (no scattering radius), no thickness from geometry, no shadows
+  (A3.2), no sun (A3.1). With IBL only (the PMDG VC has no punctual lights), the visible effect is the
+  back-irradiance term.
+
+**Open questions**
+
+1. What scattering model does MSFS use (wrap, pre-integrated skin LUT, screen-space blur), and how strong is it?
+   Needs an MSFS capture of a white-SSS sphere under a known sun.
+2. Does `SSSColor` alpha mean anything (strength)? All files write 1.
+3. Is `opacityTexture` really unused, and if used, is it opacity (1 - transmission) or thickness?

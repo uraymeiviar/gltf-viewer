@@ -38,7 +38,7 @@ const std::vector<ExtensionSpec>& extensionSpecs()
             {"day_night_cycle", ValueType::Boolean, Value{}, DefaultSource::None, std::nullopt, std::nullopt, 0, 0, ""},
         }},
         {"ASOBO_material_SSS", Scope::Material, "ASOBO_material_SSS/gltf.ASOBO_material_SSS.schema.json", {
-            {"SSSColor", ValueType::NumberArray, Value{}, DefaultSource::None, std::nullopt, std::nullopt, 2, 2, ""},
+            {"SSSColor", ValueType::NumberArray, Value{std::vector<double>{1.0, 1.0, 1.0, 1.0}}, DefaultSource::Exporter, std::nullopt, std::nullopt, 3, 4, ""},
             {"opacityTexture", ValueType::Texture, Value{}, DefaultSource::None, std::nullopt, std::nullopt, 0, 0, ""},
         }},
         {"ASOBO_material_UV_options", Scope::Material, "ASOBO_material_UV_options/gltf.ASOBO_material_UV_options.schema.json", {

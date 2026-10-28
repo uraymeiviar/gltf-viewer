@@ -97,7 +97,8 @@ def main():
                 status = "Rendered"
             elif name in ("ASOBO_material_geometry_decal", "ASOBO_material_blend_gbuffer",
                           "ASOBO_material_windshield_v3", "ASOBO_material_glass_v2",
-                          "ASOBO_material_windshield", "ASOBO_material_glass", "ASOBO_material_kitty_glass"):
+                          "ASOBO_material_windshield", "ASOBO_material_glass", "ASOBO_material_kitty_glass",
+                          "ASOBO_material_SSS"):
                 status = "Partial"
             elif name in ("ASOBO_material_disable_motion_blur", "ASOBO_material_fake_terrain"):
                 status = "Not applicable"

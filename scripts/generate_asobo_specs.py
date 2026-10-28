@@ -9,8 +9,9 @@ Each gltf.<extension>.schema.json gives one extension: its property names, types
 defaults. Most properties have no schema default (112 of 133); their defaults come from the MSFS 2024 Blender
 exporter (docs/ASOBO_EXTENSIONS_SEMANTICS.md) through EXPORTER_DEFAULTS below. The other exporter tables add
 the keys it writes outside the schema, its spellings of schema keys, and the extensions it writes without a
-schema. Ranges stay the schema's: the exporter's Blender UI limits are not enforced. The extension name comes
-from the file name, since several schema titles are wrong (geometry_decal's says blend_gbuffer).
+schema. Ranges stay the schema's (the exporter's Blender UI limits are not enforced), except the array lengths
+in ITEM_COUNTS. The extension name comes from the file name, since several schema titles are wrong
+(geometry_decal's says blend_gbuffer).
 """
 
 import argparse
@@ -64,6 +65,15 @@ EXPORTER_DEFAULTS = {
                                   "UVTilingU": 1.0, "UVTilingV": 1.0, "UVRotation": 0.0},
     "ASOBO_material_parallax_window": {"parallaxScale": 0.5, "roomSizeXScale": 0.5, "roomSizeYScale": 0.5,
                                        "roomNumberXY": 5.0},
+    # A3.4: both exporters (2024 Blender, MSFS 2020 3ds Max) default the SSS colour to white RGBA.
+    "ASOBO_material_SSS": {"SSSColor": [1.0, 1.0, 1.0, 1.0]},
+}
+
+# Array lengths the exporters write where the schema disagrees: {extension: {key: (minItems, maxItems)}}.
+# A3.4: the SSS schema says 2 items, but every exporter writes an RGBA list and every file found has 4;
+# RGB (3) is accepted too, and a 2-item list keeps the warning and the default.
+ITEM_COUNTS = {
+    "ASOBO_material_SSS": {"SSSColor": (3, 4)},
 }
 
 # Keys the exporter writes that the schema does not list: {extension: {key: (type, default or None)}}.
@@ -143,15 +153,17 @@ def load_extensions():
             default, source = spec.get("default"), "Schema" if "default" in spec else "None"
             if exporter_key in defaults:
                 default, source = defaults[exporter_key], "Exporter"
+            min_items, max_items = ITEM_COUNTS.get(name, {}).get(exporter_key,
+                                                                (spec.get("minItems", 0), spec.get("maxItems", 0)))
             properties.append({
                 "name": exporter_key, "alias": key if exporter_key != key else "", "type": property_type(spec),
                 "default": default, "source": source, "minimum": spec.get("minimum"), "maximum": spec.get("maximum"),
-                "minItems": spec.get("minItems", 0), "maxItems": spec.get("maxItems", 0),
+                "minItems": min_items, "maxItems": max_items,
             })
         for key, (kind, default) in EXPORTER_PROPERTIES.get(name, {}).items():
             properties.append(extra_property(key, kind, default))
         known = {p["name"] for p in properties}
-        stale = (set(defaults) | set(aliases.values())) - known
+        stale = (set(defaults) | set(aliases.values()) | set(ITEM_COUNTS.get(name, {}))) - known
         if stale:
             sys.exit(f"{name}: exporter tables name unknown properties {sorted(stale)}")
         extensions[name] = {"properties": properties, "schema": f"{path.parent.name}/{path.name}"}

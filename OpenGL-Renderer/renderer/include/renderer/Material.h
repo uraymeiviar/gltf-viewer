@@ -102,6 +102,9 @@ public:
     // ASOBO_ANISOTROPY per viewport when the viewport applies the extension.
     bool khrAnisotropy = false;
     bool asoboAnisotropy = false;
+    // A3.4: an OPAQUE or MASK material declaring ASOBO_material_SSS (u_AsoboSSSColor set, opacity map
+    // bound when usable); createScene defines ASOBO_SSS per viewport when the viewport applies it.
+    bool asoboSss = false;
     bool overrideBlend = false;
     bool customBlend = false;
     bool blendingEnabled = false;

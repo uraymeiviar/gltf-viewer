@@ -1411,6 +1411,35 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
             }
         }
 
+        // A3.4: ASOBO_material_SSS on OPAQUE / MASK materials (BLEND, transmissive and unlit ones keep the
+        // core shading). SSSColor is linear RGB(A), clamped to 0..1; alpha is ignored. The exporters default it
+        // to white, and the typed model rejects a 2-item list (the schema's length) with a warning, so it
+        // falls back to white too. opacityTexture.r is an opacity: the transmission weight is 1 - r
+        // (docs/ASOBO_EXTENSIONS_SEMANTICS.md section 18). A failed image (the loader's placeholder) is not
+        // bound, so it does not read as opaque.
+        material->asoboSss = false;
+        if (const gltf::asobo::ExtensionData* sss = material->asobo != nullptr
+                ? material->asobo->find("ASOBO_material_SSS") : nullptr;
+            sss != nullptr && gltfMaterial->getAlphaModeOrDefault() != gltf::AlphaMode::Blend
+            && !gltfMaterial->getTransmission().has_value() && !gltfMaterial->isUnlit()) {
+            math::vec3 sssColor(1.0f);
+            if (const std::vector<double>* color = sss->numbers("SSSColor"); color != nullptr && color->size() >= 3) {
+                for (int c = 0; c < 3; ++c) {
+                    sssColor[c] = static_cast<float>(std::clamp((*color)[static_cast<size_t>(c)], 0.0, 1.0));
+                }
+            }
+            material->setUniform<math::vec3>("u_AsoboSSSColor", sssColor);
+            const gltf::asobo::TextureRef* opacity = sss->texture("opacityTexture");
+            if (opacity != nullptr && m_syncingGltf != nullptr && opacity->index >= 0
+                && static_cast<size_t>(opacity->index) < m_syncingGltf->getTextures().size()) {
+                const gltf::Texture* gltfTexture = &m_syncingGltf->getTextures().at(static_cast<size_t>(opacity->index));
+                if (anisotropyImageUsable(gltfTexture)) {
+                    createSamplerFromTexture("AsoboSssOpacity", gltfTexture, static_cast<uint32_t>(std::max(0, opacity->texCoord)), true);
+                }
+            }
+            material->asoboSss = true;
+        }
+
         if (m_resourceManager.getFramebufferTexture() != nullptr && m_resourceManager.getFramebufferSamplerState() != nullptr) {
             material->defines.define("HAS_OPAQUE_FRAMEBUFFER");
             material->samplers.emplace_back("u_TransmissionFramebufferSampler", m_resourceManager.getFramebufferTexture(), m_resourceManager.getFramebufferSamplerState());
@@ -2411,6 +2440,19 @@ void GltfRenderLayer::updateGltf(const gltf::Gltf& gltf)
             }
         }
 
+        // A3.4: the ASOBO_material_SSS opacity map is linear.
+        if (gltf.isExtensionDeclared("ASOBO_material_SSS")) {
+            const gltf::asobo::ExtensionSet materialExtensions =
+                gltf::asobo::parseExtensions(gltf, material, gltf::asobo::Scope::Material);
+            if (const gltf::asobo::ExtensionData* sss = materialExtensions.find("ASOBO_material_SSS")) {
+                const gltf::asobo::TextureRef* reference = sss->texture("opacityTexture");
+                if (reference != nullptr && reference->index >= 0
+                    && static_cast<size_t>(reference->index) < gltf.getTextures().size()) {
+                    insertTextureImage(&gltf.getTextures().at(static_cast<size_t>(reference->index)), true);
+                }
+            }
+        }
+
         // A5.1: the four ASOBO_material_detail_map textures are not core slots, so register
         // them here. The colour map is sRGB, the ORM, normal and blend-mask maps are linear.
         if (gltf.isExtensionDeclared("ASOBO_material_detail_map")) {
@@ -2987,6 +3029,9 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
                 && asoboOptions.applies("ASOBO_material_anisotropic_v2");
             entry.material->defines.defineIf(asoboAnisotropy, "ASOBO_ANISOTROPY");
             entry.material->defines.defineIf(asoboAnisotropy || entry.material->khrAnisotropy, "MATERIAL_ANISOTROPY");
+            // A3.4: ASOBO_material_SSS per viewport; off compiles the core variant.
+            entry.material->defines.defineIf(entry.material->asoboSss && asoboOptions.applies("ASOBO_material_SSS"),
+                "ASOBO_SSS");
             entry.material->defines.defineIf(windshield, "ASOBO_MATERIAL_WINDSHIELD");
             entry.material->defines.defineIf(windshield && windshieldV3 != nullptr, "ASOBO_MATERIAL_WINDSHIELD_V3");
             entry.material->defines.defineIf(windshield && windshieldV3 == nullptr, "ASOBO_MATERIAL_WINDSHIELD_LEGACY");
