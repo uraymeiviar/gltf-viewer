@@ -131,6 +131,18 @@ struct BoundsCache {
     uint64_t extentsSceneGeneration = 0;
     bool extentsValid = false;
     ux3d::gltf::Extends extents;
+
+    // A3.6: the lowest world-space point of the scene's static geometry (glTF node transforms: animation poses
+    // do not move it), keyed on the model and the edits that can change it.
+    const ux3d::gltf::Scene* baseScene = nullptr;
+    const ux3d::renderer::GltfRenderLayer* baseLayer = nullptr;
+    uint64_t baseSceneGeneration = 0;
+    uint64_t baseTransformRevision = 0;
+    uint64_t baseVisibilityRevision = 0;
+    uint64_t baseMaterialRevision = 0;
+    bool baseValid = false;   // the cache holds a result
+    bool baseFound = false;   // the scene has bounded geometry
+    float baseHeight = 0.0f;
 };
 
 struct WindowState {
@@ -198,6 +210,11 @@ private:
     const NodeOBB& getCachedNodeOBB(const ux3d::gltf::Node* node, const ux3d::renderer::GltfRenderLayer* gltfLayer);
     const ux3d::gltf::Extends& getCachedSceneExtents(const ux3d::gltf::Scene* scene, const ux3d::gltf::Gltf& gltfModel,
                                                      const ux3d::renderer::GltfRenderLayer* gltfLayer);
+    // A3.6: world Y of the lowest point of the scene's static geometry (the model base); false when the scene has
+    // no bounded geometry (height 0 then). Cached; recomputed on load and on edits of transforms, visibility or
+    // materials, never by animation.
+    bool getCachedModelBaseHeight(const ux3d::gltf::Scene* scene, const ux3d::gltf::Gltf& gltfModel,
+                                  const ux3d::renderer::GltfRenderLayer* gltfLayer, float& height);
     void focusCameraOnNode(ux3d::gltf::Node* node, ux3d::gltf::Gltf& gltfModel,
                            ux3d::renderer::GltfRenderLayer* gltfLayer, ux3d::editor::CameraActor& cameraActor,
                            ux3d::imgui::AntiAliasing& antiAliasing, ux3d::imgui::SceneRevisions& revisions,
@@ -353,10 +370,11 @@ private:
     nlohmann::json sunStateJson(const ux3d::imgui::SceneEnvironmentState& environment) const;
     // A3.2: renders the viewport's cascaded sun shadow map (one depth pass per cascade, before the forward
     // scene) and sets the shadow frame values, or releases the map and disables the shadow term. Leaves
-    // the viewport's scene target bound.
+    // the viewport's scene target bound. groundHeight: the height of the A3.6 ground plane when the viewport
+    // draws one, so the cascades also cover the shadow the model casts on it.
     void updateSunShadows(ux3d::imgui::ViewportInstance& vp, FrameContext& frame, const glm::mat4& view,
                           const glm::mat4& projection, const ux3d::imgui::SceneEnvironmentState& environment,
-                          bool shadingAllowed, int vpW, int vpH);
+                          bool shadingAllowed, int vpW, int vpH, std::optional<float> groundHeight = std::nullopt);
     nlohmann::json sunShadowStateJson() const;
     nlohmann::json probePixel(ux3d::imgui::ViewportInstance* vp, int x, int y, bool withPick);
     nlohmann::json probeRegion(ux3d::imgui::ViewportInstance* vp, int x0, int y0, int x1, int y1);

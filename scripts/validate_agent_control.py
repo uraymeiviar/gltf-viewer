@@ -176,11 +176,16 @@ class Session:
         self.process = subprocess.Popen(args, cwd=REPO, env=env, stdin=subprocess.DEVNULL,
                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         deadline = time.time() + 120
-        while not os.path.exists(glider_ctl.pipe_name(self.process.pid)):
-            if self.process.poll() is not None or time.time() > deadline:
-                raise RuntimeError(f"Glider did not open its pipe (exit {self.process.poll()})")
-            time.sleep(0.1)
-        self.pipe = glider_ctl.GliderPipe(self.process.pid)
+        try:
+            while not os.path.exists(glider_ctl.pipe_name(self.process.pid)):
+                if self.process.poll() is not None or time.time() > deadline:
+                    raise RuntimeError(f"Glider did not open its pipe (exit {self.process.poll()})")
+                time.sleep(0.1)
+            self.pipe = glider_ctl.GliderPipe(self.process.pid)
+        except BaseException:
+            # Never leave a test window open when the session cannot start.
+            self.process.kill()
+            raise
 
     def call(self, cmd, **args):
         return self.pipe.call(cmd, **args)

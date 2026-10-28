@@ -3,6 +3,7 @@
 #pragma once
 
 #include "renderer/CommandGenerator.h"
+#include "imgui/GroundSettings.h"
 #include "imgui/SceneEnvironment.h"
 #include "imgui/SceneRevisions.h"
 #include "renderer/gltf/GltfRenderLayer.h"
@@ -27,6 +28,7 @@ struct ViewportSettingsState {
     ux3d::renderer::RenderMode renderMode = ux3d::renderer::RenderMode::None;
     int renderModeIdx = 0; // 0 = None / Shaded
     bool showGrid = true;
+    GroundSettings ground; // A3.6: grid (default) or a ground plane
     bool forceDoubleSided = false; // Disable backface culling globally
     ux3d::renderer::AsoboOptions asobo; // MSFS (ASOBO) extensions this viewport applies (A0.4)
     ux3d::renderer::MaterialExtensionOptions materialExtensions;

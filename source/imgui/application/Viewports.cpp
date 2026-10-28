@@ -586,11 +586,30 @@ void Application::drawViewports(FrameContext& frame)
                 glViewport(0, 0, vpW, vpH);
             }
 
+            // A3.6: the ground plane is drawn in shaded views only (debug views and wireframe keep the sky), at the
+            // model base, Y = 0 or a chosen height.
+            const bool groundPlane = vp->settings.ground.mode == ux3d::imgui::GroundMode::Plane &&
+                                     vp->settings.renderMode == ux3d::renderer::RenderMode::None && !isWireframeMode &&
+                                     activeScene != nullptr && gltfLayer->getActiveCamera() != nullptr;
+            float groundHeight = 0.0f;
+            if (groundPlane) {
+                const auto& ground = vp->settings.ground;
+                if (ground.heightMode == ux3d::imgui::GroundHeightMode::ModelBase) {
+                    getCachedModelBaseHeight(activeScene, gltfModel, gltfLayer.get(), groundHeight);
+                } else if (ground.heightMode == ux3d::imgui::GroundHeightMode::Custom) {
+                    groundHeight = ground.customHeight;
+                }
+            }
+            vp->groundPlaneActive = groundPlane;
+            vp->groundPlaneHeight = groundHeight;
+            vp->groundAlbedo = groundPlane ? vp->settings.ground.averageAlbedo() : glm::vec3(0.0f);
+
             // A3.2: the sun's shadow map for this viewport, before the forward scene is built (the caster
             // pass builds its own unculled scene, so off-screen casters still cast). Off: no pass at all.
             {
                 const auto shadowStart = ux3d::imgui::profiling::Clock::now();
-                updateSunShadows(*vp, frame, view, proj, activeEnvironment, !isWireframeMode, vpW, vpH);
+                updateSunShadows(*vp, frame, view, proj, activeEnvironment, !isWireframeMode, vpW, vpH,
+                                 groundPlane ? std::optional<float>(groundHeight) : std::nullopt);
                 if (vp->sunShadowActive) frame.markStage("shadow.render", shadowStart);
             }
 
@@ -805,6 +824,31 @@ void Application::drawViewports(FrameContext& frame)
             commandGenerator->setAsoboAlphaDither(
                 vp->settings.asobo.applies("ASOBO_material_alphamode_dither"));
 
+            // A3.6: the ground plane drawable, an Opaque-pass draw whose material carries this viewport's surface
+            // and fog parameters (the draw reads them when it executes, viewports render one after another).
+            // It is not in the reverse mapping, so the overlay depth and the picking passes never see it.
+            auto [groundMesh, groundMaterial] = gltfLayer->getResourceManager().getGroundTuple();
+            if (groundPlane && groundMesh != nullptr && groundMaterial != nullptr) {
+                const auto& ground = vp->settings.ground;
+                const auto* camera = gltfLayer->getActiveCamera();
+                const float farPlane = std::max(camera->getZFarPlane(), 1.0e-3f);
+                const float visibility = ground.haze > 0.0f ? ground.haze : 0.9f * farPlane;
+                const float extinction = 3.912f / std::max(visibility, 1.0e-3f); // 98% fog at the visibility distance
+                const bool hasEnvironment = gltfLayer->getActiveEnvironmentMap() != nullptr;
+                const bool hazeFromEnvironment =
+                    hasEnvironment && ux3d::imgui::RenderQuality::allowSkybox(activeEnvironment.showBackground);
+                groundMaterial->defines.defineIf(hasEnvironment, "GROUND_ENV");
+                groundMaterial->setUniform("u_GroundHeight", groundHeight);
+                groundMaterial->setUniform("u_GroundAlbedo", ux3d::math::vec3(ground.albedo.x, ground.albedo.y, ground.albedo.z));
+                groundMaterial->setUniform("u_GroundRoughness", ground.roughness);
+                groundMaterial->setUniform("u_GroundDetail", ux3d::math::vec3(ground.detail, std::max(ground.detailScale, 1.0e-4f), std::max(ground.jointSpacing, 0.0f)));
+                groundMaterial->setUniform("u_GroundHaze", ux3d::math::vec2(extinction, hazeFromEnvironment ? 1.0f : 0.0f));
+                groundMaterial->setUniform("u_GroundHazeColor", ux3d::math::vec3(activeEnvironment.clearColor.r,
+                                                                                  activeEnvironment.clearColor.g,
+                                                                                  activeEnvironment.clearColor.b));
+                scene.drawables.emplace_back(groundMesh, groundMaterial);
+            }
+
             const auto commandGenerationStart = ux3d::imgui::profiling::Clock::now();
             const uint64_t programHitsBefore = commandGenerator->getCommandMapping().getProgramCacheHits();
             const uint64_t programMissesBefore = commandGenerator->getCommandMapping().getProgramCacheMisses();
@@ -899,6 +943,16 @@ void Application::drawViewports(FrameContext& frame)
             ++vp->renderCount;
             frame.markStage("draw.submit", drawSubmissionStart);
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+            // A3.6: the ground plane is not pickable; clicks fall through to the background.
+            if (groundPlane) {
+                for (auto it = scene.drawables.begin(); it != scene.drawables.end();) {
+                    if (std::get<0>(*it) == groundMesh) {
+                        it = scene.drawables.erase(it);
+                    } else {
+                        ++it;
+                    }
+                }
+            }
 
             // A2.1 check: sample the forward depth and Geometry Normal colour before the
             // grid, bounding boxes and picking overlays touch the same framebuffer.
@@ -1026,10 +1080,13 @@ void Application::drawViewports(FrameContext& frame)
                 vp->settings.showSelectedBoundingBox && selection.type == ux3d::imgui::SelectionType::Node &&
                 selection.selectedNode != nullptr;
             const bool hasOverlays =
-                vp->settings.showGrid || hasSceneBbox || hasSelectedBbox || drawWireframe;
+                (vp->settings.showGrid && (!groundPlane || vp->settings.ground.showGrid)) || hasSceneBbox ||
+                hasSelectedBbox || drawWireframe;
 
             if (hasOverlays) {
-                if (isTaa) {
+                // The ground plane is in the scene depth, so overlays (the grid on the ground at the plane's own
+                // height, boxes) test against the opaque model only, rebuilt with the unjittered camera.
+                if (isTaa || groundPlane) {
                     vp->overlayFbo.bind();
                     glDepthMask(GL_TRUE);
                     glClear(GL_DEPTH_BUFFER_BIT);
@@ -1119,6 +1176,7 @@ void Application::drawViewports(FrameContext& frame)
                 frame.markStage(isWireframeMode ? "scene.wireframe" : "scene.wireframeOverlay", wireframeStart);
             }
         } else if (redrawScene) {
+            vp->groundPlaneActive = false;
             currentReverseMapping.clear();
             vp->sceneFbo.unbind();
             vp->overlayFbo.resize(vpW, vpH, 1, false);
@@ -1127,10 +1185,12 @@ void Application::drawViewports(FrameContext& frame)
 
         // 2. Render ground grid
         const auto overlayStart = ux3d::imgui::profiling::Clock::now();
-        if (redrawScene && vp->settings.showGrid) {
+        // A3.6: with a ground plane the grid is an option drawn on the plane (at its height).
+        if (redrawScene && vp->settings.showGrid && (!vp->groundPlaneActive || vp->settings.ground.showGrid)) {
             gridRenderer.draw(view, proj,
                               ux3d::math::vec3(cameraEye.x, cameraEye.y, cameraEye.z), cameraZoom,
-                              ux3d::imgui::RenderQuality::effective().gridMode == ux3d::imgui::GridMode::PlaneMesh);
+                              ux3d::imgui::RenderQuality::effective().gridMode == ux3d::imgui::GridMode::PlaneMesh,
+                              vp->groundPlaneActive ? vp->groundPlaneHeight : 0.0f);
             ux3d::imgui::profiling::countOverlayDraw();
         }
 
@@ -1469,7 +1529,7 @@ bool Application::viewportNeedsDecalBuffer(const ux3d::imgui::ViewportInstance& 
 
 void Application::updateSunShadows(ux3d::imgui::ViewportInstance& vp, FrameContext& frame, const glm::mat4& view,
                                    const glm::mat4& projection, const ux3d::imgui::SceneEnvironmentState& environment,
-                                   bool shadingAllowed, int vpW, int vpH)
+                                   bool shadingAllowed, int vpW, int vpH, std::optional<float> groundHeight)
 {
     ux3d::renderer::CommandGenerator::SunShadowParameters parameters; // disabled
     const EffectiveSun sun = effectiveSun(environment);
@@ -1518,6 +1578,32 @@ void Application::updateSunShadows(ux3d::imgui::ViewportInstance& vp, FrameConte
             const glm::vec3 extentsMax(extents.max);
             sceneMin = bounded ? glm::min(sceneMin, extentsMin) : extentsMin;
             sceneMax = bounded ? glm::max(sceneMax, extentsMax) : extentsMax;
+        }
+        if (groundHeight.has_value() && std::isfinite(sceneMin.x + sceneMin.y + sceneMin.z + sceneMax.x + sceneMax.y + sceneMax.z)
+            && sceneMax.x >= sceneMin.x && sceneMax.y >= sceneMin.y && sceneMax.z >= sceneMin.z) {
+            // A3.6: the ground plane receives the model's shadow. Add the plane to the range the cascades are cut
+            // to, together with the model's footprint on it: every corner of the scene box carried along the sun's
+            // rays to the plane (at most ten box diagonals away when the sun is near the horizon).
+            const float height = groundHeight.value();
+            const glm::vec3 toSun = glm::normalize(sun.direction);
+            const float reach = 10.0f * glm::length(sceneMax - sceneMin);
+            glm::vec3 lo = sceneMin;
+            glm::vec3 hi = sceneMax;
+            lo.y = std::min(lo.y, height);
+            hi.y = std::max(hi.y, height);
+            if (toSun.y > 1.0e-4f) {
+                for (int corner = 0; corner < 8; ++corner) {
+                    const glm::vec3 point((corner & 1) ? sceneMax.x : sceneMin.x, (corner & 2) ? sceneMax.y : sceneMin.y,
+                                          (corner & 4) ? sceneMax.z : sceneMin.z);
+                    const float distance = std::min((point.y - height) / toSun.y, reach);
+                    if (distance <= 0.0f) continue;
+                    const glm::vec3 onGround = point - toSun * distance;
+                    lo = glm::min(lo, onGround);
+                    hi = glm::max(hi, onGround);
+                }
+            }
+            sceneMin = lo;
+            sceneMax = hi;
         }
         if (std::isfinite(sceneMin.x + sceneMin.y + sceneMin.z + sceneMax.x + sceneMax.y + sceneMax.z)
             && sceneMax.x >= sceneMin.x && sceneMax.y >= sceneMin.y && sceneMax.z >= sceneMin.z) {

@@ -3,8 +3,11 @@
 #include "Application.h"
 #include "gltf/Accessor.h"
 #include "gltf/GlTypes.h"
+#include "gltf/extensions/AsoboExtensions.h"
 #include <algorithm>
 #include <cmath>
+#include <limits>
+#include <unordered_map>
 #include <glm/gtc/matrix_transform.hpp>
 
 namespace ux3d::imgui::application {
@@ -137,6 +140,104 @@ const ux3d::gltf::Extends& Application::getCachedSceneExtents(const ux3d::gltf::
     cache.extentsSceneGeneration = gltfLayer != nullptr ? gltfLayer->getSceneGeneration() : 0;
     cache.extentsValid = gltfLayer != nullptr;
     return cache.extents;
+}
+
+namespace {
+
+// A3.6: lowest world Y over the visible nodes' POSITION boxes (accessor min/max, eight corners through the
+// node's static world matrix). Primitives of invisible / environment-occluder materials (MSFS collision and
+// cabin volumes) are not part of the model's base.
+struct ModelBaseScan {
+    const ux3d::gltf::Gltf* gltf = nullptr;
+    std::unordered_map<const ux3d::gltf::Material*, bool> hidden; // material -> never rendered
+    double lowest = std::numeric_limits<double>::max();
+    bool found = false;
+
+    bool materialHidden(const ux3d::gltf::Material* material)
+    {
+        if (material == nullptr) return false;
+        const auto it = hidden.find(material);
+        if (it != hidden.end()) return it->second;
+        const auto extensions =
+            ux3d::gltf::asobo::parseExtensions(*gltf, *material, ux3d::gltf::asobo::Scope::Material);
+        bool result = false;
+        if (const auto* invisible = extensions.find("ASOBO_material_invisible")) {
+            result = invisible->boolean("enabled").value_or(true);
+        }
+        if (const auto* occluder = extensions.find("ASOBO_material_environment_occluder")) {
+            result = result || occluder->boolean("enabled").value_or(true);
+        }
+        hidden.emplace(material, result);
+        return result;
+    }
+
+    void visit(const ux3d::gltf::Node* node, const ux3d::math::dmat4& parent)
+    {
+        if (node == nullptr || !node->getVisible()) return;
+        const ux3d::math::dmat4 world = parent * node->getTransformMatrix();
+        if (const auto* mesh = node->getMesh()) {
+            for (const auto& primitive : mesh->getPrimitives()) {
+                if (materialHidden(primitive.getMaterial())) continue;
+                for (const auto& attribute : primitive.getAttributes()) {
+                    if (attribute.getName() != "POSITION") continue;
+                    const auto* accessor = attribute.getAccessor();
+                    if (accessor == nullptr || accessor->getMin().size() < 3 || accessor->getMax().size() < 3) continue;
+                    ux3d::math::dvec3 lo(accessor->getMin()[0], accessor->getMin()[1], accessor->getMin()[2]);
+                    ux3d::math::dvec3 hi(accessor->getMax()[0], accessor->getMax()[1], accessor->getMax()[2]);
+                    if (accessor->isNormalized()) {
+                        const double minValue = std::abs(ux3d::gltf::GlTypes::minimumValueFromComponentType(accessor->getComponentType()));
+                        const double maxValue = std::abs(ux3d::gltf::GlTypes::maximumValueFromComponentType(accessor->getComponentType()));
+                        lo /= minValue != 0.0 ? minValue : maxValue;
+                        if (maxValue != 0.0) hi /= maxValue;
+                    }
+                    for (int corner = 0; corner < 8; ++corner) {
+                        const ux3d::math::dvec4 point(corner & 1 ? hi.x : lo.x, corner & 2 ? hi.y : lo.y,
+                                                      corner & 4 ? hi.z : lo.z, 1.0);
+                        lowest = std::min(lowest, (world * point).y);
+                        found = true;
+                    }
+                }
+            }
+        }
+        for (const auto* child : node->getChildren()) {
+            visit(child, world);
+        }
+    }
+};
+
+} // namespace
+
+bool Application::getCachedModelBaseHeight(const ux3d::gltf::Scene* scene, const ux3d::gltf::Gltf& gltfModel,
+                                           const ux3d::renderer::GltfRenderLayer* gltfLayer, float& height)
+{
+    auto& cache = s_boundsCache;
+    height = 0.0f;
+    if (scene == nullptr || gltfLayer == nullptr) return false;
+    const uint64_t transformRevision = sceneRevisions.revision(ux3d::imgui::SceneChange::Transform);
+    const uint64_t visibilityRevision = sceneRevisions.revision(ux3d::imgui::SceneChange::Visibility);
+    const uint64_t materialRevision = sceneRevisions.revision(ux3d::imgui::SceneChange::Material);
+    const bool hit = cache.baseValid && cache.baseScene == scene && cache.baseLayer == gltfLayer &&
+                     cache.baseSceneGeneration == gltfLayer->getSceneGeneration() &&
+                     cache.baseTransformRevision == transformRevision &&
+                     cache.baseVisibilityRevision == visibilityRevision && cache.baseMaterialRevision == materialRevision;
+    if (!hit) {
+        ModelBaseScan scan;
+        scan.gltf = &gltfModel;
+        for (const auto* node : scene->getNodes()) {
+            scan.visit(node, ux3d::math::identity<ux3d::math::dmat4>());
+        }
+        cache.baseScene = scene;
+        cache.baseLayer = gltfLayer;
+        cache.baseSceneGeneration = gltfLayer->getSceneGeneration();
+        cache.baseTransformRevision = transformRevision;
+        cache.baseVisibilityRevision = visibilityRevision;
+        cache.baseMaterialRevision = materialRevision;
+        cache.baseValid = true;
+        cache.baseFound = scan.found;
+        cache.baseHeight = scan.found ? static_cast<float>(scan.lowest) : 0.0f;
+    }
+    height = cache.baseHeight;
+    return cache.baseFound;
 }
 
 void Application::focusCameraOnNode(ux3d::gltf::Node* node, ux3d::gltf::Gltf& gltfModel,

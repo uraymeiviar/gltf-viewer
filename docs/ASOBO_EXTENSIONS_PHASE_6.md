@@ -22,7 +22,11 @@ setting, and changing it is seamless.
     - sky color and luminance against the model's reference values;
     - a smooth transition through sunset.
   - **Lower hemisphere:** the model's ground albedo comes from the A3.6 ground choice, so below the horizon the
-    environment shows a lit ground instead of nothing; without a ground plane a neutral albedo is used.
+    environment shows a lit ground instead of nothing; without a ground plane a neutral albedo is used. A3.6 left
+    the value ready: `ViewportInstance::groundAlbedo` (`header/imgui/ViewportInstance.h`, with `groundPlaneActive`; the
+    plane's average albedo, `GroundSettings::averageAlbedo()`), refreshed every render of a viewport; take it from
+    the active viewport while `groundPlaneActive`, and keep the HDR's own lower half otherwise (also in `get_state`
+    `ground.albedo`).
 - [ ] **A6.3 — Dynamic environment lighting (R4). Owner: Claude.** Re-filter the sky into the diffuse and specular
   environment cubemaps as time changes, without hitches. A full filter costs about 100–700 ms depending on the
   quality preset (Phase 7), so filtering is spread over frames and done at a reduced size while time is moving,

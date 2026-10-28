@@ -379,6 +379,27 @@ json Application::agentStateJson()
     st["frame"] = frameCount;
     st["glErrors"] = s_glErrorTotal;
     st["sun"] = sunStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene));
+    if (activeViewport != nullptr) {
+        // A3.6: the active viewport's ground. height/albedo are what the last render used (the albedo is what A6.2
+        // reads); modelBase is the scene's lowest point whatever the height mode.
+        const auto& ground = activeViewport->settings.ground;
+        static const char* const modes[] = {"grid", "plane"};
+        static const char* const heightModes[] = {"model_base", "zero", "custom"};
+        float modelBase = 0.0f;
+        const bool hasBase = activeScene != nullptr && getCachedModelBaseHeight(activeScene, gltfModel, gltfLayer.get(), modelBase);
+        json groundJson = {{"mode", modes[static_cast<size_t>(ground.mode)]},
+                           {"heightMode", heightModes[static_cast<size_t>(ground.heightMode)]},
+                           {"preset", ground.preset == ux3d::imgui::GroundPreset::Custom
+                                          ? json("custom")
+                                          : json(std::string(ux3d::imgui::groundPresets()[static_cast<size_t>(ground.preset)].key))},
+                           {"active", activeViewport->groundPlaneActive},
+                           {"height", agent::floatJson(activeViewport->groundPlaneHeight)},
+                           {"modelBase", hasBase ? json(agent::floatJson(modelBase)) : json(nullptr)},
+                           {"albedo", {agent::floatJson(ground.albedo.r), agent::floatJson(ground.albedo.g), agent::floatJson(ground.albedo.b)}},
+                           {"roughness", agent::floatJson(ground.roughness)},
+                           {"gridOnGround", ground.showGrid}};
+        st["ground"] = groundJson;
+    }
     return st;
 }
 
@@ -689,6 +710,130 @@ void Application::registerAgentSettings()
         SettingSpec spec = boolSetting<VS>("grid", V, &VS::showGrid, "Ground grid.", "--hide-grid");
         spec.aliases = {"show_grid"};
         addSetting(std::move(spec));
+    }
+    // --- Viewport: ground (A3.6: grid or a ground plane; docs/ASOBO_EXTENSIONS_PHASE_3.md) ---
+    {
+        using GS = ux3d::imgui::GroundSettings;
+        SettingSpec spec;
+        spec.key = "ground";
+        spec.scope = V;
+        spec.type = SettingType::Enum;
+        spec.help = "What the viewport draws on the ground: the editor grid (default) or an infinite ground plane "
+                    "that receives IBL and the sun's shadow (ocean follows with A6.8).";
+        spec.cliFlag = "--ground <grid|plane>";
+        spec.enumValues = {"grid", "plane"};
+        spec.get = [values = spec.enumValues](void* t) {
+            return json(values[static_cast<size_t>(static_cast<VS*>(t)->ground.mode)]);
+        };
+        spec.set = [values = spec.enumValues](void* t, const json& v, std::string&) {
+            static_cast<VS*>(t)->ground.mode = static_cast<ux3d::imgui::GroundMode>(
+                std::find(values.begin(), values.end(), v.get<std::string>()) - values.begin());
+            return true;
+        };
+        addSetting(std::move(spec));
+
+        SettingSpec heightMode;
+        heightMode.key = "ground_height_mode";
+        heightMode.scope = V;
+        heightMode.type = SettingType::Enum;
+        heightMode.help = "Plane height: the scene's lowest point (model_base; static pose, animation does not move it), "
+                          "Y = 0 (zero) or ground_height (custom).";
+        heightMode.cliFlag = "--ground-height <model-base|zero|number>";
+        heightMode.enumValues = {"model_base", "zero", "custom"};
+        heightMode.enumAliases = {{"model-base", "model_base"}, {"modelbase", "model_base"}, {"base", "model_base"}};
+        heightMode.get = [values = heightMode.enumValues](void* t) {
+            return json(values[static_cast<size_t>(static_cast<VS*>(t)->ground.heightMode)]);
+        };
+        heightMode.set = [values = heightMode.enumValues](void* t, const json& v, std::string&) {
+            static_cast<VS*>(t)->ground.heightMode = static_cast<ux3d::imgui::GroundHeightMode>(
+                std::find(values.begin(), values.end(), v.get<std::string>()) - values.begin());
+            return true;
+        };
+        addSetting(std::move(heightMode));
+
+        const auto groundFloat = [&](const char* key, float GS::*member, const char* help, const char* cli,
+                                     std::optional<std::pair<double, double>> range, bool editsSurface) {
+            SettingSpec f;
+            f.key = key;
+            f.scope = V;
+            f.type = SettingType::Float;
+            f.help = help;
+            f.cliFlag = cli;
+            if (range) {
+                f.hasRange = true;
+                f.minimum = range->first;
+                f.maximum = range->second;
+            }
+            f.get = [member](void* t) { return agent::floatJson(static_cast<VS*>(t)->ground.*member); };
+            f.set = [member, editsSurface](void* t, const json& v, std::string&) {
+                auto& ground = static_cast<VS*>(t)->ground;
+                ground.*member = static_cast<float>(v.get<double>());
+                if (editsSurface) ground.preset = ux3d::imgui::GroundPreset::Custom;
+                return true;
+            };
+            addSetting(std::move(f));
+        };
+        groundFloat("ground_height", &GS::customHeight, "Plane height in scene units for ground_height_mode custom.",
+                    "--ground-height <number>", std::nullopt, false);
+        groundFloat("ground_roughness", &GS::roughness, "Plane perceptual roughness 0..1 (marks the preset custom).",
+                    "--ground-roughness <0..1>", std::pair{0.0, 1.0}, true);
+        groundFloat("ground_detail", &GS::detail, "Amount of procedural albedo variation 0..1 (marks the preset custom).",
+                    "--ground-detail <0..1>", std::pair{0.0, 1.0}, true);
+        groundFloat("ground_detail_scale", &GS::detailScale,
+                    "Size of the largest procedural feature in scene units (marks the preset custom).",
+                    "--ground-detail-scale <units>", std::pair{0.0001, 1000000.0}, true);
+        groundFloat("ground_joint_spacing", &GS::jointSpacing,
+                    "Slab joint spacing in scene units, 0 = none (marks the preset custom).",
+                    "--ground-joints <units>", std::pair{0.0, 1000000.0}, true);
+        groundFloat("ground_haze", &GS::haze,
+                    "Horizon fog visibility distance in scene units (distance of 2% contrast); 0 = automatic (0.9 x far plane).",
+                    "--ground-haze <units>", std::pair{0.0, 1.0e9}, false);
+
+        SettingSpec preset;
+        preset.key = "ground_preset";
+        preset.scope = V;
+        preset.type = SettingType::Enum;
+        preset.help = "Plane surface preset: sets colour, roughness and detail (concrete, grass, sand, grey); "
+                      "custom keeps the current values.";
+        preset.cliFlag = "--ground-preset <concrete|grass|sand|grey>";
+        preset.enumValues = {"concrete", "grass", "sand", "grey", "custom"};
+        preset.enumAliases = {{"tarmac", "concrete"}, {"gray", "grey"}};
+        preset.get = [values = preset.enumValues](void* t) {
+            return json(values[static_cast<size_t>(static_cast<VS*>(t)->ground.preset)]);
+        };
+        preset.set = [values = preset.enumValues](void* t, const json& v, std::string&) {
+            static_cast<VS*>(t)->ground.applyPreset(static_cast<ux3d::imgui::GroundPreset>(
+                std::find(values.begin(), values.end(), v.get<std::string>()) - values.begin()));
+            return true;
+        };
+        addSetting(std::move(preset));
+
+        SettingSpec color;
+        color.key = "ground_color";
+        color.scope = V;
+        color.type = SettingType::Color3;
+        color.help = "Plane albedo (linear base colour, also the average albedo A6.2 reads); marks the preset custom.";
+        color.cliFlag = "--ground-color <r,g,b>";
+        color.get = [](void* t) {
+            const glm::vec3& c = static_cast<VS*>(t)->ground.albedo;
+            return json{agent::floatJson(c.r), agent::floatJson(c.g), agent::floatJson(c.b)};
+        };
+        color.set = [](void* t, const json& v, std::string&) {
+            auto& ground = static_cast<VS*>(t)->ground;
+            ground.albedo = glm::vec3(v[0].get<float>(), v[1].get<float>(), v[2].get<float>());
+            ground.preset = ux3d::imgui::GroundPreset::Custom;
+            return true;
+        };
+        addSetting(std::move(color));
+
+        SettingSpec onGround = boolSetting<VS>("ground_grid", V, &VS::showGrid, "", "--ground-grid <on|off>");
+        onGround.help = "Draw the grid on top of the ground plane (needs the viewport grid switch on).";
+        onGround.get = [](void* t) { return json(static_cast<VS*>(t)->ground.showGrid); };
+        onGround.set = [](void* t, const json& v, std::string&) {
+            static_cast<VS*>(t)->ground.showGrid = v.get<bool>();
+            return true;
+        };
+        addSetting(std::move(onGround));
     }
     addSetting(boolSetting<VS>("scene_bounding_box", V, &VS::showSceneBoundingBox, "Yellow AABB around the scene."));
     addSetting(boolSetting<VS>("selection_box", V, &VS::showSelectedBoundingBox, "Orange OBB around the selected node."));

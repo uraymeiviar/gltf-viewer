@@ -236,6 +236,83 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
             ImGui::SameLine();
             ImGui::Checkbox("Show 3D View Compass", &state.showOrientationGizmo);
 
+            // A3.6: the ground. Grid is the editor grid overlay; Plane is an infinite surface in the scene.
+            ImGui::Separator();
+            if (ImGui::CollapsingHeader("Ground", ImGuiTreeNodeFlags_DefaultOpen)) {
+                GroundSettings& ground = state.ground;
+                const char* groundNames[] = { "Grid", "Plane" };
+                if (ImGui::BeginCombo("Type", groundNames[static_cast<int>(ground.mode)])) {
+                    for (int i = 0; i < 2; ++i) {
+                        if (ImGui::Selectable(groundNames[i], static_cast<int>(ground.mode) == i)) {
+                            ground.mode = static_cast<GroundMode>(i);
+                            revisions.mark(SceneChange::ViewportSettings);
+                        }
+                    }
+                    // The ocean (A6.8) is the third choice once it exists.
+                    ImGui::BeginDisabled();
+                    ImGui::Selectable("Ocean (A6.8, not available yet)", false);
+                    ImGui::EndDisabled();
+                    ImGui::EndCombo();
+                }
+                if (ground.mode == GroundMode::Plane) {
+                    const char* heightNames[] = { "Model base (lowest point)", "Y = 0", "Custom" };
+                    int heightMode = static_cast<int>(ground.heightMode);
+                    if (ImGui::Combo("Height", &heightMode, heightNames, IM_ARRAYSIZE(heightNames))) {
+                        ground.heightMode = static_cast<GroundHeightMode>(heightMode);
+                        revisions.mark(SceneChange::ViewportSettings);
+                    }
+                    if (ground.heightMode == GroundHeightMode::Custom) {
+                        if (ImGui::DragFloat("Height (scene units)", &ground.customHeight, 0.01f, -1.0e6f, 1.0e6f, "%.3f")) {
+                            revisions.mark(SceneChange::ViewportSettings);
+                        }
+                    }
+                    int preset = static_cast<int>(ground.preset);
+                    const char* presetLabel =
+                        ground.preset == GroundPreset::Custom ? "Custom" : groundPresets()[static_cast<size_t>(preset)].label.data();
+                    if (ImGui::BeginCombo("Material", presetLabel)) {
+                        for (size_t i = 0; i < groundPresets().size(); ++i) {
+                            if (ImGui::Selectable(groundPresets()[i].label.data(), static_cast<size_t>(preset) == i)) {
+                                ground.applyPreset(static_cast<GroundPreset>(i));
+                                revisions.mark(SceneChange::ViewportSettings);
+                            }
+                        }
+                        ImGui::EndCombo();
+                    }
+                    if (ImGui::ColorEdit3("Albedo", &ground.albedo.x, ImGuiColorEditFlags_Float)) {
+                        ground.preset = GroundPreset::Custom;
+                        revisions.mark(SceneChange::ViewportSettings);
+                    }
+                    if (ImGui::SliderFloat("Roughness", &ground.roughness, 0.0f, 1.0f, "%.2f")) {
+                        ground.preset = GroundPreset::Custom;
+                        revisions.mark(SceneChange::ViewportSettings);
+                    }
+                    if (ImGui::SliderFloat("Detail", &ground.detail, 0.0f, 1.0f, "%.2f")) {
+                        ground.preset = GroundPreset::Custom;
+                        revisions.mark(SceneChange::ViewportSettings);
+                    }
+                    if (ImGui::DragFloat("Detail size", &ground.detailScale, 0.01f, 0.0001f, 1.0e6f, "%.3f",
+                                         ImGuiSliderFlags_Logarithmic)) {
+                        ground.preset = GroundPreset::Custom;
+                        revisions.mark(SceneChange::ViewportSettings);
+                    }
+                    if (ImGui::DragFloat("Joint spacing", &ground.jointSpacing, 0.05f, 0.0f, 1.0e6f, ground.jointSpacing > 0.0f ? "%.2f" : "None")) {
+                        ground.preset = GroundPreset::Custom;
+                        revisions.mark(SceneChange::ViewportSettings);
+                    }
+                    if (ImGui::DragFloat("Haze distance", &ground.haze, 1.0f, 0.0f, 1.0e9f, ground.haze > 0.0f ? "%.0f" : "Auto",
+                                         ImGuiSliderFlags_Logarithmic)) {
+                        revisions.mark(SceneChange::ViewportSettings);
+                    }
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::SetTooltip("Distance at which the plane has faded 98% into the horizon colour. 0 = automatic (0.9 x far plane).");
+                    }
+                    if (ImGui::Checkbox("Show grid on ground", &ground.showGrid)) {
+                        revisions.mark(SceneChange::ViewportSettings);
+                    }
+                    ImGui::TextDisabled("Lit by the environment (its own lower hemisphere) and the sun with shadows.");
+                }
+            }
+
             ImGui::Separator();
             ImGui::Text("Selection & Transform Visualizers:");
             ImGui::Checkbox("Selected Oriented Bounding Box (Orange OBB)", &state.showSelectedBoundingBox);

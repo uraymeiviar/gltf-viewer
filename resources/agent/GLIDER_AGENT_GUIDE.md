@@ -85,6 +85,21 @@ Commands run on the render thread between frames, strictly in order. Multi-frame
 - Debug views `shadowcascades` (red/green/blue/yellow per cascade, grey beyond) and `shadowvisibility` (1 lit,
   0 shadowed; `probe` reads the value directly).
 
+## Ground (A3.6)
+
+- `set_viewport_setting ground plane` replaces the editor grid by an infinite horizontal ground plane in the scene
+  (shaded views only; it is lit by the environment and the sun, receives the sun's shadows, fades into the horizon
+  and is not pickable: `pick` / `probe` see through it to the background).
+- Height: `ground_height_mode` `model_base` (default: the lowest point of the model, from the static glTF pose;
+  ground support equipment such as stairs counts), `zero`, or `custom` with `ground_height` (scene units).
+- Surface: `ground_preset` (`concrete` with slab joints, `grass`, `sand`, `grey`; sets the next four keys),
+  `ground_color` (linear albedo), `ground_roughness`, `ground_detail`, `ground_detail_scale`,
+  `ground_joint_spacing`; fog: `ground_haze` (visibility distance, 0 = automatic). `ground_grid true` draws the grid
+  on the plane. Editing a surface key marks the preset `custom`.
+- `get_state` `ground` reports the mode, the resolved `height`, `modelBase`, and the `albedo` (the value the A6.2
+  sky will read). `probe` returns the plane's linear colour like any pixel: with `sun` on and the shadows on, the
+  shadow of the model on the plane is visible in it.
+
 ## Pitfalls
 
 - **Minimised window**: `capture` fails with `window_minimized`; restore the window first.

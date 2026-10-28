@@ -7,7 +7,7 @@ stated. A lit plane is colour x intensity x N.L / pi, a fully shadowed one 0.
 Checks:
   * sun off (the default) is byte-identical to the baseline binary (--baseline-exe): HelloCube, the basic
     fixture and two E195 ASOBO reference views (cockpit and exterior); sun on with --shadows off is
-    byte-identical to the baseline's A3.1 sun-on render (HelloCube, the basic fixture, the E195 exterior);
+    byte-identical to the baseline's sun-on render with --shadows off (HelloCube, the basic fixture, the E195 exterior);
   * edge position: a 2 x 2 m occluder quad 1.5 m above the plane; for sun az 90 / el 45 and az 0 / el 30 the
     shadow edge (the 50% crossing of the linear luminance along a line across it) lies within EDGE_TOLERANCE_PX
     of the projection of the analytic edge (the occluder edge moved by height / tan(elevation) away from the sun);
@@ -177,7 +177,8 @@ def check_baseline(baseline, black, basic):
         a, _ = render(model, f"base_{label}_off", flags, exe=baseline)
         b, _ = render(model, f"cur_{label}_off", flags)
         check(a is not None and same(a, b), f"{label}: sun off is byte-identical to {baseline.stem}")
-        a, _ = render(model, f"base_{label}_sun", flags + sun, exe=baseline)
+        # --shadows off on both sides: a baseline that has A3.2 renders shadows by default.
+        a, _ = render(model, f"base_{label}_sun", flags + sun + ["--shadows", "off"], exe=baseline)
         b, _ = render(model, f"cur_{label}_sun_noshadow", flags + sun + ["--shadows", "off"])
         c, _ = render(model, f"cur_{label}_sun_shadow", flags + sun)
         check(a is not None and same(a, b), f"{label}: sun on, --shadows off is byte-identical to {baseline.stem}'s sun-on render")
@@ -189,7 +190,7 @@ def check_baseline(baseline, black, basic):
         b = render_view(EXE, entry, f"cur_{name}", folder=OUT)
         check(a is not None and same(a, b), f"{name}: sun off is byte-identical to {baseline.stem}")
     entry = view("exterior_fuselage_nose")
-    a = render_view(baseline, entry, "base_exterior_sun", sun, folder=OUT)
+    a = render_view(baseline, entry, "base_exterior_sun", sun + ["--shadows", "off"], folder=OUT)
     b = render_view(EXE, entry, "cur_exterior_sun_noshadow", sun + ["--shadows", "off"], folder=OUT)
     check(a is not None and same(a, b), f"exterior_fuselage_nose: sun on, --shadows off is byte-identical to {baseline.stem}")
 

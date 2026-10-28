@@ -473,6 +473,36 @@ std::optional<int> Application::configure(int argc, char** argv)
             }
         } else if (arg == "--hide-grid") {
             if (!applyCliSetting(SettingScope::Viewport, "grid", "off", "--hide-grid")) return 1;
+        } else if (arg == "--ground" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "ground", toLowerAscii(argv[++i]), "--ground")) return 1;
+        } else if (arg == "--ground-height" && i + 1 < argc) {
+            // model-base, zero, or a number (scene units) which selects the custom height.
+            const std::string value = toLowerAscii(argv[++i]);
+            char* end = nullptr;
+            const double number = std::strtod(value.c_str(), &end);
+            if (!value.empty() && end == value.c_str() + value.size()) {
+                if (!applyCliSetting(SettingScope::Viewport, "ground_height", value, "--ground-height")) return 1;
+                if (!applyCliSetting(SettingScope::Viewport, "ground_height_mode", "custom", "--ground-height")) return 1;
+                (void)number;
+            } else if (!applyCliSetting(SettingScope::Viewport, "ground_height_mode", value, "--ground-height")) {
+                return 1;
+            }
+        } else if (arg == "--ground-preset" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "ground_preset", toLowerAscii(argv[++i]), "--ground-preset")) return 1;
+        } else if (arg == "--ground-color" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "ground_color", argv[++i], "--ground-color")) return 1;
+        } else if (arg == "--ground-roughness" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "ground_roughness", argv[++i], "--ground-roughness")) return 1;
+        } else if (arg == "--ground-detail" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "ground_detail", argv[++i], "--ground-detail")) return 1;
+        } else if (arg == "--ground-detail-scale" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "ground_detail_scale", argv[++i], "--ground-detail-scale")) return 1;
+        } else if (arg == "--ground-joints" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "ground_joint_spacing", argv[++i], "--ground-joints")) return 1;
+        } else if (arg == "--ground-haze" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "ground_haze", argv[++i], "--ground-haze")) return 1;
+        } else if (arg == "--ground-grid" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "ground_grid", toLowerAscii(argv[++i]), "--ground-grid")) return 1;
         } else if (arg == "--ssr" && i + 1 < argc) {
             const std::string value = toLowerAscii(argv[++i]);
             if (value != "on" && value != "off") return 1;

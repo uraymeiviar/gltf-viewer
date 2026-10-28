@@ -795,7 +795,8 @@ std::optional<CmdDesc> CommandMapping::makeCommand(MeshMaterialTuple meshMat)
     // A3.2: the sun shadow map, for the programs that include shadow.glsl (pbr.frag). Last, so every other
     // sampler keeps its texture unit (rendering without the sun is unchanged). The executor logs
     // "Using too many textures" if a program ever exceeds the unit limit with it.
-    if (material->fragmentShader == "pbr.frag") {
+    // A3.6: the ground plane (ground.frag) receives the same shadows.
+    if (material->fragmentShader == "pbr.frag" || material->fragmentShader == "ground.frag") {
         command->samplers.push_back(m_scene.m_sunShadowSampler.get());
     }
 

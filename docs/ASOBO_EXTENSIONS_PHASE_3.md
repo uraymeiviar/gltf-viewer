@@ -2,7 +2,7 @@
 
 [Journal index](ASOBO_EXTENSIONS_JOURNAL.md) · [Extension reference](ASOBO_EXTENSIONS_REFERENCE.md) · [Validation rules](RENDERER_OPTIMIZATION_VALIDATION.md)
 
-**Status:** In progress: A3.1, A3.2 and A3.4 done (A3.4 ahead of A3.1).
+**Status:** In progress: A3.1, A3.2, A3.4 and A3.6 done (A3.4 ahead of A3.1).
 
 **Entry:** A2.2, the deferred lighting pass. **Goal:** shadows from a sun (user priority 4), and the remaining
 lighting features of user priority 5. The sun's direction is set by hand here and driven by time of day in A6.
@@ -182,16 +182,83 @@ lighting features of user priority 5. The sun's direction is set by hand here an
     - a box interior and an open plane: occlusion inside the box, none on the open plane;
     - off gives the current image byte for byte;
     - no halo along silhouettes against the sky.
-- [ ] **A3.6 — Ground plane (R3). Owner: Claude.** A ground choice per viewport: *Grid* (current), *Plane*
+- [x] **A3.6 — Ground plane (R3). Owner: Claude.** A ground choice per viewport: *Grid* (current), *Plane*
   (an infinite ground at the model's lowest point or at y = 0, with a colour or a tiling material such as tarmac
   or grass), and *Ocean* (A6.8). The plane receives the A3.2 sun shadow, which gives the aircraft's shadow on the
   ground, and the grid can be drawn over it. It reuses the ray-traced grid path (`--grid-mode ray`) so it reaches
   the horizon without a mesh.
-  - **Ground albedo:** the plane's average colour feeds the A6.2 sky's ground albedo, so the lower hemisphere of
-    the environment lighting (reflections on fuselage bellies and wing undersides) matches what is drawn. With
-    the fixed HDR the HDR's own lower half is kept.
-  - **Tests:** the shadow of a known occluder lands at the expected position on the plane; *Grid* keeps the
-    current image byte for byte.
+  - **Done 2026-10-28.** Grid stays the default and is byte-identical to the baseline; the plane is drawn per
+    viewport, in shaded views only (debug views and wireframe keep the sky and the grid).
+    - **Choice:** Viewport Settings → Camera & Helpers → *Ground* (`header/imgui/GroundSettings.h`): *Type* Grid /
+      Plane / a disabled *Ocean (A6.8, not available yet)* entry (no registry value until A6.8), *Height* Model
+      base / Y = 0 / Custom, *Material* presets (Concrete / tarmac with 5 m slab joints, Grass, Sand, Neutral grey)
+      or a custom *Albedo*, *Roughness*, *Detail*, *Detail size*, *Joint spacing*, *Haze distance*, *Show grid on
+      ground*. CLI `--ground grid|plane` and `--ground-height|-preset|-color|-roughness|-detail|-detail-scale|-joints|
+      -haze|-grid` (AGENTS.md section 4.2); registry keys `ground`, `ground_height_mode`, `ground_height`,
+      `ground_preset`, `ground_color`, `ground_roughness`, `ground_detail`, `ground_detail_scale`,
+      `ground_joint_spacing`, `ground_haze`, `ground_grid`; `get_state` `ground`.
+    - **Rendering** (`resources/shaders/ground.vert` / `ground.frag` / `ground_common.glsl`;
+      `GltfResourceManager::getGroundTuple`): a screen quad in the Opaque pass, appended to the scene by
+      `Viewports.cpp` after the model, so it is drawn into the linear HDR scene target before TAA like geometry. The
+      vertex shader unprojects each corner to the near and far plane with the camera block's (TAA-jittered)
+      view-projection matrix; the fragment shader intersects the pixel's ray with `y = h` (the `GridRenderer` ray
+      path), writes `gl_FragDepth` from the same matrix (1 beyond the far plane), and shades a dielectric (F0 0.04):
+      IBL diffuse (`getIBLRadianceLambertian`, with the multiple-scattering term) and IBL specular
+      (`getIBLRadianceGGX`) from the environment (the plane has no environment of its own: its lower hemisphere is
+      the HDR's own, as for every surface), plus the A3.1 sun (Lambert + GGX with the widened lobe) times
+      `sunShadowVisibility` of A3.2 (`shadow.glsl`; the generator binds `u_SunShadowMap` to `ground.frag` too).
+      Fog: `1 - exp(-k d)`, 98% at the *Haze distance* (default 0.9 x the camera's far plane), towards the
+      environment just above the horizon in the pixel's azimuth (one mip softer than the background is drawn), or the
+      clear colour while the background is off; the fog is 100% at the horizon, so the plane meets the sky without a
+      line. Two-sided (seen from below it is lit as if facing the camera). Opaque, so glass, SSR and transmission
+      copies see it; KHR punctual lights do not light it.
+    - **Detail:** value noise in world XZ (four octaves from 8 x *Detail size*, mean-preserving, so the average
+      albedo stays the colour) and the slab joints; every octave and the joints fade to their mean as the pixel
+      footprint (`dFdx`/`dFdy` of the world position) approaches half their wavelength. Nothing depends on the
+      camera or time, so TAA only integrates sub-pixel samples. No texture files are added: the three shader
+      files grow the packed archive by about 2.3 KB (9,932,609 to 9,934,905 bytes; the executable by 41 KB).
+    - **Height:** *Model base* is the lowest world Y of the POSITION boxes (accessor min/max, eight corners through
+      the node's static glTF world matrix) of the visible nodes, skipping `ASOBO_material_invisible` and
+      environment-occluder primitives (`Application::getCachedModelBaseHeight`, `Bounds.cpp`). It is cached with the
+      model and recomputed on load and on Transform / Visibility / Material edits; animation never moves it (it reads
+      the glTF nodes, not the animated pose). The existing extents cache (bounding spheres of the boxes) is too loose
+      for this, so the box corners are used (exact for axis-aligned parts, conservative for turned ones).
+    - **Shadows:** while the plane is shown, `updateSunShadows` adds the plane and the model's footprint on it (the
+      corners of the scene box carried along the sun rays, at most ten diagonals away) to the range the cascades are
+      cut to; otherwise a low sun's shadow lies outside the model's own depth range.
+    - **Not pickable:** the drawable is taken out of the scene before the picking passes and is not in the overlay
+      depth: clicks, `pick` and `probe` see the background (or whatever is below the plane). *Show grid on ground*
+      draws the grid at the plane's height; the overlay depth is then rebuilt from the opaque model only (as under TAA).
+    - **Ground albedo for A6.2:** `GroundSettings::averageAlbedo()` (the colour: the detail has mean 1, the joints
+      cover under 1%), kept per viewport in `ViewportInstance::groundAlbedo` / `groundPlaneActive` /
+      `groundPlaneHeight` (`header/imgui/ViewportInstance.h`, with the comment where A6.2 picks it up) and in
+      `get_state` `ground.albedo`. The environment lighting is unchanged here: the HDR keeps its own lower half.
+  - **Check:** `scripts/validate_ground.py` (quick regression, serial list): Grid byte-identical to the
+    baseline (HelloCube, E195 `exterior_fuselage_nose` and `cockpit_main_displays`, the exterior with the sun and
+    shadows on), `--ground grid` = default, debug and wireframe modes with the plane selected = Grid; shadow edge
+    on the plane 0.53 px / 1.3 cm (az 90 el 45) and 0.20 px / 0.7 cm (az 0 el 30) from the analytic position for
+    Y = 0, and 0.55 px / 1.3 cm for Model base at the fixture's lowest point 0.2 m (a turned box exact, a buried
+    invisible box ignored); the shadow of a 10 m pole 12 m and 24 m away (fails when the footprint is not added to
+    the cascade range); probe of the lit plane 0.1996 / 0.1995 against the pbr.frag BRDF terms 0.1997 / 0.1995
+    (tolerance 2% + 0.002), shadow 0, the occluder occludes the plane, the plane occludes a box buried below it, a
+    click on the plane picks nothing; uniform environment L = 0.5: white furnace 0.4908 (-1.8%, tolerance 3%),
+    albedo 0.25 in the expected band, IBL + sun = IBL + sun separately (0.4472 vs 0.4476); presets, `ground_color`,
+    custom and model-base height, registry keys, invalid values rejected; E195 exterior without its stairs and
+    barrier: the lowest nose-tyre pixel 1.2 cm above the plane; grid on ground at Y = 1; TAA frames 64 / 96 differ
+    by at most 3 levels on the ground and 1 at the horizon, far-field high-frequency std 0.34 level, a 0.03 degree
+    turn changes the far field by 0.007 level; zero GL errors. `validate_shadows.py`, `validate_sun.py` and
+    `validate_agent_control.py`, `validate_p8_1.py --only equivalence`, `validate_p8_3.py` and `validate_p7.py` (ray and plane-mesh grid) pass (validate_shadows' "sun on, --shadows off = baseline" cases compare against the
+    A3.1 commit 7a21913; against the A3.2 baseline cf24b01 they cannot hold, shadows being on there).
+  - **Review:** `build/review/ground/contact_sheet.png` (`scripts/review_ground.py`): E195 (without its stairs and
+    barrier) and DA62 SDK airframe on concrete and on grass with the sun at az 45 el 40 and az 250 el 22, a low camera
+    1.5 degrees above the horizon, and the grid on the plane.
+  - **Deviations:** *Ocean* is only a disabled UI entry (no registry value); the plane is drawn in shaded views only
+    (wireframe and debug views show the sky and the grid); *Model base* of the E195 exterior file is the stairs and
+    the barrier pole, 1 m below the nose gear (use Custom or remove them), and the DA62 airframe has no wheels (they
+    are separate parts), so its base is the gear doors; the model base follows the rest pose, so an animation that
+    extends the main gear lowers it below the plane; punctual lights do not light the plane; the plane does not
+    receive A3.5 ambient occlusion (A3.5 is not done); the tyre-contact check uses the E195 copy without ground
+    support equipment.
 - [ ] **A3.7 — `ASOBO_sky_portal` (R3). Owner: Claude.** Window area lights that bring sky and sun light into
   the cabin. Entry: A3.1 (and A3.2 for the sun term).
   - **What the files carry (V, Blender exporter `io/com/extensions/light/asobo_skyportal_light.py`,

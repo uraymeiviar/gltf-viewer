@@ -28,6 +28,7 @@ gltf-viewer/
 │   │   ├── Framebuffer.h         # Offscreen FBO & MSAA wrapper
 │   │   ├── GladGL.h              # GL function wrapper
 │   │   ├── GridRenderer.h        # Infinite fading ground grid
+│   │   ├── GroundSettings.h      # A3.6 ground choice (grid / plane), height modes, material presets
 │   │   ├── IconsMaterialDesignIcons.h  # MDI icon glyph macros
 │   │   ├── MaterialInspector.h
 │   │   ├── ObjectActions.h        # Object menu actions and isolation helpers
@@ -228,6 +229,14 @@ Replaces the legacy external `gltf_validator.exe` subprocess with a native, 100%
 - **Active** opens a submenu with the same checklist as the status-bar animation popup — `AnimationPlayer::renderActiveAnimationsContent` is shared by both, including Select all non-conflicting and the Skinning/Morphing settings.
 - All items are disabled when the model has no animations; the shortcuts are ignored while typing or while a menu/popup is open.
 
+### 3.10 Ground Plane (A3.6)
+
+**Viewport Settings → Camera & Helpers → Ground** chooses what a viewport draws on the ground: **Grid** (the default, the editor grid overlay, byte-identical to before), **Plane**, and a disabled *Ocean (A6.8)* entry for the later ocean. Per viewport, in `ViewportSettingsState::ground` (`header/imgui/GroundSettings.h`).
+- **Plane:** `GltfResourceManager::getGroundTuple()` is an Opaque-pass drawable (a screen quad, `ground.vert` / `ground.frag`) that `Viewports.cpp` appends to the scene while the viewport shows the plane in a shaded view (debug views and wireframe keep the sky). The fragment shader intersects each pixel's ray with the plane `y = h` (the `GridRenderer` ray path), writes `gl_FragDepth` (1 beyond the far plane), shades a dielectric (F0 0.04) with albedo, roughness, optional procedural detail (four noise octaves and slab joints that fade to their mean with the pixel footprint) from the IBL (`getIBLRadianceLambertian` / `GGX`, the HDR's own lower hemisphere) and the A3.1 sun with `sunShadowVisibility` (A3.2), and fogs towards the environment's horizon (`1 - exp(-k d)`, 98% at the haze distance, automatic 0.9 x far plane). Height modes: **Model base** (`Application::getCachedModelBaseHeight`: lowest world Y of the POSITION boxes of the visible nodes' static pose, cached per scene generation and Transform/Visibility/Material revisions), **Y = 0**, **Custom**.
+- Not pickable: the drawable is removed from the scene before the picking passes and never enters the overlay depth, so clicks fall through to the background. **Show grid on ground** draws the grid on the plane at the plane's height (the overlay depth is then rebuilt from the opaque model only).
+- The shadow cascades also cover the plane and the model's footprint on it (`updateSunShadows` `groundHeight`).
+- `ViewportInstance::groundAlbedo` / `groundPlaneActive` / `groundPlaneHeight` hold the last render's ground; A6.2 reads the albedo as its ground albedo.
+
 
 ---
 
@@ -299,6 +308,7 @@ build/bin/Release/Glider.exe
 - `--windshield-icing <0..1>`: icing state (0.0 = clean [default], 1.0 = fully iced): windshield icing coverage and the coverage of `frosted` geometry decals. Viewport Settings → MSFS Extensions → Icing.
 - `--clear-color <r,g,b>`: scene clear colour for this run; disables the background skybox (capture/test hook).
 - `--hide-grid`: hide the active viewport's ground grid for review captures.
+- `--ground <grid|plane>`: what the active viewport draws on the ground (A3.6): the editor grid (default, unchanged) or an infinite ground plane in the linear HDR scene target (ray intersection like `--grid-mode ray`, writes depth, lit by the IBL and by the sun with the A3.2 shadows, fogged into the environment's horizon; shaded views only). `--ground-height <model-base|zero|number>` (default model-base: the scene's lowest point from the glTF node transforms, visible nodes only, ASOBO invisible/occluder materials ignored, never moved by animation; a number is a custom height in scene units), `--ground-preset <concrete|grass|sand|grey>` (sets colour, roughness, detail and slab joints), `--ground-color <r,g,b>` (linear albedo, also the average albedo A6.2 reads), `--ground-roughness <0..1>`, `--ground-detail <0..1>`, `--ground-detail-scale <units>`, `--ground-joints <units>` (slab joint spacing, 0 = none), `--ground-haze <units>` (fog visibility distance, 0 = automatic 0.9 x far plane), `--ground-grid <on|off>` (draw the grid on the plane, at its height). Later flags override earlier ones (a preset after a colour replaces the colour). Registry keys: `ground`, `ground_height_mode`, `ground_height`, `ground_preset`, `ground_color`, `ground_roughness`, `ground_detail`, `ground_detail_scale`, `ground_joint_spacing`, `ground_haze`, `ground_grid`; `get_state` carries a `ground` object.
 - `--show-invisible-materials`: Also draw materials marked invisible by `ASOBO_material_invisible` and environment occluders (`ASOBO_material_environment_occluder`); both are hidden by default.
 - `--asobo off|on`, `--asobo-disable <extension>` (repeatable): MSFS (ASOBO) extensions the active viewport applies (Viewport Settings → MSFS Extensions; all on by default; off renders the file as if it had none). Every `Rendered`/`Partial` row of the support table with a viewport switch can be disabled, e.g. `--asobo-disable ASOBO_material_geometry_decal` or `--asobo-disable ASOBO_material_detail_map`.
 - `--msfs-emissive-scale <x>`: Scene environment MSFS emissive scale factor (default 0.001 / `1/1000`). For assets declaring ASOBO extensions (`ASOBO_*`) in viewports with ASOBO enabled, scales authored `emissiveFactor` ($E = \text{emissiveFactor} \times \text{emissiveTexture} \times \text{msfsEmissiveScale}$) so MSFS default exporter scale 1000 maps to 1.0, and high-intensity cockpit screens (e.g. 3000) bloom. Fall back to [0, 1] clamped factor when ASOBO is disabled. Also editable in Scene Inspector → Environment.

@@ -83,6 +83,14 @@ struct ViewportInstance {
     ux3d::renderer::ShadowCascadeSetup sunShadowSetup;
     bool sunShadowActive = false;
 
+    // A3.6: the ground plane of this viewport's last render (the plane is drawn only in shaded mode). The height
+    // is the resolved plane height in scene units. groundAlbedo is the plane's average albedo, the value the A6.2
+    // sky reads as its ground albedo (lower hemisphere of the environment lighting): A6.2 takes it from the
+    // active viewport when groundPlaneActive, otherwise it keeps the HDR's own lower half.
+    bool groundPlaneActive = false;
+    float groundPlaneHeight = 0.0f;
+    glm::vec3 groundAlbedo = glm::vec3(0.0f);
+
     // Material variants live as long as this viewport. The model generation covers
     // full reloads and material-only Inspector/ASOBO syncs; viewport settings cover
     // per-view defines and render policy. Shared source materials have one variant.

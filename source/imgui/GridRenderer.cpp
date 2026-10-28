@@ -100,6 +100,7 @@ static const char* s_infiniteGridFS = R"(
 in vec3 vNearPoint;
 in vec3 vFarPoint;
 uniform mat4 uViewProj;
+uniform float uHeight; // A3.6: world Y of the grid plane (0 for the ordinary grid)
 
 void main() {
     float rayDirY = vFarPoint.y - vNearPoint.y;
@@ -107,7 +108,7 @@ void main() {
         discard;
     }
 
-    float t = -vNearPoint.y / rayDirY;
+    float t = (uHeight - vNearPoint.y) / rayDirY;
     if (t <= 0.0) {
         discard;
     }
@@ -130,6 +131,7 @@ static const char* s_planeGridVS = R"(#version 410 core
 uniform mat4 uViewProj;
 uniform vec3 uCameraPos;
 uniform float uMaxDistance;
+uniform float uHeight; // A3.6: world Y of the grid plane (0 for the ordinary grid)
 out vec3 vWorldPos;
 
 const vec2 s_pos[4] = vec2[4](
@@ -141,7 +143,7 @@ const vec2 s_pos[4] = vec2[4](
 
 void main() {
     vec2 xz = uCameraPos.xz + s_pos[gl_VertexID] * uMaxDistance;
-    vWorldPos = vec3(xz.x, 0.0, xz.y);
+    vWorldPos = vec3(xz.x, uHeight, xz.y);
     gl_Position = uViewProj * vec4(vWorldPos, 1.0);
 }
 )";
@@ -231,6 +233,7 @@ static bool linkProgram(GridRenderer::Program& program, const char* vsSource, co
     program.invViewProjLoc = glGetUniformLocation(program.id, "uInvViewProj");
     program.viewProjLoc    = glGetUniformLocation(program.id, "uViewProj");
     program.cameraPosLoc   = glGetUniformLocation(program.id, "uCameraPos");
+    program.heightLoc      = glGetUniformLocation(program.id, "uHeight");
     program.maxDistLoc     = glGetUniformLocation(program.id, "uMaxDistance");
     program.blendDistLoc   = glGetUniformLocation(program.id, "uBlendDistance");
     program.gridColorLoc   = glGetUniformLocation(program.id, "uGridColor");
@@ -258,7 +261,7 @@ void GridRenderer::init(float /*size*/, float /*step*/)
     ux3d::imgui::profiling::countVaoCreation();
 }
 
-void GridRenderer::draw(const glm::mat4& view, const glm::mat4& proj, const glm::vec3& cameraPos, float cameraDistance, bool planeMesh)
+void GridRenderer::draw(const glm::mat4& view, const glm::mat4& proj, const glm::vec3& cameraPos, float cameraDistance, bool planeMesh, float height)
 {
     const Program& program = planeMesh ? m_planeProgram : m_rayProgram;
     if (!m_vao || !program.id) {
@@ -272,6 +275,7 @@ void GridRenderer::draw(const glm::mat4& view, const glm::mat4& proj, const glm:
     glUniformMatrix4fv(program.invViewProjLoc, 1, GL_FALSE, glm::value_ptr(invViewProj));
     glUniformMatrix4fv(program.viewProjLoc,    1, GL_FALSE, glm::value_ptr(viewProj));
     glUniform3fv(program.cameraPosLoc,         1, glm::value_ptr(cameraPos));
+    glUniform1f(program.heightLoc,             height);
 
     float maxDist = std::max(45.0f, cameraDistance * 4.5f);
     float blendDist = maxDist * 0.5f;

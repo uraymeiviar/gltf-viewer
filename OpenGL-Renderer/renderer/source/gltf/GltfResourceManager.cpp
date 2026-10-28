@@ -51,6 +51,7 @@ GltfResourceManager::GltfResourceManager(gl::GL* gl)
     m_fullscreenCopyPass = create<FullscreenCopyPass>();
 
     initCubeMap();
+    initGround();
     initEmptyTransmissionTuple();
 }
 
@@ -118,6 +119,55 @@ void GltfResourceManager::initCubeMap()
     m_cubeMapMaterial->renderPass = m_opaquePass;
     m_cubeMapMaterial->defines.define("LINEAR_OUTPUT", 1);
     m_cubeMapMaterial->isDoubleSided = true;
+}
+
+void GltfResourceManager::initGround()
+{
+    // A3.6: four corners of the screen; ground.vert unprojects them to the near and far plane and
+    // ground.frag intersects each pixel's ray with the plane (the ray-grid path of GridRenderer).
+    std::vector<float> vertices = {
+        -1, -1, 0,
+        1, -1, 0,
+        1, 1, 0,
+        -1, 1, 0
+    };
+    std::vector<uint16_t> indices = { 0, 1, 2, 0, 2, 3 };
+
+    core::MemoryRange<const uint8_t> verticesData(reinterpret_cast<uint8_t*>(vertices.data()), vertices.size() * sizeof(float));
+    auto vertexBuffer = createWithGLContext<gl::Buffer>(verticesData);
+    core::MemoryRange<const uint8_t> indicesData(reinterpret_cast<uint8_t*>(indices.data()), indices.size() * sizeof(uint16_t));
+    auto indexBuffer = createWithGLContext<gl::Buffer>(indicesData);
+
+    gl::Attribute attribute("a_position");
+    attribute.dimension = 3;
+    attribute.type = gl::ComponentType::Float;
+    attribute.buffer = vertexBuffer;
+
+    m_groundMesh = createWithGLContext<Mesh>();
+    m_groundMesh->vertexShader = "ground.vert";
+    m_groundMesh->primitiveTopology = gl::PrimitiveTopology::TriangleList;
+    m_groundMesh->indexFormat = gl::PrimitiveType::UnsignedShort;
+    m_groundMesh->indexCount = indices.size();
+    m_groundMesh->indexBuffer = indexBuffer;
+    m_groundMesh->vertexCount = vertices.size();
+    m_groundMesh->attributes.emplace_back(attribute);
+    // Opaque draws are sorted by the distance of the mesh position to the camera; the shader ignores the model
+    // matrix, so a far position only makes the ground the last opaque draw (the sky is overdrawn once and the
+    // ground shader does not run before the model has written its depth).
+    m_groundMesh->updateTransform(math::translate(math::mat4x4(1.0f), math::vec3(0.0f, 1.0e9f, 0.0f)));
+
+    m_groundMaterial = createWithGLContext<Material>();
+    m_groundMaterial->fragmentShader = "ground.frag";
+    m_groundMaterial->renderPass = m_opaquePass;
+    m_groundMaterial->defines.define("LINEAR_OUTPUT", 1);
+    m_groundMaterial->isDoubleSided = true;
+    // Every uniform exists from the start, so later writes never move the storage the commands point at.
+    m_groundMaterial->setUniform("u_GroundHeight", 0.0f);
+    m_groundMaterial->setUniform("u_GroundAlbedo", math::vec3(0.5f));
+    m_groundMaterial->setUniform("u_GroundRoughness", 0.9f);
+    m_groundMaterial->setUniform("u_GroundDetail", math::vec3(0.0f, 1.0f, 0.0f));
+    m_groundMaterial->setUniform("u_GroundHaze", math::vec2(0.0f, 0.0f));
+    m_groundMaterial->setUniform("u_GroundHazeColor", math::vec3(0.0f));
 }
 
 std::tuple<Mesh*, Material*> GltfResourceManager::getCubeMapTuple() const

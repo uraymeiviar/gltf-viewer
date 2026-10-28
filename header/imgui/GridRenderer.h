@@ -16,8 +16,10 @@ public:
     GridRenderer& operator=(const GridRenderer&) = delete;
 
     void init(float size = 10.0f, float step = 1.0f);
-    // planeMesh selects the rasterized plane (P7.4) instead of the full-screen ray cast.
-    void draw(const glm::mat4& view, const glm::mat4& proj, const glm::vec3& cameraPos, float cameraDistance, bool planeMesh = false);
+    // planeMesh selects the rasterized plane (P7.4) instead of the full-screen ray cast. height is the world Y
+    // of the grid (A3.6 draws it on the ground plane); 0 is the ordinary grid.
+    void draw(const glm::mat4& view, const glm::mat4& proj, const glm::vec3& cameraPos, float cameraDistance, bool planeMesh = false,
+              float height = 0.0f);
     void draw(const glm::mat4& viewProjection); // Fallback overload
     void cleanup();
 
@@ -26,6 +28,7 @@ public:
         GLint invViewProjLoc = -1;
         GLint viewProjLoc = -1;
         GLint cameraPosLoc = -1;
+        GLint heightLoc = -1;
         GLint maxDistLoc = -1;
         GLint blendDistLoc = -1;
         GLint gridColorLoc = -1;

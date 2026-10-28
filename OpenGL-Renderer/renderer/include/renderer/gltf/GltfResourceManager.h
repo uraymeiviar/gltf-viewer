@@ -26,6 +26,11 @@ public:
     virtual ~GltfResourceManager() = default;
 
     std::tuple<Mesh*, Material*> getCubeMapTuple() const;
+    // A3.6: the ground plane drawable (a full-screen quad whose fragment shader intersects every pixel's
+    // view ray with the horizontal plane; ground.vert / ground.frag). It is an Opaque-pass drawable, so the
+    // application appends it to a scene only while a viewport's ground is the plane, and writes the
+    // plane's parameters into the material's uniforms before each draw.
+    std::tuple<Mesh*, Material*> getGroundTuple() const { return { m_groundMesh, m_groundMaterial }; }
     const std::tuple<Mesh*, Material*>& getEmptyTransmissionBlit() const { return m_emptyTransmissionTuple; }
 
     /// Loads and decodes image.
@@ -70,6 +75,10 @@ protected:
     void initCubeMap();
     Mesh* m_cubeMapMesh;
     Material* m_cubeMapMaterial;
+
+    void initGround();
+    Mesh* m_groundMesh = nullptr;
+    Material* m_groundMaterial = nullptr;
 
     gl::Texture* m_framebufferTexture = nullptr;
     gl::SamplerState* m_framebufferSamplerState = nullptr;
