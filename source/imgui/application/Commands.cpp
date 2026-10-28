@@ -401,6 +401,24 @@ json Application::agentStateJson()
                            {"gridOnGround", ground.showGrid}};
         st["ground"] = groundJson;
     }
+    // A3.7: the file's sky portals (world centre, direction into the cabin, disc radius) and how many lit the
+    // active viewport's last render.
+    if (gltfLayer != nullptr && gltfLayer->hasSkyPortals()) {
+        json portals = json::array();
+        for (const auto& [node, source] : gltfLayer->getSkyPortalSources()) {
+            const glm::mat4 world(gltfLayer->getWorldTransform(node));
+            const glm::vec3 position(world[3]);
+            const glm::vec3 direction = glm::normalize(glm::vec3(world[2]));
+            portals.push_back({{"name", node->hasName() ? json(std::string(node->getName().c_str())) : json(nullptr)},
+                               {"position", {agent::floatJson(position.x), agent::floatJson(position.y), agent::floatJson(position.z)}},
+                               {"direction", {agent::floatJson(direction.x), agent::floatJson(direction.y), agent::floatJson(direction.z)}},
+                               {"radius", agent::floatJson(source.radiusMetres)},
+                               {"innerRadius", agent::floatJson(source.innerRadiusMetres)}});
+        }
+        std::sort(portals.begin(), portals.end(), [](const json& a, const json& b) { return a["name"].dump() < b["name"].dump(); });
+        st["skyPortals"] = {{"portals", portals},
+                            {"active", activeViewport != nullptr ? activeViewport->skyPortalCount : 0}};
+    }
     return st;
 }
 
@@ -916,6 +934,13 @@ void Application::registerAgentSettings()
     addSetting(floatSetting<VS>("windshield_icing", V, &VS::windshieldIcing,
                                               "Windshield icing and frosted decal coverage.", "--windshield-icing <0..1>",
                                               std::pair{0.0, 1.0}));
+    // A3.7: ASOBO_sky_portal (its on/off switch is the generic ASOBO_sky_portal key below).
+    addSetting(floatSetting<VS>("sky_portal_strength", V, &VS::skyPortalStrength,
+                                              "Scale of the sky-portal window light (added only where the IBL is occluded).",
+                                              "--sky-portal-strength <0..4>", std::pair{0.0, 4.0}));
+    addSetting(boolSetting<VS>("show_sky_portals", V, &VS::showSkyPortals,
+                               "Draw every sky portal's gizmo (UI overlay, not in captures); a selected portal always shows.",
+                               "--show-sky-portals"));
     addSetting(floatSetting<VS>("decal_tolerance_mm", V, &VS::decalDepthToleranceMm,
                                               "Decal depth tolerance along the receiver normal (mm).",
                                               "--decal-tolerance <mm>", std::pair{0.0, 10.0}));

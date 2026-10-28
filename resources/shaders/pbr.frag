@@ -32,6 +32,7 @@ precision highp float;
 #include <asobo_sss.glsl>
 #include <shadow.glsl>
 #include <ssao.glsl>
+#include <asobo_sky_portal.glsl>
 #include <material_info.glsl>
 
 #ifdef MATERIAL_IRIDESCENCE
@@ -577,6 +578,10 @@ void main()
         materialInfo.ior, materialInfo.thickness, materialInfo.attenuationColor, materialInfo.attenuationDistance);
 #endif
 
+#if defined(ASOBO_SKY_PORTAL) && defined(USE_IBL) && ALPHAMODE != ALPHAMODE_BLEND
+    // A3.7: the unoccluded IBL diffuse, the upper bound of what the portals may add back.
+    vec3 skyPortalUnoccludedDiffuse = f_diffuse;
+#endif
     float ao = 1.0;
     // A3.5: the authored occlusion as applied to the IBL terms below (material map with its strength, times the
     // decal AO); only the SSAO combination reads it.
@@ -650,6 +655,26 @@ void main()
                 materialInfo.clearcoatRoughness * materialInfo.clearcoatRoughness) / authored);
 #endif
         }
+    }
+#endif
+
+#if defined(ASOBO_SKY_PORTAL) && defined(USE_IBL) && ALPHAMODE != ALPHAMODE_BLEND
+    // A3.7: sky portals add back directional window light, but only what the occlusion took from the IBL: the
+    // authored occlusion (with the decal AO) and, while SSAO runs, min() with its multi-bounce term, as applied to
+    // the diffuse IBL above. A surface open to the sky (occlusion 1, the exterior) gets nothing, and the portal
+    // light never exceeds the unoccluded IBL diffuse it replaces: add = (1 - occlusion) x min(strength x portal,
+    // unoccluded IBL diffuse). The sun is not added: the A3.1 / A3.2 sun already enters through the glass, which
+    // casts no shadow.
+    if (u_SkyPortalCount > 0) {
+        vec3 portalOcclusion = vec3(ssaoAuthoredOcclusion);
+        if (u_SsaoEnabled != 0) {
+            float portalSsao = ssaoVisibility(v_Position);
+            if (portalSsao < 1.0) {
+                portalOcclusion = min(portalOcclusion, ssaoMultiBounce(portalSsao, materialInfo.c_diff));
+            }
+        }
+        vec3 portalDiffuse = u_SkyPortalStrength * skyPortalIrradiance(v_Position, n) * materialInfo.c_diff / M_PI;
+        f_diffuse += clamp(vec3(1.0) - portalOcclusion, 0.0, 1.0) * min(portalDiffuse, skyPortalUnoccludedDiffuse);
     }
 #endif
 

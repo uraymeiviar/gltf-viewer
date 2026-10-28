@@ -2284,6 +2284,7 @@ void GltfRenderLayer::updateScene(const gltf::Gltf& gltf, const gltf::Scene& sce
     updateCameras(scene.getNodes());
     updateAudioEmitters(scene.getNodes());
     updateSkins(scene.getNodes());
+    updateSkyPortals(gltf);
 
     m_animationMapping.update(gltf.getAnimations());
 
@@ -2620,6 +2621,8 @@ bool GltfRenderLayer::updateMaterialStates(const gltf::Gltf& gltf)
     }
     ++m_gltfGeneration;
     m_traversal.frameToken = 0;
+    // A3.7: an Inspector edit of a portal's parameters arrives as an Extension change.
+    updateSkyPortals(gltf);
     const gltf::asobo::ExtensionSet assetExtensions =
         gltf::asobo::parseExtensions(gltf, gltf.getAsset(), gltf::asobo::Scope::Asset);
     const gltf::asobo::ExtensionData* convention = assetExtensions.find("ASOBO_normal_map_convention");
@@ -2884,6 +2887,7 @@ const GltfRenderLayer::SceneTraversal& GltfRenderLayer::traverseScene(const gltf
     t.nodesVisited = 0;
     t.primitivesVisited = 0;
     t.containsTransmissiveMaterial = false;
+    t.skyPortals.clear();
     t.hasInteriorVolume = false;
     t.scene = gltfScene;
     t.asoboOptions = asoboOptions;
@@ -2912,6 +2916,12 @@ const GltfRenderLayer::SceneTraversal& GltfRenderLayer::traverseScene(const gltf
             : (isIsolationRoot ? m_isolationIncludeChildren : insideIsolation);
         for (const auto* child : gltfNode->getChildren()) {
             addMeshMaterialRecursive(child, childInsideIsolation, hidden);
+        }
+
+        // A3.7: a portal is part of the environment of whatever is drawn, so isolating a part of the cabin
+        // keeps the window light; hiding the portal node (or an ancestor) switches it off.
+        if (!hidden && !m_skyPortalSources.empty() && m_skyPortalSources.count(gltfNode) != 0) {
+            t.skyPortals.push_back(gltfNode);
         }
 
         if (!insideIsolatedSubtree || hidden) {
@@ -3022,6 +3032,38 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
     for (Light* light : traversal.lights) {
         scene.lights.emplace_back(light);
     }
+    // A3.7: the portals in world space (node +Z = into the cabin; the disc lies in the node's XY plane), the
+    // kMaxSkyPortals nearest to the camera when there are more. A viewport that does not apply the extension, or a
+    // file without portals, gets none, and its materials compile without ASOBO_SKY_PORTAL.
+    if (!traversal.skyPortals.empty() && asoboOptions.applies("ASOBO_sky_portal")) {
+        for (const gltf::Node* node : traversal.skyPortals) {
+            const SkyPortalSource& source = m_skyPortalSources.at(node);
+            const math::mat4 world = getWorldTransform(node);
+            const math::vec3 axisZ(world[2]);
+            const float axisLength = math::length(axisZ);
+            if (source.radiusMetres <= 0.0f || axisLength <= 1e-8f) {
+                continue;
+            }
+            SkyPortalLight portal;
+            portal.position = math::vec3(world[3]);
+            portal.normal = axisZ / axisLength;
+            portal.radius = source.radiusMetres * 0.5f * (math::length(math::vec3(world[0])) + math::length(math::vec3(world[1])));
+            portal.cosInner = source.cosInner;
+            portal.cosOuter = source.cosOuter;
+            scene.skyPortals.push_back(portal);
+        }
+        if (scene.skyPortals.size() > kMaxSkyPortals && m_activeCamera != nullptr) {
+            const math::vec3 eye(math::inverse(m_activeCamera->getViewMatrix())[3]);
+            std::stable_sort(scene.skyPortals.begin(), scene.skyPortals.end(),
+                             [&eye](const SkyPortalLight& a, const SkyPortalLight& b) {
+                                 return math::length(a.position - eye) < math::length(b.position - eye);
+                             });
+        }
+        if (scene.skyPortals.size() > kMaxSkyPortals) {
+            scene.skyPortals.resize(kMaxSkyPortals);
+        }
+    }
+    const bool skyPortalsActive = !scene.skyPortals.empty();
     for (const SceneTraversal::Primitive& entry : traversal.primitives) {
         if (cull) {
             if (!entry.bounded) {
@@ -3073,6 +3115,8 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
                 && asoboOptions.applies("ASOBO_material_anisotropic_v2");
             entry.material->defines.defineIf(asoboAnisotropy, "ASOBO_ANISOTROPY");
             entry.material->defines.defineIf(asoboAnisotropy || entry.material->khrAnisotropy, "MATERIAL_ANISOTROPY");
+            // A3.7: every material of a file with portals (the portal's own file is the interior), per viewport.
+            entry.material->defines.defineIf(skyPortalsActive, "ASOBO_SKY_PORTAL");
             // A3.4: ASOBO_material_SSS per viewport; off compiles the core variant.
             entry.material->defines.defineIf(entry.material->asoboSss && asoboOptions.applies("ASOBO_material_SSS"),
                 "ASOBO_SSS");
@@ -3173,6 +3217,33 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
 
     m_lastSceneStats.drawables = static_cast<uint64_t>(scene.drawables.size());
     return { scene, reverseMapping };
+}
+
+void GltfRenderLayer::updateSkyPortals(const gltf::Gltf& gltf)
+{
+    // A3.7: ASOBO_sky_portal is a node extension. Only a file that declares it is read (the typed model ignores
+    // undeclared extensions), so files without portals keep an empty table and pay nothing per frame.
+    m_skyPortalSources.clear();
+    if (!gltf.isExtensionDeclared("ASOBO_sky_portal")) {
+        return;
+    }
+    constexpr double halfDegree = 3.14159265358979323846 / 360.0;
+    for (const gltf::Node& node : gltf.getNodes()) {
+        if (node.getUnknownExtensions().find("ASOBO_sky_portal") == node.getUnknownExtensions().end()) {
+            continue;
+        }
+        const std::optional<gltf::asobo::SkyPortal> portal =
+            gltf::asobo::readSkyPortal(gltf::asobo::parseExtensions(gltf, node, gltf::asobo::Scope::Node));
+        if (!portal.has_value() || portal->shapeType != 1) {
+            continue;
+        }
+        SkyPortalSource source;
+        source.radiusMetres = static_cast<float>(portal->radiusMetres());
+        source.innerRadiusMetres = static_cast<float>(portal->innerCircleRadiusMetres());
+        source.cosInner = static_cast<float>(std::cos(portal->innerConeDeg * halfDegree));
+        source.cosOuter = static_cast<float>(std::cos(portal->outerConeDeg * halfDegree));
+        m_skyPortalSources[&node] = source;
+    }
 }
 
 void GltfRenderLayer::updateCameras(const core::Vector<gltf::Node*>& cameraNodes)

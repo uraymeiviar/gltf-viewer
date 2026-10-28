@@ -352,4 +352,63 @@ void Application::drawNodeCoordinateGizmo(ImDrawList* drawList, const glm::mat4&
     drawList->AddCircle(ptOrigin, 4.5f, IM_COL32(30, 30, 30, 255), 0, 1.5f);
 }
 
+void Application::drawSkyPortalGizmo(ImDrawList* drawList, const glm::mat4& nodeWorld, float radius, float innerRadius,
+                                     bool selected, const glm::mat4& viewProj, const ImVec2& vpPos, const ImVec2& vpSize)
+{
+    const glm::vec3 origin(nodeWorld[3]);
+    const glm::vec3 axisX(nodeWorld[0]);
+    const glm::vec3 axisY(nodeWorld[1]);
+    const glm::vec3 axisZ(nodeWorld[2]);
+    if (glm::length(axisZ) <= 1e-8f) return;
+    const glm::vec3 direction = glm::normalize(axisZ);
+
+    // Points behind the camera are dropped; a polyline segment is drawn only when both ends project.
+    auto project = [&](const glm::vec3& p, ImVec2& out) -> bool {
+        const glm::vec4 clip = viewProj * glm::vec4(p, 1.0f);
+        if (clip.w <= 1e-4f) return false;
+        const glm::vec3 ndc = glm::vec3(clip) / clip.w;
+        out.x = vpPos.x + (ndc.x * 0.5f + 0.5f) * vpSize.x;
+        out.y = vpPos.y + (1.0f - (ndc.y * 0.5f + 0.5f)) * vpSize.y;
+        return true;
+    };
+    const ImU32 outerColor = selected ? IM_COL32(255, 214, 64, 255) : IM_COL32(255, 214, 64, 170);
+    const ImU32 innerColor = selected ? IM_COL32(120, 210, 255, 255) : IM_COL32(120, 210, 255, 170);
+    const float thickness = selected ? 2.0f : 1.4f;
+    // The radii are in the node's local units (the node scale is applied through its axes).
+    auto circle = [&](float r, ImU32 color) {
+        constexpr int segments = 64;
+        ImVec2 previous;
+        bool previousValid = false;
+        for (int i = 0; i <= segments; ++i) {
+            const float angle = 6.28318530718f * static_cast<float>(i) / static_cast<float>(segments);
+            ImVec2 point;
+            const bool valid = project(origin + (axisX * std::cos(angle) + axisY * std::sin(angle)) * r, point);
+            if (valid && previousValid) drawList->AddLine(previous, point, color, thickness);
+            previous = point;
+            previousValid = valid;
+        }
+    };
+    circle(radius, outerColor);
+    if (innerRadius > 0.0f && innerRadius < radius * 0.999f) circle(innerRadius, innerColor);
+
+    // The direction into the cabin: a line of one disc radius (world length) with an arrow head.
+    const float worldRadius = radius * 0.5f * (glm::length(axisX) + glm::length(axisY));
+    ImVec2 start, end;
+    if (project(origin, start) && project(origin + direction * std::max(worldRadius, 0.05f), end)) {
+        drawList->AddLine(start, end, outerColor, thickness);
+        glm::vec2 d(end.x - start.x, end.y - start.y);
+        const float length = glm::length(d);
+        if (length > 6.0f) {
+            d /= length;
+            const glm::vec2 perpendicular(-d.y, d.x);
+            const float size = 9.0f;
+            drawList->AddTriangleFilled(end,
+                ImVec2(end.x - d.x * size + perpendicular.x * size * 0.45f, end.y - d.y * size + perpendicular.y * size * 0.45f),
+                ImVec2(end.x - d.x * size - perpendicular.x * size * 0.45f, end.y - d.y * size - perpendicular.y * size * 0.45f),
+                outerColor);
+        }
+        drawList->AddCircleFilled(start, 3.0f, outerColor);
+    }
+}
+
 } // namespace ux3d::imgui::application

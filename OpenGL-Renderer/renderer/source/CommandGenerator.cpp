@@ -159,8 +159,10 @@ void ux3d::renderer::CommandGenerator::bindFrameBlocks()
     // A3.2: mat4 u_ShadowMatrices[4] at 160, vec4 u_ShadowSplits at 416, vec4 u_ShadowTexelSizes at 432,
     // vec4 u_ShadowParams at 448, int u_ShadowEnabled at 464, int u_ShadowCascadeCount at 468,
     // int u_ShadowFilter at 472, float u_ShadowMapSize at 476,
-    // A3.5: int u_SsaoEnabled at 480 (496 bytes, a whole number of vec4).
-    uint8_t environment[496] = {};
+    // A3.5: int u_SsaoEnabled at 480,
+    // A3.7: int u_SkyPortalCount at 484, float u_SkyPortalStrength at 488, vec4 u_SkyPortalPositionRadius[8] at 496,
+    // vec4 u_SkyPortalNormalCosInner[8] at 624, vec4 u_SkyPortalCosOuter[8] at 752 (880 bytes, a whole number of vec4).
+    uint8_t environment[880] = {};
     if (m_environmentMapRotationUniform.byteSize() == 36) {
         for (size_t column = 0; column < 3; ++column) {
             std::memcpy(environment + column * 16, m_environmentMapRotationUniform.bytes() + column * 12, 12);
@@ -205,6 +207,17 @@ void ux3d::renderer::CommandGenerator::bindFrameBlocks()
         std::memcpy(environment + 476, &m_sunShadow.mapSize, 4);
     }
     std::memcpy(environment + 480, &m_ssaoEnabled, 4);
+    std::memcpy(environment + 484, &m_skyPortalCount, 4);
+    std::memcpy(environment + 488, &m_skyPortalStrength, 4);
+    for (int32_t i = 0; i < m_skyPortalCount; ++i) {
+        const SkyPortalLight& portal = m_skyPortals[static_cast<size_t>(i)];
+        const glm::vec4 positionRadius(portal.position, portal.radius);
+        const glm::vec4 normalCosInner(portal.normal, portal.cosInner);
+        const glm::vec4 cosOuter(portal.cosOuter, 0.0f, 0.0f, 0.0f);
+        std::memcpy(environment + 496 + i * 16, &positionRadius[0], 16);
+        std::memcpy(environment + 624 + i * 16, &normalCosInner[0], 16);
+        std::memcpy(environment + 752 + i * 16, &cosOuter[0], 16);
+    }
     uploadFrameBlock(m_environmentBlock, gl::kEnvironmentBlockBinding, environment, sizeof(environment));
 }
 

@@ -131,6 +131,22 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("Windshield icing and frosted geometry decals (0 = clean aircraft).");
             }
+            if (gltfLayer != nullptr && gltfLayer->hasSkyPortals()) {
+                // A3.7: shown only for files with ASOBO_sky_portal nodes.
+                if (ImGui::SliderFloat("Sky portal strength", &state.skyPortalStrength, 0.0f, 4.0f, "%.2f")) {
+                    revisions.mark(SceneChange::ViewportSettings);
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Window light of the sky portals, added only where the occlusion\n"
+                                      "removed sky light: (1 - occlusion) x strength x portal light.");
+                }
+                if (ImGui::Checkbox("Show sky portals", &state.showSkyPortals)) {
+                    revisions.mark(SceneChange::ViewportSettings);
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Gizmo for every portal: disc, inner circle and the direction into the cabin.");
+                }
+            }
             ImGui::Indent();
             for (const ux3d::gltf::asobo::SupportInfo& info : ux3d::gltf::asobo::supportTable()) {
                 if (!ux3d::gltf::asobo::isAsoboExtension(info.name)) {

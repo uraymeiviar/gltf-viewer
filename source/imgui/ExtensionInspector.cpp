@@ -88,6 +88,7 @@ void ExtensionInspector::loadAllSchemas()
         "ASOBO_normal_map_convention",
         "ASOBO_occlusion_strength",
         "ASOBO_property_animation",
+        "ASOBO_sky_portal",
         "ASOBO_softbody_mesh"
     };
 

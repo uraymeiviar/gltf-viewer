@@ -24,6 +24,7 @@
 #include "gltf/extensions/AsoboSupport.h"
 #include "renderer/Skin.h"
 #include <algorithm>
+#include <unordered_map>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
@@ -258,6 +259,39 @@ bool writeAsoboReport(const ux3d::gltf::Gltf& gltf, const std::string& path)
     addAll(gltf.getElements<ux3d::gltf::Node>(), asobo::Scope::Node, "nodes");
     addAll(gltf.getElements<ux3d::gltf::Mesh>(), asobo::Scope::Mesh, "meshes");
     addAll(gltf.getElements<ux3d::gltf::Animation>(), asobo::Scope::Animation, "animations");
+
+    // A3.7: the sky portals as the renderer reads them: radius in metres (source_radius cm / 100), the preview's inner
+    // circle, the cone angles, and the world centre and direction into the cabin (+Z) of the node's rest pose.
+    report["skyPortals"] = nlohmann::json::array();
+    {
+        std::unordered_map<const ux3d::gltf::Node*, const ux3d::gltf::Node*> parents;
+        for (const auto& node : gltf.getElements<ux3d::gltf::Node>()) {
+            for (const auto* child : node.getChildren()) parents[child] = &node;
+        }
+        size_t index = 0;
+        for (const auto& node : gltf.getElements<ux3d::gltf::Node>()) {
+            const size_t nodeIndex = index++;
+            const std::optional<asobo::SkyPortal> portal =
+                asobo::readSkyPortal(asobo::parseExtensions(gltf, node, asobo::Scope::Node));
+            if (!portal.has_value()) continue;
+            ux3d::math::dmat4x4 world = node.getTransformMatrix();
+            for (auto it = parents.find(&node); it != parents.end(); it = parents.find(it->second)) {
+                world = it->second->getTransformMatrix() * world;
+            }
+            const ux3d::math::dvec3 position(world[3]);
+            const ux3d::math::dvec3 direction = ux3d::math::normalize(ux3d::math::dvec3(world[2]));
+            report["skyPortals"].push_back({{"node", nodeIndex},
+                                            {"name", node.hasName() ? nlohmann::json(std::string(node.getName().c_str())) : nlohmann::json(nullptr)},
+                                            {"shapeType", portal->shapeType},
+                                            {"sourceRadiusCm", portal->sourceRadiusCm},
+                                            {"radiusMetres", portal->radiusMetres()},
+                                            {"innerCircleRadiusMetres", portal->innerCircleRadiusMetres()},
+                                            {"innerConeDeg", portal->innerConeDeg},
+                                            {"outerConeDeg", portal->outerConeDeg},
+                                            {"position", {position.x, position.y, position.z}},
+                                            {"direction", {direction.x, direction.y, direction.z}}});
+        }
+    }
 
     report["diagnostics"] = nlohmann::json::array();
     for (const asobo::Diagnostic& diagnostic : asobo::validateExtensions(gltf)) {
@@ -525,6 +559,10 @@ std::optional<int> Application::configure(int argc, char** argv)
             if (!applyCliSetting(SettingScope::Viewport, "interior_sky_reflection", argv[++i], "--interior-sky-reflection")) return 1;
         } else if (arg == "--windshield-icing" && i + 1 < argc) {
             if (!applyCliSetting(SettingScope::Viewport, "windshield_icing", argv[++i], "--windshield-icing")) return 1;
+        } else if (arg == "--sky-portal-strength" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "sky_portal_strength", argv[++i], "--sky-portal-strength")) return 1;
+        } else if (arg == "--show-sky-portals") {
+            if (!applyCliSetting(SettingScope::Viewport, "show_sky_portals", "on", "--show-sky-portals")) return 1;
         } else if (arg == "--asobo" && i + 1 < argc) {
             // Anything but "off" keeps the extensions on, as before.
             const bool on = toLowerAscii(argv[++i]) != "off";

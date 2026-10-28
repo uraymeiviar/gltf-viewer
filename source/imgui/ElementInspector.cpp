@@ -18,6 +18,7 @@
 #include "renderer/gl/Texture.h"
 #include "gltf/GlTypes.h"
 #include "gltf/AttributeType.h"
+#include "gltf/extensions/AsoboExtensions.h"
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <glm/gtc/type_ptr.hpp>
@@ -812,6 +813,22 @@ void ElementInspector::render(SelectionState& selection,
                     ++cIdx;
                 }
                 ImGui::TreePop();
+            }
+        }
+
+        // A3.7: how Glider reads an ASOBO_sky_portal node (the raw values are in the extension list below).
+        if (selection.selectedNode->getUnknownExtensions().count("ASOBO_sky_portal") != 0) {
+            namespace asobo = ux3d::gltf::asobo;
+            const std::optional<asobo::SkyPortal> portal = asobo::readSkyPortal(
+                asobo::parseExtensions(gltfModel, *selection.selectedNode, asobo::Scope::Node));
+            if (portal.has_value() && ImGui::CollapsingHeader("Sky Portal (MSFS)", ImGuiTreeNodeFlags_DefaultOpen)) {
+                ImGui::Text("Shape: %s", portal->shapeType == 1 ? "disc" : "unknown (not rendered)");
+                ImGui::Text("Disc radius: %.3f m (source_radius %.1f cm)", portal->radiusMetres(), portal->sourceRadiusCm);
+                ImGui::Text("Inner circle: %.3f m", portal->innerCircleRadiusMetres());
+                ImGui::Text("Cone: inner %.1f deg, outer %.1f deg", portal->innerConeDeg, portal->outerConeDeg);
+                ImGui::TextDisabled("Faces into the cabin along the node's +Z axis.");
+            } else if (!portal.has_value()) {
+                ImGui::TextDisabled("ASOBO_sky_portal is not declared in extensionsUsed: ignored.");
             }
         }
 

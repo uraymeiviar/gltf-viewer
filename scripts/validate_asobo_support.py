@@ -80,7 +80,7 @@ def main():
     rep = report(model)
     check(rep is not None, "support report written")
     if rep is not None:
-        check(rep.get("specCount") == len(names) == 42, "specCount matches all 42 generated extension specs (including two MSFS 2020 glass schemas)")
+        check(rep.get("specCount") == len(names) == 43, "specCount matches all 43 generated extension specs (including two MSFS 2020 glass schemas and the A3.7 sky portal)")
         support = rep.get("support", {})
         check(set(support) == expected | {"ASOBO_material_code"},
               "every spec plus MSFT_texture_dds and the extras material-code switch has a status, with no extra entries")
@@ -98,7 +98,7 @@ def main():
             elif name in ("ASOBO_material_geometry_decal", "ASOBO_material_blend_gbuffer",
                           "ASOBO_material_windshield_v3", "ASOBO_material_glass_v2",
                           "ASOBO_material_windshield", "ASOBO_material_glass", "ASOBO_material_kitty_glass",
-                          "ASOBO_material_SSS"):
+                          "ASOBO_material_SSS", "ASOBO_sky_portal"):
                 status = "Partial"
             elif name in ("ASOBO_material_disable_motion_blur", "ASOBO_material_fake_terrain"):
                 status = "Not applicable"

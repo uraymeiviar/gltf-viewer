@@ -115,6 +115,17 @@ Commands run on the render thread between frames, strictly in order. Multi-frame
 - Radius tuning: `capture` with the debug view after each `ssao_radius` change; occluders farther than the radius do
   not count, so a cockpit-wide darkening needs a larger radius than panel creases.
 
+## Sky portals (A3.7)
+
+- Files with `ASOBO_sky_portal` nodes (MSFS window lights, node +Z into the cabin, radius `source_radius` cm / 100):
+  the viewport key `ASOBO_sky_portal` switches their light (default on), `sky_portal_strength` scales it (0..4,
+  default 0.35), `show_sky_portals` draws every portal's gizmo (UI overlay, not in `capture`).
+- The light is added only where the IBL was occluded: (1 - occlusion) x strength x portal light; surfaces with
+  occlusion 1 never change. `get_state` `skyPortals` lists the portals (position, direction, radius) and how many lit
+  the active viewport (`active`, at most 8).
+- Tuning: `capture` / `probe_region` with `ASOBO_sky_portal` false and true at the same camera; the difference is the
+  portal light.
+
 ## Pitfalls
 
 - **Minimised window**: `capture` fails with `window_minimized`; restore the window first.

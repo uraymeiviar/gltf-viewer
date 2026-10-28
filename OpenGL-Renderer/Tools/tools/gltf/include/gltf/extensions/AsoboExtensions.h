@@ -136,4 +136,21 @@ ExtensionSet parseExtensions(const Gltf& gltf, const GltfObject& object, uint32_
 // Parses every object of the document and returns all diagnostics, for the validator.
 std::vector<Diagnostic> validateExtensions(const Gltf& gltf);
 
+// A3.7: ASOBO_sky_portal as Glider reads it (docs/ASOBO_EXTENSIONS_PHASE_3.md, A3.7; semantics section 19).
+// A disc area light at the node, facing into the cabin along the node's local +Z axis (the MSFS Blender exporter
+// turns light nodes by 180 degrees about X, so its "direction" ends up on +Z; verified on the DA62 SDK cockpit).
+struct SkyPortal {
+    int shapeType = 1;              // 1 = disc, the only portal shape
+    double sourceRadiusCm = 50.0;   // exporter unit: centimetres (Blender preview radius = value / 100 m)
+    double innerConeDeg = 0.0;      // full cone angles in degrees, clamped to [0, 180], inner <= outer
+    double outerConeDeg = 160.0;
+
+    double radiusMetres() const { return sourceRadiusCm * 0.01; }
+    // The exporter preview's inner circle (Blender spot blend: sin(inner/2) / sin(outer/2), outer clamped to 179).
+    double innerCircleRadiusMetres() const;
+};
+
+// The portal of a parsed node extension set, or nothing when the node has no (applicable) ASOBO_sky_portal.
+std::optional<SkyPortal> readSkyPortal(const ExtensionSet& nodeExtensions);
+
 } // namespace ux3d::gltf::asobo

@@ -2,7 +2,7 @@
 
 [Journal index](ASOBO_EXTENSIONS_JOURNAL.md) · [Extension reference](ASOBO_EXTENSIONS_REFERENCE.md) · [Validation rules](RENDERER_OPTIMIZATION_VALIDATION.md)
 
-**Status:** In progress: A3.1, A3.2, A3.4, A3.5 and A3.6 done (A3.4 ahead of A3.1).
+**Status:** In progress: A3.1, A3.2, A3.4, A3.5, A3.6 and A3.7 done (A3.4 ahead of A3.1); A3.3 deferred.
 
 **Entry:** A2.2, the deferred lighting pass. **Goal:** shadows from a sun (user priority 4), and the remaining
 lighting features of user priority 5. The sun's direction is set by hand here and driven by time of day in A6.
@@ -323,8 +323,75 @@ lighting features of user priority 5. The sun's direction is set by hand here an
     extends the main gear lowers it below the plane; punctual lights do not light the plane; the plane does not
     receive A3.5 ambient occlusion (see A3.5); the tyre-contact check uses the E195 copy without ground
     support equipment.
-- [ ] **A3.7 — `ASOBO_sky_portal` (R3). Owner: Claude.** Window area lights that bring sky and sun light into
+- [x] **A3.7 — `ASOBO_sky_portal` (R3). Owner: Claude.** Window area lights that bring sky and sun light into
   the cabin. Entry: A3.1 (and A3.2 for the sun term).
+  - **Done 2026-10-28, support status Partial** (semantics: [section 19](ASOBO_EXTENSIONS_SEMANTICS.md)). V =
+    verified, I = inferred.
+    - **Format (V):** schema `resources/schemas/asobo/ASOBO_sky_portal/` written from the exporter (node scope;
+      `shape_type` integer, only 1 = disc; `source_radius` >= 0; angles 0-180); exporter defaults 1 / 50 / 0 / 160
+      in `generate_asobo_specs.py`; typed reader `asobo::readSkyPortal` (`AsoboExtensions.h`). **Unit: centimetres**
+      (V): the Blender add-on sets the preview radius to `source_radius / 100` m (`blender/msfs_lights.py`), and the
+      DA62 portals match their window panes (FL r 27 cm against a 0.56 x 0.68 m pane, ML 25 cm against 0.55 x 0.87 m).
+      **Direction (V):** node +Z; on all 8 DA62 portals +Z points into the cabin (cos to the cabin centre >= 0.58).
+    - **Interior (I):** every OPAQUE / MASK `pbr.frag` material of a file that contains portals (the portal's own
+      file is the interior attachment), only in front of each disc (inward half-space and cone), and only the part
+      of the IBL the occlusion removed (below): a surface open to the sky (occlusion 1: the exterior, an AO-free
+      material) gets nothing. No visibility between disc and receiver, so a surface behind a wall that faces the
+      portal and has occlusion < 1 is lit through the wall.
+    - **Radiance (I):** the environment seen through the window from the receiver: the GGX prefiltered cube at
+      roughness 0.6, in the direction receiver -> disc centre, rotated and scaled like the IBL (a receiver on the
+      axis sees the portal's outward direction). **Sun: not added (measured):** glass and windshield materials cast
+      no A3.2 shadow, so the A3.1 sun already lights the cabin through the windows, shadowed by the frame; the
+      shadow-visibility view of the DA62 cockpit is lit on 23-51% of the frame (two suns, two views,
+      `review_sky_portal.json`); a portal sun term would light those patches twice. With the sun on, the HDR's own
+      sun is removed from the IBL (A3.1), so the portal does not carry it either.
+    - **Integration (I):** diffuse only, the disc form factor without horizon clipping (Lagarde and de Rousiers
+      2014): `E = pi L cos(emit) cos(receive) r^2 / (d^2 + r^2)`, exact on the axis, times
+      `smoothstep(cos(outer/2), cos(inner/2), cos(emit))`; no LTC (no LUT added), no specular.
+    - **No double lighting (I):** `add = (1 - occlusion) x min(strength x c_diff / pi x sum E, unoccluded IBL diffuse)`,
+      occlusion = the authored AO (material map with its strength, x decal AO), `min()` with the A3.5 multi-bounce
+      SSAO term while SSAO runs: the same factor the diffuse IBL received. **Strength default 0.35 (I):** calibrated
+      on the SDK pair: there the cockpit panels gain +1.5/+2.4/+4.2 (left panel, mean RGB levels on ~60-78) and
+      +1.2/+2.0/+3.4 (right wall, on ~27-41); at 0.35 the DA62 pilot's view gains +2.3/+2.1/+1.8 on ~29 (changed
+      pixels), the seats +1.9-2.1. Strength 1 (the window radiating the full sky) gave +5.5 levels, about three
+      times the SDK's relative change. Our tint follows the default HDR (sunset, warm); the SDK's sky is blue.
+    - **Cost:** at most 8 portals per viewport (`kMaxSkyPortals`, the nearest to the camera), one cube-map lookup
+      each, in a loop gated by the `ASOBO_SKY_PORTAL` define; files without portals and viewports with the switch
+      off compile without it (byte-identical). Portal data: EnvironmentBlock (`u_SkyPortalCount` at 484,
+      strength 488, three vec4[8] arrays at 496 / 624 / 752; 880 bytes).
+    - **Viewer:** gizmo (`Application::drawSkyPortalGizmo`, ImGui overlay, not in viewport captures): the disc
+      (yellow, source radius), the exporter preview's inner circle (blue, `r sin(inner/2) / sin(min(outer,179)/2)`)
+      and an arrow along +Z; shown for the selected portal node, or for all with Viewport Settings > MSFS Extensions
+      > *Show sky portals*. Same section: *Sky portal strength* (both only for files with portals) and the
+      per-viewport `ASOBO_sky_portal` switch (default on). Inspector: typed fields from the schema plus a *Sky Portal
+      (MSFS)* summary (radius in metres, inner circle, cone). Isolation keeps the portals (they are the environment);
+      hiding a portal node switches it off.
+    - **Settings / CLI:** registry `ASOBO_sky_portal`, `sky_portal_strength` (0-4), `show_sky_portals`;
+      `--sky-portal-strength <x>`, `--show-sky-portals`, `--asobo-disable ASOBO_sky_portal`. `get_state` `skyPortals`
+      (portals with world position, direction, radii; `active` of the active viewport); `--asobo-report`
+      `skyPortals[]`.
+  - **Check:** `scripts/validate_asobo_sky_portal.py` (quick regression, serial list), 49 PASS: DA62 LOD00 8 portals
+    parsed (radii 10/27/25/20 cm, shape 1, inner 160 or 180, outer 180, all facing in, typed spec, no diagnostics),
+    LOD01 / LOD02 all portals; files without portals (HelloCube, the fixture without its portal node, E195
+    `cockpit_main_displays`) and the DA62 cockpit with `--asobo-disable ASOBO_sky_portal` and with `--asobo off`
+    byte-identical to e323478, its default differs, no magenta; fixture (4 x 4 m room, portal r 0.5 m at 1.25 m,
+    uniform L = 1, strength 1): six patches gain the analytic amount (e.g. 0.02338 vs 0.02342, 0.00317 vs 0.00314),
+    falling with distance 0.0234 / 0.0168 / 0.0069 / 0.0032, the grazing patch cut by the cone (factor 0.60),
+    strength 2 doubles, the patch behind the window wall unchanged, changed pixels only on the inside patches
+    (floor, walls and ground with occlusion 1 unchanged), probes finite; environment bright towards the window
+    0.0553 against 0.0065 turned 180 degrees; registry, range refusal, get_state; gizmo drawn (all / selected);
+    zero GL errors. Also pass: `validate_asobo_support.py` (43 specs), `validate_sun.py`, `validate_shadows.py`,
+    `validate_agent_control.py` (against e323478).
+  - **Review:** `build/review/skyportal/contact_sheet.png` (`scripts/review_sky_portal.py`): DA62 pilot's view and
+    seats view, portals off / on at az 45 el 40 and az 250 el 22 (shadows on), the two suns' shadow visibility, no
+    sun off / on, the gizmo window view (all portals, selected FL) and the SDK before/after pair. Subtle lift of the
+    frame, seats and panel near the windows, comparable in size to the SDK pair's panels; the SDK's darker face
+    comes from `node_occlusion_factor` on the character (not glTF, no character in Glider).
+  - **Deviations:** sky sampled along the receiver's line of sight through the disc centre, not a fixed outward
+    mip; no sun term (measured above); diffuse only; no portal-to-receiver visibility (light passes through
+    walls where the occlusion is below 1); interior = the file with portals + occlusion weighting, not a hull
+    test; the inner circle is only drawn, the disc uses the full source radius; at most 8 portals per viewport;
+    BLEND materials get no portal light.
   - **What the files carry (V, Blender exporter `io/com/extensions/light/asobo_skyportal_light.py`,
     `io/com/msfs_light_utils.py`, `blender/msfs_lights.py`):** a node extension with `shape_type` (1 = disc, the
     only portal shape), `source_radius` (Blender UI unit cm, exporter default 50), `inner_cone_angle` and

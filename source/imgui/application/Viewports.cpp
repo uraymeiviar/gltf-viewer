@@ -855,6 +855,9 @@ void Application::drawViewports(FrameContext& frame)
             commandGenerator->setAsoboDecalReceiver(decalActive);
             // A3.5: the SSAO result this viewport's draw fills after its prepass (zero while off).
             commandGenerator->setSsao(ssaoActive, ssaoActive ? ambientOcclusion.getResultTexture() : 0);
+            // A3.7: this viewport's sky portals (none while it does not apply ASOBO_sky_portal).
+            commandGenerator->setSkyPortals(scene.skyPortals, vp->settings.skyPortalStrength);
+            vp->skyPortalCount = static_cast<int>(scene.skyPortals.size());
             commandGenerator->setDecalDepthTolerance(vp->settings.decalDepthToleranceMm * 0.001f);
             commandGenerator->setAsoboEmissiveActive(
                 gltfLayer->declaresAsoboExtensions() &&
@@ -1529,6 +1532,19 @@ void Application::drawViewports(FrameContext& frame)
             drawNodeCoordinateGizmo(drawList, nodeWorld, viewProj, imagePos, imageSize,
                                     ux3d::math::vec3(cameraEye.x, cameraEye.y, cameraEye.z),
                                     vp->settings.gizmoAxisConvention);
+        }
+
+        // A3.7: sky portal gizmos: every portal while "Show sky portals" is on, otherwise the selected portal node.
+        if (gltfLayer != nullptr && gltfLayer->hasSkyPortals() && vp->sceneFbo.isValid()) {
+            const ux3d::gltf::Node* selectedNode =
+                selection.type == ux3d::imgui::SelectionType::Node ? selection.selectedNode : nullptr;
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            for (const auto& [portalNode, source] : gltfLayer->getSkyPortalSources()) {
+                const bool selected = portalNode == selectedNode;
+                if (!selected && !vp->settings.showSkyPortals) continue;
+                drawSkyPortalGizmo(drawList, glm::mat4(gltfLayer->getWorldTransform(portalNode)), source.radiusMetres,
+                                   source.innerRadiusMetres, selected, viewProj, imagePos, imageSize);
+            }
         }
 
         ImGui::End(); // End Viewport Window

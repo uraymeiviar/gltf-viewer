@@ -38,6 +38,8 @@ struct ViewportSettingsState {
     float interiorSkyReflection = 0.5f;
     float decalDepthToleranceMm = 1.2f; // Receiver-normal tolerance for the decal buffer
     float windshieldIcing = 0.0f; // Windshield icing factor 0..1 (A4.2)
+    float skyPortalStrength = 0.35f; // A3.7: scale of the ASOBO_sky_portal window light (0..4); 0.35 inferred from the SDK pair
+    bool showSkyPortals = false; // A3.7: draw every portal's gizmo (a selected portal node always shows its own)
     SsaoSettings ssao; // A3.5: screen-space ambient occlusion of the sky light (off by default)
     bool invertWinding = false;    // Invert front/back face winding order (CW vs CCW)
     // Legacy mode remains the fallback for saved state and existing automation.

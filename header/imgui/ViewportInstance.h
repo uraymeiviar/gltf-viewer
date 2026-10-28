@@ -92,6 +92,8 @@ struct ViewportInstance {
     // computed and applied the term.
     AmbientOcclusion ambientOcclusion;
     bool ssaoActive = false;
+    // A3.7: the number of sky portals that lit this viewport's last render (0 when none or switched off).
+    int skyPortalCount = 0;
 
     bool groundPlaneActive = false;
     float groundPlaneHeight = 0.0f;

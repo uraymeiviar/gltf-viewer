@@ -33,6 +33,7 @@ SCOPES = {
     "ASOBO_collision_object": "Node",
     "ASOBO_gizmo_object": "Node",
     "ASOBO_macro_light": "Node",
+    "ASOBO_sky_portal": "Node",
     "ASOBO_unique_id": "Node",
     "ASOBO_tags": "Material | Scope::Node",
     "ASOBO_softbody_mesh": "Mesh",
@@ -67,6 +68,10 @@ EXPORTER_DEFAULTS = {
                                        "roomNumberXY": 5.0},
     # A3.4: both exporters (2024 Blender, MSFS 2020 3ds Max) default the SSS colour to white RGBA.
     "ASOBO_material_SSS": {"SSSColor": [1.0, 1.0, 1.0, 1.0]},
+    # A3.7: the exporter's Blender light properties (blender/msfs_lights.py: Source Radius (cm) 50, Inner Angle 0,
+    # Outer Angle 160); a sky portal's shape is always "disc" = 1 (io/com/msfs_light_utils.py). The exporter writes
+    # all four keys, so these defaults only matter for hand-written files.
+    "ASOBO_sky_portal": {"shape_type": 1, "source_radius": 50.0, "inner_cone_angle": 0.0, "outer_cone_angle": 160.0},
 }
 
 # Array lengths the exporters write where the schema disagrees: {extension: {key: (minItems, maxItems)}}.

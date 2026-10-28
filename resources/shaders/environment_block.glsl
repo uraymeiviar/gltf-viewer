@@ -73,4 +73,14 @@ layout(std140) uniform EnvironmentBlock
     // A3.5 screen-space ambient occlusion (ssao.glsl): non-zero while this viewport computed the SSAO term this
     // frame; pbr.frag then attenuates the IBL terms of OPAQUE / MASK surfaces with it.
     int u_SsaoEnabled;
+
+    // A3.7 ASOBO_sky_portal (asobo_sky_portal.glsl): the viewport's portals, read only by materials compiled with
+    // ASOBO_SKY_PORTAL. u_SkyPortalPositionRadius[i]: xyz world centre, w disc radius (world units);
+    // u_SkyPortalNormalCosInner[i]: xyz unit normal into the cabin, w cos(inner cone angle / 2);
+    // u_SkyPortalCosOuter[i].x: cos(outer cone angle / 2). u_SkyPortalStrength scales the added light.
+    int u_SkyPortalCount;
+    float u_SkyPortalStrength;
+    vec4 u_SkyPortalPositionRadius[8];
+    vec4 u_SkyPortalNormalCosInner[8];
+    vec4 u_SkyPortalCosOuter[8];
 };

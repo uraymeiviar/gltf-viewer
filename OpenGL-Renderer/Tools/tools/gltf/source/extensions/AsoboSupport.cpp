@@ -47,6 +47,7 @@ const std::vector<SupportInfo>& supportTable()
         {"ASOBO_normal_map_convention", Support::Rendered, "A1.2", "DirectX convention flips normal-map green"},
         {"ASOBO_occlusion_strength", Support::Rendered, "A1.5", "Replaces the core occlusion strength (core operator; >1 deepens AO, clamped at 0)"},
         {"ASOBO_property_animation", Support::NotYetSupported, "A7", ""},
+        {"ASOBO_sky_portal", Support::Partial, "A3.7", "diffuse disc area light (solid-angle form factor, cone falloff) showing the environment through the window, added only where the IBL is occluded: (1 - occlusion) x strength; no specular, no occlusion between portal and receiver; no sun term (the A3.1/A3.2 sun already enters through the non-casting glass); calibration inferred"},
         {"ASOBO_softbody_mesh", Support::Metadata, "A7", ""},
         {"ASOBO_tags", Support::Metadata, "A7", ""},
         {"ASOBO_unique_id", Support::Metadata, "A7", ""},

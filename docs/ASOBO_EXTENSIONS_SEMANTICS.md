@@ -1402,3 +1402,35 @@ For OPAQUE and MASK materials (BLEND, `KHR_materials_transmission` and unlit mat
    Needs an MSFS capture of a white-SSS sphere under a known sun.
 2. Does `SSSColor` alpha mean anything (strength)? All files write 1.
 3. Is `opacityTexture` really unused, and if used, is it opacity (1 - transmission) or thickness?
+
+## 19. `ASOBO_sky_portal` (A3.7, 2026-10-28)
+
+**Coverage: partial** (the payload, its unit and direction are verified; the MSFS lighting model is not documented).
+Glider renders an approximation (docs/ASOBO_EXTENSIONS_PHASE_3.md, A3.7).
+
+**Written when**
+
+- **V** 2024 Blender exporter, light type *MSFS2024 SkyPortal Light* (`io/com/extensions/light/asobo_skyportal_light.py`):
+  a node extension with all four keys `shape_type`, `source_radius`, `inner_cone_angle`, `outer_cone_angle`; it removes
+  any `KHR_lights_punctual` from the node and its children. The shape is always `"disc"` = 1
+  (`io/com/msfs_light_utils.py`, `skyportal_light_shape_type_match_table`). No colour or intensity.
+- **V** Blender property defaults (`blender/msfs_lights.py`): Source Radius (cm) 50, Inner Angle 0, Outer Angle 160.
+- **V** Every light node is turned by 180 degrees about X on export (`io/com/msfs_light_extensions.py`, Blender >= 3.2;
+  90 degrees before), so the Blender light direction ends on the node's local **+Z**. DA62 SDK cockpit: the 8
+  `PORTAL_*` nodes' +Z all point into the cabin.
+- **V** Unit: centimetres; the add-on previews the radius as `source_radius / 100` m. DA62 radii 10-27 cm match the
+  window panes (radius about half the pane height).
+- **V** SDK (*Exterior Lights > Sky Portals*): on the outside of every window that shows an interior, pointing inside,
+  "simulate additional sunlight" for characters; the inner circle is the portal and outer should be 180; used with
+  `node_occlusion_factor` in `navigation_graph.cfg` (not glTF).
+- **I** Inner circle radius as drawn by the Blender preview: `source_radius x sin(inner/2) / sin(min(outer, 179)/2)`
+  (the spot-blend formula of `_update_spot_blend`).
+
+**Glider rendering (I)**
+
+- Disc of radius `source_radius / 100` (x node scale) at the node, normal +Z; radiance = the environment seen through
+  the window (rough GGX mip, direction receiver -> centre); diffuse form factor
+  `cos(emit) cos(receive) r^2 / (d^2 + r^2)` x cone smoothstep between the outer and inner half angles.
+- Added only where the IBL was occluded: `(1 - occlusion) x min(strength x portal, unoccluded IBL diffuse)`, strength
+  0.35 calibrated against the SDK before/after pair. No sun term: the A3.1 sun already enters through glass, which
+  casts no shadow in A3.2.

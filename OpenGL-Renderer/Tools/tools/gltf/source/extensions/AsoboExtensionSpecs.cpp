@@ -208,6 +208,12 @@ const std::vector<ExtensionSpec>& extensionSpecs()
         {"ASOBO_property_animation", Scope::Any, "ASOBO_property_animation/gltf.ASOBO_property_animation.schema.json", {
             {"channels", ValueType::Json, Value{}, DefaultSource::None, std::nullopt, std::nullopt, 0, 0, ""},
         }},
+        {"ASOBO_sky_portal", Scope::Node, "ASOBO_sky_portal/gltf.ASOBO_sky_portal.schema.json", {
+            {"shape_type", ValueType::Number, Value{1.0}, DefaultSource::Exporter, std::nullopt, std::nullopt, 0, 0, ""},
+            {"source_radius", ValueType::Number, Value{50.0}, DefaultSource::Exporter, 0.0, std::nullopt, 0, 0, ""},
+            {"inner_cone_angle", ValueType::Number, Value{0.0}, DefaultSource::Exporter, 0.0, 180.0, 0, 0, ""},
+            {"outer_cone_angle", ValueType::Number, Value{160.0}, DefaultSource::Exporter, 0.0, 180.0, 0, 0, ""},
+        }},
         {"ASOBO_softbody_mesh", Scope::Mesh, "ASOBO_softbody_mesh/gltf.ASOBO_softbody_mesh.schema.json", {
             {"type", ValueType::String, Value{}, DefaultSource::None, std::nullopt, std::nullopt, 0, 0, ""},
         }},

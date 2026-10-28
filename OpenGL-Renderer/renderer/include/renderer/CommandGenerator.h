@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <list>
 #include <memory>
@@ -17,6 +18,7 @@
 #include "renderer/Material.h"
 #include "renderer/Mesh.h"
 #include "renderer/RenderPass.h"
+#include "renderer/RendererScene.h"
 #include "renderer/enums/ToneMappingsEnum.h"
 #include "renderer/gl/Buffer.h"
 #include "renderer/gl/ShaderCache.h"
@@ -154,6 +156,15 @@ public:
         m_ssaoTexture->handle = m_ssaoEnabled != 0 ? texture : 0;
     }
     bool isSsaoEnabled() const { return m_ssaoEnabled != 0; }
+    // A3.7: the active viewport's sky portals (EnvironmentBlock u_SkyPortal*; at most kMaxSkyPortals are uploaded)
+    // and its strength. Only materials compiled with ASOBO_SKY_PORTAL read them.
+    void setSkyPortals(const std::vector<SkyPortalLight>& portals, float strength)
+    {
+        m_skyPortalCount = static_cast<int32_t>(std::min(portals.size(), kMaxSkyPortals));
+        std::copy_n(portals.begin(), m_skyPortalCount, m_skyPortals.begin());
+        m_skyPortalStrength = strength;
+    }
+    int getSkyPortalCount() const { return m_skyPortalCount; }
     void setSsrOptions(bool enabled, int quality, float sky) {
         m_ssrOptions.write(math::vec3(enabled ? 1.0f : 0.0f, quality == 0 ? 256.0f : quality == 2 ? 1024.0f : 512.0f, sky));
     }
@@ -235,6 +246,10 @@ protected:
     std::unique_ptr<gl::Texture> m_sunShadowTexture;
     std::unique_ptr<gl::SamplerState> m_sunShadowSamplerState;
     std::unique_ptr<gl::Sampler> m_sunShadowSampler;
+    // A3.7 sky portals of the active viewport.
+    int32_t m_skyPortalCount = 0;
+    float m_skyPortalStrength = 0.35f;
+    std::array<SkyPortalLight, kMaxSkyPortals> m_skyPortals {};
     // A3.5 SSAO result (borrowed texture handle; stable wrapper, nearest sampler).
     int32_t m_ssaoEnabled = 0;
     std::unique_ptr<gl::Texture> m_ssaoTexture;

@@ -325,4 +325,26 @@ std::vector<Diagnostic> validateExtensions(const Gltf& gltf)
     return diagnostics;
 }
 
+double SkyPortal::innerCircleRadiusMetres() const
+{
+    constexpr double halfDegree = 3.14159265358979323846 / 360.0;
+    const double outer = std::clamp(outerConeDeg, 1.0, 179.0);
+    const double inner = std::clamp(innerConeDeg, 0.0, outer);
+    return radiusMetres() * std::sin(inner * halfDegree) / std::sin(outer * halfDegree);
+}
+
+std::optional<SkyPortal> readSkyPortal(const ExtensionSet& nodeExtensions)
+{
+    const ExtensionData* data = nodeExtensions.find("ASOBO_sky_portal");
+    if (data == nullptr) {
+        return std::nullopt;
+    }
+    SkyPortal portal;
+    portal.shapeType = static_cast<int>(std::lround(data->number("shape_type").value_or(1.0)));
+    portal.sourceRadiusCm = std::max(0.0, data->number("source_radius").value_or(portal.sourceRadiusCm));
+    portal.outerConeDeg = std::clamp(data->number("outer_cone_angle").value_or(portal.outerConeDeg), 0.0, 180.0);
+    portal.innerConeDeg = std::clamp(data->number("inner_cone_angle").value_or(portal.innerConeDeg), 0.0, portal.outerConeDeg);
+    return portal;
+}
+
 } // namespace ux3d::gltf::asobo

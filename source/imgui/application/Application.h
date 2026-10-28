@@ -254,6 +254,10 @@ private:
     void drawNodeCoordinateGizmo(ImDrawList* drawList, const glm::mat4& nodeWorld, const glm::mat4& viewProj,
                                  const ImVec2& vpPos, const ImVec2& vpSize, const glm::vec3& camEye,
                                  int axisConvention = 0);
+    // A3.7: an ASOBO_sky_portal gizmo like the exporter preview: the disc (source radius) and the inner circle in the
+    // node's XY plane, and the direction into the cabin (+Z). UI overlay only, not in viewport captures.
+    void drawSkyPortalGizmo(ImDrawList* drawList, const glm::mat4& nodeWorld, float radius, float innerRadius,
+                            bool selected, const glm::mat4& viewProj, const ImVec2& vpPos, const ImVec2& vpSize);
     ux3d::filesystem::Path resolveRendererResourcesDir();
     ux3d::filesystem::Path resolveEnvironmentPath(const ux3d::filesystem::Path& rendererRes);
     ux3d::filesystem::Path resolveHdrPath(const std::string& hdrPath, const ux3d::filesystem::Path& rendererRes);

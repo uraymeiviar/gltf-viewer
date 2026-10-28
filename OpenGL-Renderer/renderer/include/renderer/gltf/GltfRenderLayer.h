@@ -255,6 +255,15 @@ public:
     // A2.2: the file's decal materials by extension, for the per-viewport switches.
     bool hasGeometryDecalMaterials() const { return m_assetHasGeometryDecalMaterials; }
     bool hasBlendGbufferMaterials() const { return m_assetHasBlendGbufferMaterials; }
+    // A3.7: the scene's nodes with ASOBO_sky_portal (parsed on updateScene and on extension edits).
+    struct SkyPortalSource {
+        float radiusMetres = 0.0f; // source_radius / 100, before the node scale
+        float innerRadiusMetres = 0.0f; // the exporter preview's inner circle (gizmo only)
+        float cosInner = 0.0f;
+        float cosOuter = 0.0f;
+    };
+    bool hasSkyPortals() const { return !m_skyPortalSources.empty(); }
+    const std::unordered_map<const gltf::Node*, SkyPortalSource>& getSkyPortalSources() const { return m_skyPortalSources; }
 
     // Isolation (local view): when root is not null, only that node is drawn, plus its
     // descendants when includeChildren is set. Nodes already hidden by their own visible
@@ -299,6 +308,7 @@ private:
         math::vec3 interiorMin = math::vec3(0.0f);
         math::vec3 interiorMax = math::vec3(0.0f);
         bool containsTransmissiveMaterial = false;
+        std::vector<const gltf::Node*> skyPortals; // A3.7: visible portal nodes (isolation does not remove them)
         const gltf::Scene* scene = nullptr;
         AsoboOptions asoboOptions;
         MaterialExtensionOptions materialExtensionOptions;
@@ -308,6 +318,8 @@ private:
         uint64_t frameToken = 0;
     };
     const SceneTraversal& traverseScene(const gltf::Scene* gltfScene);
+    void updateSkyPortals(const gltf::Gltf& gltf);
+    std::unordered_map<const gltf::Node*, SkyPortalSource> m_skyPortalSources;
     SceneTraversal m_traversal;
     uint64_t m_sceneFrameToken = 0;
     uint64_t m_nextSceneFrameToken = 0;
