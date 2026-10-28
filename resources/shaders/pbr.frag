@@ -28,6 +28,7 @@ precision highp float;
 #include <decal_receiver.glsl>
 #include <asobo_detail_map.glsl>
 #include <asobo_windshield.glsl>
+#include <asobo_dither.glsl>
 #include <material_info.glsl>
 
 #ifdef MATERIAL_IRIDESCENCE
@@ -372,6 +373,10 @@ void main()
     baseColor.rgb = applyDecalColor(baseColor.rgb, decalReceiver.baseColor);
 #endif
 
+#ifdef ASOBO_ALPHA_DITHER
+    // A1.7: the standard alpha (factor x texture x detail x vertex) before OPAQUE drops it.
+    float asoboDitherAlpha = baseColor.a;
+#endif
 #if ALPHAMODE == ALPHAMODE_OPAQUE
     baseColor.a = 1.0;
 #endif
@@ -698,6 +703,16 @@ void main()
     color = f_emissive + diffuse + f_specular;
     color = f_sheen + color * albedoSheenScaling;
     color = color * (1.0 - clearcoatFactor * clearcoatFresnel) + f_clearcoat;
+#endif
+
+#ifdef ASOBO_ALPHA_DITHER
+    // A1.7: screen-door transparency, discarded late like MASK; surviving pixels stay opaque. Unlike
+    // the MASK test it also applies in the debug views, so every view, the decal prepass and picking
+    // keep the same pixels.
+    if (asoboDitherDiscard(asoboDitherAlpha))
+    {
+        discard;
+    }
 #endif
 
 #if DEBUG == DEBUG_NONE || DEBUG == DEBUG_SSR || DEBUG == DEBUG_SSR_RAY

@@ -844,6 +844,23 @@ ValidationReport GltfValidator::validate(const std::string& filePath, ux3d::gltf
         }
     }
 
+    // 3.8b A1.7: the MSFS exporter writes its "DITHER" alpha mode verbatim into the core field. It is not
+    // a glTF 2.0 value; Glider renders it as ASOBO_material_alphamode_dither, so it is reported as an info.
+    if (jsonDoc.contains("materials") && jsonDoc["materials"].is_array()) {
+        const auto& materials = jsonDoc["materials"];
+        for (size_t i = 0; i < materials.size(); ++i) {
+            const auto& material = materials[i];
+            if (material.is_object() && material.contains("alphaMode") && material["alphaMode"].is_string()
+                && material["alphaMode"].get<std::string>() == "DITHER") {
+                report.addIssue(ValidationSeverity::Info, "MATERIAL_ALPHAMODE_DITHER",
+                                "Non-standard core alphaMode \"DITHER\" (MSFS exporter); rendered as OPAQUE with "
+                                "ASOBO_material_alphamode_dither screen-door transparency.",
+                                "/materials/" + std::to_string(i) + "/alphaMode", SelectionType::Material,
+                                static_cast<int>(i));
+            }
+        }
+    }
+
     // 3.9 ASOBO (MSFS) extensions: undeclared use, values outside the schema range, wrong types (A0.1).
     for (const auto& diagnostic : ux3d::gltf::asobo::validateExtensions(gltfModel)) {
         SelectionType type = SelectionType::None;

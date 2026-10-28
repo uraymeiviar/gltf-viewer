@@ -30,6 +30,11 @@ public:
     // When set, applyLayer returns only the picking drawables (ids are still assigned
     // over the whole input scene), for a picking draw separate from the scene (P5.2).
     bool pickingOnly = false;
+    // A1.7: viewport pixel (GL, bottom-up) that the 1x1 picking target stands for, so the
+    // ASOBO_material_alphamode_dither pattern is evaluated at the clicked pixel. Zero for
+    // full-size targets, whose gl_FragCoord already is the viewport pixel.
+    int pixelOriginX = 0;
+    int pixelOriginY = 0;
 
     // Picking materials are kept in a pool and refreshed by copy-assignment each
     // call instead of being created and destroyed per drawable per frame (P4.6).

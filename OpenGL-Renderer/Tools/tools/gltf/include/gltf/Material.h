@@ -28,6 +28,9 @@ namespace ux3d::gltf {
 class Material : public ChildOfRoot {
 private:
     std::optional<AlphaMode> m_alphaMode;
+    // A1.7: the file wrote the MSFS exporter's non-standard core alphaMode "DITHER". It is read
+    // as OPAQUE plus this flag, which selects the ASOBO_material_alphamode_dither path.
+    bool m_alphaModeDither = false;
     std::optional<double> m_alphaCutoff;
     std::optional<bool> m_doubleSided;
     std::optional<math::dvec3> m_emissiveFactor;
@@ -82,6 +85,9 @@ public:
     bool hasEmissiveFactor() const { return m_emissiveFactor.has_value(); }
 
     AlphaMode getAlphaModeOrDefault() const { return m_alphaMode.value_or(AlphaMode::Opaque); }
+    // A1.7: true when the core alphaMode string was "DITHER" (stored as OPAQUE). setAlphaMode clears it.
+    bool isAlphaModeDither() const { return m_alphaModeDither; }
+    void setAlphaModeDither(bool _dither) { m_alphaModeDither = _dither; }
     double getAlphaCutoffOrDefault() const { return m_alphaCutoff.value_or(0.5); }
     bool isDoubleSidedOrDefault() const { return m_doubleSided.value_or(false); }
     math::dvec3 getEmissiveFactorOrDefault() const { return m_emissiveFactor.value_or(math::dvec3(0)); }

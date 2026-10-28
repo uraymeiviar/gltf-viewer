@@ -39,4 +39,9 @@ layout(std140) uniform EnvironmentBlock
     // BLEND materials that declare them compile ASOBO_FRESNEL_FADE / ASOBO_GHOST_EFFECT.
     int u_AsoboFresnelFadeApplied;
     int u_AsoboGhostEffectApplied;
+    // Non-zero when the viewport applies ASOBO_material_alphamode_dither (A1.7); materials that declare
+    // it (or the core "DITHER" string) compile ASOBO_ALPHA_DITHER. u_AsoboDitherFrame advances the
+    // pattern per TAA accumulation frame and is 0 without TAA.
+    int u_AsoboAlphaDitherApplied;
+    float u_AsoboDitherFrame;
 };

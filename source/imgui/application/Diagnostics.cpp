@@ -1756,6 +1756,8 @@ nlohmann::json Application::performPickAtPixel(int px, int py, ux3d::imgui::View
     };
 
     pickingLayer->pickingOnly = true;
+    pickingLayer->pixelOriginX = px;
+    pickingLayer->pixelOriginY = glPy;
     auto pickingScene = pickingLayer->applyLayer(std::move(scene));
     pickingLayer->pickingOnly = false;
 

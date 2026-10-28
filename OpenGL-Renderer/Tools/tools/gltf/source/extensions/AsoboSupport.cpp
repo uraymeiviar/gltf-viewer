@@ -16,7 +16,7 @@ const std::vector<SupportInfo>& supportTable()
         {"ASOBO_macro_light", Support::NotYetSupported, "A3", ""},
         {"ASOBO_material_SSS", Support::NotYetSupported, "A3", ""},
         {"ASOBO_material_UV_options", Support::Rendered, "A5.2", "UV0 core/detail tiling, degree rotation about centre, positive UV offsets, then KHR transform and per-axis clamp; absent clamp keeps sampler wrap; UV1 and windshield layers untouched; clampUVZ ignored; order/sign inferred (semantics section 15)"},
-        {"ASOBO_material_alphamode_dither", Support::NotYetSupported, "A1", ""},
+        {"ASOBO_material_alphamode_dither", Support::Rendered, "A1.7", "4x4 Bayer screen-door discard on OPAQUE (and core \"DITHER\") materials, standard alpha; offset per frame under TAA; picking and decal prepass match"},
         {"ASOBO_material_anisotropic", Support::NotYetSupported, "A7", ""},
         {"ASOBO_material_anisotropic_v2", Support::NotYetSupported, "A7", ""},
         {"ASOBO_material_antialiasing_options", Support::NotYetSupported, "A7", ""},

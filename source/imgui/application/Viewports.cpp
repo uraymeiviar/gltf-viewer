@@ -729,6 +729,8 @@ void Application::drawViewports(FrameContext& frame)
             // Apply GPU picking layer (full-size reference path only; see P5.2 below)
             if (pickingRendered && s_fullSizePicking) {
                 const auto pickingBuildStart = ux3d::imgui::profiling::Clock::now();
+                pickingLayer->pixelOriginX = 0;
+                pickingLayer->pixelOriginY = 0;
                 scene = pickingLayer->applyLayer(std::move(scene));
                 frame.markStage("picking.build", pickingBuildStart);
                 ux3d::imgui::profiling::countPickingBuild();
@@ -778,6 +780,8 @@ void Application::drawViewports(FrameContext& frame)
                 vp->settings.asobo.applies("ASOBO_material_fresnel_fade"));
             commandGenerator->setAsoboGhostEffect(
                 vp->settings.asobo.applies("ASOBO_material_ghost_effect"));
+            commandGenerator->setAsoboAlphaDither(
+                vp->settings.asobo.applies("ASOBO_material_alphamode_dither"));
 
             const auto commandGenerationStart = ux3d::imgui::profiling::Clock::now();
             const uint64_t programHitsBefore = commandGenerator->getCommandMapping().getProgramCacheHits();
@@ -819,6 +823,8 @@ void Application::drawViewports(FrameContext& frame)
                                            effectiveSettings.ssrQuality, vp->settings.interiorSkyReflection);
             // TAA resolves the per-frame ray phase noise into soft reflection silhouettes.
             commandGenerator->setSsrFrame(isTaa ? static_cast<float>(vp->taaStableRenders % 64u) : 0.0f);
+            // A1.7: TAA averages a per-frame offset of the dither pattern; without TAA it stays fixed.
+            commandGenerator->setAsoboDitherFrame(isTaa ? static_cast<float>(vp->taaStableRenders % 1024u) : 0.0f);
             const bool floatCopy = scene.asoboGlassCopy && vp->sceneFbo.isValid() && vp->sceneFbo.isLinearFloat();
             transmissionDestination = floatCopy ? &vp->sceneFbo : nullptr;
             transmissionSource = &vp->sceneFbo;
@@ -916,6 +922,8 @@ void Application::drawViewports(FrameContext& frame)
                 }
 
                 pickingLayer->pickingOnly = true;
+                pickingLayer->pixelOriginX = pickPx;
+                pickingLayer->pixelOriginY = pickPy;
                 auto pickingScene = pickingLayer->applyLayer(std::move(scene));
                 pickingLayer->pickingOnly = false;
                 ux3d::imgui::profiling::countPickingBuild();

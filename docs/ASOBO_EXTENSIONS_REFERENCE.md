@@ -89,7 +89,7 @@ the planned behavior. Exact semantics are confirmed per task against the sources
 | `ASOBO_occlusion_strength` | `strength` | Ambient occlusion strength | Ignored | A1 |
 | `ASOBO_extra_occlusion_texture` | `extra_occlusion_texture` (textureInfo) | Second occlusion map | Ignored | A1 |
 | `ASOBO_material_draw_order` | `drawOrderOffset` | Sorting offset for blended materials and decals | Ignored | A1 |
-| `ASOBO_material_alphamode_dither` | `enabled` (default true) | Dithered (screen-door) alpha instead of blending | Ignored | A1 |
+| `ASOBO_material_alphamode_dither` | `enabled` (default true) | Dithered (screen-door) alpha instead of blending | **Rendered** (OPAQUE or core `"DITHER"`: discard where alpha <= 4x4 Bayer threshold, offset per TAA frame; picking and decal prepass match) | A1.7 |
 | `ASOBO_material_emissive` | `emissiveDayMultiplier`, `emissiveNightMultiplier` | Emissive scale by time of day; a viewer day/night setting | Ignored | A1 (day/night: A6) |
 
 ### 3.3 Material: layered BRDF features

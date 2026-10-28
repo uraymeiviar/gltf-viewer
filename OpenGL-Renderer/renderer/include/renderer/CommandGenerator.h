@@ -91,6 +91,10 @@ public:
     void setAsoboUVOptions(bool enabled);
     void setAsoboFresnelFade(bool enabled);
     void setAsoboGhostEffect(bool enabled);
+    // A1.7: this viewport applies ASOBO_material_alphamode_dither; frame advances the dither
+    // pattern per TAA accumulation frame (0 without TAA keeps it fixed). Both are frame-block values.
+    void setAsoboAlphaDither(bool enabled);
+    void setAsoboDitherFrame(float frame);
     void setWindshieldIcing(float icing);
     // A4 (partial): this viewport applies ASOBO_material_windshield_v3. Windshield v3
     // materials then keep COLOR_0 out of the base colour; it holds masks instead.
@@ -172,6 +176,8 @@ protected:
     gl::Uniform m_asoboUVOptionsUniform;
     gl::Uniform m_asoboFresnelFadeUniform;
     gl::Uniform m_asoboGhostEffectUniform;
+    gl::Uniform m_asoboAlphaDitherUniform;
+    gl::Uniform m_asoboDitherFrameUniform;
     gl::Uniform m_windshieldIcingUniform;
     gl::Uniform m_asoboOcclusionStrengthUniform;
     // A2.2: six borrowed views of the shared accumulation targets and their samplers. The

@@ -223,7 +223,7 @@ None.
 
 ## 6. `ASOBO_material_alphamode_dither`
 
-**Coverage: partial** (the flag and alpha source are defined; the dither pattern is not).
+**Coverage: partial** (the flag and alpha source are defined; the dither pattern is not). Glider renders it as 4x4 Bayer screen-door transparency (A1.7, see **Glider rendering** below).
 
 **Written when**
 
@@ -255,9 +255,26 @@ None. The alpha source is the standard alpha: `baseColorFactor.a`, base/detail t
 - **V** No `alphaCutoff` is written for DITHER because the cutoff is only written for `MASK` (`io/com/extensions/material/asobo_material_common.py:326-330`).
 - **I** Dithering belongs in the opaque pass: no sorting and no blending, with depth writes on. The exporter does not encode pass selection.
 
+**SDK documentation (A1.7 research, 2026-10-28)**
+
+- **V** MSFS 2020 SDK `C:\MSFS SDK\Documentation\html\Asset_Creation\3DS_Max_Plugin\Materials.htm`, "Alpha Mode": OPAQUE ("any alpha values are ignored"), MASK, BLEND ("traditional blend operation"), and DITHER: "The output is blended with the background using a dithering pattern." Nothing else on the page or the plugin page (`The_3DS_Max_Plugin.htm`) describes the pattern, the alpha source, depth or shadows.
+- **V** MSFS 2024 SDK `C:\MSFS 2024 Flighting SDK\Documentation\public\flighting\models-and-textures\textures\materials\flightsim-materials\index.md` (lines 446-448) carries the same sentence. `plugins/gltf-schemas/index.md` (lines 174-193): the extension is "Used to enable/disable the alpha component dither property for the material", example `{"enabled": true}`.
+- **V** Schema `C:\MSFS SDK\Schemas\ASOBO_material_alphamode_dither\gltf.ASOBO_material_alphamode_dither.schema.json`: one property `enabled`, boolean, default `true`.
+- **I** Depth writes and shadows are not documented. The material's separate "Don't Cast Shadows" flag (Materials.htm, "Render Parameters") suggests dithered materials cast shadows like opaque ones unless that flag is set; Glider draws no shadows, so this is untested.
+- **V** The real files (survey 2026-10-28, 106 materials in PMDG 737-900 and 777-300ER VC, MSFS 2020 characters and LSZH, the 2024 LFPG sample and the 2020 `SampleMaterials.gltf`) all write core `alphaMode` `OPAQUE` (the key is absent) plus the extension (103 as `{}`, 3 as `{"enabled": true}`); no file writes the literal `"DITHER"`. So the package/export tool maps DITHER to core OPAQUE plus the extension, and the extension is the only carrier.
+- **V** Where alpha < 1 comes from in those files (survey script on the files): the PMDG 737 VC fur shells `Layer 1`-`Layer 13` (seat sheepskin, nodes `Seat Shell 0xx`) use DXT5 `PMDG_FUR_0xx.PNG.DDS` textures with alpha (64% of texels < 250); `VC084` (seat frame) uses a DXT1 texture without alpha; the characters' hair (`CH_FEMALE_HAIR02_ALBEDO.PNG.DDS` etc., DXT5) has alpha cards. `baseColorFactor` alpha is 1 and `COLOR_0` alpha is 1 in all of them (packaged half-float / RGBA8 layout, A1.9). The 2020 `SampleMaterials.gltf` `Hair` texture has no alpha.
+
+**Glider rendering (A1.7)**
+
+- Applies to materials whose core alpha mode is OPAQUE (or the literal `"DITHER"`, which the parser reads as OPAQUE plus a flag and the validator reports as the info `MATERIAL_ALPHAMODE_DITHER`) and that declare the extension without `"enabled": false` (a bare core `"DITHER"` also dithers). MASK and BLEND materials keep their own mode **(I: no file combines them)**. Transmission materials are excluded.
+- Alpha: the standard alpha, `baseColorFactor.a x baseColorTexture.a x detail alpha (A5.1, when the viewport applies it) x COLOR_0.a` **(V, Blender graph above)**.
+- Pattern **(I, Glider's choice)**: discard where `alpha <= threshold`, `threshold = fract((B[y & 3][x & 3] + 0.5) / 16 + frame x 0.6180339887)` with `B` = the 4x4 Bayer index matrix `[[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]]` (row = viewport pixel y), at render-resolution viewport pixels. `frame` is 0 without TAA (fixed, stable image; any 4x4 window keeps exactly round(16 alpha) pixels, so 0.25/0.5/0.75 are exact) and the TAA accumulation frame otherwise (each frame keeps the per-block coverage; each pixel walks a low-discrepancy sequence, so TAA resolves the average). Alpha 0 draws nothing; alpha 1 is identical to OPAQUE.
+- Surviving pixels are opaque: opaque pass, depth writes, no blending, no sorting **(I)**. The discard is late (after lighting, like MASK) and applies in the debug views too. The decal prepass and picking (including the 1x1 picking target, which is told the clicked pixel) evaluate the same threshold, so a dithered-away pixel picks what is behind it and receives no decal depth.
+- Per-viewport switch (Viewport Settings → MSFS Extensions, `--asobo-disable ASOBO_material_alphamode_dither`, `--asobo off`): off renders the core OPAQUE result unchanged.
+
 **Open questions**
 
-1. What is the exact dither pattern: 4x4/8x8 Bayer, blue noise, hash, and at what screen-space scale?
+1. What is the exact dither pattern: 4x4/8x8 Bayer, blue noise, hash, and at what screen-space scale? (Still open; Glider uses 4x4 Bayer, see above.)
 2. Should a conformant viewer map core `"DITHER"` to `BLEND` (or `MASK`) internally, or is the raw string intentional for MSFS?
 3. Is the dither stable under TAA jitter, and does it write depth / cast shadows?
 4. What does `"enabled": false` mean? The writer never emits false; the importer ignores the value and simply sets the Blender mode to DITHER (`io/com/extensions/material/asobo_material_alphamode_dither.py:24-37`).

@@ -88,7 +88,7 @@ emissive and normals close to MSFS (user priority 1), and the explicit draw orde
   - Interactive HDR color / intensity editing supported in Material Inspector.
 
   Glow (bloom) is A4.3.
-- [ ] **A1.7 — `ASOBO_material_alphamode_dither` (R3). Owner: GPT Astra.** Dithered (screen-door) transparency in
+- [x] **A1.7 — `ASOBO_material_alphamode_dither` (R3). Owner: Claude (planned for GPT Astra).** Dithered (screen-door) transparency in
   the opaque pass, using a per-pixel discard pattern.
   - **Tests:**
     - the pattern is stable under TAA jitter;
@@ -99,6 +99,10 @@ emissive and normals close to MSFS (user priority 1), and the explicit draw orde
     `F:\msfs-addons`, MSFS 2020 characters (53) and LSZH (19) in `E:\msfs-pkgs\Official\Steam`, the 2024 SDK
     LFPG scenery sample, and the 2020 SDK `GLTFMaterials\SampleMaterials.gltf`.
   - **Semantics:** §6 (pattern unspecified). Brief: `C:\Users\uray\.claude\codex-runs\gltf-viewer\dither.brief.md`.
+  - **SDK (V):** the 2020 `Materials.htm` and the 2024 `flightsim-materials` page say only "The output is blended with the background using a dithering pattern"; the schema has `enabled` (default true). Pattern, depth writes and shadows are undocumented (semantics §6).
+  - **Mechanism:** `GltfRenderLayer` defines `ASOBO_ALPHA_DITHER` for OPAQUE, non-transmissive materials that declare the extension (its `enabled` decides) or wrote the literal core `"DITHER"` (`MaterialsFromJson` reads it as OPAQUE plus `gltf::Material::isAlphaModeDither()`; the validator reports `MATERIAL_ALPHAMODE_DITHER` as an info, not an error). `asobo_dither.glsl`: discard where `alpha <= fract((B4x4[y&3][x&3] + 0.5) / 16 + frame * 0.6180339887)`, alpha = factor x texture x detail x vertex **(pattern I, alpha source V)**. `pbr.frag` keeps the alpha before OPAQUE drops it and discards late (also in debug views); `decal_prepass.frag` and `picking.frag` run the same test, and `PickingRenderLayer::pixelOriginX/Y` gives the 1x1 picking target the clicked viewport pixel (`u_AsoboDitherPixelOrigin`). Environment block offsets 120/124: `u_AsoboAlphaDitherApplied` (per-viewport switch) and `u_AsoboDitherFrame` (`taaStableRenders % 1024` under TAA, 0 without), still 128 bytes. Opaque pass, depth writes, no blending or sorting. MASK/BLEND materials with the extension keep their mode (no file has that combination).
+  - **Harness:** `scripts/validate_asobo_dither.py` (quick tier, serial ASOBO list): every 4x4 window of the alpha 0.25/0.5/0.75 quads keeps exactly 4/8/12 pixels (factor, vertex and texture alpha), alpha 0 draws nothing, alpha 1 is byte-identical to OPAQUE; core `"DITHER"` = extension; `{"enabled": false}`, `--asobo-disable`, `--asobo off` byte-identical to no extension; TAA coverage read back through the Karis weighting: quad means 0.2531/0.4998/0.7465 for 0.25/0.5/0.75, worst pixel 0.074 (tolerances 0.02 / 0.12), frames 160 and 200 byte-identical; a dithered-away pixel picks the backdrop; decal prepass depth equals forward depth on 190,840 pixels; zero GL errors; files without the extension byte-identical to `8fa7879`.
+  - **Deviation:** the TAA result is the TAA's Karis-weighted average, so at alpha 0.5 red over green resolves to (0.275, 0.225) instead of the linear blend (0.25, 0.25); the stationary EMA weight 0.1 leaves up to about ±0.08 coverage noise per pixel (simulated bound 0.097 for the golden-ratio sequence).
 - [x] **A1.8 — `MSFT_texture_dds` (R2). Owner: Gemini 3.8 Flash (High).** Use the DDS image the extension points to, with the
   core `source` as fallback.
   - **Mechanism:** `gltf::Texture` parses `MSFT_texture_dds` extension pointing to a DDS image; `pickImageForTexture()` prefers the DDS image when `MSFT_texture_dds` is declared in `extensionsUsed` and the DDS is loaded, falling back to BasisU -> WebP -> core `source`. Fixed `Dds.cpp` pixel format header offset (offset 76 vs 80).

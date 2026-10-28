@@ -23,6 +23,8 @@ layout(location = 0) out vec4 g_pickingColor;
 #include <brdf.glsl>
 #include <punctual.glsl>
 #include <ibl.glsl>
+#include <asobo_detail_map.glsl>
+#include <asobo_dither.glsl>
 
 uniform vec4 u_BaseColorFactor;
 uniform vec4 u_DiffuseFactor;
@@ -49,12 +51,21 @@ vec4 getBaseColor()
     #endif
 #endif
 
+#if defined(ASOBO_ALPHA_DITHER) && defined(ASOBO_MATERIAL_DETAIL_MAP)
+    // A1.7: the dither test uses the forward pass's alpha, which includes the A5.1 detail alpha.
+    baseColor = applyAsoboDetailColor(baseColor);
+#endif
+
     return baseColor * getVertexColor();
 }
 
 void main()
 {
     vec4 baseColor = getBaseColor();
+
+    #ifdef ASOBO_ALPHA_DITHER
+    float asoboDitherAlpha = baseColor.a;
+    #endif
 
     #if ALPHAMODE == ALPHAMODE_OPAQUE
     baseColor.a = 1.0;
@@ -66,6 +77,14 @@ void main()
         discard;
     }
     baseColor.a = 1.0;
+    #endif
+
+    #ifdef ASOBO_ALPHA_DITHER
+    // A1.7: a dithered-away pixel picks what is behind it, exactly as the forward pass drew it.
+    if (asoboDitherDiscard(asoboDitherAlpha))
+    {
+        discard;
+    }
     #endif
 
     g_pickingColor = vec4(u_PickingColor, 1.0);

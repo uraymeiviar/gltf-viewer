@@ -424,6 +424,11 @@ void MaterialsFromJson::convertAlphaMode(const core::string& _jsonAlphaMode, Mat
         _material.setAlphaMode(AlphaMode::Mask);
     } else if (_jsonAlphaMode == "BLEND") {
         _material.setAlphaMode(AlphaMode::Blend);
+    } else if (_jsonAlphaMode == "DITHER") {
+        // A1.7: the MSFS exporter copies its "DITHER" mode verbatim into the core field (not valid
+        // glTF 2.0). Read it as OPAQUE with the dither flag; the validator reports it as an info.
+        _material.setAlphaMode(AlphaMode::Opaque);
+        _material.setAlphaModeDither(true);
     } else {
         core::logWarning("material.alphaMode has unknown value '%s'", _jsonAlphaMode.c_str());
     }

@@ -805,6 +805,23 @@ GltfRenderLayer::GltfRenderLayer(gl::GL* gl, const filesystem::Path& shaderPath)
         material->defines.define("ALPHAMODE_BLEND", static_cast<int>(gltf::AlphaMode::Blend));
         material->defines.define("ALPHAMODE", static_cast<int>(gltfMaterial->getAlphaModeOrDefault()));
 
+        // A1.7: screen-door transparency for OPAQUE materials (the files write core OPAQUE, or the
+        // exporter's literal "DITHER", read as OPAQUE) that declare ASOBO_material_alphamode_dither and do
+        // not switch it off with {"enabled": false}. They stay in the opaque pass: no sorting, no blending,
+        // depth writes on. Whether the viewport applies it is a frame-block flag, so the variant is
+        // viewport-independent and a viewport with the switch off renders the core OPAQUE result.
+        if (gltfMaterial->getAlphaModeOrDefault() == gltf::AlphaMode::Opaque
+            && !gltfMaterial->getTransmission().has_value()) {
+            const gltf::asobo::ExtensionData* dither = material->asobo != nullptr
+                ? material->asobo->find("ASOBO_material_alphamode_dither") : nullptr;
+            // The extension's own "enabled" decides when it is present; a bare core "DITHER" dithers too.
+            const bool applies = dither != nullptr ? dither->boolean("enabled").value_or(true)
+                                                   : gltfMaterial->isAlphaModeDither();
+            if (applies) {
+                material->defines.define("ASOBO_ALPHA_DITHER");
+            }
+        }
+
         if (gltfMaterial->getTransmission().has_value()) {
             material->renderPass = m_resourceManager.getTransmissivePass();
         }

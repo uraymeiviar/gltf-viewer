@@ -9,6 +9,7 @@ layout(location = 0) out vec4 g_PrepassNormal;
 #include <functions.glsl>
 #include <asobo_detail_map.glsl>
 #include <asobo_windshield.glsl>
+#include <asobo_dither.glsl>
 #include <material_info.glsl>
 
 void main()
@@ -17,6 +18,13 @@ void main()
 
 #if ALPHAMODE == ALPHAMODE_MASK
     if (baseColor.a < u_AlphaCutoff)
+    {
+        discard;
+    }
+#endif
+#ifdef ASOBO_ALPHA_DITHER
+    // A1.7: the forward pass's dither test at the same viewport pixel, so depth matches what is drawn.
+    if (asoboDitherDiscard(baseColor.a))
     {
         discard;
     }

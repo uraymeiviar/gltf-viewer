@@ -19,6 +19,7 @@ Material::Material(uint32_t _id)
 Material::Material(uint32_t _id, const Material& _source)
     : ChildOfRoot(_id, _source)
     , m_alphaMode(_source.m_alphaMode)
+    , m_alphaModeDither(_source.m_alphaModeDither)
     , m_alphaCutoff(_source.m_alphaCutoff)
     , m_doubleSided(_source.m_doubleSided)
     , m_emissiveFactor(_source.m_emissiveFactor)
@@ -186,6 +187,7 @@ GltfResult Material::createEmissiveStrength()
 GltfResult Material::setAlphaMode(AlphaMode _alphaMode)
 {
     m_alphaMode.emplace(_alphaMode);
+    m_alphaModeDither = false;
     return GltfResult::Success;
 }
 

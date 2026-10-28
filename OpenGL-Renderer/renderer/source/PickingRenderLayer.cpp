@@ -97,6 +97,10 @@ RendererScene PickingRenderLayer::applyLayer(RendererScene&& scene)
 
         material->fragmentShader = "picking.frag";
         material->uniforms.emplace_back("u_PickingColor", pickingColor);
+        if (material->defines.isDefined("ASOBO_ALPHA_DITHER")) {
+            material->setUniform<math::vec2>("u_AsoboDitherPixelOrigin",
+                math::vec2(static_cast<float>(pixelOriginX), static_cast<float>(pixelOriginY)));
+        }
         if (!material->defines.isDefined("ALPHAMODE")) {
             // the values here don't matter as long as ALPHAMODE == ALPHAMODE_OPAQUE
             material->defines.define("ALPHAMODE", 0);
