@@ -379,6 +379,7 @@ json Application::agentStateJson()
     st["frame"] = frameCount;
     st["glErrors"] = s_glErrorTotal;
     st["sun"] = sunStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene));
+    st["ssao"] = ssaoStateJson();
     if (activeViewport != nullptr) {
         // A3.6: the active viewport's ground. height/albedo are what the last render used (the albedo is what A6.2
         // reads); modelBase is the scene's lowest point whatever the height mode.
@@ -422,6 +423,34 @@ EffectiveSun Application::effectiveSun(const ux3d::imgui::SceneEnvironmentState&
     }
     sun.enabled = true;
     return sun;
+}
+
+json Application::ssaoStateJson() const
+{
+    static const char* const qualities[] = {"low", "medium", "high"};
+    json list = json::array();
+    for (const auto& vp : viewports) {
+        if (!vp) continue;
+        const auto& settings = vp->settings.ssao;
+        const auto& ao = vp->ambientOcclusion;
+        list.push_back({{"viewport", vp->id},
+                        {"enabled", settings.enabled},
+                        {"active", vp->ssaoActive},
+                        {"radius", agent::floatJson(settings.radius)},
+                        {"intensity", agent::floatJson(settings.intensity)},
+                        {"quality", qualities[static_cast<size_t>(settings.quality)]},
+                        {"slices", ux3d::imgui::SsaoSettings::sliceCount(settings.quality)},
+                        {"steps", ux3d::imgui::SsaoSettings::stepCount(settings.quality)},
+                        {"resolution", settings.halfResolution ? "half" : "full"},
+                        {"aoWidth", ao.getAoWidth()},
+                        {"aoHeight", ao.getAoHeight()},
+                        {"ownPrepass", ao.hasPrepassTarget()},
+                        {"memoryBytes", ao.getMemoryBytes()},
+                        {"computes", ao.getComputeCount()},
+                        {"gpuMs", ao.getLastGpuMs() >= 0.0 ? json(ao.getLastGpuMs()) : json(nullptr)},
+                        {"gpuMsAverage", ao.getAverageGpuMs() >= 0.0 ? json(ao.getAverageGpuMs()) : json(nullptr)}});
+    }
+    return {{"viewports", list}};
 }
 
 json Application::sunStateJson(const ux3d::imgui::SceneEnvironmentState& environment) const
@@ -890,6 +919,78 @@ void Application::registerAgentSettings()
     addSetting(floatSetting<VS>("decal_tolerance_mm", V, &VS::decalDepthToleranceMm,
                                               "Decal depth tolerance along the receiver normal (mm).",
                                               "--decal-tolerance <mm>", std::pair{0.0, 10.0}));
+    // --- Viewport: ambient occlusion (A3.5; docs/ASOBO_EXTENSIONS_PHASE_3.md) ---
+    {
+        SettingSpec enabled;
+        enabled.key = "ssao";
+        enabled.scope = V;
+        enabled.type = SettingType::Bool;
+        enabled.help = "Screen-space ambient occlusion (GTAO) of the sky light: IBL diffuse/specular/sheen/clearcoat "
+                       "only, min() with the authored occlusion. Off by default; Auto quality never changes it.";
+        enabled.cliFlag = "--ssao <on|off>";
+        enabled.get = [](void* t) { return json(static_cast<VS*>(t)->ssao.enabled); };
+        enabled.set = [](void* t, const json& v, std::string&) {
+            static_cast<VS*>(t)->ssao.enabled = v.get<bool>();
+            return true;
+        };
+        addSetting(std::move(enabled));
+
+        const auto ssaoFloat = [&](const char* key, float ux3d::imgui::SsaoSettings::*member, const char* help,
+                                   const char* cli, double minimum, double maximum) {
+            SettingSpec f;
+            f.key = key;
+            f.scope = V;
+            f.type = SettingType::Float;
+            f.help = help;
+            f.cliFlag = cli;
+            f.hasRange = true;
+            f.minimum = minimum;
+            f.maximum = maximum;
+            f.get = [member](void* t) { return agent::floatJson(static_cast<VS*>(t)->ssao.*member); };
+            f.set = [member](void* t, const json& v, std::string&) {
+                static_cast<VS*>(t)->ssao.*member = static_cast<float>(v.get<double>());
+                return true;
+            };
+            addSetting(std::move(f));
+        };
+        ssaoFloat("ssao_radius", &ux3d::imgui::SsaoSettings::radius,
+                  "SSAO radius in world units (metres in MSFS assets); occluders farther away do not count.",
+                  "--ssao-radius <x>", 0.01, 100.0);
+        ssaoFloat("ssao_intensity", &ux3d::imgui::SsaoSettings::intensity,
+                  "Exponent on the SSAO visibility (1 = the GTAO value, 0 = no occlusion).", "--ssao-intensity <x>",
+                  0.0, 4.0);
+
+        SettingSpec quality;
+        quality.key = "ssao_quality";
+        quality.scope = V;
+        quality.type = SettingType::Enum;
+        quality.help = "SSAO samples per pixel: low 2 slices x 4 steps, medium 3 x 6, high 4 x 8 (per side).";
+        quality.cliFlag = "--ssao-quality <low|medium|high>";
+        quality.enumValues = {"low", "medium", "high"};
+        quality.get = [values = quality.enumValues](void* t) {
+            return json(values[static_cast<size_t>(static_cast<VS*>(t)->ssao.quality)]);
+        };
+        quality.set = [values = quality.enumValues](void* t, const json& v, std::string&) {
+            static_cast<VS*>(t)->ssao.quality = static_cast<ux3d::imgui::SsaoQuality>(
+                std::find(values.begin(), values.end(), v.get<std::string>()) - values.begin());
+            return true;
+        };
+        addSetting(std::move(quality));
+
+        SettingSpec resolution;
+        resolution.key = "ssao_resolution";
+        resolution.scope = V;
+        resolution.type = SettingType::Enum;
+        resolution.help = "SSAO resolution: full, or half with a depth-aware upsample.";
+        resolution.cliFlag = "--ssao-resolution <full|half>";
+        resolution.enumValues = {"full", "half"};
+        resolution.get = [](void* t) { return json(static_cast<VS*>(t)->ssao.halfResolution ? "half" : "full"); };
+        resolution.set = [](void* t, const json& v, std::string&) {
+            static_cast<VS*>(t)->ssao.halfResolution = v.get<std::string>() == "half";
+            return true;
+        };
+        addSetting(std::move(resolution));
+    }
     {
         SettingSpec spec;
         spec.key = "asobo";

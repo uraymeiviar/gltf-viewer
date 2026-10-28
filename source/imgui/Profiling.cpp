@@ -631,6 +631,9 @@ bool writeProfileReport(const std::string& path, const ProfileReport& report)
         { "capture", captureToJson(report.capture) }
     };
 
+    if (!report.ssao.is_null()) {
+        document["ssao"] = report.ssao;
+    }
     if (!report.sun.is_null()) {
         document["sun"] = report.sun;
     }

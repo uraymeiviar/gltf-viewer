@@ -71,7 +71,7 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
                 "Clearcoat Factor", "Clearcoat Roughness", "Clearcoat Normal",
                 "Sheen Color", "Sheen Roughness", "Specular Factor", "Specular Color",
                 "Transmission Factor", "Volume Thickness", "Iridescence Factor", "Iridescence Thickness",
-                "SSR", "SSR Ray", "Shadow Cascades", "Shadow Visibility"
+                "SSR", "SSR Ray", "Shadow Cascades", "Shadow Visibility", "SSAO"
             };
 
             if (ImGui::Combo("Debug Mode", &state.renderModeIdx, renderModes, IM_ARRAYSIZE(renderModes))) {
@@ -185,6 +185,40 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
                 state.wireframeBlend = static_cast<WireframeBlendMode>(currentWireBlend);
                 revisions.mark(SceneChange::ViewportSettings);
             }
+
+            // A3.5: screen-space ambient occlusion of the sky light, per viewport. Auto quality never changes it.
+            ImGui::Separator();
+            ImGui::Text("Ambient Occlusion:");
+            if (ImGui::Checkbox("Screen-space ambient occlusion (SSAO)", &state.ssao.enabled)) {
+                revisions.mark(SceneChange::ViewportSettings);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("GTAO from the scene depth: darkens the sky light (IBL) in creases, corners and\n"
+                                  "under nearby objects. The sun and punctual lights keep their own shadows.\n"
+                                  "Combined with the authored occlusion maps as min(authored, SSAO).");
+            }
+            ImGui::BeginDisabled(!state.ssao.enabled);
+            if (ImGui::DragFloat("AO radius", &state.ssao.radius, 0.01f, 0.01f, 100.0f, "%.2f",
+                                 ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic)) {
+                revisions.mark(SceneChange::ViewportSettings);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("World units (metres in MSFS assets): occluders farther away do not count.");
+            }
+            if (ImGui::SliderFloat("AO intensity", &state.ssao.intensity, 0.0f, 4.0f, "%.2f")) {
+                revisions.mark(SceneChange::ViewportSettings);
+            }
+            int ssaoQuality = static_cast<int>(state.ssao.quality);
+            if (ImGui::Combo("AO quality", &ssaoQuality, "Low (2 x 4 samples)\0Medium (3 x 6)\0High (4 x 8)\0")) {
+                state.ssao.quality = static_cast<SsaoQuality>(ssaoQuality);
+                revisions.mark(SceneChange::ViewportSettings);
+            }
+            int ssaoResolution = state.ssao.halfResolution ? 1 : 0;
+            if (ImGui::Combo("AO resolution", &ssaoResolution, "Full\0Half (depth-aware upsample)\0")) {
+                state.ssao.halfResolution = ssaoResolution == 1;
+                revisions.mark(SceneChange::ViewportSettings);
+            }
+            ImGui::EndDisabled();
 
             // Material Variants (KHR_materials_variants)
             if (gltfModel != nullptr && gltfModel->hasMaterialVariants()) {

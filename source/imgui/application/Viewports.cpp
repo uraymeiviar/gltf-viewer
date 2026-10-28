@@ -739,20 +739,68 @@ void Application::drawViewports(FrameContext& frame)
                     });
             }
 
+            // A3.5: screen-space ambient occlusion. It needs the prepass depth and normal before the opaque pass:
+            // the same prepass as the decals (into the decal buffer when decals are active, otherwise into the
+            // viewport's own prepass target), then the AO passes from the prepass's post callback. Shaded view and
+            // the SSAO debug view only; nothing is allocated or drawn while it is off.
+            const bool ssaoDebugView = mode == ux3d::renderer::RenderMode::SSAO;
+            bool ssaoActive = vp->settings.ssao.enabled && !isWireframeMode && !decalDebugView &&
+                              (shadingMode == ux3d::renderer::RenderMode::None || ssaoDebugView);
+            auto& ambientOcclusion = vp->ambientOcclusion;
+            if (ssaoActive) {
+                ssaoActive = ambientOcclusion.ensureTargets(vpW, vpH, vp->settings.ssao.halfResolution);
+                if (ssaoActive && !decalActive) {
+                    ssaoActive = ambientOcclusion.ensurePrepassTarget(vpW, vpH);
+                } else if (ambientOcclusion.hasPrepassTarget()) {
+                    ambientOcclusion.releasePrepassTarget();
+                }
+                vp->sceneFbo.bind();
+                glViewport(0, 0, vpW, vpH);
+            }
+            if (!ssaoActive && ambientOcclusion.hasAnything()) {
+                ambientOcclusion.release();
+            }
+            vp->ssaoActive = ssaoActive;
+            ux3d::imgui::AmbientOcclusion::Params ssaoParams;
+            if (ssaoActive) {
+                const auto& ssao = vp->settings.ssao;
+                ssaoParams.depthTexture = decalActive ? decalBuffer.getDepthTexture() : ambientOcclusion.getPrepassDepth();
+                ssaoParams.normalTexture = decalActive ? decalBuffer.getNormalTexture() : ambientOcclusion.getPrepassNormal();
+                ssaoParams.width = vpW;
+                ssaoParams.height = vpH;
+                // The prepass draws with the camera block of this render: the TAA-jittered projection under TAA.
+                ssaoParams.projection = jitteredProj;
+                ssaoParams.view = view;
+                ssaoParams.orthographic = proj[3][3] == 1.0f;
+                ssaoParams.radius = std::max(ssao.radius, 1.0e-4f);
+                ssaoParams.intensity = std::max(ssao.intensity, 0.0f);
+                ssaoParams.sliceCount = ux3d::imgui::SsaoSettings::sliceCount(ssao.quality);
+                ssaoParams.stepCount = ux3d::imgui::SsaoSettings::stepCount(ssao.quality);
+            }
+
             // A2.1: append the decal prepass copies of the opaque drawables. Their pass
             // has a lower id than Opaque, so the prepass targets are filled before the
             // forward opaque pass of this viewport. The pass restores sceneFbo afterwards.
-            if (decalActive) {
+            if (decalActive || ssaoActive) {
                 decalPrepassLayer->setDebugView(
-                    mode == ux3d::renderer::RenderMode::DecalPrepassDepth
+                    !decalActive ? ux3d::renderer::DecalPrepassLayer::DebugView::None
+                    : mode == ux3d::renderer::RenderMode::DecalPrepassDepth
                         ? ux3d::renderer::DecalPrepassLayer::DebugView::Depth
                         : mode == ux3d::renderer::RenderMode::DecalPrepassNormal
                               ? ux3d::renderer::DecalPrepassLayer::DebugView::Normal
                               : ux3d::renderer::DecalPrepassLayer::DebugView::None);
-                decalPrepassLayer->prePass = [this, vpW, vpH] { decalBuffer.bindPrepass(vpW, vpH); };
-                decalPrepassLayer->postPass = [this, &vp] {
+                if (decalActive) {
+                    decalPrepassLayer->prePass = [this, vpW, vpH] { decalBuffer.bindPrepass(vpW, vpH); };
+                } else {
+                    decalPrepassLayer->prePass = [&ambientOcclusion, vpW, vpH] { ambientOcclusion.bindPrepass(vpW, vpH); };
+                }
+                decalPrepassLayer->postPass = [this, &vp, ssaoActive, ssaoParams, vpW, vpH] {
+                    if (ssaoActive) {
+                        vp->ambientOcclusion.compute(ssaoParams);
+                    }
                     if (transmissionSource != nullptr) transmissionSource->bind();
                     else vp->sceneFbo.bind();
+                    if (ssaoActive) glViewport(0, 0, vpW, vpH);
                 };
                 decalPrepassLayer->setDebugViewport(vpW, vpH);
                 scene = decalPrepassLayer->applyLayer(
@@ -805,6 +853,8 @@ void Application::drawViewports(FrameContext& frame)
             // A2.2: the receiver define is asset-level; this per-viewport flag says whether
             // the active viewport has a filled decal buffer to read.
             commandGenerator->setAsoboDecalReceiver(decalActive);
+            // A3.5: the SSAO result this viewport's draw fills after its prepass (zero while off).
+            commandGenerator->setSsao(ssaoActive, ssaoActive ? ambientOcclusion.getResultTexture() : 0);
             commandGenerator->setDecalDepthTolerance(vp->settings.decalDepthToleranceMm * 0.001f);
             commandGenerator->setAsoboEmissiveActive(
                 gltfLayer->declaresAsoboExtensions() &&

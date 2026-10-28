@@ -6,6 +6,7 @@
 #include "imgui/GroundSettings.h"
 #include "imgui/SceneEnvironment.h"
 #include "imgui/SceneRevisions.h"
+#include "imgui/SsaoSettings.h"
 #include "renderer/gltf/GltfRenderLayer.h"
 #include "renderer/editor/EditorRenderLayer.h"
 #include <functional>
@@ -37,6 +38,7 @@ struct ViewportSettingsState {
     float interiorSkyReflection = 0.5f;
     float decalDepthToleranceMm = 1.2f; // Receiver-normal tolerance for the decal buffer
     float windshieldIcing = 0.0f; // Windshield icing factor 0..1 (A4.2)
+    SsaoSettings ssao; // A3.5: screen-space ambient occlusion of the sky light (off by default)
     bool invertWinding = false;    // Invert front/back face winding order (CW vs CCW)
     // Legacy mode remains the fallback for saved state and existing automation.
     int antiAliasingIdx = 5;       // 0=None, 1/2/3=MSAA 2/4/8x, 4=FXAA, 5=TAA

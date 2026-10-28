@@ -545,6 +545,7 @@ gl::Program* CommandMapping::buildProgram(const Mesh& meshRef, const Material& m
     fragmentDefines.define("DEBUG_SSR_RAY", static_cast<int>(RenderMode::SSRRay));
     fragmentDefines.define("DEBUG_SHADOW_CASCADES", static_cast<int>(RenderMode::ShadowCascades));
     fragmentDefines.define("DEBUG_SHADOW_VISIBILITY", static_cast<int>(RenderMode::ShadowVisibility));
+    fragmentDefines.define("DEBUG_SSAO", static_cast<int>(RenderMode::SSAO));
     fragmentDefines.defineAllOf(mesh->defines);
     fragmentDefines.defineAllOf(material->defines);
 
@@ -798,6 +799,10 @@ std::optional<CmdDesc> CommandMapping::makeCommand(MeshMaterialTuple meshMat)
     // A3.6: the ground plane (ground.frag) receives the same shadows.
     if (material->fragmentShader == "pbr.frag" || material->fragmentShader == "ground.frag") {
         command->samplers.push_back(m_scene.m_sunShadowSampler.get());
+    }
+    // A3.5: the viewport's SSAO result (ssao.glsl), after the shadow map for the same reason.
+    if (material->fragmentShader == "pbr.frag") {
+        command->samplers.push_back(m_scene.m_ssaoSampler.get());
     }
 
     // P8.1a: resolve the program's bindings once instead of by name on every draw, and

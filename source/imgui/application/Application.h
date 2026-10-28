@@ -368,6 +368,8 @@ private:
     // the HDR rotation and scaled by the HDR intensity) and its state for get_state and profile reports.
     EffectiveSun effectiveSun(const ux3d::imgui::SceneEnvironmentState& environment) const;
     nlohmann::json sunStateJson(const ux3d::imgui::SceneEnvironmentState& environment) const;
+    // A3.5: every viewport's SSAO settings, whether its last render applied the term, memory and GPU time.
+    nlohmann::json ssaoStateJson() const;
     // A3.2: renders the viewport's cascaded sun shadow map (one depth pass per cascade, before the forward
     // scene) and sets the shadow frame values, or releases the map and disables the shadow term. Leaves
     // the viewport's scene target bound. groundHeight: the height of the A3.6 ground plane when the viewport

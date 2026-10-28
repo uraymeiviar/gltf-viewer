@@ -537,6 +537,7 @@ struct ProfileReport {
     std::vector<nlohmann::json> picks;
     nlohmann::json camera;
     nlohmann::json sun; // A3.1: effective sun and the HDR's detected sun (get_state "sun")
+    nlohmann::json ssao; // A3.5: per-viewport SSAO settings, state, memory and GPU time (get_state "ssao")
 };
 
 struct BenchmarkReport {

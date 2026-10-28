@@ -39,7 +39,7 @@ MSFS as practical, while still opening any glTF.
 | A0 | [Foundations: typed extension model, support matrix, fixtures, harness, reference screenshots](ASOBO_EXTENSIONS_PHASE_0.md) | Planned |
 | A1 | [Basic materials and draw order: normal convention, ORM/occlusion, emissive, draw order, dither, DDS](ASOBO_EXTENSIONS_PHASE_1.md) | Planned (A1.1 invisible materials: done, `00274ce`) |
 | A2 | [Decal buffer and decals](ASOBO_EXTENSIONS_PHASE_2.md) | Designed |
-| A3 | [Sun, shadows, macro lights (deferred), SSS, ambient occlusion, ground plane, sky portals](ASOBO_EXTENSIONS_PHASE_3.md) | In progress (A3.4 done) |
+| A3 | [Sun, shadows, macro lights (deferred), SSS, ambient occlusion, ground plane, sky portals](ASOBO_EXTENSIONS_PHASE_3.md) | In progress (A3.1, A3.2, A3.4, A3.5, A3.6 done) |
 | A4 | [Glass, windshields, glow (bloom), fresnel and ghost opacity](ASOBO_EXTENSIONS_PHASE_4.md) | Planned |
 | A5 | [Detail map, UV options, parallax window, wind flex](ASOBO_EXTENSIONS_PHASE_5.md) | A5.1 done |
 | A6 | [Time of day: sky, dynamic environment lighting, exposure, night sky, sun glare, optional ocean](ASOBO_EXTENSIONS_PHASE_6.md) | Planned |

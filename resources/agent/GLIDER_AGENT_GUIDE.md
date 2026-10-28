@@ -100,6 +100,21 @@ Commands run on the render thread between frames, strictly in order. Multi-frame
   sky will read). `probe` returns the plane's linear colour like any pixel: with `sun` on and the shadows on, the
   shadow of the model on the plane is visible in it.
 
+## Ambient occlusion (A3.5)
+
+- `set_viewport_setting ssao true` turns on screen-space ambient occlusion (GTAO) for that viewport (off by default;
+  Auto quality never changes it). It darkens only the sky light (IBL diffuse, specular, sheen, clearcoat) of OPAQUE
+  and MASK surfaces, combined with the authored occlusion maps as `min(authored, SSAO)`; the sun, punctual lights,
+  emissive, BLEND / transmission surfaces, the background and the A3.6 ground plane are never changed by it.
+- Keys: `ssao_radius` (world units, metres in MSFS files; default 0.5), `ssao_intensity` (exponent, default 1,
+  0 = no occlusion), `ssao_quality` (`low` 2 x 4, `medium` 3 x 6, `high` 4 x 8 samples per side), `ssao_resolution`
+  (`full`, or `half` with a depth-aware upsample).
+- Debug view `ssao` (`set_viewport_setting render_mode ssao`): the raw visibility, 1 white (open) to 0 black; `probe`
+  reads it directly. `get_state` `ssao.viewports[]` reports each viewport's settings, `active` (its last render
+  applied it), the AO target size, `memoryBytes` and `gpuMs` (GPU time of the AO passes).
+- Radius tuning: `capture` with the debug view after each `ssao_radius` change; occluders farther than the radius do
+  not count, so a cockpit-wide darkening needs a larger radius than panel creases.
+
 ## Pitfalls
 
 - **Minimised window**: `capture` fails with `window_minimized`; restore the window first.

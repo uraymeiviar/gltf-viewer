@@ -97,6 +97,9 @@ ux3d::renderer::CommandGenerator::CommandGenerator(gl::GL* gl, const filesystem:
     m_sunShadowSamplerState->compareRefToTexture = true;
     m_sunShadowSampler = std::make_unique<gl::Sampler>("u_SunShadowMap", m_sunShadowTexture.get(),
                                                        m_sunShadowSamplerState.get());
+    // A3.5: texelFetch of the SSAO result at the fragment's pixel (nearest, clamped).
+    m_ssaoTexture = std::make_unique<gl::Texture>(gl, 0, gl::TextureTarget::Texture2d, false);
+    m_ssaoSampler = std::make_unique<gl::Sampler>("u_SsaoTexture", m_ssaoTexture.get(), m_decalSamplerState.get());
     setSsrOptions(true, 1, 0.5f);
     m_ssrDepthFloat.write(0);
     m_ssrFrame.write(0.0f);
@@ -155,8 +158,9 @@ void ux3d::renderer::CommandGenerator::bindFrameBlocks()
     // float u_SunAngularRadius at 156,
     // A3.2: mat4 u_ShadowMatrices[4] at 160, vec4 u_ShadowSplits at 416, vec4 u_ShadowTexelSizes at 432,
     // vec4 u_ShadowParams at 448, int u_ShadowEnabled at 464, int u_ShadowCascadeCount at 468,
-    // int u_ShadowFilter at 472, float u_ShadowMapSize at 476 (480 bytes).
-    uint8_t environment[480] = {};
+    // int u_ShadowFilter at 472, float u_ShadowMapSize at 476,
+    // A3.5: int u_SsaoEnabled at 480 (496 bytes, a whole number of vec4).
+    uint8_t environment[496] = {};
     if (m_environmentMapRotationUniform.byteSize() == 36) {
         for (size_t column = 0; column < 3; ++column) {
             std::memcpy(environment + column * 16, m_environmentMapRotationUniform.bytes() + column * 12, 12);
@@ -200,6 +204,7 @@ void ux3d::renderer::CommandGenerator::bindFrameBlocks()
         std::memcpy(environment + 464, shadowInts, 12);
         std::memcpy(environment + 476, &m_sunShadow.mapSize, 4);
     }
+    std::memcpy(environment + 480, &m_ssaoEnabled, 4);
     uploadFrameBlock(m_environmentBlock, gl::kEnvironmentBlockBinding, environment, sizeof(environment));
 }
 

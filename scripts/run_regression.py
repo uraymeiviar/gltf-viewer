@@ -26,6 +26,7 @@ Quick tier (equivalence only: byte-identical viewport images, identical selectio
   validate_asobo_anisotropy.py, validate_asobo_sss.py, validate_sun.py (A3.1 sun; sun off against the baseline),
   validate_shadows.py (A3.2 cascaded sun shadows; sun off and shadows off against the baseline),
   validate_ground.py (A3.6 ground plane: shadow, lit value, IBL, model base, stability; Grid against the baseline),
+  validate_ssao.py (A3.5 SSAO: box interior/open plane, no halo, TAA stability, sun unchanged; off against the baseline),
   validate_asobo_decal_modes.py,
   validate_agent_control.py (control pipe, shared command registry, MCP shim; CLI flags against the baseline),
   validate_viewport_image.py (Viewport capture/save/copy, capture folder setting)
@@ -107,6 +108,7 @@ serial_jobs = [
     ("sun", ["scripts/validate_sun.py", "--baseline-exe", str(baseline)]),
     ("shadows", ["scripts/validate_shadows.py", "--baseline-exe", str(baseline)]),
     ("ground", ["scripts/validate_ground.py", "--baseline-exe", str(baseline)]),
+    ("ssao", ["scripts/validate_ssao.py", "--baseline-exe", str(baseline)]),
     ("asobo_packaged", ["scripts/validate_asobo_packaged.py"]),
     ("asobo_decal_modes", ["scripts/validate_asobo_decal_modes.py", "--baseline-exe", str(baseline)]),
     ("texture_dds", ["scripts/validate_texture_dds.py"]),

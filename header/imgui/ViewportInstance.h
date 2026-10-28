@@ -4,6 +4,7 @@
 
 #include "imgui/Framebuffer.h"
 #include "imgui/AntiAliasing.h"
+#include "imgui/AmbientOcclusion.h"
 #include "imgui/ViewportSettingsPanel.h"
 #include "imgui/SceneRevisions.h"
 #include "imgui/SunShadowMap.h"
@@ -87,6 +88,11 @@ struct ViewportInstance {
     // is the resolved plane height in scene units. groundAlbedo is the plane's average albedo, the value the A6.2
     // sky reads as its ground albedo (lower hemisphere of the environment lighting): A6.2 takes it from the
     // active viewport when groundPlaneActive, otherwise it keeps the HDR's own lower half.
+    // A3.5: this viewport's SSAO targets (nothing allocated while its SSAO is off) and whether its last render
+    // computed and applied the term.
+    AmbientOcclusion ambientOcclusion;
+    bool ssaoActive = false;
+
     bool groundPlaneActive = false;
     float groundPlaneHeight = 0.0f;
     glm::vec3 groundAlbedo = glm::vec3(0.0f);

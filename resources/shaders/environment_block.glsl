@@ -69,4 +69,8 @@ layout(std140) uniform EnvironmentBlock
     int u_ShadowCascadeCount;
     int u_ShadowFilter; // 0 hard (one bilinear compare), 1 PCF (3x3 bilinear compares), 2 soft (rotated Poisson)
     float u_ShadowMapSize; // texels per side
+
+    // A3.5 screen-space ambient occlusion (ssao.glsl): non-zero while this viewport computed the SSAO term this
+    // frame; pbr.frag then attenuates the IBL terms of OPAQUE / MASK surfaces with it.
+    int u_SsaoEnabled;
 };

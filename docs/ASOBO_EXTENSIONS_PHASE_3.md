@@ -2,7 +2,7 @@
 
 [Journal index](ASOBO_EXTENSIONS_JOURNAL.md) · [Extension reference](ASOBO_EXTENSIONS_REFERENCE.md) · [Validation rules](RENDERER_OPTIMIZATION_VALIDATION.md)
 
-**Status:** In progress: A3.1, A3.2, A3.4 and A3.6 done (A3.4 ahead of A3.1).
+**Status:** In progress: A3.1, A3.2, A3.4, A3.5 and A3.6 done (A3.4 ahead of A3.1).
 
 **Entry:** A2.2, the deferred lighting pass. **Goal:** shadows from a sun (user priority 4), and the remaining
 lighting features of user priority 5. The sun's direction is set by hand here and driven by time of day in A6.
@@ -170,7 +170,7 @@ lighting features of user priority 5. The sun's direction is set by hand here an
     777 seat fur shells change in 4.6% of the frame (max 20 levels), gear handle knob 0.3% (max 25), MSFS 2020
     marshaller face/arms 4-7% (max 24, warmer skin on the sky-lit side), windsock fabric (orange `SSSColor`) 2.1%
     (max 65). With IBL only the effect is a mild glow on thin/convex parts; the wrap needs direct light (A3.1).
-- [ ] **A3.5 — Ambient occlusion for sky light (R3). Owner: Claude.** Shadows block only the sun; without this
+- [x] **A3.5 — Ambient occlusion for sky light (R3). Owner: Claude.** Shadows block only the sun; without this
   the sky IBL reaches deep into cockpits and cabins and interiors look flat and too bright. Screen-space ambient
   occlusion (GTAO or an equivalent SSAO) attenuates the diffuse IBL and, through a specular-occlusion term, the
   specular IBL. It complements, not replaces, the authored occlusion maps (A1.3, A1.5, A1.10) and the
@@ -182,6 +182,70 @@ lighting features of user priority 5. The sun's direction is set by hand here an
     - a box interior and an open plane: occlusion inside the box, none on the open plane;
     - off gives the current image byte for byte;
     - no halo along silhouettes against the sky.
+  - **Done 2026-10-28.** Off by default (every existing image byte-identical; the maintainer may make it default on
+    later). Fragment shaders only (`#version 410`): works on every 4.1+ context, no compute fallback needed.
+    - **Order (forward renderer):** the A2.1 decal prepass already draws every OPAQUE / MASK drawable's depth and
+      world-space geometric normal before the opaque pass; SSAO reuses it (into the shared decal buffer when decals
+      are active, otherwise into the viewport's own D32F + RGB10_A2 prepass target) and runs its passes from the
+      prepass's post callback, so the AO exists when the opaque pass shades. Cheaper than a deferred composite of
+      the IBL terms (no MRT, no per-sample MSAA composite), and the pass order (prepass, decal accumulation, opaque,
+      transparent; decal and draw-order rules) is unchanged. Applied in linear HDR before TAA.
+    - **GTAO** (`resources/shaders/ssao_passes.frag`, `header/imgui/AmbientOcclusion.h`): Jimenez 2016 slices with
+      XeGTAO's step distribution (s^2, 1.3 px minimum), view-space positions from the jittered projection's inverse,
+      distance falloff from 0.6 to 1.0 x radius. Two deviations from the paper, both for open surfaces: horizons
+      are elevations above the tangent plane (`asin(dot(d, n) / |projected n|)`), so a sample that pixel rounding
+      moves off the slice stays at elevation 0 on a plane (the paper's horizon cosine darkened a grazing plane to
+      0.94); and the slice sum is divided by the same slices' open-hemisphere value, so 2-4 slices give exactly 1 on
+      an open tilted surface (they gave 0.96-0.997). Intensity = exponent on the visibility. Quality: low 2 slices
+      x 4 steps, medium 3 x 6, high 4 x 8 (per side).
+    - **Denoise / upsample / temporal:** fixed 4 x 4 Bayer noise (slice rotation and step jitter), a depth-aware
+      5 x 5 filter with [0.5 1 1 1 0.5] taps (every noise phase weighted equally; taps compared with the centre's
+      depth plane, 1% tolerance), at half resolution a depth-aware bilinear upsample (2% tolerance, nearest-depth
+      fallback). Nothing changes over time, so TAA only integrates the sub-pixel jitter (TAA's history is the
+      temporal filter); no extra temporal pass.
+    - **Application** (`pbr.frag` after the authored and decal AO, `ssao.glsl`): only the IBL terms of OPAQUE /
+      MASK surfaces whose depth matches the prepass surface of the pixel (0.5% of the view depth; BLEND,
+      transmission and anything in front keep 1). Diffuse (incl. the A3.4 SSS back radiance) x Jimenez multi-bounce
+      (albedo = c_diff); specular, sheen and clearcoat x Lagarde's specular occlusion (NdotV, alpha = roughness^2 of
+      the lobe). Combination with the authored occlusion: **min** per term, `min(authored, SSAO')`, authored =
+      material AO with its strength x decal AO. MSFS's authored AO is already the ratio of total sky light incl.
+      bounces, so a crease both contain is darkened once and only occlusion the bake lacks (other parts, assets
+      without AO maps) is added; the multi-bounce makes the SSAO term the same quantity before the min (a product
+      would darken baked creases twice). The sun, punctual lights, emissive and the background never see it.
+    - **Settings:** `SsaoSettings` per viewport (Viewport Settings → Render Modes → *Ambient Occlusion*: on/off,
+      radius, intensity, quality, resolution); not part of the quality presets, so Auto never changes it. CLI
+      `--ssao`, `--ssao-radius`, `--ssao-intensity`, `--ssao-quality`, `--ssao-resolution`; registry keys `ssao`,
+      `ssao_radius`, `ssao_intensity`, `ssao_quality`, `ssao_resolution`; debug view `ssao` (raw visibility);
+      `get_state` / `--profile-report` `ssao.viewports[]` (active, AO size, memory, GPU time by GL_TIMESTAMP).
+    - **Memory:** RG32F targets: full 16 bytes per pixel (+8 for the own prepass target without decals), half
+      adds two quarter-size targets; 918 x 796: 11.7 MB with decals, 17.5 MB without (full).
+  - **Check:** `scripts/validate_ssao.py` (quick regression, serial list; fixtures `scripts/ssao_fixtures.py`), all
+    PASS: off = default byte-identical to b28fda3 (HelloCube, the box fixture, E195 `exterior_fuselage_nose` and
+    `cockpit_main_displays`); box interior (radius 0.5 m) corner visibility 0.37 / 0.34 / 0.32 (low / medium /
+    high), 0.42 at half resolution (< 0.6), floor/wall crease 0.53-0.59 (< 0.8), floor centre 1.000; 40 m open plane
+    min 1.000, mean 1.0000 (>= 0.99 / 0.999) at every quality and resolution, convex cube faces 1.000; the shaded
+    image only darkens, where the visibility is below 1 (darkest corner -33% sky light); halo: wall 0.6 m behind a
+    cube, no wall pixel darkened beyond 1 px (full) / 2 px (half) of the silhouette (0 darkened), and a 1.5 m radius
+    does darken 15526 wall pixels (the measure can see a halo); against the sky the box changes on 29766 of its own
+    pixels and on no background pixel; TAA frames 64/96 inside the box max 1 level, mean 0.004 (off: 1 / 0.001);
+    black environment + sun: on = off byte-identical; probes (linear HDR): (on - off) with the sun equals (on - off)
+    without it within 1e-16 while SSAO removes up to 0.115; registry, get_state, debug view name, flags, invalid
+    values rejected, intensity 0 = the off image; zero GL errors. Also pass: `validate_sun.py`, `validate_shadows.py`, `validate_ground.py`, `validate_agent_control.py` (against b28fda3), `validate_asobo_glass.py` (windshield SSR, 133 PASS), `validate_asobo_decal_modes.py` (shared prepass), `validate_p8_1.py --only equivalence`.
+  - **Cost** (`scripts/measure_ssao_cost.py`, 1600 x 900 window = 918 x 796 viewport, medium, radius 0.5, every
+    frame redrawn, ~117 frames; the GPU also runs an inference VM, so main-frame totals are noisy): AO passes
+    (GTAO + denoise [+ upsample]) full / half: HelloCube 0.041 / 0.033 ms, E195 exterior 0.059 / 0.042 ms, DA62
+    cockpit 0.160 / 0.062 ms. Prepass pass incl. AO: HelloCube 0 -> 0.048 ms (own prepass), E195 0.038 -> 0.097 ms,
+    DA62 0.042 -> 0.202 ms (both reuse the decal prepass). Main frame: DA62 5.88 -> 6.05 (full) / 5.93 ms (half).
+  - **Review:** `build/review/ssao/contact_sheet.png` (`scripts/review_ssao.py`): DA62 cockpit (two views), E195
+    cockpit and exterior, SSAO off / on 0.5 m / on 1.5 m / debug view. With the min against the authored AO the
+    change on MSFS assets is subtle: 0.6% of the pixels (DA62 canopy view), 13% (DA62 seats and panel, up to 47
+    levels), 1.0% (E195 cockpit), 2.6% (E195 exterior: gear, door seams); the debug view shows the creases (panel
+    bezels, seat folds, gear well).
+  - **Deviations:** horizon elevation and slice normalisation (above); fixed spatial noise instead of temporally
+    rotated noise (stability over convergence); geometric, not normal-mapped, normals (the prepass's); the A3.6
+    ground plane neither occludes (not in the prepass) nor receives SSAO, so aircraft-on-ground contact AO is
+    missing; the profile report always carries the `ssao` object; the GPU time is measured with GL_TIMESTAMP
+    inside the prepass pass query.
 - [x] **A3.6 — Ground plane (R3). Owner: Claude.** A ground choice per viewport: *Grid* (current), *Plane*
   (an infinite ground at the model's lowest point or at y = 0, with a colour or a tiling material such as tarmac
   or grass), and *Ocean* (A6.8). The plane receives the A3.2 sun shadow, which gives the aircraft's shadow on the
@@ -257,7 +321,7 @@ lighting features of user priority 5. The sun's direction is set by hand here an
     the barrier pole, 1 m below the nose gear (use Custom or remove them), and the DA62 airframe has no wheels (they
     are separate parts), so its base is the gear doors; the model base follows the rest pose, so an animation that
     extends the main gear lowers it below the plane; punctual lights do not light the plane; the plane does not
-    receive A3.5 ambient occlusion (A3.5 is not done); the tyre-contact check uses the E195 copy without ground
+    receive A3.5 ambient occlusion (see A3.5); the tyre-contact check uses the E195 copy without ground
     support equipment.
 - [ ] **A3.7 — `ASOBO_sky_portal` (R3). Owner: Claude.** Window area lights that bring sky and sun light into
   the cabin. Entry: A3.1 (and A3.2 for the sun term).

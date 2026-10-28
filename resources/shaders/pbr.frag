@@ -31,6 +31,7 @@ precision highp float;
 #include <asobo_dither.glsl>
 #include <asobo_sss.glsl>
 #include <shadow.glsl>
+#include <ssao.glsl>
 #include <material_info.glsl>
 
 #ifdef MATERIAL_IRIDESCENCE
@@ -577,6 +578,9 @@ void main()
 #endif
 
     float ao = 1.0;
+    // A3.5: the authored occlusion as applied to the IBL terms below (material map with its strength, times the
+    // decal AO); only the SSAO combination reads it.
+    float ssaoAuthoredOcclusion = 1.0;
     // Apply optional PBR terms for additional (optional) shading
 #ifdef HAS_OCCLUSION_MAP
     ao = texture(u_OcclusionSampler,  getOcclusionUV()).r;
@@ -599,6 +603,7 @@ void main()
         occlusionStrength = u_AsoboOcclusionStrength;
     }
 #endif
+    ssaoAuthoredOcclusion = max(mix(1.0, ao, occlusionStrength), 0.0);
     f_diffuse = mix(f_diffuse, f_diffuse * ao, occlusionStrength);
     // apply ambient occlusion to all lighting that is not punctual
     f_specular = mix(f_specular, f_specular * ao, occlusionStrength);
@@ -620,6 +625,31 @@ void main()
         f_specular *= decalReceiver.occlusion;
         f_sheen *= decalReceiver.occlusion;
         f_clearcoat *= decalReceiver.occlusion;
+        ssaoAuthoredOcclusion *= decalReceiver.occlusion;
+    }
+#endif
+#if defined(USE_IBL) && ALPHAMODE != ALPHAMODE_BLEND
+    // A3.5: screen-space ambient occlusion of the sky light. Only the IBL terms above (diffuse incl. the SSS back
+    // radiance, specular, sheen, clearcoat): the sun and punctual lights below have their own shadows, emissive and
+    // the background never see it. MSFS's authored occlusion is already the ratio of sky light incl. bounces, so
+    // the two are combined as min(authored, SSAO) per term, with the SSAO term made comparable first (multi-bounce
+    // for diffuse, Lagarde's specular occlusion for the lobes): a crease both contain is darkened once, occlusion
+    // only SSAO sees (other objects, moving parts, assets without AO maps) is added.
+    if (u_SsaoEnabled != 0) {
+        float ssao = ssaoVisibility(v_Position);
+        if (ssao < 1.0) {
+            float authored = max(ssaoAuthoredOcclusion, 1.0e-4);
+            f_diffuse *= min(vec3(1.0), ssaoMultiBounce(ssao, materialInfo.c_diff) / authored);
+            f_specular *= min(1.0, ssaoSpecularOcclusion(NdotV, ssao, materialInfo.alphaRoughness) / authored);
+#ifdef MATERIAL_SHEEN
+            f_sheen *= min(1.0, ssaoSpecularOcclusion(NdotV, ssao,
+                materialInfo.sheenRoughnessFactor * materialInfo.sheenRoughnessFactor) / authored);
+#endif
+#ifdef MATERIAL_CLEARCOAT
+            f_clearcoat *= min(1.0, ssaoSpecularOcclusion(clampedDot(materialInfo.clearcoatNormal, v), ssao,
+                materialInfo.clearcoatRoughness * materialInfo.clearcoatRoughness) / authored);
+#endif
+        }
     }
 #endif
 
@@ -1074,6 +1104,15 @@ vec3 specularTexture = vec3(1.0);
 #endif
 #if DEBUG == DEBUG_SHADOW_VISIBILITY
     g_finalColor = vec4(vec3(u_SunEnabled != 0 ? sunShadowVisibility(v_Position, normalInfo.ng) : 1.0), 1.0);
+#endif
+#if DEBUG == DEBUG_SSAO
+    // A3.5: the raw SSAO visibility (GTAO with the intensity exponent, before multi-bounce and the min with the
+    // authored occlusion); 1 where SSAO is off or the surface is not the prepass surface of its pixel.
+#if ALPHAMODE != ALPHAMODE_BLEND
+    g_finalColor = vec4(vec3(u_SsaoEnabled != 0 ? ssaoVisibility(v_Position) : 1.0), 1.0);
+#else
+    g_finalColor = vec4(vec3(1.0), 1.0);
+#endif
 #endif
 #if DEBUG == DEBUG_SSR && defined(ASOBO_WINDSHIELD_SSR)
     vec4 ssrDebug = traceWindshield(n, v, normalInfo.ng, v_Position);

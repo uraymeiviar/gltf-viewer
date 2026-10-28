@@ -146,6 +146,14 @@ public:
         m_sunShadowTexture->handle = shadow.enabled ? shadow.texture : 0;
     }
     const SunShadowParameters& getSunShadow() const { return m_sunShadow; }
+    // A3.5: the active viewport's SSAO result (EnvironmentBlock u_SsaoEnabled, sampler u_SsaoTexture). The texture
+    // is filled during the draw (after the prepass); its handle must be the one bound here.
+    void setSsao(bool enabled, GLuint texture)
+    {
+        m_ssaoEnabled = enabled && texture != 0 ? 1 : 0;
+        m_ssaoTexture->handle = m_ssaoEnabled != 0 ? texture : 0;
+    }
+    bool isSsaoEnabled() const { return m_ssaoEnabled != 0; }
     void setSsrOptions(bool enabled, int quality, float sky) {
         m_ssrOptions.write(math::vec3(enabled ? 1.0f : 0.0f, quality == 0 ? 256.0f : quality == 2 ? 1024.0f : 512.0f, sky));
     }
@@ -227,6 +235,10 @@ protected:
     std::unique_ptr<gl::Texture> m_sunShadowTexture;
     std::unique_ptr<gl::SamplerState> m_sunShadowSamplerState;
     std::unique_ptr<gl::Sampler> m_sunShadowSampler;
+    // A3.5 SSAO result (borrowed texture handle; stable wrapper, nearest sampler).
+    int32_t m_ssaoEnabled = 0;
+    std::unique_ptr<gl::Texture> m_ssaoTexture;
+    std::unique_ptr<gl::Sampler> m_ssaoSampler;
     // A2.2: six borrowed views of the shared accumulation targets and their samplers. The
     // wrappers live as long as the generator; setDecalTargets refreshes only the handles.
     std::array<std::unique_ptr<gl::Texture>, 6> m_decalTextures;

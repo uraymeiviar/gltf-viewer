@@ -507,6 +507,18 @@ std::optional<int> Application::configure(int argc, char** argv)
             const std::string value = toLowerAscii(argv[++i]);
             if (value != "on" && value != "off") return 1;
             if (!applyCliSetting(SettingScope::Viewport, "ssr", value, "--ssr")) return 1;
+        } else if (arg == "--ssao" && i + 1 < argc) {
+            const std::string value = toLowerAscii(argv[++i]);
+            if (value != "on" && value != "off") return 1;
+            if (!applyCliSetting(SettingScope::Viewport, "ssao", value, "--ssao")) return 1;
+        } else if (arg == "--ssao-radius" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "ssao_radius", argv[++i], "--ssao-radius")) return 1;
+        } else if (arg == "--ssao-intensity" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "ssao_intensity", argv[++i], "--ssao-intensity")) return 1;
+        } else if (arg == "--ssao-quality" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "ssao_quality", toLowerAscii(argv[++i]), "--ssao-quality")) return 1;
+        } else if (arg == "--ssao-resolution" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "ssao_resolution", toLowerAscii(argv[++i]), "--ssao-resolution")) return 1;
         } else if (arg == "--ssr-quality" && i + 1 < argc) {
             if (!applyCliSetting(SettingScope::Viewport, "ssr_quality", toLowerAscii(argv[++i]), "--ssr-quality")) return 1;
         } else if (arg == "--interior-sky-reflection" && i + 1 < argc) {

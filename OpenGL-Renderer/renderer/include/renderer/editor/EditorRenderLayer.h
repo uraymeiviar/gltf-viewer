@@ -67,6 +67,8 @@ enum class RenderMode : uint32_t {
     // A3.2: sun shadow cascades (index colours) and the sun visibility term.
     ShadowCascades,
     ShadowVisibility,
+    // A3.5: the screen-space ambient occlusion term.
+    SSAO,
 
 };
 
