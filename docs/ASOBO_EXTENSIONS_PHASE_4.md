@@ -97,12 +97,20 @@ emissive glow.
   - **Results (2026-10-28):**
     - Added the small standalone `imageformats/source/Tiff.h` reader: strip-based II/MM, unsigned 8/16-bit
       RGB/RGBA/grey/grey-alpha, none/LZW/PackBits, horizontal predictor 2, RGBA8 output; 16-bit uses the
-      high byte. TIFF magic, `.tif`/`.tiff`, and `image/tiff` are recognized. Unsupported variants use the
+      high byte. Chunky and separate planes (PlanarConfiguration 1 and 2) are both supported: with separate
+      planes the strip table is plane-major (all strips of plane 0, then plane 1, ...) and predictor 2 differences
+      each plane with a stride of one sample (added after A4.2.1 for the DA62 shared dirt texture
+      `Regular_albd.tif`, which is RGBA with separate planes). TIFF magic, `.tif`/`.tiff`, and `image/tiff` are
+      recognized. Unsupported variants (including PlanarConfiguration values other than 1 and 2) use the
       error image with one file/reason warning. No new runtime dependency.
     - `scripts/validate_tiff_images.py`: 135 checks pass, including 96 combinations of byte order, channel
-      count, bit depth, compression and predictor; independent Pillow TIFFs; unsupported planar/JPEG/float/
+      count, bit depth, compression and predictor; independent Pillow TIFFs; unsupported planar value 3/JPEG/float/
       tiles/BigTIFF/truncation; PNG/magic/data-URI capture parity; six actual DA62 TIFFs including Carpet and
       the shared `Fabric_Tile_01_albd.tif` compare exactly in RGB against Pillow.
+      With separate-plane support the script runs 296 checks: 72 plane-major files (grey+alpha/RGB/RGBA, 8/16-bit,
+      both byte orders, none/LZW/PackBits, predictor 1/2, 5 strips) decode byte-identically to the planar-1 files of
+      the same pixels, 6 uncompressed tifffile separate-plane files match, short and truncated plane tables are
+      rejected, and the SDK `Regular_albd.tif` matches tifffile.
     - Diagnosis verified with temporary GPU diagnostics, removed from the shipping shader: the sampled
       scratch lines survive at UVScale 7 (estimated LOD mean 0.85); the windshield has nonzero diffuse
       lighting (ROI mean RGB 0.0595/0.0732/0.0943). Raising alpha mixes that dim surface over the brighter

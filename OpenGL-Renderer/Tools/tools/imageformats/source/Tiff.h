@@ -144,7 +144,8 @@ public:
             "invalid TIFF byte order");
         require(number(2, 2) == 42, "unsupported TIFF version (BigTIFF)");
         require(scalar(322, 0) == 0 && scalar(324, 0) == 0, "unsupported tiled TIFF");
-        require(scalar(284, 1) == 1, "unsupported TIFF planar configuration (separate planes)");
+        const auto planar = scalar(284, 1);
+        require(planar == 1 || planar == 2, "unsupported TIFF planar configuration (expected chunky or separate planes)");
         require(scalar(274, 1) == 1, "unsupported TIFF orientation (expected top-left)");
         require(scalar(266, 1) == 1, "unsupported TIFF FillOrder");
         for (auto format : tag(339, 1)) require(format == 1, "unsupported TIFF sample format (float/signed)");
@@ -169,36 +170,53 @@ public:
         require(uint64_t(result.width) * result.height <= (uint64_t(1) << 28), "TIFF decoded image exceeds 1 GiB limit");
         const auto offsets = tag(273, 0), lengths = tag(279, 0);
         const size_t strips = (uint64_t(result.height) + rows - 1) / rows;
-        require(offsets.size() == strips && lengths.size() == strips, "invalid TIFF strip table");
+        // PlanarConfiguration 2: the table holds every strip of plane 0, then plane 1, ... (plane-major).
+        const size_t planes = planar == 2 ? samples : 1, chunks = strips * planes;
+        require(offsets.size() == chunks && lengths.size() == chunks, "invalid TIFF strip table");
         result.rgba.resize(size_t(result.width) * result.height * 4);
         const size_t bytesPerSample = bits[0] / 8;
-        const size_t stride = size_t(result.width) * samples;
+        // Samples per pixel stored in one strip chunk: all of them (chunky) or a single plane.
+        const size_t chunkSamples = planes > 1 ? 1 : samples;
+        const size_t stride = size_t(result.width) * chunkSamples;
+        const bool alpha = samples == (photo == 2 ? 4u : 2u);
+        const uint32_t maximum = bits[0] == 8 ? 255 : 65535;
+        auto convert = [&](const uint16_t* line, size_t row) {
+            for (size_t x = 0; x < result.width; ++x) {
+                const uint32_t a = alpha ? line[x * samples + samples - 1] : maximum;
+                const size_t dest = (row * result.width + x) * 4;
+                for (size_t c = 0; c < 3; ++c) {
+                    uint32_t v = line[x * samples + (photo == 2 ? c : 0)];
+                    if (photo == 0) v = maximum - v;
+                    if (alpha && extra == 1) v = a ? uint32_t(std::min<uint64_t>(maximum, uint64_t(v) * maximum / a)) : 0;
+                    result.rgba[dest + c] = uint8_t(bits[0] == 16 ? v >> 8 : v);
+                }
+                result.rgba[dest + 3] = uint8_t(bits[0] == 16 ? a >> 8 : a);
+            }
+        };
+        std::vector<uint16_t> line(stride);
         for (size_t strip = 0; strip < strips; ++strip) {
             const size_t rowStart = strip * rows, rowCount = std::min<size_t>(rows, result.height - rowStart);
-            auto raw = unpack(offsets[strip], lengths[strip], rowCount * stride * bytesPerSample, compression);
-            std::vector<uint16_t> line(stride);
-            for (size_t y = 0; y < rowCount; ++y) {
-                for (size_t s = 0; s < stride; ++s) {
-                    const size_t p = (y * stride + s) * bytesPerSample;
-                    uint32_t value = raw[p];
-                    if (bytesPerSample == 2) value = little ? value | uint32_t(raw[p + 1]) << 8 : value << 8 | raw[p + 1];
-                    if (predictor == 2 && s >= samples) value += line[s - samples];
-                    line[s] = uint16_t(value & (bytesPerSample == 1 ? 255 : 65535));
-                }
-                for (size_t x = 0; x < result.width; ++x) {
-                    const bool alpha = samples == (photo == 2 ? 4u : 2u);
-                    const uint32_t maximum = bits[0] == 8 ? 255 : 65535;
-                    const uint32_t a = alpha ? line[x * samples + samples - 1] : maximum;
-                    const size_t dest = ((rowStart + y) * result.width + x) * 4;
-                    for (size_t c = 0; c < 3; ++c) {
-                        uint32_t v = line[x * samples + (photo == 2 ? c : 0)];
-                        if (photo == 0) v = maximum - v;
-                        if (alpha && extra == 1) v = a ? uint32_t(std::min<uint64_t>(maximum, uint64_t(v) * maximum / a)) : 0;
-                        result.rgba[dest + c] = uint8_t(bits[0] == 16 ? v >> 8 : v);
+            // Separate planes are gathered per strip so each pixel is converted once all its samples are known.
+            std::vector<uint16_t> gathered;
+            if (planes > 1) gathered.resize(rowCount * result.width * samples);
+            for (size_t plane = 0; plane < planes; ++plane) {
+                const size_t chunk = plane * strips + strip;
+                auto raw = unpack(offsets[chunk], lengths[chunk], rowCount * stride * bytesPerSample, compression);
+                for (size_t y = 0; y < rowCount; ++y) {
+                    for (size_t s = 0; s < stride; ++s) {
+                        const size_t p = (y * stride + s) * bytesPerSample;
+                        uint32_t value = raw[p];
+                        if (bytesPerSample == 2) value = little ? value | uint32_t(raw[p + 1]) << 8 : value << 8 | raw[p + 1];
+                        if (predictor == 2 && s >= chunkSamples) value += line[s - chunkSamples];
+                        line[s] = uint16_t(value & (bytesPerSample == 1 ? 255 : 65535));
                     }
-                    result.rgba[dest + 3] = uint8_t(bits[0] == 16 ? a >> 8 : a);
+                    if (planes > 1)
+                        for (size_t x = 0; x < result.width; ++x) gathered[(y * result.width + x) * samples + plane] = line[x];
+                    else convert(line.data(), rowStart + y);
                 }
             }
+            if (planes > 1)
+                for (size_t y = 0; y < rowCount; ++y) convert(gathered.data() + y * result.width * samples, rowStart + y);
         }
         return result;
     }

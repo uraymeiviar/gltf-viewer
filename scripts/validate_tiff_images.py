@@ -13,6 +13,7 @@ import subprocess
 import sys
 
 import numpy as np
+import tifffile
 from PIL import Image, TiffImagePlugin
 
 import harness_process
@@ -58,35 +59,42 @@ int main(int argc, char** argv) {
     return driver
 
 
-def wrapped_tiff(array, endian, compression, predictor):
+def wrapped_tiff(array, endian, compression, predictor, planar=1, short_table=False):
     """PIL compresses arbitrary strip bytes; TIFF container describes RGB/grey16.
 
     The predictor is applied in integer sample space before libtiff compression,
     independently of the reader. Multiple strips reset it on every scanline.
+    planar=2 stores one plane per strip chunk, plane-major (all strips of plane 0, then
+    plane 1, ...), with the predictor differencing each plane horizontally by one sample.
+    short_table drops the strip-table entries of every plane after the first (hostile).
     """
     h, w, channels = array.shape
     bits = array.dtype.itemsize * 8
     payloads = []
     rows_per_strip = 17
-    for start in range(0, h, rows_per_strip):
-        data = array[start:start + rows_per_strip].copy()
-        if predictor == 2:
-            original = data.copy()
-            data[:, 1:, :] = original[:, 1:, :] - original[:, :-1, :]
-        raw = data.astype(endian + ("u2" if bits == 16 else "u1")).tobytes()
-        # Single-row L8 is just a byte stream to the independent libtiff encoder.
-        temporary = OUT / "encoded_strip.tif"
-        Image.frombytes("L", (len(raw), 1), raw).save(temporary, compression=compression)
-        with Image.open(temporary) as encoded:
-            offset, = encoded.tag_v2[273]
-            length, = encoded.tag_v2[279]
-        payloads.append(temporary.read_bytes()[offset:offset + length])
+    for plane in range(channels if planar == 2 else 1):
+        for start in range(0, h, rows_per_strip):
+            data = array[start:start + rows_per_strip].copy()
+            if planar == 2:
+                data = data[:, :, plane:plane + 1].copy()
+            if predictor == 2:
+                original = data.copy()
+                data[:, 1:, :] = original[:, 1:, :] - original[:, :-1, :]
+            raw = data.astype(endian + ("u2" if bits == 16 else "u1")).tobytes()
+            # Single-row L8 is just a byte stream to the independent libtiff encoder.
+            temporary = OUT / "encoded_strip.tif"
+            Image.frombytes("L", (len(raw), 1), raw).save(temporary, compression=compression)
+            with Image.open(temporary) as encoded:
+                offset, = encoded.tag_v2[273]
+                length, = encoded.tag_v2[279]
+            payloads.append(temporary.read_bytes()[offset:offset + length])
+    table = len(payloads) // channels if short_table else len(payloads)
     comp = {"raw": 1, "tiff_lzw": 5, "packbits": 32773}[compression]
     # Entries contain explicit types, so byte order/SHORT-in-LONG slots are tested.
     entries = [(256, 4, [w]), (257, 4, [h]), (258, 3, [bits] * channels), (259, 3, [comp]),
-               (262, 3, [2 if channels >= 3 else 1]), (273, 4, [0] * len(payloads)),
-               (277, 3, [channels]), (278, 4, [rows_per_strip]), (279, 4, list(map(len, payloads))),
-               (284, 3, [1]), (317, 3, [predictor]), (339, 3, [1] * channels)]
+               (262, 3, [2 if channels >= 3 else 1]), (273, 4, [0] * table),
+               (277, 3, [channels]), (278, 4, [rows_per_strip]), (279, 4, list(map(len, payloads))[:table]),
+               (284, 3, [planar]), (317, 3, [predictor]), (339, 3, [1] * channels)]
     if channels in (2, 4):
         entries.append((338, 3, [2]))
     entries.sort()
@@ -97,7 +105,7 @@ def wrapped_tiff(array, endian, compression, predictor):
     for payload in payloads:
         offsets.append(pos)
         pos += len(payload)
-    entries = [(tag, typ, offsets if tag == 273 else values) for tag, typ, values in entries]
+    entries = [(tag, typ, offsets[:table] if tag == 273 else values) for tag, typ, values in entries]
     directory, extra = bytearray(), bytearray()
     for tag, typ, values in entries:
         packed = struct.pack(endian + ("H" if typ == 3 else "I") * len(values), *values)
@@ -136,9 +144,10 @@ def main():
     results = []
     rng = np.random.default_rng(421)
     fixtures = []
+    images = {}
     for bits in (8, 16):
         for channels in (1, 2, 3, 4):
-            a = rng.integers(0, 1 << bits, (73, 97, channels), dtype=np.uint8 if bits == 8 else np.uint16)
+            a = images[(bits, channels)] = rng.integers(0, 1 << bits, (73, 97, channels), dtype=np.uint8 if bits == 8 else np.uint16)
             for endian in ("<", ">"):
                 for compression in ("raw", "tiff_lzw", "packbits"):
                     for predictor in (1, 2):
@@ -146,6 +155,28 @@ def main():
                         path = OUT / (name + ".tif")
                         path.write_bytes(wrapped_tiff(a, endian, compression, predictor))
                         fixtures.append((path, rgba(a), None))
+    # PlanarConfiguration 2 (separate planes): the decode must equal the planar-1 decode of the same image.
+    # Strips are 17 rows on 73 rows (5 strips, last partial), so the plane-major table has 5 x channels entries.
+    planar_pairs = []
+    for bits in (8, 16):
+        for channels in (2, 3, 4):
+            a = images[(bits, channels)]  # same pixels as the planar-1 files of that shape
+            for endian in ("<", ">"):
+                for compression in ("raw", "tiff_lzw", "packbits"):
+                    for predictor in (1, 2):
+                        name = f'{bits}bit_{channels}ch_{"le" if endian == "<" else "be"}_{compression}_p{predictor}'
+                        path = OUT / ("planar2_" + name + ".tif")
+                        path.write_bytes(wrapped_tiff(a, endian, compression, predictor, planar=2))
+                        fixtures.append((path, rgba(a), None))
+                        planar_pairs.append((path, OUT / (name + ".rgba")))
+    # tifffile (an unrelated writer) stores uncompressed separate planes with its own directory layout.
+    for bits, dtype in ((8, np.uint8), (16, np.uint16)):
+        for channels, photometric in ((2, "minisblack"), (3, "rgb"), (4, "rgb")):
+            a = rng.integers(0, 1 << bits, (73, 97, channels), dtype=dtype)
+            path = OUT / f"tifffile_planar2_{bits}bit_{channels}ch.tif"
+            extra = {} if channels == 3 else {"extrasamples": ["unassalpha"]}
+            tifffile.imwrite(path, np.moveaxis(a, 2, 0), planarconfig="separate", photometric=photometric, rowsperstrip=11, **extra)
+            fixtures.append((path, rgba(a), None))
     # Direct PIL output also exercises the independent TIFF directory writer.
     for mode in ("RGB", "RGBA", "L", "I;16", "I;16B"):
         bits = 16 if "16" in mode else 8
@@ -161,15 +192,26 @@ def main():
                 expected = im.convert("RGBA").tobytes()
             fixtures.append((path, expected, None))
     base = fixtures[0][0].read_bytes()
-    for name, tag, value, reason in [("planar", 284, 2, "planar"), ("jpeg", 259, 7, "compression"),
+    rgb_a = rng.integers(0, 256, (73, 97, 3), dtype=np.uint8)
+    rgb_chunky = wrapped_tiff(rgb_a, "<", "raw", 1)
+    for compression in ("raw", "tiff_lzw"):
+        # Plane-major table cut to one plane's strips (what a chunky table would hold), and a truncated plane.
+        short = OUT / f"unsupported_planar2_short_table_{compression}.tif"
+        short.write_bytes(wrapped_tiff(rgb_a, "<", compression, 1, planar=2, short_table=True))
+        fixtures.append((short, None, "strip table"))
+        whole = wrapped_tiff(rgb_a, "<", compression, 1, planar=2)
+        cut = OUT / f"unsupported_planar2_truncated_{compression}.tif"
+        cut.write_bytes(whole[:-200])
+        fixtures.append((cut, None, "truncated"))
+    for name, tag, value, reason in [("planar", 284, 3, "planar"), ("planar2_chunky_table", 284, 2, "strip table"), ("jpeg", 259, 7, "compression"),
                                      ("float", 339, 3, "sample format"), ("orientation", 274, 3, "orientation")]:
         if tag == 274:
             continue  # Direct PIL orientation fixture below.
         path = OUT / ("unsupported_" + name + ".tif")
-        path.write_bytes(change_tag(base, tag, value))
+        # A chunky RGB file claiming separate planes has a strip table one third of the plane-major size.
+        path.write_bytes(change_tag(rgb_chunky if name == "planar2_chunky_table" else base, tag, value))
         fixtures.append((path, None, reason))
     tile = OUT / "unsupported_tiles.tif"
-    import tifffile
     tifffile.imwrite(tile, np.zeros((32, 32, 3), dtype=np.uint8), tile=(16, 16), photometric="rgb")
     fixtures.append((tile, None, "tiled"))
     broken = OUT / "truncated.tif"
@@ -193,6 +235,11 @@ def main():
         p = subprocess.run([str(driver), str(path), str(decoded)], capture_output=True, text=True)
         ok = (p.returncode == 2 and reason in p.stdout) if reason else (p.returncode == 0 and decoded.read_bytes() == expected)
         results.append({"name": path.name, "pass": ok, "reason": p.stdout})
+        if not ok:
+            print("FAIL", results[-1], flush=True)
+    for planar_path, chunky_decoded in planar_pairs:
+        ok = (OUT / (planar_path.stem + ".rgba")).read_bytes() == chunky_decoded.read_bytes()
+        results.append({"name": "planar2_equals_planar1_" + planar_path.stem, "pass": ok})
         if not ok:
             print("FAIL", results[-1], flush=True)
     # Real loader: compare TIFF versus equivalent PNG on unlit glTF, including
@@ -235,12 +282,23 @@ def main():
     if model.is_file():
         paths += [(model.parent / im["uri"]).resolve() for im in json.loads(model.read_text())["images"]
                   if ".tif" in im.get("uri", "").lower() and (model.parent / im["uri"]).is_file()]
-    paths = sorted(set(paths))
+    paths += [sdk / "Sources/Art/Max/textures/Regular_albd.tif"]  # PlanarConfiguration 2, RGBA, uncompressed
+    paths = sorted(set(p for p in paths if p.is_file()))
     for path in paths:
         decoded = OUT / ("sdk_" + path.stem + ".rgba")
         p = subprocess.run([str(driver), str(path), str(decoded)], capture_output=True, text=True)
-        with Image.open(path) as im:
-            expected = im.convert("RGBA").tobytes()
+        with tifffile.TiffFile(path) as tf:
+            planar_file = tf.pages[0].planarconfig == 2
+            planar_array = tf.asarray() if planar_file else None
+        if planar_file:
+            # Pillow has no PlanarConfiguration 2 reader; tifffile gives (planes, h, w).
+            interleaved = np.moveaxis(planar_array, 0, 2)
+            if interleaved.dtype != np.uint8:
+                interleaved = (interleaved >> 8).astype(np.uint8)
+            expected = np.concatenate([interleaved[:, :, :3], interleaved[:, :, 3:4] if interleaved.shape[2] == 4 else np.full((*interleaved.shape[:2], 1), 255, np.uint8)], axis=2).tobytes()
+        else:
+            with Image.open(path) as im:
+                expected = im.convert("RGBA").tobytes()
         # Pillow drops unspecified TIFF extra channels; RGB still must match.
         actual = np.frombuffer(decoded.read_bytes(), dtype=np.uint8).reshape(-1, 4) if p.returncode == 0 else None
         reference = np.frombuffer(expected, dtype=np.uint8).reshape(-1, 4)
