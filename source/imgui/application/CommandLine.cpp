@@ -37,6 +37,25 @@
 
 namespace ux3d::imgui::application {
 
+namespace {
+
+// A6.1: the environment setting a time-of-day flag sets, or nullptr (--time-of-day is the emissive switch).
+const char* timeOfDayFlagSetting(const std::string& flag)
+{
+    static const std::pair<const char*, const char*> kFlags[] = {
+        {"--time-of-day-mode", "time_of_day_mode"}, {"--date", "date"},         {"--time", "time"},
+        {"--utc-offset", "utc_offset"},             {"--latitude", "latitude"}, {"--longitude", "longitude"},
+        {"--heading", "heading"},                   {"--time-preset", "time_preset"},
+        {"--sun-refraction", "sun_refraction"},     {"--night-threshold", "night_threshold"},
+        {"--time-play", "time_playing"},            {"--time-scale", "time_scale"}};
+    for (const auto& [name, key] : kFlags) {
+        if (flag == name) return key;
+    }
+    return nullptr;
+}
+
+} // namespace
+
 bool Application::parseWindowSize(const std::string& text, int& width, int& height)
 {
     std::string normalized = text;
@@ -855,6 +874,9 @@ std::optional<int> Application::configure(int argc, char** argv)
             if (!applyCliSetting(SettingScope::Environment, "sun_intensity", argv[++i], "--sun-intensity")) return 1;
         } else if (arg == "--sun-angular-radius" && i + 1 < argc) {
             if (!applyCliSetting(SettingScope::Environment, "sun_angular_radius", argv[++i], "--sun-angular-radius")) return 1;
+        } else if (const char* clockKey = timeOfDayFlagSetting(arg); clockKey != nullptr && i + 1 < argc) {
+            // A6.1 clock flags: the same registry keys as set_environment (--time-of-day keeps the emissive switch).
+            if (!applyCliSetting(SettingScope::Environment, clockKey, toLowerAscii(argv[++i]), arg.c_str())) return 1;
         } else if (arg == "--exposure" && i + 1 < argc) {
             if (!applyCliSetting(SettingScope::Environment, "exposure", argv[++i], "--exposure")) return 1;
             cliExposureProvided = true;

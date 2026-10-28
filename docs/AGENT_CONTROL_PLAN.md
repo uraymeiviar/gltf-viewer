@@ -344,7 +344,9 @@ Settings: viewport `aa`, `msaa`, `post_aa`, `render_mode` (alias `debug_view`), 
 `asobo`, `show_invisible_materials` and one switch per rendered ASOBO extension (keyed by the extension name);
 environment `exposure`, `tone_mapping`, `hdr_rotation`, `hdr_intensity`, `hdr_blur`, `time_of_day`,
 `msfs_emissive_scale`, `bloom`, `bloom_intensity`, `bloom_radius`, `auto_exposure`, `exposure_compensation`,
-`background`, `clear_color`, `ibl`, `punctual_lights`; renderer `msfs_emissive`, `grid_mode` (saved preference).
+`background`, `clear_color`, `ibl`, `punctual_lights`, the A3.1 sun keys and the A6.1 clock (`time_of_day_mode`,
+`date`, `time`, `utc_offset`, `latitude`, `longitude`, `heading`, `time_preset`, `sun_refraction`,
+`night_threshold`, `time_playing`, `time_scale`; `time_of_day` is the emissive day/night/auto switch); renderer `msfs_emissive`, `grid_mode` (saved preference).
 
 ### 7.2 Registering a setting
 

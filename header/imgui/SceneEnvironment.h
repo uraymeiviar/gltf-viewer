@@ -7,6 +7,8 @@
 #include <glm/glm.hpp>
 #include <string>
 
+#include "imgui/TimeOfDay.h"
+
 namespace ux3d::imgui {
 
 // Default IBL/skybox environment, embedded under resources/environments/.
@@ -42,7 +44,12 @@ struct SceneEnvironmentState {
     bool punctualLightsEnabled = true;
 
     float msfsEmissiveScale = 0.001f; // default 1/1000
-    int timeOfDay = 0; // 0 = Day (default), 1 = Night
+    int timeOfDay = 0; // ASOBO_material_emissive day/night: 0 = Day (default), 1 = Night, 2 = Automatic (DayNightMode)
+
+    // A6.1 time of day: date, time, place and heading (TimeOfDay.h). With clock.enabled the sun is on and its
+    // direction comes from the solar position (colour and intensity stay the Manual sun's); Automatic day/night
+    // reads the same clock whether or not the sun follows it.
+    TimeOfDayState clock;
 
     // A3.1 sun: a directional light through the punctual-light BRDF path (pbr.frag), scene-level like the
     // exposure. Conventions (docs/ASOBO_EXTENSIONS_PHASE_3.md, A3.1):

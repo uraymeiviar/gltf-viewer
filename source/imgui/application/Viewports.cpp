@@ -27,7 +27,7 @@ void Application::drawViewports(FrameContext& frame)
         const auto desiredEnvPath = resolveHdrPath(activeEnvironment.currentHdrPath, rendererResourcesDir);
         // A3.1: while the sun is on (either mode) the HDR's own sun is removed from the panorama, so
         // switching the sun re-loads and re-filters the environment once (never per frame).
-        const bool wantSunRemoval = activeEnvironment.sunEnabled;
+        const bool wantSunRemoval = activeEnvironment.sunEnabled || activeEnvironment.clock.enabled;
         const bool sunRemovalChanged = gltfLayer->getEnvironmentSunRemoval() != wantSunRemoval;
         if (gltfLayer->getEnvironmentMapPath().toString() != desiredEnvPath.toString() || sunRemovalChanged) {
             gltfLayer->setEnvironmentSunRemoval(wantSunRemoval);
@@ -863,7 +863,7 @@ void Application::drawViewports(FrameContext& frame)
                 gltfLayer->declaresAsoboExtensions() &&
                 vp->settings.asobo.enabled && !s_disableMsfsEmissive);
             commandGenerator->setMsfsEmissiveScale(activeEnvironment.msfsEmissiveScale);
-            commandGenerator->setTimeOfDay(activeEnvironment.timeOfDay);
+            commandGenerator->setTimeOfDay(effectiveDayNight(activeEnvironment));
             commandGenerator->setAsoboMaterialEmissiveApplied(
                 vp->settings.asobo.applies("ASOBO_material_emissive"));
             commandGenerator->setAsoboOcclusionStrengthApplied(

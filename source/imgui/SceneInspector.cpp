@@ -10,12 +10,14 @@
 #include "gltf/Scene.h"
 #include <imgui.h>
 #include <portable-file-dialogs.h>
+#include <algorithm>
 #include <cmath>
+#include <string>
 #include <cstring>
 
 namespace ux3d::imgui {
 
-// A3.1: Environment -> Sun. Conventions in SceneEnvironmentState (SceneEnvironment.h).
+// A3.1: Sun & Time of Day -> Sun. Conventions in SceneEnvironmentState (SceneEnvironment.h).
 void SceneInspector::renderSun(SceneEnvironmentState& env, ux3d::renderer::GltfRenderLayer* gltfLayer,
                                SceneRevisions& revisions)
 {
@@ -110,6 +112,117 @@ void SceneInspector::renderSun(SceneEnvironmentState& env, ux3d::renderer::GltfR
     }
     if (found != nullptr && found->removed) {
         ImGui::TextDisabled("HDR sun removed from IBL and background (%u texels).", found->texelCount);
+    }
+}
+
+void SceneInspector::renderTimeOfDay(SceneEnvironmentState& env, SceneRevisions& revisions)
+{
+    TimeOfDayState& clock = env.clock;
+    ImGui::SeparatorText(ICON_MDI_CLOCK_OUTLINE " Time of Day");
+    if (ImGui::Checkbox("Sun Follows Time of Day", &clock.enabled)) {
+        revisions.mark(SceneChange::RenderSettings);
+    }
+    UiProbe::item("scene.tod.enabled", 0);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Sun source: off = the Manual sun above; on = the sun is on and follows the date, time,\n"
+                          "place and heading below. Colour and intensity stay the Manual sun's; the sun fades out\n"
+                          "between -1 and +1 degrees of elevation.");
+    }
+
+    const TimeOfDayEvaluation tod = evaluateTimeOfDay(clock);
+    bool edited = false;
+
+    int date[3] = { clock.year, clock.month, clock.day };
+    if (ImGui::DragInt3("Date (Y M D)", date, 0.1f, 1, 2100)) {
+        date[0] = std::clamp(date[0], 1900, 2100);
+        date[1] = std::clamp(date[1], 1, 12);
+        date[2] = std::clamp(date[2], 1, solar::daysInMonth(date[0], date[1]));
+        clock.year = date[0];
+        clock.month = date[1];
+        clock.day = date[2];
+        edited = true;
+    }
+    UiProbe::item("scene.tod.date", 0);
+
+    float hours = static_cast<float>(tod.localHours);
+    if (ImGui::SliderFloat("Time", &hours, 0.0f, 24.0f, "%.3f h")) {
+        clock.hours = std::min<double>(hours, 23.9999);
+        clock.preset = static_cast<int>(TimePreset::Custom);
+        edited = true;
+    }
+    UiProbe::item("scene.tod.time", 0);
+    ImGui::SameLine();
+    ImGui::TextDisabled("%s", formatTime(tod.localHours).c_str());
+
+    static const char* const presetLabels[] = { "Dawn", "Morning", "Noon", "Afternoon", "Dusk", "Night" };
+    for (int i = 0; i < 6; ++i) {
+        const bool active = clock.preset == i + 1;
+        if (i > 0) ImGui::SameLine();
+        if (active) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+        if (ImGui::SmallButton(presetLabels[i])) {
+            clock.preset = i + 1;
+            edited = true;
+        }
+        if (active) ImGui::PopStyleColor();
+        UiProbe::item((std::string("scene.tod.preset.") + kTimePresetNames[static_cast<size_t>(i + 1)]).c_str(), 0);
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Presets set the time for the date and place: dawn and dusk when the sun is 3 degrees up,\n"
+                          "noon at solar transit, night at solar midnight, morning and afternoon halfway.");
+    }
+
+    if (ImGui::Checkbox("Play", &clock.playing)) {
+        if (clock.playing) materializePreset(clock);
+        edited = true;
+    }
+    UiProbe::item("scene.tod.play", 0);
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(120.0f);
+    if (ImGui::DragFloat("Speed", &clock.timeScale, 1.0f, 0.0f, 100000.0f, "%.0f x", ImGuiSliderFlags_Logarithmic)) {
+        edited = true;
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Simulated seconds per real second (600 = ten minutes per second).");
+    }
+
+    if (ImGui::DragFloat("UTC Offset", &clock.utcOffsetHours, 0.25f, -12.0f, 14.0f, "%.2f h")) edited = true;
+    if (ImGui::DragFloat("Latitude", &clock.latitude, 0.05f, -90.0f, 90.0f, "%.4f deg")) edited = true;
+    if (ImGui::DragFloat("Longitude", &clock.longitude, 0.05f, -180.0f, 180.0f, "%.4f deg")) edited = true;
+    if (ImGui::SliderFloat("Heading", &clock.heading, 0.0f, 360.0f, "%.1f deg")) edited = true;
+    UiProbe::item("scene.tod.heading", 0);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("True compass direction the model's nose points to (0 = north, 90 = east).\n"
+                          "MSFS aircraft have their nose on glTF +Z and their left side on +X.");
+    }
+    if (ImGui::Checkbox("Atmospheric Refraction", &clock.refraction)) edited = true;
+    if (ImGui::DragFloat("Night Below", &clock.nightThreshold, 0.1f, -90.0f, 90.0f, "%.1f deg")) edited = true;
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Emissive Day/Night = Automatic: night while the sun's elevation is below this (-6 = civil twilight).");
+    }
+
+    ImGui::TextDisabled("Sun: azimuth %.2f deg (true), elevation %.2f deg (%.2f apparent)", tod.sun.azimuth,
+                        tod.sun.elevation, tod.sun.apparentElevation);
+    ImGui::TextDisabled("In the model: azimuth %.1f deg, light %.0f%%%s", tod.gliderAzimuth, tod.fade * 100.0f,
+                        tod.night ? ", night" : "");
+    double windowStart = 0.0;
+    TimeOfDayState local = clock;
+    local.hours = tod.localHours;
+    local.preset = static_cast<int>(TimePreset::Custom);
+    local.year = tod.year;
+    local.month = tod.month;
+    local.day = tod.day;
+    const solar::SunDay events = timeOfDaySunDay(local, windowStart);
+    if (events.hasSunrise && events.hasSunset) {
+        ImGui::TextDisabled("Sunrise %s, sunset %s", formatTime(hoursSince(events.sunrise, windowStart)).c_str(),
+                            formatTime(hoursSince(events.sunset, windowStart)).c_str());
+    } else {
+        ImGui::TextDisabled("%s", events.alwaysUp ? "The sun does not set on this date." : "The sun does not rise on this date.");
+    }
+    ImGui::TextDisabled("Moon: azimuth %.1f deg, elevation %.1f deg, %.0f%% lit (not rendered yet)", tod.moon.horizontal.azimuth,
+                        tod.moon.horizontal.apparentElevation, tod.moon.illuminatedFraction * 100.0);
+    if (edited) {
+        normalizeClock(clock);
+        revisions.mark(SceneChange::RenderSettings);
     }
 }
 
@@ -286,13 +399,15 @@ void SceneInspector::render(SceneEnvironmentState& env,
         }
         UiProbe::item("scene.msfs.emissive.scale", 0);
 
-        const char* timeOfDayNames[] = { "Day", "Night" };
-        if (ImGui::Combo("Time of Day", &env.timeOfDay, timeOfDayNames, 2)) {
+        const char* timeOfDayNames[] = { "Day", "Night", "Automatic" };
+        if (ImGui::Combo("Emissive Day/Night", &env.timeOfDay, timeOfDayNames, 3)) {
             revisions.mark(SceneChange::RenderSettings);
         }
         UiProbe::item("scene.time_of_day", 0);
-
-        renderSun(env, gltfLayer, revisions);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Which ASOBO_material_emissive multiplier applies. Automatic follows the sun's elevation\n"
+                              "from the Time of Day clock (night below the threshold there).");
+        }
 
         ImGui::Separator();
 
@@ -323,6 +438,13 @@ void SceneInspector::render(SceneEnvironmentState& env,
             ImGui::TextDisabled("Applies to every viewport.");
             RenderQuality::drawIblSettings(gltfLayer, revisions);
         }
+    }
+
+    // Sun and time of day get their own header below Environment, so the environment controls
+    // keep their place in the panel.
+    if (ImGui::CollapsingHeader("Sun & Time of Day", ImGuiTreeNodeFlags_DefaultOpen)) {
+        renderSun(env, gltfLayer, revisions);
+        renderTimeOfDay(env, revisions);
     }
 }
 

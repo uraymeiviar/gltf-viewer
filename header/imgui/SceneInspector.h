@@ -27,6 +27,8 @@ public:
 private:
     // A3.1: Environment -> Sun section.
     static void renderSun(SceneEnvironmentState& env, ux3d::renderer::GltfRenderLayer* gltfLayer, SceneRevisions& revisions);
+    // A6.1: Environment -> Time of Day section (date, time, place, heading, presets, play).
+    static void renderTimeOfDay(SceneEnvironmentState& env, SceneRevisions& revisions);
 };
 
 } // namespace ux3d::imgui

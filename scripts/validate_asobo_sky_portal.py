@@ -371,12 +371,14 @@ def check_baseline(baseline, uniform):
     if not DA62_COCKPIT.exists():
         print("  SKIP DA62 cockpit not found")
         return
-    base = render(DA62_COCKPIT, "base_da62", DA62_VIEW, exe=baseline)
+    # The same switch on both sides: a baseline from before A3.7 ignores it and renders without portals anyway.
+    disable = ["--asobo-disable", "ASOBO_sky_portal"]
+    base = render(DA62_COCKPIT, "base_da62", DA62_VIEW + disable, exe=baseline)
     check(base is not None and magenta(base) < 0.001, f"DA62 cockpit textures load (magenta {magenta(base):.5f})")
-    on = render(DA62_COCKPIT, "cur_da62_on", DA62_VIEW)
-    check(on is not None and not same(on, base), "DA62 cockpit: the default (portals on) differs from the baseline")
-    off = render(DA62_COCKPIT, "cur_da62_disable", DA62_VIEW + ["--asobo-disable", "ASOBO_sky_portal"])
+    off = render(DA62_COCKPIT, "cur_da62_disable", DA62_VIEW + disable)
     check(same(off, base), f"DA62 cockpit, --asobo-disable ASOBO_sky_portal: byte-identical to {baseline.stem}")
+    on = render(DA62_COCKPIT, "cur_da62_on", DA62_VIEW)
+    check(on is not None and not same(on, off), "DA62 cockpit: the default (portals on) differs from portals off")
     base_off = render(DA62_COCKPIT, "base_da62_asobo_off", DA62_VIEW + ["--asobo", "off"], exe=baseline)
     cur_off = render(DA62_COCKPIT, "cur_da62_asobo_off", DA62_VIEW + ["--asobo", "off"])
     check(same(cur_off, base_off), f"DA62 cockpit, --asobo off: byte-identical to {baseline.stem} --asobo off")

@@ -10,7 +10,7 @@ lighting features of user priority 5. The sun's direction is set by hand here an
 ## Tasks
 
 - [x] **A3.1 — Sun light (R3). Owner: Claude.** A directional light with direction (azimuth and elevation, set by
-  hand), color and intensity, in ~~Viewport Settings~~ Scene Inspector → Environment → *Sun* (scene-level, like
+  hand), color and intensity, in ~~Viewport Settings~~ Scene Inspector → *Sun & Time of Day* → *Sun* (scene-level, like
   exposure and time of day: one sun per glTF scene, shared by every viewport).
   - **Done 2026-10-28.** Conventions (the reference for A3.2, A3.7 and A6; code: `header/imgui/SceneEnvironment.h`,
     `IBLSampler.h` `EnvironmentSun`, `pbr.frag` after the punctual loop):

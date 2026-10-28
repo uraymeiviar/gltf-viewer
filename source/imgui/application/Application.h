@@ -372,6 +372,12 @@ private:
     // the HDR rotation and scaled by the HDR intensity) and its state for get_state and profile reports.
     EffectiveSun effectiveSun(const ux3d::imgui::SceneEnvironmentState& environment) const;
     nlohmann::json sunStateJson(const ux3d::imgui::SceneEnvironmentState& environment) const;
+    // A6.1: the computed time-of-day state (sun, moon, events, day/night) for get_state and profile reports; the
+    // ASOBO_material_emissive day/night value the renderer gets (Automatic resolves through the sun elevation);
+    // and the clock advance while playing.
+    nlohmann::json timeOfDayStateJson(const ux3d::imgui::SceneEnvironmentState& environment) const;
+    static int effectiveDayNight(const ux3d::imgui::SceneEnvironmentState& environment);
+    void advanceTimeOfDay(float deltaSeconds);
     // A3.5: every viewport's SSAO settings, whether its last render applied the term, memory and GPU time.
     nlohmann::json ssaoStateJson() const;
     // A3.2: renders the viewport's cascaded sun shadow map (one depth pass per cascade, before the forward

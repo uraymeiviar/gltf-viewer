@@ -76,6 +76,14 @@ Commands run on the render thread between frames, strictly in order. Multi-frame
 - Switching the sun on or off re-filters the environment once (the HDR's sun is removed while it is on), so
   the next capture may take a moment longer. `get_state` returns `sun` (effective direction, angles,
   illuminance, and `hdr`: the detected HDR sun).
+- Time of day (A6.1): `set_environment time_of_day_mode true` makes the sun follow `date` (`2026-04-15`), `time`
+  (`13:09:12` local), `utc_offset` (hours, UTC = time - offset), `latitude`, `longitude` and `heading` (true degrees
+  the model's nose points to; MSFS aircraft: nose on glTF +Z, left side +X, so a bearing B is at A3.1 azimuth
+  heading - B). `time_preset` (`dawn`, `morning`, `noon`, `afternoon`, `dusk`, `night`) follows date and place;
+  `time` turns it back into plain time; `time_playing` with `time_scale` (simulated seconds per second) runs the
+  clock. `time_of_day` (`day`, `night`, `auto`) stays the ASOBO emissive switch; `auto` follows the sun elevation
+  (`night_threshold`). `get_state` `timeOfDay` has the computed sun (true azimuth, elevations, fade), sunrise and
+  sunset, and the moon (position, phase). Colour and intensity are the Manual sun's.
 - Shadows (A3.2): on by default while the sun is on, renderer-wide keys through `set_viewport_setting`:
   `shadows`, `shadow_resolution` (1024/2048/4096), `shadow_cascades` (2-4), `shadow_distance` (scene units:
   metres for MSFS files, centimetres for some samples), `shadow_filter` (hard/pcf/soft), `shadow_split_lambda`,

@@ -213,6 +213,7 @@ const char* CommandRegistry::typeName(SettingType type)
     case SettingType::Color3: return "color3";
     case SettingType::Color4: return "color4";
     case SettingType::Vec2: return "vec2";
+    case SettingType::String: return "string";
     }
     return "bool";
 }
@@ -293,6 +294,12 @@ bool CommandRegistry::coerceSetting(const SettingSpec& spec, const nlohmann::jso
         out = *numbers;
         return true;
     }
+    case SettingType::String:
+        // Free text (a date, a clock time); the setter validates the format.
+        if (value.is_string()) { out = value; return true; }
+        if (value.is_number()) { out = value.dump(); return true; }
+        error = spec.key + " expects text";
+        return false;
     case SettingType::Vec2: {
         // Two numbers ("a,b" or [a, b]); the range, when set, applies to both.
         auto numbers = parseNumberList(value);

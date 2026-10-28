@@ -1013,6 +1013,7 @@ void Application::finishFrame(FrameContext& frame, int displayW, int displayH)
         report.capture = s_captureRecord;
         report.camera = getCameraJson(activeViewport);
         report.sun = sunStateJson(activeEnvironment);
+        report.timeOfDay = timeOfDayStateJson(activeEnvironment);
         report.ssao = ssaoStateJson();
         if (!reportNodeArgs.empty()) {
             for (const auto& spec : reportNodeArgs) {

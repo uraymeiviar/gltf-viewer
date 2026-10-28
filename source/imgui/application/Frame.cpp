@@ -65,6 +65,7 @@ void Application::runFrame()
     // Update animation player
     const auto animationUpdateStart = ux3d::imgui::profiling::Clock::now();
     animationPlayer.update(deltaTime, gltfLayer.get());
+    advanceTimeOfDay(deltaTime);
     frame.markStage("animation.update", animationUpdateStart);
 
     processInput(deltaTime);
@@ -148,12 +149,13 @@ void Application::runFrame()
     // P5.4: a frame is quiet when no input arrived, no viewport redrew, nothing is
     // pending for the next frame, and nothing animates. ImGui gets a few quiet
     // frames to settle hover and layout before the loop starts waiting.
+    const bool timeOfDayPlaying = getSceneEnvironment(sceneEnvironments, gltfModel, activeScene).clock.playing;
     bool turntableActive = false;
     for (const auto& vp : viewports) {
         turntableActive = turntableActive || (vp->isOpen && vp->settings.turntable);
     }
     const bool frameActive = inputThisFrame || s_sceneRenderTotal != sceneRendersAtFrameStart ||
-                             sceneRevisions.hasPending() || animationPlayer.isPlaying() || turntableActive ||
+                             sceneRevisions.hasPending() || animationPlayer.isPlaying() || turntableActive || timeOfDayPlaying ||
                              io.WantTextInput || ImGui::IsAnyMouseDown();
     idleQuietFrames = frameActive ? 0 : idleQuietFrames + 1;
     frameInProgress = false;

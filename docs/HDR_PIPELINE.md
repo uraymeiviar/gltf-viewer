@@ -65,7 +65,7 @@ Each open viewport in `Application::drawViewports` (`source/imgui/application/Vi
 | Bloom Intensity | `0.04` | Scene Inspector → Environment | `--bloom-intensity <x>` |
 | Bloom Radius | `1.0` | Scene Inspector → Environment | `--bloom-radius <x>` |
 | MSFS Emissive Scale | `0.001` (1/1000) | Scene Inspector → Environment | `--msfs-emissive-scale <x>` |
-| Time of Day | `Day` (`0`) | Scene Inspector → Environment | `--time-of-day day\|night` |
+| Emissive Day/Night | `Day` (`0`) | Scene Inspector → Environment | `--time-of-day day\|night\|auto` (the A6.1 clock is `--time-of-day-mode`) |
 
 ---
 

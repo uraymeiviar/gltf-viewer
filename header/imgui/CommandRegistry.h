@@ -96,7 +96,7 @@ struct CommandSpec {
 };
 
 enum class SettingScope { Viewport, Environment, Renderer };
-enum class SettingType { Bool, Int, Float, Enum, Color3, Color4, Vec2 };
+enum class SettingType { Bool, Int, Float, Enum, Color3, Color4, Vec2, String };
 
 // One registered setting. The getter/setter receive the target selected by scope: a viewport
 // settings struct, a scene environment, or nothing (renderer-wide). Setters receive a value

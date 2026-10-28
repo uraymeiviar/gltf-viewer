@@ -379,6 +379,7 @@ json Application::agentStateJson()
     st["frame"] = frameCount;
     st["glErrors"] = s_glErrorTotal;
     st["sun"] = sunStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene));
+    st["timeOfDay"] = timeOfDayStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene));
     st["ssao"] = ssaoStateJson();
     if (activeViewport != nullptr) {
         // A3.6: the active viewport's ground. height/albedo are what the last render used (the albedo is what A6.2
@@ -425,6 +426,15 @@ json Application::agentStateJson()
 EffectiveSun Application::effectiveSun(const ux3d::imgui::SceneEnvironmentState& environment) const
 {
     EffectiveSun sun;
+    if (environment.clock.enabled) {
+        // A6.1: the solar position through the heading; colour and intensity are the Manual sun's, faded to 0
+        // across -1..+1 degrees of lighting elevation (the sun is disabled once the fade reaches 0).
+        const ux3d::imgui::TimeOfDayEvaluation tod = ux3d::imgui::evaluateTimeOfDay(environment.clock);
+        sun.direction = ux3d::imgui::sunDirectionFromAngles(tod.gliderAzimuth, tod.gliderElevation);
+        sun.illuminance = environment.sunColor * (environment.sunIntensity * tod.fade);
+        sun.enabled = tod.fade > 0.0f;
+        return sun;
+    }
     if (!environment.sunEnabled) return sun;
     if (environment.sunMode == static_cast<int>(ux3d::imgui::SunMode::FromHdr)) {
         if (gltfLayer == nullptr || commandGenerator == nullptr) return sun;
@@ -441,6 +451,110 @@ EffectiveSun Application::effectiveSun(const ux3d::imgui::SceneEnvironmentState&
     }
     sun.enabled = true;
     return sun;
+}
+
+int Application::effectiveDayNight(const ux3d::imgui::SceneEnvironmentState& environment)
+{
+    if (environment.timeOfDay == static_cast<int>(ux3d::imgui::DayNightMode::Automatic)) {
+        return ux3d::imgui::evaluateTimeOfDay(environment.clock).night ? 1 : 0;
+    }
+    return environment.timeOfDay == static_cast<int>(ux3d::imgui::DayNightMode::Night) ? 1 : 0;
+}
+
+void Application::advanceTimeOfDay(float deltaSeconds)
+{
+    auto& clock = getSceneEnvironment(sceneEnvironments, gltfModel, activeScene).clock;
+    if (!clock.playing) return;
+    ux3d::imgui::advanceClock(clock, static_cast<double>(deltaSeconds) * static_cast<double>(clock.timeScale));
+    sceneRevisions.mark(ux3d::imgui::SceneChange::RenderSettings);
+}
+
+json Application::timeOfDayStateJson(const ux3d::imgui::SceneEnvironmentState& environment) const
+{
+    using namespace ux3d::imgui;
+    const TimeOfDayState& clock = environment.clock;
+    const TimeOfDayEvaluation tod = evaluateTimeOfDay(clock);
+    double windowStart = 0.0;
+    TimeOfDayState local = clock;
+    local.hours = tod.localHours;
+    local.preset = static_cast<int>(TimePreset::Custom);
+    local.year = tod.year;
+    local.month = tod.month;
+    local.day = tod.day;
+    const solar::SunDay events = timeOfDaySunDay(local, windowStart);
+    auto vec3Json = [](const glm::vec3& v) { return json{agent::floatJson(v.x), agent::floatJson(v.y), agent::floatJson(v.z)}; };
+    auto eventJson = [&](bool has, double julian) -> json {
+        if (!has) return nullptr;
+        const double hours = hoursSince(julian, windowStart);
+        return json{{"hours", hours}, {"time", formatTime(hours)}};
+    };
+    // UTC date and time of the instant.
+    const long long utcDays = static_cast<long long>(std::floor(tod.julianDayUt - 2440587.5));
+    int utcYear = 0, utcMonth = 0, utcDay = 0;
+    solar::civilFromDays(utcDays, utcYear, utcMonth, utcDay);
+    const double utcHours = (tod.julianDayUt - 2440587.5 - static_cast<double>(utcDays)) * 24.0;
+
+    const glm::vec3 sunDirection = sunDirectionFromAngles(tod.gliderAzimuth, tod.gliderElevation);
+    const glm::vec3 moonDirection =
+        sunDirectionFromAngles(tod.moonGliderAzimuth, static_cast<float>(tod.moon.horizontal.apparentElevation));
+    json out = {
+        {"enabled", clock.enabled},
+        {"date", formatDate(tod.year, tod.month, tod.day)},
+        {"time", formatTime(tod.localHours)},
+        {"hours", tod.localHours},
+        {"utcOffset", agent::floatJson(clock.utcOffsetHours)},
+        {"latitude", agent::floatJson(clock.latitude)},
+        {"longitude", agent::floatJson(clock.longitude)},
+        {"heading", agent::floatJson(clock.heading)},
+        {"preset", kTimePresetNames[static_cast<size_t>(std::clamp(clock.preset, 0, static_cast<int>(TimePreset::Count) - 1))]},
+        {"refraction", clock.refraction},
+        {"playing", clock.playing},
+        {"timeScale", agent::floatJson(clock.timeScale)},
+        {"utc", {{"date", formatDate(utcYear, utcMonth, utcDay)}, {"time", formatTime(utcHours)}}},
+        {"julianDay", tod.julianDayUt},
+        {"sun", {{"azimuth", tod.sun.azimuth},
+                 {"elevation", tod.sun.elevation},
+                 {"apparentElevation", tod.sun.apparentElevation},
+                 {"lightElevation", tod.lightElevation},
+                 {"hourAngle", tod.sun.hourAngle},
+                 {"rightAscension", tod.sunCoordinates.rightAscension},
+                 {"declination", tod.sunCoordinates.declination},
+                 {"eclipticLongitude", tod.sunCoordinates.eclipticLongitude},
+                 {"distanceAu", tod.sunCoordinates.distanceAu},
+                 {"equationOfTimeMinutes", tod.sunCoordinates.equationOfTimeMinutes},
+                 {"fade", agent::floatJson(tod.fade)},
+                 {"gliderAzimuth", agent::floatJson(tod.gliderAzimuth)},
+                 {"gliderElevation", agent::floatJson(tod.gliderElevation)},
+                 {"direction", vec3Json(sunDirection)}}},
+        {"events", {{"sunrise", eventJson(events.hasSunrise, events.sunrise)},
+                    {"sunset", eventJson(events.hasSunset, events.sunset)},
+                    {"transit", eventJson(events.hasTransit, events.transit)},
+                    {"solarMidnight", eventJson(events.hasMidnight, events.midnight)},
+                    {"polarDay", events.alwaysUp},
+                    {"polarNight", events.alwaysDown},
+                    {"peakElevation", events.peakElevation},
+                    {"lowestElevation", events.lowestElevation}}},
+        {"moon", {{"azimuth", tod.moon.horizontal.azimuth},
+                  {"elevation", tod.moon.horizontal.elevation},
+                  {"apparentElevation", tod.moon.horizontal.apparentElevation},
+                  {"rightAscension", tod.moon.rightAscension},
+                  {"declination", tod.moon.declination},
+                  {"eclipticLongitude", tod.moon.eclipticLongitude},
+                  {"eclipticLatitude", tod.moon.eclipticLatitude},
+                  {"distanceKm", tod.moon.distanceKm},
+                  {"elongation", tod.moon.elongation},
+                  {"phaseAngle", tod.moon.phaseAngle},
+                  {"illuminatedFraction", tod.moon.illuminatedFraction},
+                  {"phase", tod.moon.phase},
+                  {"ageDays", tod.moon.ageDays},
+                  {"aboveHorizon", tod.moon.horizontal.apparentElevation > -0.833},
+                  {"gliderAzimuth", agent::floatJson(tod.moonGliderAzimuth)},
+                  {"direction", vec3Json(moonDirection)},
+                  {"rendered", false}}},
+        {"dayNight", {{"mode", environment.timeOfDay == 2 ? "auto" : environment.timeOfDay == 1 ? "night" : "day"},
+                      {"effective", effectiveDayNight(environment) == 1 ? "night" : "day"},
+                      {"threshold", agent::floatJson(clock.nightThreshold)}}}};
+    return out;
 }
 
 json Application::ssaoStateJson() const
@@ -479,8 +593,9 @@ json Application::sunStateJson(const ux3d::imgui::SceneEnvironmentState& environ
     const EffectiveSun sun = effectiveSun(environment);
     float azimuth = 0.0f, elevation = 0.0f;
     ux3d::imgui::sunAnglesFromDirection(sun.direction, azimuth, elevation);
-    json out = {{"enabled", environment.sunEnabled},
-                {"mode", environment.sunMode == static_cast<int>(ux3d::imgui::SunMode::FromHdr) ? "hdr" : "manual"},
+    json out = {{"enabled", environment.sunEnabled || environment.clock.enabled},
+                {"mode", environment.clock.enabled ? "time_of_day"
+                         : environment.sunMode == static_cast<int>(ux3d::imgui::SunMode::FromHdr) ? "hdr" : "manual"},
                 {"active", sun.enabled},
                 {"direction", vec3Json(sun.direction)},
                 {"azimuth", agent::floatJson(azimuth)},
@@ -1085,8 +1200,160 @@ void Application::registerAgentSettings()
     addSetting(floatSetting<ES>("hdr_rotation", E, &ES::hdrRotation, "Environment rotation in degrees.", "--hdr-rotation <deg>"));
     addSetting(floatSetting<ES>("hdr_intensity", E, &ES::hdrIntensity, "Environment (IBL) intensity."));
     addSetting(floatSetting<ES>("hdr_blur", E, &ES::hdrBlur, "Background blur.", {}, std::pair{0.0, 1.0}));
-    addSetting(indexEnumSetting<ES>("time_of_day", E, &ES::timeOfDay, {"day", "night"},
-                                                  "ASOBO_material_emissive day/night multiplier.", "--time-of-day <day|night>"));
+    {
+        SettingSpec spec = indexEnumSetting<ES>("time_of_day", E, &ES::timeOfDay, {"day", "night", "auto"},
+                                                "ASOBO_material_emissive day/night multiplier: day, night, or auto "
+                                                "(night while the sun's apparent elevation is below night_threshold). "
+                                                "Not the clock: see time_of_day_mode.",
+                                                "--time-of-day <day|night|auto>");
+        spec.enumAliases = {{"automatic", "auto"}};
+        addSetting(std::move(spec));
+    }
+    {
+        using ux3d::imgui::TimeOfDayState;
+        using ux3d::imgui::TimePreset;
+        auto clockBool = [&](const char* key, bool TimeOfDayState::*member, const char* help, const char* cli) {
+            SettingSpec spec;
+            spec.key = key;
+            spec.scope = E;
+            spec.type = SettingType::Bool;
+            spec.help = help;
+            spec.cliFlag = cli;
+            spec.get = [member](void* t) { return json(static_cast<ES*>(t)->clock.*member); };
+            spec.set = [member](void* t, const json& v, std::string&) {
+                static_cast<ES*>(t)->clock.*member = v.get<bool>();
+                return true;
+            };
+            addSetting(std::move(spec));
+        };
+        auto clockFloat = [&](const char* key, float TimeOfDayState::*member, const char* help, const char* cli,
+                              double minimum, double maximum, bool wrapDegrees = false) {
+            SettingSpec spec;
+            spec.key = key;
+            spec.scope = E;
+            spec.type = SettingType::Float;
+            spec.help = help;
+            spec.cliFlag = cli;
+            spec.hasRange = true;
+            spec.minimum = minimum;
+            spec.maximum = maximum;
+            spec.get = [member](void* t) { return agent::floatJson(static_cast<ES*>(t)->clock.*member); };
+            spec.set = [member, wrapDegrees](void* t, const json& v, std::string&) {
+                float value = static_cast<float>(v.get<double>());
+                if (wrapDegrees) value = static_cast<float>(ux3d::imgui::solar::normalizeDegrees(value));
+                static_cast<ES*>(t)->clock.*member = value;
+                return true;
+            };
+            addSetting(std::move(spec));
+        };
+        clockBool("time_of_day_mode", &TimeOfDayState::enabled,
+                  "Sun source: off = the Manual sun (default); on = the sun follows the date, time, place and heading "
+                  "below (the sun is on, faded across -1..+1 degrees of elevation). Not the emissive day/night: see time_of_day.",
+                  "--time-of-day-mode <on|off>");
+        {
+            SettingSpec spec;
+            spec.key = "date";
+            spec.scope = E;
+            spec.type = SettingType::String;
+            spec.help = "Local calendar date at the location, YYYY-MM-DD (1900..2100).";
+            spec.cliFlag = "--date YYYY-MM-DD";
+            spec.get = [](void* t) {
+                const auto& c = static_cast<ES*>(t)->clock;
+                return json(ux3d::imgui::formatDate(c.year, c.month, c.day));
+            };
+            spec.set = [](void* t, const json& v, std::string& error) {
+                int y = 0, m = 0, d = 0;
+                if (!ux3d::imgui::parseDate(v.get<std::string>(), y, m, d, error)) return false;
+                auto& c = static_cast<ES*>(t)->clock;
+                c.year = y;
+                c.month = m;
+                c.day = d;
+                return true;
+            };
+            addSetting(std::move(spec));
+        }
+        {
+            SettingSpec spec;
+            spec.key = "time";
+            spec.scope = E;
+            spec.type = SettingType::String;
+            spec.help = "Local clock time, HH:MM[:SS] (or decimal hours). Selects Custom: the time_preset is dropped.";
+            spec.cliFlag = "--time HH:MM[:SS]";
+            spec.get = [](void* t) {
+                return json(ux3d::imgui::formatTime(ux3d::imgui::effectiveLocalHours(static_cast<ES*>(t)->clock)));
+            };
+            spec.set = [](void* t, const json& v, std::string& error) {
+                double hours = 0.0;
+                if (!ux3d::imgui::parseTime(v.get<std::string>(), hours, error)) return false;
+                auto& c = static_cast<ES*>(t)->clock;
+                c.hours = hours;
+                c.preset = static_cast<int>(TimePreset::Custom);
+                return true;
+            };
+            addSetting(std::move(spec));
+        }
+        clockFloat("utc_offset", &TimeOfDayState::utcOffsetHours,
+                   "Hours the local clock is ahead of UTC (UTC = time - utc_offset), e.g. -7 for Pacific daylight time.",
+                   "--utc-offset <hours>", -12.0, 14.0);
+        clockFloat("latitude", &TimeOfDayState::latitude, "Latitude in degrees, positive north.", "--latitude <deg>", -90.0, 90.0);
+        clockFloat("longitude", &TimeOfDayState::longitude, "Longitude in degrees, positive east.", "--longitude <deg>", -180.0, 180.0);
+        clockFloat("heading", &TimeOfDayState::heading,
+                   "True compass direction the model's nose points to, degrees (0 = north, 90 = east); MSFS aircraft "
+                   "have their nose on glTF +Z and their left side on +X.",
+                   "--heading <deg>", -3600.0, 3600.0, true);
+        {
+            SettingSpec spec;
+            spec.key = "time_preset";
+            spec.scope = E;
+            spec.type = SettingType::Enum;
+            spec.help = "dawn / morning / noon / afternoon / dusk / night for the current date and place (dawn and dusk: "
+                        "the sun 3 degrees up; noon: solar transit; night: solar midnight; morning and afternoon: halfway). "
+                        "A preset follows date, latitude, longitude and utc_offset; custom keeps the current time.";
+            spec.cliFlag = "--time-preset <dawn|morning|noon|afternoon|dusk|night>";
+            spec.enumValues.assign(ux3d::imgui::kTimePresetNames.begin(), ux3d::imgui::kTimePresetNames.end());
+            spec.get = [](void* t) {
+                const int preset = std::clamp(static_cast<ES*>(t)->clock.preset, 0, static_cast<int>(TimePreset::Count) - 1);
+                return json(ux3d::imgui::kTimePresetNames[static_cast<size_t>(preset)]);
+            };
+            spec.set = [](void* t, const json& v, std::string&) {
+                auto& c = static_cast<ES*>(t)->clock;
+                const std::string name = v.get<std::string>();
+                int index = 0;
+                for (size_t i = 0; i < ux3d::imgui::kTimePresetNames.size(); ++i) {
+                    if (name == ux3d::imgui::kTimePresetNames[i]) index = static_cast<int>(i);
+                }
+                if (index == static_cast<int>(TimePreset::Custom)) ux3d::imgui::materializePreset(c);
+                else c.preset = index;
+                return true;
+            };
+            addSetting(std::move(spec));
+        }
+        clockBool("sun_refraction", &TimeOfDayState::refraction,
+                  "Atmospheric refraction raises the lit sun's elevation (about 0.5 degrees at the horizon).",
+                  "--sun-refraction <on|off>");
+        clockFloat("night_threshold", &TimeOfDayState::nightThreshold,
+                   "time_of_day auto: night while the sun's elevation is below this many degrees (-6 = civil twilight).",
+                   "--night-threshold <deg>", -90.0, 90.0);
+        {
+            SettingSpec spec;
+            spec.key = "time_playing";
+            spec.scope = E;
+            spec.type = SettingType::Bool;
+            spec.help = "Advance the clock by time_scale x real time (session state, not saved).";
+            spec.cliFlag = "--time-play <on|off>";
+            spec.get = [](void* t) { return json(static_cast<ES*>(t)->clock.playing); };
+            spec.set = [](void* t, const json& v, std::string&) {
+                auto& c = static_cast<ES*>(t)->clock;
+                c.playing = v.get<bool>();
+                if (c.playing) ux3d::imgui::materializePreset(c);
+                return true;
+            };
+            addSetting(std::move(spec));
+        }
+        clockFloat("time_scale", &TimeOfDayState::timeScale,
+                   "Simulated seconds per real second while time_playing (600 = 10 minutes per second).",
+                   "--time-scale <x>", 0.0, 1.0e6);
+    }
     addSetting(floatSetting<ES>("msfs_emissive_scale", E, &ES::msfsEmissiveScale,
                                               "MSFS emissive scale for ASOBO assets (default 1/1000).",
                                               "--msfs-emissive-scale <x>"));
