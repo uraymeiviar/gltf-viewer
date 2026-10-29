@@ -377,8 +377,9 @@ The decal prepass depth is reused when present; other windshield views resolve t
 opaque depth to a same-sized, single-sample DEPTH24_STENCIL8 texture. Glass-only and
 KHR-only views retain their existing copy paths and do not allocate SSR depth.
 
-Viewport Settings → MSFS Extensions adds **Screen-space reflections** (on), **SSR
-quality** (Medium), and **Interior sky reflection** (0.5). CLI equivalents are `--ssr`,
+Screen-space reflections (on) and Interior sky reflection (0.5) are scene effects (Scene Inspector → Shadows,
+Reflections & AO) and SSR quality (Medium) is a quality setting (File → Settings → Quality); the switches were first
+added to Viewport Settings → MSFS Extensions. CLI equivalents are `--ssr`,
 `--ssr-quality`, and `--interior-sky-reflection`; see [CLI reference](CLI_REFERENCE.md). The sky strength
 applies per fragment inside the combined world AABB of environment-occluder geometry,
 collected before those meshes are hidden. Without a bounded occluder it applies to
@@ -452,7 +453,7 @@ commands share `ssr2_` names. The external `a4-ssr.report.md` Follow-up section 
 formulas, evidence, limitations and the revised measured cost; the previous coarse
 marcher's cost does not describe this version. No regression runner or commit was used.
 
-**Status 2026-10-25:** SSR is committed **off by default** (Viewport Settings / `--ssr on`). The strict hit test
+**Status 2026-10-25:** SSR is committed **off by default** (Scene Inspector / `--ssr on`). The strict hit test
 removed the false screen reflections and the large smears, but on the E195 the accepted hits flip pixel by pixel
 (1 mm plane agreement at depth-buffer precision, nearest sampling), giving comb/dotted edges on reflections of the
 overhead panel, EFB and glareshield; the HUD combiner (glass v2) shows similar streaks near bright edges. Next round:
@@ -490,7 +491,7 @@ and no commit/push were performed.
 
 ### Follow-up 4 — continuous hit refinement; SSR on by default (2026-10-26)
 
-SSR is now **on by default** (`--ssr off` / Viewport Settings to disable). The rays are traced about the geometric
+SSR is now **on by default** (`--ssr off` / Scene Inspector to disable). The rays are traced about the geometric
 normal (the tiled detail normal map bent each pixel's ray), and only the Fresnel weight uses the shaded normal.
 
 The remaining concentric moiré on the E2 windshield came from the hit point, not depth precision. The hit was built

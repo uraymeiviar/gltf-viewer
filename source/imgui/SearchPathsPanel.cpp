@@ -3,6 +3,7 @@
 #include "imgui/SearchPathsPanel.h"
 #include "imgui/AppSettings.h"
 #include "imgui/CaptureSettings.h"
+#include "imgui/GltfExtensionSettings.h"
 #include "imgui/IconsMaterialDesignIcons.h"
 #include "imgui/RenderQuality.h"
 #include "imgui/UiProbe.h"
@@ -11,11 +12,30 @@
 #include <portable-file-dialogs.h>
 #include <filesystem>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace fs = std::filesystem;
 
 namespace ux3d::imgui {
+
+namespace {
+SettingsTab s_requestedTab = SettingsTab::None;
+bool s_openRequested = false;
+} // namespace
+
+void requestSettingsWindow(SettingsTab tab)
+{
+    s_requestedTab = tab;
+    s_openRequested = true;
+}
+
+bool takeSettingsWindowRequest()
+{
+    const bool requested = s_openRequested;
+    s_openRequested = false;
+    return requested;
+}
 
 static void renderSearchPathsContent(bool* pOpen, std::function<void()> onReloadModel)
 {
@@ -231,38 +251,55 @@ static void renderSearchPathsContent(bool* pOpen, std::function<void()> onReload
 }
 
 void renderSearchPathsWindow(bool* pOpen, std::function<void()> onReloadModel, SceneRevisions* revisions,
-                             std::function<void()> drawAgentControl)
+                             std::function<void()> drawAgentControl, ux3d::renderer::GltfRenderLayer* layer)
 {
     if (pOpen && !*pOpen) return;
-    ImGui::SetNextWindowSize(ImVec2(680,650),ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(720,840),ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSizeConstraints(ImVec2(560,420),ImVec2(2000,2000));
+    // A tab asked for by another panel is selected once, on the frame the window draws.
+    const SettingsTab requested = std::exchange(s_requestedTab, SettingsTab::None);
+    const auto flagsFor = [&](SettingsTab tab) { return requested == tab ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None; };
     if (ImGui::Begin(ICON_MDI_COG " Settings###SearchPathsWindow",pOpen,ImGuiWindowFlags_NoCollapse)) {
         if (ImGui::BeginTabBar("SettingsTabs")) {
-            const bool search = ImGui::BeginTabItem("Search Paths");
+            SceneRevisions dummy;
+            SceneRevisions& sceneRevisions = revisions ? *revisions : dummy;
+            const bool search = ImGui::BeginTabItem("Search Paths",nullptr,flagsFor(SettingsTab::SearchPaths));
             UiProbe::item("settings.tab.search",0);
             if (search) {
                 renderSearchPathsContent(pOpen,onReloadModel);
                 ImGui::EndTabItem();
             }
-            const bool quality = ImGui::BeginTabItem("Quality Presets");
+            // Quality: the preset, what is configured and what is in effect, the current settings and the presets'
+            // definitions. Everything that costs time or memory lives here (it applies to every viewport).
+            const bool quality = ImGui::BeginTabItem("Quality",nullptr,flagsFor(SettingsTab::Quality));
             UiProbe::item("settings.tab.quality",0);
             if (quality) {
-                SceneRevisions dummy;
-                ImGui::BeginChild("PresetEditor",ImVec2(0,-40),false);
-                RenderQuality::drawProfilesEditor(revisions ? *revisions : dummy);
+                ImGui::BeginChild("QualityPage",ImVec2(0,-40),false);
+                RenderQuality::drawSettingsTab(layer,sceneRevisions);
                 ImGui::EndChild();
                 if (ImGui::Button("Close")) { if (pOpen) *pOpen = false; }
                 UiProbe::item("settings.close",0);
                 ImGui::EndTabItem();
             }
-            const bool captures = ImGui::BeginTabItem("Captures");
+            // glTF Extensions: which extensions (ASOBO now, other vendors later) Glider applies; an app setting.
+            const bool extensions = ImGui::BeginTabItem("glTF Extensions",nullptr,flagsFor(SettingsTab::GltfExtensions));
+            UiProbe::item("settings.tab.extensions",0);
+            if (extensions) {
+                ImGui::BeginChild("ExtensionsPage",ImVec2(0,-40),false);
+                GltfExtensionSettings::instance().drawSettings(sceneRevisions);
+                ImGui::EndChild();
+                if (ImGui::Button("Close")) { if (pOpen) *pOpen = false; }
+                UiProbe::item("settings.ext.close",0);
+                ImGui::EndTabItem();
+            }
+            const bool captures = ImGui::BeginTabItem("Captures",nullptr,flagsFor(SettingsTab::Captures));
             UiProbe::item("settings.tab.captures",0);
             if (captures) {
                 CaptureSettings::drawSettings();
                 ImGui::EndTabItem();
             }
             if (drawAgentControl) {
-                const bool agent = ImGui::BeginTabItem("Agent Control");
+                const bool agent = ImGui::BeginTabItem("Agent Control",nullptr,flagsFor(SettingsTab::AgentControl));
                 UiProbe::item("settings.tab.agent",0);
                 if (agent) {
                     drawAgentControl();

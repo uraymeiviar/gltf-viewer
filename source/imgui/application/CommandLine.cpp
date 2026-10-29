@@ -626,15 +626,11 @@ std::optional<int> Application::configure(int argc, char** argv)
         } else if (arg == "--asobo" && i + 1 < argc) {
             // Anything but "off" keeps the extensions on, as before.
             const bool on = toLowerAscii(argv[++i]) != "off";
-            if (!applyCliSetting(SettingScope::Viewport, "asobo", on ? "on" : "off", "--asobo")) return 1;
+            // An app setting for this run only (never saved): the command line does not write settings.ini.
+            if (!applyCliSetting(SettingScope::Renderer, "asobo", on ? "on" : "off", "--asobo")) return 1;
         } else if (arg == "--asobo-disable" && i + 1 < argc) {
-            const std::string extension = argv[++i];
-            if (agentRegistry.findSetting(SettingScope::Viewport, extension) != nullptr) {
-                if (!applyCliSetting(SettingScope::Viewport, extension, "off", "--asobo-disable")) return 1;
-            } else {
-                // Extensions without a viewport switch keep the direct path.
-                activeViewport->settings.asobo.setApplied(extension, false);
-            }
+            // Any extension name works, also one without a registry key (no switch in the Settings tab).
+            ux3d::imgui::GltfExtensionSettings::instance().setEnabled(argv[++i], false, false);
         } else if (arg == "--set-asobo-param" && i + 4 < argc) {
             AsoboParamEditArg edit;
             edit.material = argv[++i];

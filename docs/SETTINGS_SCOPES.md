@@ -6,11 +6,12 @@ sun-shadow switch was renderer-wide, the IBL filter (a cost setting) was edited 
 
 | Scope | Owner | What belongs there | Persisted |
 |---|---|---|---|
+| **App settings** | `GltfExtensionSettings` (`header/imgui/GltfExtensionSettings.h`) | which glTF extensions Glider applies (ASOBO now; KHR_/EXT_/other vendors later): one set for the whole app, every viewport and model | yes, `[GltfExtensions]` |
 | **Quality** (global) | `RenderQualitySettings` (`header/imgui/RenderQuality.h`), the four quality presets | everything that costs time or memory: MSAA, post AA (none / FXAA / TAA), render scale, grid technique, IBL filter sizes / samples / precision, SSR / SSAO / sky-occlusion / ocean quality, SSAO resolution, shadow-map size / cascades / distance / filter and the shadow tuning (split lambda, biases), texture cap, the presets' "allow" gates (sun shadows, SSR, bloom, skybox, IBL, lights). Auto quality adapts this scope. | as before: `[RenderQuality]`, `[QualityProfiles]` |
 | **Scene** | `SceneEnvironmentState` (one per glTF scene, `header/imgui/SceneEnvironment.h`); the moved settings are `SceneEnvironmentState::effects` (`SceneEffectSettings`, `header/imgui/SettingsScopes.h`) | whether an effect is on and how it looks: sun shadows on/off, windshield SSR on/off and its interior sky reflection, SSAO on/off, radius, intensity, the aircraft's windshield icing, the sky-portal strength, the decal depth tolerance (plus everything that was already there: sun, sky, exposure, bloom, ambient, sky occlusion on/off) | no (as before) |
-| **Viewport** (view) | `ViewportSettingsState` (`header/imgui/ViewportSettingsPanel.h`) | how this view looks at the scene: camera, shading mode, debug render modes, wireframe overlay and its colour / blend, grid, ground and its parameters, extension display switches (ASOBO, Khronos), face-culling debug switches, helper gizmos, turntable, the lens effect, and one override per effect: **Scene / Off / On** for shadows, SSR and SSAO (default Scene) | no (as before) |
+| **Viewport** (view) | `ViewportSettingsState` (`header/imgui/ViewportSettingsPanel.h`) | how this view looks at the scene: camera, shading mode, debug render modes, wireframe overlay and its colour / blend, grid, ground and its parameters, per-material Khronos display switches, face-culling debug switches, helper gizmos, turntable, the lens effect, and one override per effect: **Scene / Off / On** for shadows, SSR and SSAO (default Scene) | no (as before) |
 
-There is no per-viewport quality any more. To compare AA modes side by side, run two instances.
+There is no per-viewport quality any more, and there are no per-viewport extension switches any more. To compare AA modes side by side, run two instances.
 
 ## Classification of every former per-viewport setting
 
@@ -22,8 +23,8 @@ There is no per-viewport quality any more. To compare AA modes side by side, run
 | `ground.ocean` (wind, fetch, choppiness, swell, foam, colour, period, mode, time, play) | `ocean_*` / `--ocean-*` | view | ground parameters; the live / looping mode stays a ground choice |
 | `ground.ocean.quality` | `ocean_quality` / `--ocean-quality` | **quality** | simulation cost (cascades x resolution x frames) |
 | `forceDoubleSided`, `invertWinding` | `force_double_sided`, `invert_winding` | view | debug view switches |
-| `asobo` (master and per extension) | `asobo`, `ASOBO_*`, `show_invisible_materials` / `--asobo*` | view | display switches (kept per viewport) |
-| `materialExtensions` | Inspector display switches | view | display switches |
+| `asobo` (master and per extension), `ASOBO_*`, `show_invisible_materials` / `--asobo*` | `asobo`, `ASOBO_*`, `show_invisible_materials` | **app setting** (formerly view) | not a view choice: a switch turned off stays off after a restart; one global set |
+| `materialExtensions` | Inspector display switches | view | per-material Khronos display switches (unchanged) |
 | `showSkyPortals` | `show_sky_portals` | view | gizmo |
 | `lensFlare`, `lensFlareIntensity` | `lens_flare*` / `--lens-flare*` | view | a property of this view's camera lens, not of the scene; it stays per viewport |
 | wireframe overlay / colour / blend, bounding boxes, node gizmo, axis convention, turntable, compass | `wireframe_*`, `scene_bounding_box`, `selection_box`, `node_gizmo` | view | helpers |
@@ -41,7 +42,35 @@ There is no per-viewport quality any more. To compare AA modes side by side, run
 | (renderer-wide) shadow size, cascades, distance, filter | `shadow_resolution`, `shadow_cascades`, `shadow_distance`, `shadow_filter` | quality (unchanged) | cost, part of the presets, adapted by Auto |
 | (renderer-wide) split lambda, normal / slope / constant bias | `shadow_split_lambda`, `shadow_*_bias` | quality (unchanged) | they compensate the shadow map's finite resolution and depth precision (the normal bias is in shadow-map texels; lambda spreads the resolution over the cascades), so they belong with the map, not with the scene's look; they stay saved in `[RenderQuality]` |
 | (scene) sky-occlusion bake quality | `sky_occlusion_quality` / `--sky-occlusion-quality` | **quality** | cost (cells x directions) |
-| (Scene Inspector) IBL filter settings | `--ibl-*` | quality (unchanged); edited in the Quality tab now | cost; the Scene Inspector only shows a summary |
+| (Scene Inspector) IBL filter settings | `--ibl-*` | quality (unchanged); edited in File > Settings > Quality now | cost; the Scene Inspector only shows a summary |
+
+## glTF extension switches (app setting)
+
+`ux3d::imgui::GltfExtensionSettings` (`header/imgui/GltfExtensionSettings.h`, `source/imgui/GltfExtensionSettings.cpp`)
+holds a set of switched-off **keys**; a key is an extension name or a vendor group token (`ASOBO`, later `KHR`, ...).
+An extension is applied when its group is not off and its name is not off (`applies`). The vendor table is
+`GltfExtensionSettings::groups()` (today only **MSFS (ASOBO)**, 17 rendered extensions).
+
+* Two sets: *effective* (this run) and *saved* (`settings.ini`). A user edit (File > Settings > glTF Extensions, the
+  Material inspector's per-extension ASOBO checkbox, a pipe edit under `set_persist(true)`) changes both and saves.
+  Command-line flags, script edits and pipe edits without `set_persist` change only the effective set and never reach
+  `settings.ini`, even when another setting is saved later.
+* `settings.ini` section `[GltfExtensions]`: one key per switched-off name with value `0` (`ASOBO=0` is the ASOBO
+  master switch, `ASOBO_material_detail_map=0` one extension). Only non-default values; an all-on set removes the
+  section. Loaded after `[RenderQuality]`. `--isolated` reads and writes nothing. Invalid keys or values are ignored
+  with one warning; unknown future names are kept.
+* Renderer: `ViewportSettingsState::asobo` is a resolved mirror written every frame by
+  `Application::resolveAllViewportSettings` from the global set, so every viewport uses it; a change of the set marks
+  `ViewportSettings` and resets TAA on every viewport.
+* Registry: the canonical keys are in scope `renderer`: `asobo` (master), `show_invisible_materials` and one key per
+  extension name (`ASOBO_material_detail_map`, ...), all bool, default true (false for invisible). They are not marked
+  `persisted`; under `set_persist(true)` the key being set is committed (`SettingSpec::onPersist`). The same keys in the
+  `viewport` scope forward to the global value (`compat: true`; a `viewport` argument changes nothing). Script keys
+  `asobo` / `invisible` set the global session value. `reset` restores the startup effective set.
+* `get_state.gltfExtensions`: `vendors` (`{ASOBO: {title, enabled, key, applied, total}}`), `extensions` (every listed
+  name: applied), `disabled` (this run), `saved`, `differsFromSaved`, `persistence`. `viewports[].effective.asobo`
+  (`enabled`, `disabled`) shows what each viewport renders with (always identical). `--profile-report` carries
+  `gltfExtensions` too.
 
 ## Viewport overrides
 
@@ -55,6 +84,8 @@ sun, SSR the presets' / Auto's SSR gate (`RenderQuality::allowSsr`). A new viewp
 |---|---|
 | `--aa`, `--msaa`, `--post-aa`; `aa`, `msaa`, `post_aa` (renderer) | the global AA (later flags win; `--msaa` / `--post-aa` still apply after every `--aa`) |
 | `--ssr-quality`, `--ssao-quality`, `--ssao-resolution`, `--ocean-quality`, `--sky-occlusion-quality`; same keys (renderer) | the global quality |
+| `--asobo`, `--asobo-disable`, `--show-invisible-materials`; renderer keys `asobo`, `show_invisible_materials`, `ASOBO_*` | the global extension switch (this run; `set_persist(true)` also saves the key) |
+| viewport keys of the same names | compatibility: set the global value |
 | `--ssr`, `--ssao`, `--shadows`, `--ssao-radius`, `--ssao-intensity`, `--interior-sky-reflection`, `--windshield-icing`, `--sky-portal-strength`, `--decal-tolerance`; same keys (environment) | the scene's effects (replayed onto every scene after the startup load, like the other environment flags) |
 | `viewport_shadows`, `viewport_ssr`, `viewport_ssao` (viewport, new) | the overrides |
 | `shadows_allowed` (renderer, new, saved preference) | the presets' sun-shadow gate (`[RenderQuality] shadows=`) |
@@ -90,27 +121,36 @@ therefore stays as it was, which keeps every single-viewport image byte-identica
 
 A new effect setting: add the field to `SceneEffectSettings` (or `RenderQualitySettings` for a cost), register it once
 in `Application::registerAgentSettings` in its scope, mirror it in `resolveViewport` if the renderer reads it per
-viewport, and add the UI to the Scene Inspector's "Shadows, Reflections & AO" (or the Quality tab).
+viewport, and add the UI to the Scene Inspector's "Shadows, Reflections & AO" (or File > Settings > Quality).
 
 ## UI
 
 * **Viewport Settings → Render Modes**: debug mode, **Effect overrides (Scene / Off / On)** for shadows, SSR and SSAO
   with the viewport's current state (in the rows the AA combos used, so the controls below keep their places), face
-  culling, MSFS extension display switches, "Show sky portals", wireframe, material variants.
-* **Viewport Settings → Camera & Helpers**: unchanged; the ocean's Quality line is read-only and points to the
-  Quality tab.
-* **Viewport Settings → Quality** (renderer-wide, the single place for quality): preset selector, Anti-Aliasing
-  (MSAA, Post AA), Viewport (ground grid technique, render scale), Effects (SSR, SSAO, SSAO resolution, sky occlusion,
-  ocean), Image-Based Lighting (the IBL filter), Sun Shadows ("Allow sun shadows", map size, cascades, distance,
-  filter, split lambda, biases).
-* **File → Settings → Quality Presets**: also SSAO quality / resolution, sky occlusion and ocean quality per preset;
-  the cost gates are labelled "Allow ...".
+  culling, "Show sky portals", wireframe, material variants. A dim hint and a **Quality settings...** button open
+  File > Settings > Quality.
+* **Viewport Settings → Camera & Helpers**: unchanged; the ocean's Quality line is read-only and points to
+  File > Settings > Quality. Its "glTF Extensions" block is a note plus a **glTF Extensions settings...** button that
+  opens the Settings tab.
+* **File > Settings > Quality** (renderer-wide, the single place for quality): the active preset (Auto / Low / Mid /
+  High / Ultra) and, while Auto adapts, its status; **Configured and in effect** (MSAA, Post AA, render scale, IBL
+  cube, SSR quality, sun shadow map); two sub-tabs: **Presets** (the four definitions, also SSAO quality /
+  resolution, sky occlusion and ocean quality per preset; the cost gates are labelled "Allow ...") and **Current
+  Settings** (Anti-Aliasing, Viewport (ground grid technique, render scale), Effects (SSR, SSAO, SSAO resolution, sky
+  occlusion, ocean), Image-Based Lighting (the IBL filter), Sun Shadows ("Allow sun shadows", map size, cascades,
+  distance, filter, split lambda, biases)).
+* **File > Settings > glTF Extensions**: Reset to defaults (plus "Restore saved settings" while this run differs from
+  the saved set), one section per vendor group with its master switch and one checkbox per rendered extension.
+* **Viewport Settings** keeps only view tabs: Render Modes, Camera & Helpers, Post.
 * **Scene Inspector → Shadows, Reflections & AO** (after Sun & Time of Day): sun shadows, windshield reflections (SSR)
   and interior sky reflection, SSAO with radius and intensity, Aircraft state (icing; sky-portal strength for files with
   portals; decal depth tolerance for files with decals). The IBL filter is shown as a summary; Sky Occlusion shows its
   bake quality read-only.
 
 ## Persistence
+
+`[GltfExtensions]`: one `name=0` per switched-off name, `ASOBO=0` for the master; only non-default values;
+command-line flags and pipe edits without `set_persist` are never saved; `--isolated` reads and writes nothing.
 
 No viewport setting was ever written to `settings.ini` (viewport state is session-only), so there is nothing to
 migrate from viewports. `[RenderQuality] shadows` keeps its key and now means the gate ("Allow sun shadows");
@@ -130,5 +170,7 @@ it). The scene effects are not saved (like the rest of the environment). `--isol
   resets as before. The agent `reset` restores the startup scene effects and the startup AA / effect quality.
 * `--shadows` / `shadows` switch the scene's shadows (no longer a saved preference; `set_persist(true)` + `shadows`
   writes nothing); the saved gate is `shadows_allowed`.
-* Editing the IBL filter moved to the Quality tab; the Scene Inspector's Sky Occlusion shows its quality read-only.
+* The ASOBO switches are global: one viewport's change reaches all, and a switch set in the UI is saved. The viewport
+  Quality tab is gone (File > Settings > Quality).
+* Editing the IBL filter moved to File > Settings > Quality; the Scene Inspector's Sky Occlusion shows its quality read-only.
 * `--decal-prepass-check` sets the global AA to none (it did so for every viewport).

@@ -500,7 +500,7 @@ void SceneInspector::render(SceneEnvironmentState& env,
         }
         UiProbe::item("scene.punctual.on", 0);
 
-        // Settings scopes: the IBL filter is quality (renderer-wide) and is edited in Viewport Settings > Quality.
+        // Settings scopes: the IBL filter is quality (renderer-wide) and is edited in File > Settings > Quality.
         // While IBL is on, the scene shows what it gets (the probe tag stays on the heading).
         if (env.iblEnabled) {
             ImGui::SeparatorText("IBL Filter Settings");
@@ -509,7 +509,7 @@ void SceneInspector::render(SceneEnvironmentState& env,
             ImGui::TextDisabled("Cube %u, irradiance %s, LUT %u, %u samples, %s", quality.iblCubeSize,
                                 quality.iblIrradianceSize == 0 ? "full" : std::to_string(quality.iblIrradianceSize).c_str(),
                                 quality.iblLutSize, quality.iblSpecularSamples, quality.iblHalfFloat ? "16-bit" : "32-bit");
-            ImGui::TextDisabled("Quality (all viewports): Viewport Settings > Quality.");
+            ImGui::TextDisabled("Quality (all viewports): File > Settings > Quality.");
         }
     }
 
@@ -579,7 +579,7 @@ void SceneInspector::renderEffects(SceneEnvironmentState& env, ux3d::renderer::G
     UiProbe::item("scene.effects.shadows", 0);
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip("Cascaded shadow maps of the sun (drawn while the sun is on).\n"
-                          "Map size, cascades, distance, filter and biases: Viewport Settings > Quality.");
+                          "Map size, cascades, distance, filter and biases: File > Settings > Quality.");
     }
     if (fx.shadows && !quality.shadows) {
         ImGui::SameLine();
@@ -592,7 +592,7 @@ void SceneInspector::renderEffects(SceneEnvironmentState& env, ux3d::renderer::G
     }
     UiProbe::item("scene.effects.ssr", 0);
     if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Screen-space reflections on ASOBO_material_windshield_v3 glass. Sample budget: Viewport Settings > Quality.");
+        ImGui::SetTooltip("Screen-space reflections on ASOBO_material_windshield_v3 glass. Sample budget: File > Settings > Quality.");
     }
     ImGui::BeginDisabled(!fx.ssr);
     if (ImGui::SliderFloat("Interior sky reflection##sceneInteriorSky", &fx.interiorSkyReflection, 0.0f, 1.0f, "%.2f")) {
@@ -612,7 +612,7 @@ void SceneInspector::renderEffects(SceneEnvironmentState& env, ux3d::renderer::G
         ImGui::SetTooltip("GTAO from the scene depth: darkens the sky light (IBL) in creases, corners and\n"
                           "under nearby objects. The sun and punctual lights keep their own shadows.\n"
                           "Combined with the authored occlusion maps as min(authored, SSAO).\n"
-                          "Samples and resolution: Viewport Settings > Quality.");
+                          "Samples and resolution: File > Settings > Quality.");
     }
     ImGui::BeginDisabled(!fx.ssao);
     if (ImGui::DragFloat("AO radius##sceneSsaoRadius", &fx.ssaoRadius, 0.01f, 0.01f, 100.0f, "%.2f",
@@ -674,11 +674,11 @@ void SceneInspector::renderSkyOcclusion(SceneEnvironmentState& env, const SkySta
                           "shadows; punctual lights, emissive, Manual ambient and the background are unchanged.\n"
                           "Auto: on with the procedural sky, off with the HDR.");
     }
-    // Settings scopes: the bake quality is renderer-wide (Viewport Settings > Quality); shown here for reference.
+    // Settings scopes: the bake quality is renderer-wide (File > Settings > Quality); shown here for reference.
     {
         static const char* const names[] = { "Low (64 directions, 64 cells)", "Medium (128 directions, 96 cells)",
                                              "High (256 directions, 128 cells)" };
-        ImGui::TextDisabled("Bake quality: %s (Viewport Settings > Quality)",
+        ImGui::TextDisabled("Bake quality: %s (File > Settings > Quality)",
                             names[std::clamp(RenderQuality::settings().skyOcclusionQuality, 0, 2)]);
     }
     UiProbe::item("scene.sky_occlusion.quality", 0);

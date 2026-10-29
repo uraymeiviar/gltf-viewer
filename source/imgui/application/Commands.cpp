@@ -8,6 +8,7 @@
 #include "imgui/CaptureSettings.h"
 #include "imgui/EmbeddedVFS.h"
 #include "imgui/ExtensionInspector.h"
+#include "imgui/GltfExtensionSettings.h"
 #include "imgui/GltfValidator.h"
 #include "imgui/GlCaps.h"
 #include "imgui/OceanSimulation.h"
@@ -386,7 +387,10 @@ json Application::agentStateJson()
                                        {"ssao", vp->settings.ssao.enabled},
                                        {"msaa", aaNames[std::clamp(effective.effectiveMsaaIdx(), 0, 3)]},
                                        {"postAA", postNames[std::clamp(effective.effectivePostAAIdx(), 0, 2)]},
-                                       {"ssrQuality", effective.ssrQuality}}}});
+                                       {"ssrQuality", effective.ssrQuality},
+                                       // The global glTF extension set as this viewport renders with it (always the same).
+                                       {"asobo", {{"enabled", vp->settings.asobo.enabled},
+                                                  {"disabled", vp->settings.asobo.disabled}}}}}});
     }
     st["viewports"] = list;
     if (activeViewport != nullptr) st["renderMode"] = renderModeName(activeViewport->settings.renderMode);
@@ -412,6 +416,7 @@ json Application::agentStateJson()
     st["ssao"] = ssaoStateJson();
     // Settings scopes: renderer-wide quality, the active scene's effects.
     st["quality"] = qualityStateJson();
+    st["gltfExtensions"] = ux3d::imgui::GltfExtensionSettings::instance().stateJson();
     st["environment"] = {{"effects", effectsStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene))}};
     st["skyOcclusion"] = skyOcclusionStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene));
     if (activeViewport != nullptr) {
@@ -1866,59 +1871,59 @@ void Application::registerAgentSettings()
     effectFloat("decal_tolerance_mm", &FX::decalDepthToleranceMm,
                 "Decal depth tolerance along the receiver normal (mm).", "--decal-tolerance <mm>", 0.0, 10.0);
 
+    // glTF extension switches are an app setting (docs/SETTINGS_SCOPES.md): one global set for every viewport and
+    // model, saved in settings.ini [GltfExtensions]. The canonical keys are in the renderer scope, keyed by the
+    // extension name ("asobo" is the ASOBO group's master switch); the former viewport keys are compatibility keys.
+    // A set changes this run only; under set_persist(true) onPersist commits the key.
     {
-        SettingSpec spec;
-        spec.key = "asobo";
-        spec.scope = V;
-        spec.type = SettingType::Bool;
-        spec.help = "Master switch for MSFS (ASOBO) extensions in this viewport.";
-        spec.cliFlag = "--asobo <on|off>";
-        spec.get = [](void* t) { return json(static_cast<VS*>(t)->asobo.enabled); };
-        spec.set = [](void* t, const json& v, std::string&) {
-            static_cast<VS*>(t)->asobo.enabled = v.get<bool>();
-            return true;
+        using GES = ux3d::imgui::GltfExtensionSettings;
+        const auto extensionSwitch = [&](std::string key, std::string group, std::string help, std::string cli) {
+            SettingSpec spec;
+            spec.key = std::move(key);
+            spec.scope = R;
+            spec.type = SettingType::Bool;
+            spec.help = std::move(help);
+            spec.cliFlag = std::move(cli);
+            spec.defaultValue = true;
+            const std::string name = group;
+            spec.get = [name](void*) { return json(GES::instance().enabled(name)); };
+            spec.set = [name](void*, const json& v, std::string&) {
+                GES::instance().setEnabled(name, v.get<bool>(), false);
+                return true;
+            };
+            spec.onPersist = [name] { GES::instance().commit(name); };
+            addSetting(std::move(spec));
         };
-        addSetting(std::move(spec));
-    }
-    {
+        for (const ux3d::imgui::GltfExtensionGroup& group : GES::groups()) {
+            extensionSwitch(group.masterKey, group.vendor,
+                            "Master switch of the " + group.title + " glTF extensions (app setting, every viewport; "
+                            "saved with set_persist(true)).", group.vendor == "ASOBO" ? "--asobo <on|off>" : "");
+            for (const ux3d::imgui::GltfExtensionEntry& entry : group.extensions) {
+                extensionSwitch(entry.name, entry.name,
+                                "Apply " + entry.name + " (app setting, every viewport; saved with set_persist(true)).",
+                                group.vendor == "ASOBO" ? "--asobo-disable " + entry.name : "");
+            }
+        }
         SettingSpec spec;
         spec.key = "show_invisible_materials";
-        spec.scope = V;
+        spec.scope = R;
         spec.type = SettingType::Bool;
-        spec.help = "Also draw ASOBO_material_invisible and environment-occluder materials.";
+        spec.help = "Also draw ASOBO_material_invisible and environment-occluder materials (app setting, every viewport).";
         spec.cliFlag = "--show-invisible-materials";
-        spec.get = [](void* t) {
-            const auto& asobo = static_cast<VS*>(t)->asobo;
-            return json(!asobo.applies("ASOBO_material_invisible") &&
-                        !asobo.applies("ASOBO_material_environment_occluder") && asobo.enabled);
+        spec.defaultValue = false;
+        spec.get = [](void*) {
+            auto& ext = GES::instance();
+            return json(!ext.applies("ASOBO_material_invisible") && !ext.applies("ASOBO_material_environment_occluder") &&
+                        ext.enabled("ASOBO"));
         };
-        spec.set = [](void* t, const json& v, std::string&) {
-            auto& asobo = static_cast<VS*>(t)->asobo;
-            asobo.setApplied("ASOBO_material_invisible", !v.get<bool>());
-            asobo.setApplied("ASOBO_material_environment_occluder", !v.get<bool>());
+        spec.set = [](void*, const json& v, std::string&) {
+            GES::instance().setEnabled("ASOBO_material_invisible", !v.get<bool>(), false);
+            GES::instance().setEnabled("ASOBO_material_environment_occluder", !v.get<bool>(), false);
             return true;
         };
-        addSetting(std::move(spec));
-    }
-    // One switch per ASOBO extension with a viewport switch (the same rows as the Viewport
-    // Settings panel), keyed by the extension name.
-    for (const ux3d::gltf::asobo::SupportInfo& info : ux3d::gltf::asobo::supportTable()) {
-        if (!ux3d::gltf::asobo::isAsoboExtension(info.name) || !info.viewportSwitch) continue;
-        if (info.status != ux3d::gltf::asobo::Support::Rendered && info.status != ux3d::gltf::asobo::Support::Partial) continue;
-        const std::string extension(info.name);
-        SettingSpec spec;
-        spec.key = extension;
-        spec.scope = V;
-        spec.type = SettingType::Bool;
-        spec.help = "Apply " + extension + " in this viewport.";
-        spec.cliFlag = "--asobo-disable " + extension;
-        spec.get = [extension](void* t) {
-            const auto& disabled = static_cast<VS*>(t)->asobo.disabled;
-            return json(std::find(disabled.begin(), disabled.end(), extension) == disabled.end());
-        };
-        spec.set = [extension](void* t, const json& v, std::string&) {
-            static_cast<VS*>(t)->asobo.setApplied(extension, v.get<bool>());
-            return true;
+        spec.onPersist = [] {
+            GES::instance().commit("ASOBO_material_invisible");
+            GES::instance().commit("ASOBO_material_environment_occluder");
         };
         addSetting(std::move(spec));
     }
@@ -2728,6 +2733,12 @@ void Application::registerAgentSettings()
                             "ssao_radius", "ssao_intensity"}) {
         forward(key, V, E);
     }
+    // The glTF extension switches left the viewport: their viewport keys set the global (app) switch.
+    forward("asobo", V, R);
+    forward("show_invisible_materials", V, R);
+    for (const ux3d::imgui::GltfExtensionGroup& group : ux3d::imgui::GltfExtensionSettings::groups()) {
+        for (const ux3d::imgui::GltfExtensionEntry& entry : group.extensions) forward(entry.name, V, R);
+    }
     forward("shadows", R, E);
     forward("sky_occlusion_quality", E, R);
     // ssr and ssao were per-viewport switches: their viewport keys set this viewport's override (true = on,
@@ -3507,6 +3518,8 @@ void Application::registerAgentCommands()
                     for (auto& env : sceneEnvironments) env = agentStartupEnvironment;
                     // Settings scopes: the AA and effect quality were viewport settings, which reset restored.
                     ux3d::imgui::RenderQuality::settings().copyEffectQuality(agentStartupQuality);
+                    // The glTF extension switches are an app setting: back to the startup (saved + flags) set.
+                    ux3d::imgui::GltfExtensionSettings::instance().restore(agentStartupGltfExtensions);
                     for (const auto& vp : viewports) {
                         if (!vp) continue;
                         vp->settings = agentStartupViewportSettings;
@@ -3571,6 +3584,10 @@ void Application::registerAgentCommands()
         }
         if (spec->persisted && context.source == agent::CommandSource::Pipe && context.persist) {
             ux3d::imgui::RenderQuality::save();
+        }
+        // App settings saved on request (the glTF extension switches): commit this key's value.
+        if (spec->onPersist && context.source == agent::CommandSource::Pipe && context.persist) {
+            spec->onPersist();
         }
         json out = settingResult(*spec, target);
         out["scope"] = agent::CommandRegistry::scopeName(scope);

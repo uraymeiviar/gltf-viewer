@@ -17,6 +17,7 @@
 #include "imgui/ResourcesPanel.h"
 #include "imgui/ViewportInstance.h"
 #include "imgui/RenderQuality.h"
+#include "imgui/GltfExtensionSettings.h"
 #include "imgui/SkyEnvironment.h"
 #include "imgui/SkyOcclusion.h"
 #include "imgui/ViewportOverrides.h"
@@ -44,6 +45,7 @@
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <optional>
 #include <string>
 #include <utility>
@@ -733,6 +735,8 @@ private:
     ux3d::imgui::ViewportSettingsState agentStartupViewportSettings;
     ux3d::imgui::SceneEnvironmentState agentStartupEnvironment;
     ux3d::imgui::RenderQualitySettings agentStartupQuality; // reset restores the AA / effect quality fields
+    uint64_t lastGltfExtensionRevision = ~0ull;             // resolveAllViewportSettings marks a change of the set
+    std::set<std::string> agentStartupGltfExtensions;       // reset restores the glTF extension switches (effective set)
     // CLI environment flags, replayed onto every scene environment after the model loads.
     std::vector<std::pair<std::string, std::string>> cliEnvironmentSettings;
 

@@ -290,7 +290,7 @@ TAA viewports with the environment map, at 1920×1080.
   - On first use, the file next to the executable is copied there. The working directory is never read.
 - **`ASOBO_material_invisible` support.** Primitives whose material declares the extension with `enabled` true
   (the schema default) are not rendered.
-  - Turned on by the per-viewport option *Show Invisible Materials (ASOBO_material_invisible)*, or with
+  - Turned on by the app setting *Show Invisible Materials (ASOBO_material_invisible)*, or with
     `--show-invisible-materials` or `vpsetting <id> invisible on`.
   - This is phase A1.1 of the [ASOBO extension journal](ASOBO_EXTENSIONS_JOURNAL.md).
 - **Shared scene traversal.** `GltfRenderLayer::createScene` splits into a camera-independent traversal and

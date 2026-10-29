@@ -79,6 +79,8 @@ set(GLIDER_SOURCES
 	"source/imgui/application/Ocean.cpp"
 	"source/imgui/CommandRegistry.cpp"
 	"source/imgui/CaptureSettings.cpp"
+	"source/imgui/GltfExtensionSettings.cpp"
+	"header/imgui/GltfExtensionSettings.h"
 	"source/imgui/application/ViewportImage.cpp"
 	"header/imgui/CommandRegistry.h"
 	"header/imgui/CaptureSettings.h"

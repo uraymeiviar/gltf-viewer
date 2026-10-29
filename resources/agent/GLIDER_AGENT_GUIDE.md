@@ -110,17 +110,26 @@ Commands run on the render thread between frames, strictly in order. Multi-frame
 
 ## Settings scopes
 
-- Three scopes (docs/SETTINGS_SCOPES.md): renderer-wide **quality** (`aa`, `msaa`, `post_aa`, `ssr_quality`,
+- Four places (docs/SETTINGS_SCOPES.md): the **app settings** (the glTF extension switches, below), renderer-wide **quality** (`aa`, `msaa`, `post_aa`, `ssr_quality`,
   `ssao_quality`, `ssao_resolution`, `sky_occlusion_quality`, `ocean_quality`, `grid_mode`, the
   `shadow_*` map keys, `shadows_allowed`; set them with `set_viewport_setting`, they apply to every viewport); the
   **scene** (`set_environment`: `shadows`, `ssr`, `interior_sky_reflection`, `ssao`, `ssao_radius`, `ssao_intensity`,
   `windshield_icing`, `sky_portal_strength`, `decal_tolerance_mm`, besides sun, sky, exposure, bloom, ambient); the
-  **viewport** (`set_viewport_setting`: render mode, wireframe, grid, ground / ocean, extension switches, lens effect,
+  **viewport** (`set_viewport_setting`: render mode, wireframe, grid, ground / ocean, lens effect,
   and the overrides `viewport_shadows`, `viewport_ssr`, `viewport_ssao` = `scene` (default) / `off` / `on`).
 - The former keys still work where they were: the viewport keys `msaa`, `ssr_quality`, `ssao_radius`, ... forward
   to the quality or the scene; the viewport keys `ssr` / `ssao` set that viewport's override; the renderer key
   `shadows` is the scene's switch. `get_state`: `quality` (configured / effective), `environment.effects`,
   `viewports[].overrides` and `viewports[].effective`.
+- **glTF extension switches are an app setting, not a viewport setting** (File > Settings > glTF Extensions). One
+  global set for every viewport and model, keyed by extension name: `asobo` (the master switch of the ASOBO group),
+  `show_invisible_materials`, and one key per extension (`ASOBO_material_detail_map`, ... see `list_settings`;
+  other vendors' extensions join the same way). The canonical keys are in the `renderer` scope; the former viewport
+  keys still work and set the global value (a `viewport` argument changes nothing: both viewports always share the
+  set). A `set_viewport_setting` / `--asobo` / `--asobo-disable` change applies to this run only and is not saved; with
+  `set_persist(true)` the key you set is also saved to `settings.ini` `[GltfExtensions]` (one `name=0` line per
+  switched-off name, `ASOBO=0` for the master switch). `get_state` `gltfExtensions`: `vendors`, `extensions`,
+  `disabled` (this run), `saved`.
 
 ## Procedural sky (A6.2 / A6.3)
 
@@ -251,7 +260,7 @@ Commands run on the render thread between frames, strictly in order. Multi-frame
 ## Sky portals (A3.7)
 
 - Files with `ASOBO_sky_portal` nodes (MSFS window lights, node +Z into the cabin, radius `source_radius` cm / 100):
-  the viewport key `ASOBO_sky_portal` switches their light (default on), the scene key `sky_portal_strength` scales
+  the global extension key `ASOBO_sky_portal` switches their light (default on), the scene key `sky_portal_strength` scales
   it (0..4, default 0.35), the viewport key `show_sky_portals` draws every portal's gizmo (UI overlay, not in `capture`).
 - The light is added only where the IBL was occluded: (1 - occlusion) x strength x portal light; surfaces with
   occlusion 1 never change. `get_state` `skyPortals` lists the portals (position, direction, radius) and how many lit
@@ -327,7 +336,8 @@ Commands run on the render thread between frames, strictly in order. Multi-frame
 - **Settle frames**: `capture` renders `settle_frames` (default 8) frames first, like `--dump-frame`, so TAA
   and auto exposure converge. Use a larger value after big camera jumps with TAA.
 - **Persistence**: pipe commands never write `settings.ini` (recent files included). Saved preferences such as
-  `grid_mode` are refused with `persist_required` until `set_persist(true)`.
+  `grid_mode` are refused with `persist_required` until `set_persist(true)`; the glTF extension switches are accepted
+  without it (this run only) and are saved only when `set_persist(true)` is on.
 - **Opening a model resets the scene environment** (exposure, tone mapping, ...), as File > Open does.
 - **The user shares the app**: their selection and camera changes are visible to `get_state`, and yours are
   visible to them.

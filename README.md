@@ -46,7 +46,7 @@
   - **Decals**: `ASOBO_material_geometry_decal` / `ASOBO_material_blend_gbuffer` through a decal buffer with per-channel blending and a configurable depth tolerance.
   - **Glass**: `ASOBO_material_glass_v2` with reflections independent of opacity and refraction through a parallel slab (`glassWidth`), frosted by roughness.
   - **Windshields**: `ASOBO_material_windshield_v3` with screen-space reflections (on by default; quality Low/Medium/High) that reflect the cockpit interior, with an interior sky-reflection strength.
-  - Draw order, invisible materials and environment occluders, normal-map convention, vertex encoding of optimized assets, and more; each extension can be switched off per viewport (Viewport Settings → MSFS Extensions).
+  - Draw order, invisible materials and environment occluders, normal-map convention, vertex encoding of optimized assets, and more; each extension can be switched off for the whole app (File → Settings → glTF Extensions).
   - **Live tuning**: ASOBO extension parameters (e.g. glass width, SSR attenuation, decal factors) are editable in the Inspector in memory, without changing the file.
 - **Built-in In-Process glTF 2.0 Validator**:
   - High-performance, native C++20 validation engine running directly in-process with zero external subprocesses or tools needed.

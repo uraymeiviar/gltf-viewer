@@ -120,6 +120,9 @@ struct SettingSpec {
     // the setting in forwardsTo (or, for the ssr / ssao viewport keys, the viewport's override).
     bool compat = false;
     std::optional<SettingScope> forwardsTo;
+    // Optional: an app setting that is saved only on request. A pipe set changes this run only; while the client has
+    // set_persist(true) the registry calls onPersist after a successful set so the setting commits that value.
+    std::function<void()> onPersist;
     nlohmann::json defaultValue;
     std::function<nlohmann::json(void* target)> get;
     std::function<bool(void* target, const nlohmann::json& value, std::string& error)> set;

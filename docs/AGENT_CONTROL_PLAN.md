@@ -226,7 +226,7 @@ Nodes are addressed by name (exact, then case-insensitive, then unique substring
 | `probe(x, y, viewport?)` | immediate | At a pixel in capture coordinates: linear HDR scene colour before TAA, bloom and tone mapping (resolved scene target), final LDR colour, depth, reconstructed world position and the picked node/mesh/primitive/material. 1x1 reads on demand; no per-frame cost, no rendering or TAA-history change. |
 | `probe_region(x0, y0, x1, y1, viewport?)` | immediate | Min/max/mean linear HDR luminance and RGB over a rectangle of the same scene target. |
 | `set_render_mode(mode)` | immediate | Shaded/Wireframe and Debug Render Modes (same names as `--debug-view`). |
-| `set_viewport_setting(key, value, viewport?)` / `get_viewport_setting(key?)` | immediate | Phase 3: settings from Viewport Settings (AA, SSR, grid, render mode, ASOBO switches, wireframe) and the renderer-wide keys. |
+| `set_viewport_setting(key, value, viewport?)` / `get_viewport_setting(key?)` | immediate | Phase 3: settings from Viewport Settings (AA, SSR, grid, render mode, wireframe; the ASOBO switches are global compatibility keys) and the renderer-wide keys. |
 | `set_environment(key, value)` / `get_environment(key?)` | immediate | Phase 3: exposure, tone mapping, HDR rotation, time of day, emissive scale, bloom, clear colour. |
 | `set_material_param(material, extension, param, value)` / `get_material_param` | immediate | Phase 3: same path as `--set-asobo-param` / Inspector. |
 | `list_settings(scope?)` | immediate | Every setting key with scope, type, range or values, current value, default and CLI flag. |

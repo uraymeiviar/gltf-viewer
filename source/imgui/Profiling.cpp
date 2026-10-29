@@ -634,6 +634,9 @@ bool writeProfileReport(const std::string& path, const ProfileReport& report)
     if (!report.quality.is_null()) {
         document["quality"] = report.quality;
     }
+    if (!report.gltfExtensions.is_null()) {
+        document["gltfExtensions"] = report.gltfExtensions;
+    }
     if (!report.effects.is_null()) {
         document["environment"] = {{"effects", report.effects}};
     }

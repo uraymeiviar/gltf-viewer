@@ -90,13 +90,14 @@ void Application::drawPanels(FrameContext& frame)
     // -------------------------------------------------------------
     // Search Paths Window
     // -------------------------------------------------------------
+    if (ux3d::imgui::takeSettingsWindowRequest()) showSearchPaths = true;
     if (showSearchPaths) {
         ux3d::imgui::renderSearchPathsWindow(&showSearchPaths, [&]() {
             if (!currentFilePath.empty()) {
                 loadGltfModel(currentFilePath, gltfModel, activeScene, selection, currentFilePath, viewports,
                               gltfLayer.get(), animationPlayer, sceneRevisions, sceneEnvironments);
             }
-        }, &sceneRevisions, [this]() { drawAgentControlSettings(); });
+        }, &sceneRevisions, [this]() { drawAgentControlSettings(); }, gltfLayer.get());
     }
 
     drawLogger();

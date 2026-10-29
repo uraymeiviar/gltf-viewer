@@ -46,7 +46,7 @@ Output: `build/bin/Release/Glider.exe`. Prerequisites and complete workflows: [B
 
 After each commit, build and save its binary as the clean baseline with `python scripts/save_baseline.py` (tracked files must match the commit). Compare subsequent uncommitted changes with `python scripts/run_regression.py` (quick tier). Each change runs its own focused check plus the closest **1–3 validators**; run `python scripts/run_regression.py --tier full` **once per commit for broad changes**. See [§4.5](docs/BUILD_AND_TEST.md#45-regression-testing) for comparisons, scheduling and baseline caching. Benchmarks are separate timing evidence: use the harness's `--bench` and never run benchmarks in parallel. Docs-only edits use documentation checks.
 
-Portable settings: persisted preferences use `SettingsFile` and one `settings.ini` next to the executable (fallback through the store to `%APPDATA%/Glider`, then `%TEMP%/Glider`). Save only non-default values, omit empty sections and never rewrite unchanged content; pristine defaults create no file. Preserve one-time legacy migration and safe in-memory fallback. Use `GLIDER_DATA_DIR=<dir>` for test storage without migration. **`--isolated` reads and writes no persistent state.** Details: [architecture §3.6](docs/ARCHITECTURE.md#36-docking--layout-persistence).
+Portable settings: persisted preferences use `SettingsFile` and one `settings.ini` next to the executable (fallback through the store to `%APPDATA%/Glider`, then `%TEMP%/Glider`). Save only non-default values, omit empty sections and never rewrite unchanged content; pristine defaults create no file. Preserve one-time legacy migration and safe in-memory fallback. Sections include `[GltfExtensions]` (switched-off glTF extensions, edited in File → Settings → glTF Extensions; quality is File → Settings → Quality). Use `GLIDER_DATA_DIR=<dir>` for test storage without migration. **`--isolated` reads and writes no persistent state.** Details: [architecture §3.6](docs/ARCHITECTURE.md#36-docking--layout-persistence).
 
 ## 5. Critical Rules & Guardrails for AI Agents
 
@@ -64,5 +64,6 @@ Portable settings: persisted preferences use `SettingsFile` and one `settings.in
 6. **Portable & Robust Settings Storage**:
    - Never hardcode `%APPDATA%` or read/write settings in the working directory `.` directly.
    - All persisted preferences go through `ux3d::imgui::SettingsFile` (`settings.ini` sections); do not add a new per-feature state file or a `GliderData`-style folder.
+   - `[GltfExtensions]` is written only by `GltfExtensionSettings`; command-line flags never reach it.
    - All filesystem operations on settings must use non-throwing `std::filesystem` overloads with `std::error_code` and check streams. Unreadable/corrupt files must fall back to defaults with a warning; unwritable files must keep state in memory with a warning (no repeated per-frame log spam).
    - `--isolated` must never read or write any persistent state to disk.

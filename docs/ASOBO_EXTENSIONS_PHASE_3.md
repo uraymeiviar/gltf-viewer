@@ -113,8 +113,8 @@ lighting features of user priority 5. The sun's direction is set by hand here an
     - **Memory:** per viewport, size^2 x cascades x 4 bytes: 2048 x 3 = 48 MiB (default), 1024 x 2 = 8 MiB,
       4096 x 4 = 256 MiB. Released when the sun or its shadows are off, in wireframe mode and when the viewport
       closes. No compute; the new shaders stay `#version 410`, so shadows work on every context (4.1+).
-    - **Settings:** `RenderQualitySettings` (Viewport Settings → Quality → Sun Shadows; File → Settings →
-      Quality Presets for on/off, size, cascades, distance and filter; `[RenderQuality]` and `[QualityProfiles]`).
+    - **Settings:** `RenderQualitySettings` (File → Settings → Quality → Current Settings → Sun Shadows; File → Settings →
+      Quality → Presets for on/off, size, cascades, distance and filter; `[RenderQuality]` and `[QualityProfiles]`).
       Presets: Low 1024 x 2 hard, Mid 1024 x 3 PCF, High 2048 x 3 PCF (default), Ultra 2048 x 4 soft; lambda and
       biases are kept across preset changes. Auto starts at 1024 x 2 (at most PCF) and steps up to the configured
       values at Auto level 4; it never switches shadows off. Edits pin the shadow group. CLI `--shadows`,
@@ -364,9 +364,9 @@ lighting features of user priority 5. The sun's direction is set by hand here an
       strength 488, three vec4[8] arrays at 496 / 624 / 752; 880 bytes).
     - **Viewer:** gizmo (`Application::drawSkyPortalGizmo`, ImGui overlay, not in viewport captures): the disc
       (yellow, source radius), the exporter preview's inner circle (blue, `r sin(inner/2) / sin(min(outer,179)/2)`)
-      and an arrow along +Z; shown for the selected portal node, or for all with Viewport Settings > MSFS Extensions
-      > *Show sky portals*. Same section: *Sky portal strength* (both only for files with portals) and the
-      per-viewport `ASOBO_sky_portal` switch (default on). Inspector: typed fields from the schema plus a *Sky Portal
+      and an arrow along +Z; shown for the selected portal node, or for all with Viewport Settings >
+      glTF Extensions > *Show sky portals*. Same section: *Sky portal strength* (both only for files with portals) and the
+      `ASOBO_sky_portal` switch in File > Settings > glTF Extensions (app setting, all viewports) (default on). Inspector: typed fields from the schema plus a *Sky Portal
       (MSFS)* summary (radius in metres, inner circle, cone). Isolation keeps the portals (they are the environment);
       hiding a portal node switches it off.
     - **Settings / CLI:** registry `ASOBO_sky_portal`, `sky_portal_strength` (0-4), `show_sky_portals`;
@@ -416,7 +416,7 @@ lighting features of user priority 5. The sun's direction is set by hand here an
     the SDK's before/after images; calibration is inferred until an MSFS capture exists.
   - **Interior only:** portals light interior materials (cockpit/cabin files), never the exterior.
   - **Viewer:** a gizmo (two concentric circles and the direction, as in the exporter preview), the parameters in
-    the Inspector, and a per-viewport switch in MSFS Extensions (default on).
+    the Inspector, and a switch in File > Settings > glTF Extensions (app setting, all viewports) (default on).
   - **Tests:** off renders byte-identical to before; a portal facing a white plane lights a disc-shaped region
     falling off with the cone angles; no light leaks outside the hull; DA62 cockpit before/after review.
   - **Deferred, not planned:** `ASOBO_macro_light` (deprecated MSFS 2020 name), `ASOBO_street_light`,

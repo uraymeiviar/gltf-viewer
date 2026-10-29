@@ -145,7 +145,7 @@ public:
     static int selectedProfile();
     static void selectProfile(int selection);
     static const char* profileName(int selection);
-    static void drawProfileSelector(SceneRevisions& revisions);
+    static void drawProfileSelector(SceneRevisions& revisions, const char* probeTag = "quality.preset");
     static void drawProfilesEditor(SceneRevisions& revisions);
     static bool allowSkybox(bool requested);
     static bool allowLights(bool requested);
@@ -167,9 +167,13 @@ public:
     // Returns false when argv[i] is not a quality flag. Sets error on a bad value.
     static bool parseArgument(int argc, char** argv, int& i, std::string& error);
 
-    // Draws the Quality tab body of the Viewport Settings panel: every renderer-wide quality setting (preset, AA,
-    // render scale, grid, effect quality, IBL filter, sun shadow maps). Re-filters the environment when the IBL
-    // fields change.
+    // File > Settings > Quality: the preset selector, the configured and in-effect values, and two sub-tabs: Presets
+    // (the definitions of Low / Mid / High / Ultra) and Current Settings (drawSettings). Quality is an app setting:
+    // it applies to every viewport and is no longer a tab of the viewport inspector.
+    static void drawSettingsTab(ux3d::renderer::GltfRenderLayer* layer, SceneRevisions& revisions);
+
+    // Draws the current quality settings: every renderer-wide quality setting (AA, render scale, grid, effect
+    // quality, IBL filter, sun shadow maps). Re-filters the environment when the IBL fields change.
     static void drawSettings(ux3d::renderer::GltfRenderLayer* layer, SceneRevisions& revisions);
 
     // Draws the IBL filter size, sample count and precision controls. The Scene Inspector

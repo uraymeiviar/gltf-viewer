@@ -543,6 +543,7 @@ struct ProfileReport {
     nlohmann::json ambient; // A3.8: the viewer ambient light (get_state "ambient")
     nlohmann::json ssao; // A3.5: per-viewport SSAO settings, state, memory and GPU time (get_state "ssao")
     nlohmann::json quality; // settings scopes: renderer-wide quality, configured and effective (get_state "quality")
+    nlohmann::json gltfExtensions; // the global glTF extension switches (get_state "gltfExtensions")
     nlohmann::json effects; // settings scopes: the active scene's effects (get_state "environment.effects")
     nlohmann::json skyOcclusion; // A3.9: the sky-visibility volume, its bake and cost (get_state "skyOcclusion")
     nlohmann::json ground; // A3.6/A6.8: the active viewport's ground (get_state "ground"); only while it is the ocean

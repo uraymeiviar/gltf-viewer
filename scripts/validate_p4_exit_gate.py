@@ -40,6 +40,8 @@ NO_SYNC = {"Selection", "ViewCamera", "AnimationTime"}
 # Environment controls (IBL, lights, skybox) are in the Scene Inspector (hier.scene); viewport
 # settings open on their first tab, Render Modes. The IBL filter settings live in the Scene
 # Inspector too and must follow the IBL toggle (checked after the transition loop).
+# The overlay step toggles the Wireframe Overlay (the ASOBO master switch that used to sit at that place is an app
+# setting in File > Settings > glTF Extensions now; validate_settings_scopes.py covers it).
 # Node names are read-only now, so Metadata has no producer step here.
 STEPS = [
     ("variant_alt", "Material", True, ["click 110 800"]),
@@ -54,8 +56,8 @@ STEPS = [
     ("lights_on", "RenderSettings", True, ["clickp scene.ibl.on 0", "wait 4", "clickp scene.punctual.on 0"]),
     ("double_sided", "ViewportSettings", False, ["clickp hier.viewport 1", "wait 6", "click 1551 330"]),
     ("invert_winding", "ViewportSettings", True, ["click 1551 362"]),
-    ("overlay", "ViewportSettings", True, ["click 1551 362", "wait 4", "click 1551 423"]),
-    ("skybox_off", "RenderSettings", True, ["click 1551 423", "wait 4", "clickp hier.scene 0", "wait 6", "click 1551 164"]),
+    ("overlay", "ViewportSettings", True, ["click 1551 362", "wait 4", "clickp vp.wireframe_overlay 0"]),
+    ("skybox_off", "RenderSettings", True, ["clickp vp.wireframe_overlay 0", "wait 4", "clickp hier.scene 0", "wait 6", "click 1551 164"]),
     ("eye_hide", "Visibility", True, ["click 1551 164", "wait 4", "click 405 149"]),
     ("transform", "Transform", True, ["click 405 149", "wait 4", "picknode 0", "wait 6", "clickp insp.transform.local 0", "wait 4",
                                       "dclickp insp.transform.translation 0", "wait 4",

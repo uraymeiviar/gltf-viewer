@@ -270,7 +270,7 @@ None. The alpha source is the standard alpha: `baseColorFactor.a`, base/detail t
 - Alpha: the standard alpha, `baseColorFactor.a x baseColorTexture.a x detail alpha (A5.1, when the viewport applies it) x COLOR_0.a` **(V, Blender graph above)**.
 - Pattern **(I, Glider's choice)**: discard where `alpha <= threshold`, `threshold = fract((B[y & 3][x & 3] + 0.5) / 16 + frame x 0.6180339887)` with `B` = the 4x4 Bayer index matrix `[[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]]` (row = viewport pixel y), at render-resolution viewport pixels. `frame` is 0 without TAA (fixed, stable image; any 4x4 window keeps exactly round(16 alpha) pixels, so 0.25/0.5/0.75 are exact) and the TAA accumulation frame otherwise (each frame keeps the per-block coverage; each pixel walks a low-discrepancy sequence, so TAA resolves the average). Alpha 0 draws nothing; alpha 1 is identical to OPAQUE.
 - Surviving pixels are opaque: opaque pass, depth writes, no blending, no sorting **(I)**. The discard is late (after lighting, like MASK) and applies in the debug views too. The decal prepass and picking (including the 1x1 picking target, which is told the clicked pixel) evaluate the same threshold, so a dithered-away pixel picks what is behind it and receives no decal depth.
-- Per-viewport switch (Viewport Settings → MSFS Extensions, `--asobo-disable ASOBO_material_alphamode_dither`, `--asobo off`): off renders the core OPAQUE result unchanged.
+- Switch (File > Settings > glTF Extensions, `--asobo-disable ASOBO_material_alphamode_dither`, `--asobo off`): off renders the core OPAQUE result unchanged.
 
 **Open questions**
 
@@ -749,7 +749,7 @@ Let `uv_detail = v_texcoord_0 * UVScale` (applied once), `v_color` be the interp
    - **V** Mask source: `detailColorTexture.g`.
    - **V** Coverage:
      $$\text{coverage} = \text{detailColorTexture.g} \times v_{\text{color.a}} \times u_{\text{WindshieldIcing}}$$
-   - **V** Setting: CLI `--windshield-icing <0..1>`, Viewport Settings → MSFS Extensions (default 0.0). At 0.0, coverage is identically zero, rendering byte-identically to icing absent.
+   - **V** Setting: CLI `--windshield-icing <0..1>`, the scene's windshield icing (Scene Inspector → Shadows, Reflections & AO; default 0.0). At 0.0, coverage is identically zero, rendering byte-identically to icing absent.
    - **I** Visual effect:
      - Normal perturbed by `detailNormalTexture` / `windshieldDetailNormalTexture` (icing frost normal).
      - Albedo frosted: `baseColor.rgb = mix(baseColor.rgb, vec3(0.92, 0.94, 0.97), coverage)`
@@ -1293,7 +1293,7 @@ automatic per-aircraft rule. The original file stays unchanged.
 - Lobe: the `KHR_materials_anisotropy` one (Khronos glTF-Sample-Viewer): `D_GGX_anisotropic` / `V_GGX_anisotropic` for punctual lights, the bent-normal approximation for IBL (normal bent around the smooth axis, prefiltered lod and DFG LUT from the smooth axis' roughness). KHR uses `alpha_t = mix(alpha, 1, strength^2)` along the rotated direction `t` and `alpha_b = alpha`.
 - ASOBO v2 maps exactly onto it **(I)**: `d = normalize(2 * RG - 1)`, `|2 * RG - 1| < 0.02` (8-bit 127/128) = the tangent; `axisX = TBN * d` (made perpendicular to the shading normal), `axisY = n x axisX`; `X = ` the core roughness after the detail (A5.1) and decal (A2.2) layers, `Y = B` (the decal roughness layer also replaces Y with the same weight, **I**). The rougher axis becomes `t`, the smoother roughness the base: `alpha_b = min(X, Y)^2`, `strength^2 = (max(X, Y)^2 - alpha_b) / (1 - alpha_b)`, so `alpha_t = max(X, Y)^2`. X == Y gives strength 0, which takes the unchanged isotropic code: byte-identical to the material without the extension.
 - Tangents: primitives without TANGENT get MikkTSpace tangents for a non-zero KHR strength or an ASOBO v2 material, as for normal maps (A1.11), on the anisotropy texture's UV set when no normal map is sampled. With `--without-textures` the KHR direction falls back to the tangent (tangents are still generated); ASOBO v2 without its texture stays isotropic (no tangents).
-- Per-viewport switch `ASOBO_material_anisotropic_v2` (Viewport Settings → MSFS Extensions, `--asobo-disable ASOBO_material_anisotropic_v2`, `--asobo off`): off compiles the isotropic core variant (byte-identical to the file without the extension). `KHR_materials_anisotropy` has the per-material Inspector display switch of the other KHR extensions.
+- Switch `ASOBO_material_anisotropic_v2` (File > Settings > glTF Extensions, `--asobo-disable ASOBO_material_anisotropic_v2`, `--asobo off`): off compiles the isotropic core variant (byte-identical to the file without the extension). `KHR_materials_anisotropy` has the per-material Inspector display switch of the other KHR extensions.
 - v1 `ASOBO_material_anisotropic`: **deferred**. The SDK documents only an RG direction and no second roughness, the 2020 Blender preview reads R as an amount and B as a rotation, and no v1 asset exists to decide; the material renders isotropic.
 
 **Open questions**
@@ -1390,7 +1390,7 @@ For OPAQUE and MASK materials (BLEND, `KHR_materials_transmission` and unlit mat
   light's irradiance and direction; the A3.1 sun will call it like the punctual lights.
 - Dither (A1.7) and the decal receiver path (A2.2) are independent of it: dithered SSS shells keep their pattern,
   decal layers change the base colour and normal before SSS reads them.
-- Per-viewport switch `ASOBO_material_SSS` (Viewport Settings → MSFS Extensions, `--asobo-disable ASOBO_material_SSS`,
+- Switch `ASOBO_material_SSS` (File > Settings > glTF Extensions, `--asobo-disable ASOBO_material_SSS`,
   `--asobo off`): off compiles the core variant.
 - Not done: no screen-space or texture-space blur (no scattering radius), no thickness from geometry, no shadows
   (A3.2), no sun (A3.1). With IBL only (the PMDG VC has no punctual lights), the visible effect is the

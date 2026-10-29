@@ -4,7 +4,7 @@
 
 **Status:** Complete, uncommitted ([§12.56](#section-12-56)). P7.1 PASS with a limited claim ([§12.51](#section-12-51)). P7.2 DEFERRED ([§12.52](#section-12-52)). P7.3 PASS as user options ([§12.53](#section-12-53)). P7.4 PASS as a user option ([§12.54](#section-12-54)). P7.5 render scale PASS as a user option; the depth-format change was DEFERRED ([§12.55](#section-12-55)).
 
-Every change that alters the image is a setting under **Viewport Settings → Quality**, except the IBL filter settings (cube sizes, LUT, samples, precision), which moved to the **Scene Inspector** and show only while IBL is enabled. The defaults are unchanged: the **High (original)** preset is byte-identical to the pre-Phase-7 binary. The setting applies to every viewport and is saved in `%APPDATA%/Glider/render_quality.txt`, but not in `--isolated` runs.
+Every change that alters the image is a setting under **File → Settings → Quality** (originally the Viewport Settings Quality tab), except the IBL filter settings (cube sizes, LUT, samples, precision), which moved to the **Scene Inspector** and show only while IBL is enabled. The defaults are unchanged: the **High (original)** preset is byte-identical to the pre-Phase-7 binary. The setting applies to every viewport and is saved in `%APPDATA%/Glider/render_quality.txt`, but not in `--isolated` runs.
 
 This file contains the phase task list and its implementation/review history. Original section numbers are retained for traceability.
 

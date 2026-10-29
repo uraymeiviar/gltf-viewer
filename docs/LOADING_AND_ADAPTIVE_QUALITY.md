@@ -88,7 +88,7 @@ High/Ultra memory target.
 
 ## Adaptive controller
 
-Viewport Settings → Quality has an Auto quality checkbox and status. The viewport also
+File → Settings → Quality has an Auto quality checkbox and status. The viewport also
 shows the active status; every level/status change is logged. The portable `settings.ini`
 (`[RenderQuality]`) contains the user's target and the Auto quality switch, never the
 temporary automatic reductions.

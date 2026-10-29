@@ -500,7 +500,7 @@ void RenderQuality::selectProfile(int selection)
     save();
 }
 
-void RenderQuality::drawProfileSelector(SceneRevisions& revisions)
+void RenderQuality::drawProfileSelector(SceneRevisions& revisions, const char* probeTag)
 {
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,ImVec2(4,0));
     ImGui::SetNextItemWidth(105);
@@ -509,7 +509,7 @@ void RenderQuality::drawProfileSelector(SceneRevisions& revisions)
     if (ImGui::Combo("##QualityPreset", &choice, names, 5)) {
         selectProfile(choice); revisions.mark(SceneChange::ViewCamera);
     }
-    UiProbe::item("quality.preset", choice);
+    UiProbe::item(probeTag, choice);
     ImGui::PopStyleVar();
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Quality: %s\nShared by all viewports. Texture changes re-decode from retained source data.\nAuto targets your Ultra profile within available frame/memory budgets.", profileName(choice));
 }
@@ -1010,15 +1010,83 @@ const char* RenderQuality::presetName(QualityPreset preset)
     return "Custom";
 }
 
+void RenderQuality::drawSettingsTab(ux3d::renderer::GltfRenderLayer* layer, SceneRevisions& revisions)
+{
+    if (autoActive() && !qualityReached()) ImGui::TextWrapped("%s", autoStatus().c_str());
+    ImGui::TextWrapped("Quality is an app setting: every viewport renders with it, and it is saved. Effects (shadows, "
+                       "reflections, ambient occlusion) are switched on in the Scene Inspector.");
+    ImGui::Spacing();
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted("Active preset");
+    ImGui::SameLine();
+    drawProfileSelector(revisions, "quality.settings.preset");
+
+    // Configured (the preset or your edits) next to in effect (Auto quality starts cheaper and steps up).
+    if (ImGui::CollapsingHeader("Configured and in effect", ImGuiTreeNodeFlags_DefaultOpen)) {
+        const RenderQualitySettings configured = settings();
+        const RenderQualitySettings now = effective();
+        const char* msaa[] = { "Off", "2x", "4x", "8x" };
+        const char* post[] = { "None", "FXAA", "TAA" };
+        const char* levels[] = { "Low", "Medium", "High" };
+        struct Row { const char* name; std::string configured; std::string effective; };
+        const auto scale = [](float value) { return std::to_string(static_cast<int>(std::lround(value * 100.0f))) + "%"; };
+        const auto shadow = [](const RenderQualitySettings& q) {
+            return q.shadows ? std::to_string(q.shadowResolution) + " x " + std::to_string(q.shadowCascades) : std::string("Not allowed");
+        };
+        const std::vector<Row> rows = {
+            { "MSAA", msaa[std::clamp(configured.msaaIdx, 0, 3)], msaa[std::clamp(now.msaaIdx, 0, 3)] },
+            { "Post AA", post[std::clamp(configured.postAAIdx, 0, 2)], post[std::clamp(now.postAAIdx, 0, 2)] },
+            { "Render scale", scale(configured.renderScale), scale(now.renderScale) },
+            { "IBL cube", std::to_string(configured.iblCubeSize), std::to_string(now.iblCubeSize) },
+            { "SSR quality", levels[std::clamp(configured.ssrQuality, 0, 2)], levels[std::clamp(now.ssrQuality, 0, 2)] },
+            { "Sun shadow map", shadow(configured), shadow(now) },
+        };
+        if (ImGui::BeginTable("QualityEffectiveTable", 3, ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_SizingStretchProp)) {
+            ImGui::TableSetupColumn("Setting");
+            ImGui::TableSetupColumn("Configured");
+            ImGui::TableSetupColumn("In effect now");
+            ImGui::TableHeadersRow();
+            for (const Row& row : rows) {
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::TextUnformatted(row.name);
+                ImGui::TableNextColumn();
+                ImGui::TextUnformatted(row.configured.c_str());
+                ImGui::TableNextColumn();
+                if (row.configured != row.effective) {
+                    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s", row.effective.c_str());
+                } else {
+                    ImGui::TextUnformatted(row.effective.c_str());
+                }
+            }
+            ImGui::EndTable();
+        }
+        ImGui::TextDisabled(autoActive() ? "Highlighted values are limited by Auto quality for now." : "Auto quality is off: configured = in effect.");
+    }
+    ImGui::Spacing();
+
+    if (ImGui::BeginTabBar("QualitySettingsTabs")) {
+        const bool presets = ImGui::BeginTabItem("Presets");
+        UiProbe::item("settings.quality.presets", 0);
+        if (presets) {
+            drawProfilesEditor(revisions);
+            ImGui::EndTabItem();
+        }
+        const bool current = ImGui::BeginTabItem("Current Settings");
+        UiProbe::item("settings.quality.current", 0);
+        if (current) {
+            drawSettings(layer, revisions);
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
+    }
+}
+
 void RenderQuality::drawSettings(ux3d::renderer::GltfRenderLayer* layer, SceneRevisions& revisions)
 {
     RenderQualitySettings& s = settings();
-    if (autoActive() && !qualityReached()) ImGui::TextWrapped("%s", autoStatus().c_str());
 
-    ImGui::TextDisabled("Quality applies to every viewport. Effects are switched on in the Scene Inspector.");
-    drawProfileSelector(revisions);
     RenderQualitySettings before = s;
-    ImGui::TextWrapped("Edit saved Low / Med / High / Ultra defaults in File > Settings > Quality Presets.");
 
     // Each control switches the preset to Custom when it changes a value.
     bool custom = false;

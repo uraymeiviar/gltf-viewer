@@ -41,7 +41,7 @@ the deferred and forward paths. **Goal:** user priority 5.
       `mix(detail, base, coverage)` per channel (detail first, as in §14).
     - `UVOffset` adds to the detail UV after `UVScale`. The undocumented object `scale` attribute (§14 open
       question 1) is ignored. When a material also has `ASOBO_material_windshield_v3`, `UVScale` is applied once.
-    - Each texture is optional; with no detail texture the extension is inert. A per-viewport display switch
+    - Each texture is optional; with no detail texture the extension is inert. A display switch in File > Settings > glTF Extensions (app setting, all viewports)
       like the other extensions; support-table entry `Rendered`/`Partial` with the limits stated.
   - **Tests:**
     - a neutral detail (colour where `smoothstep(sqrt(B*D))` = B is not neutral, so use `aD = 0`; flat normal;
@@ -87,8 +87,8 @@ the deferred and forward paths. **Goal:** user priority 5.
     normal = icing normal. Rendering them as a detail map drew the frost/icing pattern on clear glass, so
     `GltfRenderLayer` never compiles the A5.1 variant for windshield materials; their layers belong to A4.
     The E195 windshield view is byte-identical to `8e932ca` again; the fixture checks all three windshield kinds.
-- [x] **A5.2 — `ASOBO_material_UV_options` (R2), 2026-10-28.** Material variant plus per-viewport
-  switch; existing Inspector edits refresh the variant. No new flag. Empty/default parameters keep the old variant.
+- [x] **A5.2 — `ASOBO_material_UV_options` (R2), 2026-10-28.** Material variant plus a
+  switch in File > Settings > glTF Extensions (app setting, all viewports); existing Inspector edits refresh the variant. No new flag. Empty/default parameters keep the old variant.
   - **Research / inferred formula:** local 2020 Materials / UV Options and official 2024 FlightSim Materials /
     UV Options define the controls but omit pivot/order/sign. Use
     `uvMain = R(radians(rotation)) * ((uv0 - 0.5) * tiling) + 0.5 + offset`.

@@ -98,7 +98,7 @@
     re-framed. Gemini 3.8 Flash High (Argon was unavailable: wrong agy account), three runs because two
     multi-line `git grep` calls were denied: 2.5M tokens, 74.8M cache reads.
   - **Screenshots:** *path to be recorded when the team has captured them.*
-- [x] **A0.4 — Per-viewport extension switches (R1). Owner: Claude.** Viewport Settings → *MSFS Extensions*: a
+- [x] **A0.4 — Extension switches (R1). Owner: Claude.** Now File > Settings > glTF Extensions (app setting, all viewports) (first built per viewport under Viewport Settings → *MSFS Extensions*): a
   master switch, plus one switch per rendered extension, all on by default. *Show Invisible Materials* moves
   here.
   - **Command line:** `--asobo off|on`, `--asobo-disable <name>`.

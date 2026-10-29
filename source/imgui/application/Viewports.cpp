@@ -3,6 +3,7 @@
 #include "Application.h"
 #include "imgui/OceanSimulation.h"
 #include "imgui/RenderQuality.h"
+#include "imgui/SearchPathsPanel.h"
 #include "imgui/Theme.h"
 #include "imgui/ObjectActions.h"
 #include "imgui/SceneHierarchyPanel.h"
@@ -19,12 +20,23 @@ namespace ux3d::imgui::application {
 void Application::resolveAllViewportSettings()
 {
     const auto& effects = getSceneEnvironment(sceneEnvironments, gltfModel, activeScene).effects;
+    // The glTF extension switches are an app setting: every viewport mirrors the one global set. A change of the set
+    // (Settings tab, registry, script, reset) redraws every viewport and drops its TAA history.
+    auto& extensions = ux3d::imgui::GltfExtensionSettings::instance();
+    const ux3d::renderer::AsoboOptions asobo = extensions.asoboOptions();
+    const bool extensionsChanged = extensions.revision() != lastGltfExtensionRevision;
+    if (extensionsChanged) {
+        lastGltfExtensionRevision = extensions.revision();
+        sceneRevisions.mark(ux3d::imgui::SceneChange::ViewportSettings);
+    }
     for (auto& vp : viewports) {
         if (!vp) continue;
+        vp->settings.asobo = asobo;
+        if (extensionsChanged) vp->antiAliasing.resetHistory();
         const int msaaBefore = vp->settings.effectiveMsaaIdx();
         const int postBefore = vp->settings.effectivePostAAIdx();
         ux3d::imgui::RenderQuality::resolveViewport(vp->settings, effects);
-        // The global AA changed under this viewport (Quality tab, a registry key or a script): its TAA history
+        // The global AA changed under this viewport (Settings > Quality, a registry key or a script): its TAA history
         // belongs to the old mode, as when its own AA combo changed before.
         if (vp->settings.effectiveMsaaIdx() != msaaBefore || vp->settings.effectivePostAAIdx() != postBefore) {
             vp->antiAliasing.resetHistory();
@@ -417,6 +429,8 @@ void Application::drawViewports(FrameContext& frame)
         }
         if (ux3d::imgui::RenderQuality::autoActive() && !ux3d::imgui::RenderQuality::qualityReached()) {
             ImGui::TextDisabled("%s", ux3d::imgui::RenderQuality::autoStatus().c_str());
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Click to open File > Settings > Quality");
+            if (ImGui::IsItemClicked()) ux3d::imgui::requestSettingsWindow(ux3d::imgui::SettingsTab::Quality);
             viewportPos = ImGui::GetCursorScreenPos();
             viewportSize = ImGui::GetContentRegionAvail();
         }

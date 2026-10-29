@@ -84,7 +84,7 @@ the planned behavior. Exact semantics are confirmed per task against the sources
 
 | Extension | Schema properties | Viewer meaning | Current | Phase |
 |---|---|---|---|---|
-| `ASOBO_material_invisible` | `enabled` (default true) | Material not rendered | **Rendered** (hidden; per-viewport *Show Invisible Materials*) | A1.1 |
+| `ASOBO_material_invisible` | `enabled` (default true) | Material not rendered | **Rendered** (hidden; app setting *Show Invisible Materials*) | A1.1 |
 | `ASOBO_material_UV_options` | `clampUVX/Y` (default true), `UVOffSetU/V`, `UVTilingU/V`, `UVRotation` | UV transform and clamping for the material's textures | Ignored | A5 |
 | `ASOBO_occlusion_strength` | `strength` | Ambient occlusion strength | Ignored | A1 |
 | `ASOBO_extra_occlusion_texture` | `extra_occlusion_texture` (textureInfo) | Second occlusion map | Ignored | A1 |

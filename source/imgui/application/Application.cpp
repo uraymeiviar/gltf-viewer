@@ -5,6 +5,7 @@
 #include "imgui/EmbeddedVFS.h"
 #include "imgui/GlCaps.h"
 #include "imgui/RenderQuality.h"
+#include "imgui/GltfExtensionSettings.h"
 #include "imgui/Theme.h"
 #include "imgui/ElementInspector.h"
 #include "backends/imgui_impl_glfw.h"
@@ -89,6 +90,7 @@ int Application::run(int argc, char** argv)
     // all before the default environment is filtered.
     ux3d::imgui::RenderQuality::setPersistenceEnabled(!s_isolatedState);
     ux3d::imgui::RenderQuality::load();
+    ux3d::imgui::GltfExtensionSettings::instance().load(); // the glTF extension switches are an app setting
     for (int i = 1; i < argc; ++i) {
         std::string qualityError;
         if (ux3d::imgui::RenderQuality::parseArgument(argc, argv, i, qualityError) && !qualityError.empty()) {
@@ -320,6 +322,7 @@ int Application::run(int argc, char** argv)
     if (activeViewport != nullptr) agentStartupViewportSettings = activeViewport->settings;
     agentStartupEnvironment = getSceneEnvironment(sceneEnvironments, gltfModel, activeScene);
     agentStartupQuality = ux3d::imgui::RenderQuality::settings();
+    agentStartupGltfExtensions = ux3d::imgui::GltfExtensionSettings::instance().snapshot();
     resolveAllViewportSettings();
     if (controlPipeArg) startControlPipe();
     // P0.2 startup snapshot: load/decode, renderer upload, validation and IBL

@@ -1021,6 +1021,7 @@ void Application::finishFrame(FrameContext& frame, int displayW, int displayH)
         resolveAllViewportSettings();
         report.ssao = ssaoStateJson();
         report.quality = qualityStateJson();
+        report.gltfExtensions = ux3d::imgui::GltfExtensionSettings::instance().stateJson();
         report.effects = effectsStateJson(activeEnvironment);
         report.skyOcclusion = skyOcclusionStateJson(activeEnvironment);
         // A6.8: the ocean's settings, cascades, memory, precompute and live GPU cost (only while the ground is the ocean).
@@ -1390,9 +1391,9 @@ void Application::finishFrame(FrameContext& frame, int displayW, int displayH)
             else if (k == "invertwinding")
                 targetVp->settings.invertWinding = val;
             else if (k == "invisible" || k == "showinvisiblematerials")
-                targetVp->settings.asobo.setApplied("ASOBO_material_invisible", !val);
+                ux3d::imgui::GltfExtensionSettings::instance().setEnabled("ASOBO_material_invisible", !val, false);
             else if (k == "asobo")
-                targetVp->settings.asobo.enabled = val;
+                ux3d::imgui::GltfExtensionSettings::instance().setEnabled("ASOBO", val, false);
             else
                 return false;
             return true;

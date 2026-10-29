@@ -7,6 +7,7 @@
 #include "imgui/Theme.h"
 #include "imgui/UiProbe.h"
 #include "imgui/ViewportInstance.h"
+#include "imgui/GltfExtensionSettings.h"
 #include "gltf/Material.h"
 #include "gltf/Texture.h"
 #include "gltf/Image.h"
@@ -550,31 +551,25 @@ bool ExtensionInspector::renderExtensions(ux3d::gltf::GltfObject* object,
 
         if (hasViewportSwitch) {
             ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x * 2.0f);
-            bool applied = true;
-            bool switchEnabled = false;
-            if (m_activeViewport != nullptr) {
-                applied = std::find(m_activeViewport->settings.asobo.disabled.begin(),
-                                    m_activeViewport->settings.asobo.disabled.end(),
-                                    extName) == m_activeViewport->settings.asobo.disabled.end();
-                switchEnabled = m_activeViewport->settings.asobo.enabled;
-            }
+            // The switch is the app setting of File > Settings > glTF Extensions (every viewport, saved).
+            auto& extensionSettings = GltfExtensionSettings::instance();
+            bool applied = extensionSettings.enabled(extName);
+            const bool switchEnabled = extensionSettings.enabled(GltfExtensionSettings::vendorOf(extName));
 
             if (!switchEnabled) {
                 ImGui::BeginDisabled();
             }
             ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f));
             if (ImGui::Checkbox("##viewportToggle", &applied)) {
-                if (m_activeViewport != nullptr) {
-                    m_activeViewport->settings.asobo.setApplied(extName, applied);
-                    revisions.mark(SceneChange::ViewportSettings);
-                }
+                extensionSettings.setEnabled(extName, applied, true);
+                revisions.mark(SceneChange::ViewportSettings);
             }
             ImGui::PopStyleVar();
             if (!switchEnabled) {
                 ImGui::EndDisabled();
             }
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-                ImGui::SetTooltip("Display only: turns this extension off in the active viewport; the file is unchanged.");
+                ImGui::SetTooltip("Display only: applies or ignores this extension in every viewport (app setting, saved;\nalso in File > Settings > glTF Extensions). The file is unchanged.");
             }
         }
 

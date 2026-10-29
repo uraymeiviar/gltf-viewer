@@ -2,6 +2,7 @@
 #include "imgui/ViewportSettingsPanel.h"
 #include "imgui/OceanSimulation.h"
 #include "imgui/RenderQuality.h"
+#include "imgui/SearchPathsPanel.h"
 #include "imgui/StdFileSystem.h"
 #include "imgui/UiProbe.h"
 #include "imgui/IconsMaterialDesignIcons.h"
@@ -96,7 +97,7 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
 
             ImGui::TextDisabled("Allows inspecting individual PBR channels, geometry, or UVs.");
 
-            // Settings scopes: anti-aliasing is renderer-wide (Quality tab); in its place, this viewport's overrides of
+            // Settings scopes: anti-aliasing is renderer-wide (File > Settings > Quality); in its place, this viewport's overrides of
             // the scene's effects. The block keeps the rows' heights (a text and two rows of combos), so the controls
             // below keep their places (validate_p4_exit_gate.py clicks them by position).
             ImGui::Separator();
@@ -142,55 +143,33 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
                 revisions.mark(SceneChange::ViewportSettings);
             }
             ImGui::Separator();
-            ImGui::Text("MSFS Extensions:");
-            // The master switch keeps this row: validate_p4_exit_gate.py clicks it.
-            if (ImGui::Checkbox("Apply MSFS (ASOBO) Extensions", &state.asobo.enabled)) {
-                revisions.mark(SceneChange::ViewportSettings);
+            ImGui::Text("glTF Extensions:");
+            // The extension switches (ASOBO now, other vendors later) are app settings, not viewport settings: one set
+            // for every viewport, saved in settings.ini. They are edited in File > Settings > glTF Extensions.
+            ImGui::TextDisabled("Which extensions are applied is an app setting.");
+            if (ImGui::SmallButton("glTF Extensions settings...")) {
+                requestSettingsWindow(SettingsTab::GltfExtensions);
             }
-            // One switch per extension Glider renders, from the A0.2 support table.
-            ImGui::BeginDisabled(!state.asobo.enabled);
-            // Settings scopes: SSR, interior sky reflection, icing, sky portal strength and the decal tolerance are
-            // scene settings now (Scene Inspector > Shadows, Reflections & AO); SSR quality is in the Quality tab.
+            UiProbe::item("vp.open_gltf_extensions", 0);
+            // Scene and view settings that depend on the ASOBO group stay here: Scene Inspector > Shadows, Reflections &
+            // AO has the effects; the sky-portal gizmos are a view helper.
             if (gltfLayer != nullptr && gltfLayer->hasSkyPortals()) {
                 // A3.7: shown only for files with ASOBO_sky_portal nodes (the gizmos are a view helper).
+                ImGui::BeginDisabled(!state.asobo.enabled);
                 if (ImGui::Checkbox("Show sky portals", &state.showSkyPortals)) {
                     revisions.mark(SceneChange::ViewportSettings);
                 }
-                if (ImGui::IsItemHovered()) {
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
                     ImGui::SetTooltip("Gizmo for every portal: disc, inner circle and the direction into the cabin.");
                 }
+                ImGui::EndDisabled();
             }
-            ImGui::Indent();
-            for (const ux3d::gltf::asobo::SupportInfo& info : ux3d::gltf::asobo::supportTable()) {
-                if (!ux3d::gltf::asobo::isAsoboExtension(info.name)) {
-                    continue;
-                }
-                if (info.status != ux3d::gltf::asobo::Support::Rendered && info.status != ux3d::gltf::asobo::Support::Partial) {
-                    continue;
-                }
-                if (!info.viewportSwitch) {
-                    continue;
-                }
-                const std::string extension(info.name);
-                const std::string label = ExtensionInspector::formatExtensionLabel(extension) + "##asobo_" + extension;
-                bool applied = std::find(state.asobo.disabled.begin(), state.asobo.disabled.end(), extension) == state.asobo.disabled.end();
-                if (ImGui::Checkbox(label.c_str(), &applied)) {
-                    state.asobo.setApplied(extension, applied);
-                    revisions.mark(SceneChange::ViewportSettings);
-                }
-                if (ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("%s%s%.*s", extension.c_str(), info.note.empty() ? "" : ": ",
-                                      static_cast<int>(info.note.size()), info.note.data());
-                }
-            }
-            ImGui::Unindent();
-            ImGui::EndDisabled();
-            ImGui::TextDisabled("Off: this viewport renders the file as if it had no ASOBO extensions.");
             ImGui::Separator();
             ImGui::Text("Wireframe:");
             if (ImGui::Checkbox("Wireframe Overlay", &state.wireframeOverlay)) {
                 revisions.mark(SceneChange::ViewportSettings);
             }
+            UiProbe::item("vp.wireframe_overlay", 0);
             ImGui::TextDisabled("Superimposes wireframe mesh edges on top of shaded materials.");
             if (ImGui::ColorEdit3("Line Color", &state.wireframeColor.x)) {
                 revisions.mark(SceneChange::ViewportSettings);
@@ -242,6 +221,13 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
                     ImGui::EndCombo();
                 }
             }
+
+            ImGui::Separator();
+            ImGui::TextDisabled("Quality (AA, render scale, IBL, shadow maps) is an app setting.");
+            if (ImGui::SmallButton("Quality settings...")) {
+                requestSettingsWindow(SettingsTab::Quality);
+            }
+            UiProbe::item("vp.open_quality", 0);
 
             ImGui::EndTabItem();
         }
@@ -308,11 +294,11 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
                         ImGui::SetTooltip("Looping: a precomputed set that repeats every Period; the per-frame cost is texture sampling.\n"
                                           "Live: the FFT runs every frame (512x512 at High quality); it costs GPU time each frame.");
                     }
-                    // Settings scopes: the simulation quality is renderer-wide (Quality tab); shown here for reference.
+                    // Settings scopes: the simulation quality is renderer-wide (File > Settings > Quality); shown here for reference.
                     {
                         const char* qualityNames[] = { "Low", "Medium", "High" };
                         probed("vp.ocean.quality", [&] {
-                            ImGui::TextDisabled("Quality: %s (Quality tab, all viewports)",
+                            ImGui::TextDisabled("Quality: %s (File > Settings > Quality, all viewports)",
                                                 qualityNames[std::clamp(static_cast<int>(ocean.quality), 0, 2)]);
                             return false;
                         });
@@ -555,17 +541,7 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
         }
 
         // -------------------------------------------------------------
-        // Tab 3: Render Quality (all viewports): AA, resolution, effect quality, IBL filter, sun shadow maps
-        // -------------------------------------------------------------
-        const bool qualityTabOpen = ImGui::BeginTabItem("Quality");
-        UiProbe::item("vp.tab.quality", 0);
-        if (qualityTabOpen) {
-            RenderQuality::drawSettings(gltfLayer, revisions);
-            ImGui::EndTabItem();
-        }
-
-        // -------------------------------------------------------------
-        // Tab 4: Post (A6.7 lens effect; after the existing tabs so they keep their places)
+        // Tab 3: Post (A6.7 lens effect; quality is an app setting in File > Settings > Quality)
         // -------------------------------------------------------------
         const bool postTabOpen = ImGui::BeginTabItem("Post");
         UiProbe::item("vp.tab.post", 0);
