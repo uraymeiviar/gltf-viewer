@@ -101,6 +101,12 @@ void Application::drawViewports(FrameContext& frame)
     }
     // A6.4: the exposure plan of this frame (mode, pre-exposure, curve) for every viewport.
     const ExposurePlan exposure = exposurePlan(activeEnvironment);
+    // A3.9: the scene's sky-visibility volume (one time-sliced bake step when it is out of date).
+    {
+        const auto skyOcclusionStart = ux3d::imgui::profiling::Clock::now();
+        updateSkyOcclusion(activeEnvironment, frame);
+        if (skyOcclusionVolume.busy() || skyOcclusionWanted) frame.markStage("skyocclusion.update", skyOcclusionStart);
+    }
 
     // Viewports drawn this frame share one scene traversal (see GltfRenderLayer).
     if (!s_disableSharedTraversal) {
@@ -523,6 +529,8 @@ void Application::drawViewports(FrameContext& frame)
         renderKey.attachedCameraNode = vp->attachedCameraNode;
         renderKey.settings = vp->settings;
         renderKey.environment = activeEnvironment;
+        // A3.9: the sky-visibility volume in use (a finished bake or a dropped volume redraws the viewport).
+        renderKey.skyOcclusion = skyOcclusionApplies() ? skyOcclusionVolume.frontKey() : 0;
         const bool keyUnchanged = vp->hasCachedImage && renderKey == vp->lastRenderKey;
         const bool isTaa = aaMode == ux3d::imgui::AntiAliasingMode::TAA;
         const bool taaAccumulating =
@@ -767,6 +775,12 @@ void Application::drawViewports(FrameContext& frame)
             auto cubeTuple = gltfLayer->getResourceManager().getCubeMapTuple();
             auto* cubeMesh = std::get<0>(cubeTuple);
             auto* cubeMaterial = std::get<1>(cubeTuple);
+            // A3.9: this viewport reads the sky-visibility volume in its shaded view and the Sky Visibility debug view
+            // (not in wireframe or other debug views); the define is absent otherwise, so those renders are unchanged.
+            const bool skyOcclusionActive = skyOcclusionApplies() && !isWireframeMode &&
+                                            (shadingMode == ux3d::renderer::RenderMode::None ||
+                                             mode == ux3d::renderer::RenderMode::SkyVisibility);
+            vp->skyOcclusionActive = skyOcclusionActive;
             for (auto& [mesh, material] : scene.drawables) {
                 if (mesh != nullptr && mesh != cubeMesh) {
                     mesh->polygonMode = ux3d::renderer::gl::PolygonMode::Fill;
@@ -775,6 +789,9 @@ void Application::drawViewports(FrameContext& frame)
                 if (material != nullptr && material != cubeMaterial) {
                     material->defines.define("DEBUG", static_cast<int>(shadingMode));
                     material->defines.defineIf(ssrDebugOverlay, "RAW_SSR_OVERLAY");
+                    if (material->fragmentShader == "pbr.frag") {
+                        material->defines.defineIf(skyOcclusionActive, "SKY_OCCLUSION");
+                    }
                     if (vp->settings.forceDoubleSided) {
                         material->isDoubleSided = true;
                     }
@@ -936,6 +953,21 @@ void Application::drawViewports(FrameContext& frame)
             commandGenerator->setAsoboDecalReceiver(decalActive);
             // A3.5: the SSAO result this viewport's draw fills after its prepass (zero while off).
             commandGenerator->setSsao(ssaoActive, ssaoActive ? ambientOcclusion.getResultTexture() : 0);
+            {
+                // A3.9: the scene's sky-visibility volume (read only by the SKY_OCCLUSION materials defined above).
+                ux3d::renderer::CommandGenerator::SkyOcclusionParameters skyOcclusion;
+                if (skyOcclusionActive) {
+                    const auto& bounds = skyOcclusionVolume.frontBounds();
+                    skyOcclusion.enabled = true;
+                    skyOcclusion.texture = skyOcclusionVolume.frontTexture();
+                    skyOcclusion.origin = bounds.origin;
+                    skyOcclusion.cell = bounds.cell;
+                    skyOcclusion.dims = glm::vec3(bounds.dims);
+                    skyOcclusion.normalOffsetCells = ux3d::imgui::SkyOcclusionVolume::kNormalOffsetCells;
+                    skyOcclusion.openFraction = ux3d::imgui::SkyOcclusionVolume::kOpenFraction;
+                }
+                commandGenerator->setSkyOcclusion(skyOcclusion);
+            }
             // A3.7: this viewport's sky portals (none while it does not apply ASOBO_sky_portal).
             commandGenerator->setSkyPortals(scene.skyPortals, vp->settings.skyPortalStrength);
             vp->skyPortalCount = static_cast<int>(scene.skyPortals.size());
@@ -943,7 +975,7 @@ void Application::drawViewports(FrameContext& frame)
             commandGenerator->setAsoboEmissiveActive(
                 gltfLayer->declaresAsoboExtensions() &&
                 vp->settings.asobo.enabled && !s_disableMsfsEmissive);
-            commandGenerator->setMsfsEmissiveScale(activeEnvironment.msfsEmissiveScale);
+            commandGenerator->setMsfsEmissiveScale(effectiveMsfsEmissiveScale(activeEnvironment));
             {
                 // A6.5: Automatic day/night blends over twilight; exactly Day / Night outside the blend.
                 const float nightBlend = emissiveNightBlend(activeEnvironment);
@@ -1938,6 +1970,216 @@ nlohmann::json Application::sunShadowStateJson() const
                            {"invisible", stats.invisible}, {"noCastShadow", stats.noCastShadow}};
         out["materialCopies"] = shadowCasterLayer->getMaterialCopies();
     }
+    return out;
+}
+
+void Application::updateSkyOcclusion(const ux3d::imgui::SceneEnvironmentState& environment, FrameContext& frame)
+{
+    skyOcclusionVolume.pollTimers();
+    bool anyOpen = false;
+    for (const auto& vp : viewports) {
+        anyOpen = anyOpen || (vp != nullptr && vp->isOpen);
+    }
+    // It attenuates the IBL only: nothing to do without it (the Low quality preset has no IBL).
+    const bool wanted = ux3d::imgui::effectiveSkyOcclusion(environment) && environment.iblEnabled &&
+                        ux3d::imgui::RenderQuality::allowIbl() && anyOpen && gltfLayer != nullptr && commandGenerator != nullptr &&
+                        glRenderer != nullptr && skyOcclusionCasterLayer != nullptr && skyOcclusionCamera != nullptr &&
+                        activeScene != nullptr && !skyOcclusionVolume.failed();
+    // The viewports' render keys carry the volume in use (ViewportRenderKey::skyOcclusion), so a swap or a drop
+    // redraws them without a scene revision (a RenderSettings mark would resynchronise the whole model).
+    if (!wanted) {
+        skyOcclusionWanted = false;
+        // Nothing allocated while it is off (the programs are kept for the next bake).
+        if (skyOcclusionVolume.busy()) skyOcclusionVolume.cancelJob();
+        skyOcclusionVolume.dropFront();
+        skyOcclusionModelKey = 0;
+        return;
+    }
+    skyOcclusionWanted = true;
+
+    // The model the volume belongs to (a new model drops the old volume at once) and everything the bake depends on.
+    const auto mix = [](uint64_t hash, uint64_t value) { return (hash ^ value) * 0x100000001B3ULL + 0x9E3779B97F4A7C15ULL; };
+    uint64_t modelKey = mix(0xCBF29CE484222325ULL, static_cast<uint64_t>(reinterpret_cast<uintptr_t>(activeScene)));
+    modelKey = mix(modelKey, static_cast<uint64_t>(reinterpret_cast<uintptr_t>(gltfLayer.get())));
+    modelKey = mix(modelKey, sceneRevisions.revision(ux3d::imgui::SceneChange::Topology));
+    if (modelKey != skyOcclusionModelKey) {
+        if (skyOcclusionVolume.busy()) skyOcclusionVolume.cancelJob();
+        skyOcclusionVolume.dropFront();
+        skyOcclusionModelKey = modelKey;
+    }
+    const auto quality = static_cast<ux3d::imgui::SkyOcclusionQuality>(std::clamp(environment.skyOcclusionQuality, 0, 2));
+    uint64_t key = modelKey;
+    for (const auto change : { ux3d::imgui::SceneChange::Visibility, ux3d::imgui::SceneChange::Transform,
+                               ux3d::imgui::SceneChange::Material, ux3d::imgui::SceneChange::Extension }) {
+        key = mix(key, sceneRevisions.revision(change));
+    }
+    key = mix(key, static_cast<uint64_t>(reinterpret_cast<uintptr_t>(gltfLayer->getIsolationRoot())));
+    key = mix(key, gltfLayer->getIsolationIncludeChildren() ? 1u : 0u);
+    key = mix(key, static_cast<uint64_t>(quality) + 1u);
+    key = mix(key, environment.skyOcclusionOccluders ? 1u : 0u);
+    const bool upToDate = skyOcclusionVolume.ready() && skyOcclusionVolume.frontKey() == key;
+    if (upToDate) {
+        // Back to the state of the front volume while a newer bake ran: keep the front one.
+        if (skyOcclusionVolume.busy()) skyOcclusionVolume.cancelJob();
+        return;
+    }
+
+    // The bake scene: every primitive the traversal keeps (no culling), with the invisible materials and the environment
+    // occluders included, so the caster layer decides. The viewports build their own scenes after this.
+    ux3d::renderer::AsoboOptions options;
+    options.setApplied("ASOBO_material_invisible", false);
+    options.setApplied("ASOBO_material_environment_occluder", false);
+    const ux3d::renderer::AsoboOptions savedAsobo = gltfLayer->asoboOptions;
+    const ux3d::renderer::MaterialExtensionOptions savedExtensions = gltfLayer->materialExtensionOptions;
+    const bool savedCulling = gltfLayer->frustumCulling;
+    gltfLayer->frustumCulling = false;
+    gltfLayer->asoboOptions = options;
+    gltfLayer->materialExtensionOptions = ux3d::renderer::MaterialExtensionOptions();
+    auto [bakeScene, bakeMapping] = gltfLayer->createScene(activeScene);
+    gltfLayer->asoboOptions = savedAsobo;
+    gltfLayer->materialExtensionOptions = savedExtensions;
+    gltfLayer->frustumCulling = savedCulling;
+
+    // Casters: the sun's shadow caster rules (OPAQUE / MASK / dithered; no decals, glass, windshields or invisible
+    // materials) without ASOBO_material_shadow_options (a part that casts no sun shadow still hides the sky), plus the
+    // environment occluders.
+    ux3d::renderer::ShadowCasterLayer::Options casterOptions;
+    casterOptions.asoboEnabled = true;
+    casterOptions.applyShadowOptions = false;
+    casterOptions.applyMaterialCode = true;
+    casterOptions.slopeBias = 0.0f;
+    casterOptions.constantBias = 0.0f;
+    casterOptions.includeEnvironmentOccluders = environment.skyOcclusionOccluders;
+    uint64_t sourceRevision = gltfLayer->getGltfGeneration();
+    for (const auto change : { ux3d::imgui::SceneChange::Material, ux3d::imgui::SceneChange::Extension }) {
+        sourceRevision = sourceRevision * 0x9E3779B97F4A7C15ULL + sceneRevisions.revision(change);
+    }
+    casterOptions.sourceRevision = sourceRevision;
+    casterOptions.modelGeneration = gltfLayer->getSceneGeneration();
+    ux3d::core::LinkedList<std::tuple<ux3d::renderer::Mesh*, ux3d::renderer::Material*>> casters;
+    skyOcclusionCasterLayer->collect(bakeScene.drawables,
+                                     [&bakeMapping](const ux3d::renderer::Mesh* mesh) {
+                                         return bakeMapping.find(const_cast<ux3d::renderer::Mesh*>(mesh)) != bakeMapping.end();
+                                     },
+                                     casterOptions, casters);
+    skyOcclusionLastCasters = skyOcclusionCasterLayer->getStats().casters;
+    skyOcclusionLastOccluders = skyOcclusionCasterLayer->getStats().occluders;
+
+    if (!skyOcclusionVolume.busy() || skyOcclusionVolume.jobKey() != key) {
+        // The volume covers the static POSITION boxes of the scene's drawables (the loose node extents for the ones that
+        // cannot be bounded that way: skinned, morphed, quantized).
+        ux3d::math::vec3 lo(0.0f);
+        ux3d::math::vec3 hi(0.0f);
+        bool bounded = false;
+        const size_t unbounded = gltfLayer->boundDrawables(bakeScene.drawables, bakeMapping, lo, hi, bounded);
+        glm::vec3 sceneMin(lo);
+        glm::vec3 sceneMax(hi);
+        if (unbounded > 0 || !bounded) {
+            const ux3d::gltf::Extends& extents = getCachedSceneExtents(activeScene, gltfModel, gltfLayer.get());
+            const glm::vec3 extentsMin(extents.min);
+            const glm::vec3 extentsMax(extents.max);
+            sceneMin = bounded ? glm::min(sceneMin, extentsMin) : extentsMin;
+            sceneMax = bounded ? glm::max(sceneMax, extentsMax) : extentsMax;
+        }
+        if (!std::isfinite(sceneMin.x + sceneMin.y + sceneMin.z + sceneMax.x + sceneMax.y + sceneMax.z) ||
+            sceneMax.x < sceneMin.x || sceneMax.y < sceneMin.y || sceneMax.z < sceneMin.z || casters.empty()) {
+            // Nothing to bake (an empty scene): no volume, the sky stays open.
+            if (skyOcclusionVolume.busy()) skyOcclusionVolume.cancelJob();
+            return;
+        }
+        const ux3d::imgui::SkyOcclusionSpec spec = ux3d::imgui::skyOcclusionSpec(quality);
+        skyOcclusionVolume.startJob(key, ux3d::imgui::SkyOcclusionVolume::fitBounds(sceneMin, sceneMax, spec), quality);
+    }
+
+    // Frame values the caster shader reads (getBaseColor, the A1.7 dither with a fixed pattern).
+    commandGenerator->setSunShadow(ux3d::renderer::CommandGenerator::SunShadowParameters());
+    commandGenerator->setAsoboAlphaDither(true);
+    commandGenerator->setAsoboDitherFrame(0.0f);
+    commandGenerator->setAsoboUVOptions(true);
+    commandGenerator->setAsoboDetailMap(true);
+    commandGenerator->setAsoboWindshieldVertexColorMask(true);
+
+    GLint previousFramebuffer = 0;
+    GLint previousViewport[4] = { 0, 0, 0, 0 };
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &previousFramebuffer);
+    glGetIntegerv(GL_VIEWPORT, previousViewport);
+    int currentLayer = 0;
+    skyOcclusionCasterLayer->prePass = [this, &currentLayer] { skyOcclusionVolume.bindDepthLayer(currentLayer, false); };
+    skyOcclusionCasterLayer->postPass = [] {};
+    const bool completed = skyOcclusionVolume.runFrame(
+        [&](int layer, const ux3d::imgui::SkyOcclusionVolume::DirectionMatrices& matrices) {
+            currentLayer = layer;
+            skyOcclusionCamera->setTransform(ux3d::math::mat4x4(glm::inverse(matrices.view)));
+            skyOcclusionCamera->setProjection(ux3d::math::mat4x4(matrices.projection));
+            ux3d::renderer::RendererScene depthScene;
+            depthScene.camera = skyOcclusionCamera.get();
+            depthScene.environmentMap = bakeScene.environmentMap;
+            depthScene.lights = bakeScene.lights;
+            depthScene.drawables = casters;
+            commandGenerator->update(depthScene);
+            glRenderer->setGpuFrameContext(frame.number, 0, "skyocclusion");
+            glRenderer->draw({ commandGenerator.get() });
+        });
+    skyOcclusionCasterLayer->prePass = nullptr;
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(previousFramebuffer));
+    glViewport(previousViewport[0], previousViewport[1], previousViewport[2], previousViewport[3]);
+    (void)completed; // the viewports see the new front volume through their render keys
+}
+
+nlohmann::json Application::skyOcclusionStateJson(const ux3d::imgui::SceneEnvironmentState& environment) const
+{
+    const auto quality = static_cast<ux3d::imgui::SkyOcclusionQuality>(std::clamp(environment.skyOcclusionQuality, 0, 2));
+    const ux3d::imgui::SkyOcclusionSpec spec = ux3d::imgui::skyOcclusionSpec(quality);
+    const auto& stats = skyOcclusionVolume.stats();
+    const auto vec3Json = [](const glm::vec3& v) {
+        return nlohmann::json{agent::floatJson(v.x), agent::floatJson(v.y), agent::floatJson(v.z)};
+    };
+    nlohmann::json out = {
+        {"setting", environment.skyOcclusion < 0 ? "auto" : environment.skyOcclusion != 0 ? "on" : "off"},
+        {"enabled", ux3d::imgui::effectiveSkyOcclusion(environment)},
+        {"active", skyOcclusionApplies()},
+        {"quality", ux3d::imgui::skyOcclusionQualityName(quality)},
+        {"directions", spec.directions},
+        {"maxCells", spec.maxCells},
+        {"mapSize", spec.mapSize},
+        {"directionsPerFrame", spec.directionsPerFrame},
+        {"occluders", environment.skyOcclusionOccluders},
+        {"normalOffsetCells", ux3d::imgui::SkyOcclusionVolume::kNormalOffsetCells},
+        {"openFraction", ux3d::imgui::SkyOcclusionVolume::kOpenFraction},
+        {"baking", skyOcclusionVolume.busy()},
+        {"progress", skyOcclusionVolume.busy() && skyOcclusionVolume.jobDirections() > 0
+                         ? static_cast<double>(skyOcclusionVolume.jobDirectionsDone()) / skyOcclusionVolume.jobDirections()
+                         : (skyOcclusionVolume.ready() ? 1.0 : 0.0)},
+        {"jobMemoryBytes", skyOcclusionVolume.jobBytes()},
+        {"casters", skyOcclusionLastCasters},
+        {"occluderCasters", skyOcclusionLastOccluders}};
+    if (skyOcclusionVolume.ready()) {
+        const auto& b = skyOcclusionVolume.frontBounds();
+        out["volume"] = {{"dims", {b.dims.x, b.dims.y, b.dims.z}},
+                         {"cells", static_cast<uint64_t>(b.dims.x) * b.dims.y * b.dims.z},
+                         {"cell", agent::floatJson(b.cell)},
+                         {"origin", vec3Json(b.origin)},
+                         {"max", vec3Json(b.origin + glm::vec3(b.dims) * b.cell)},
+                         {"quality", ux3d::imgui::skyOcclusionQualityName(skyOcclusionVolume.frontQuality())},
+                         {"memoryBytes", skyOcclusionVolume.frontBytes()}};
+    } else {
+        out["volume"] = nullptr;
+    }
+    out["bake"] = {{"completed", stats.bakes},
+                   {"aborted", stats.aborted},
+                   {"frames", stats.lastFrames},
+                   {"cpuMs", stats.lastCpuMs},
+                   {"gpuMs", stats.lastGpuMs >= 0.0 ? nlohmann::json(stats.lastGpuMs) : nlohmann::json(nullptr)},
+                   {"maxFrameCpuMs", stats.lastMaxFrameCpuMs},
+                   {"maxFrameGpuMs", stats.lastMaxFrameGpuMs >= 0.0 ? nlohmann::json(stats.lastMaxFrameGpuMs) : nlohmann::json(nullptr)},
+                   {"finalizeCpuMs", stats.lastFinalizeCpuMs}};
+    nlohmann::json viewportsJson = nlohmann::json::array();
+    for (const auto& vp : viewports) {
+        if (vp == nullptr) continue;
+        viewportsJson.push_back({{"viewport", vp->id}, {"applied", vp->skyOcclusionActive}});
+    }
+    out["viewports"] = viewportsJson;
     return out;
 }
 

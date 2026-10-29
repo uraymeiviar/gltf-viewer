@@ -449,10 +449,27 @@ void SceneInspector::render(SceneEnvironmentState& env,
         ImGui::Separator();
 
         // MSFS Emissive Scale & Time of Day
-        if (ImGui::DragFloat("MSFS Emissive: 1 unit = x", &env.msfsEmissiveScale, 0.0001f, 0.0f, 10.0f, "%.5f", ImGuiSliderFlags_Logarithmic)) {
+        float emissiveScale = effectiveMsfsEmissiveScale(env);
+        if (ImGui::DragFloat("MSFS Emissive: 1 unit = x", &emissiveScale, 0.0001f, 0.0f, 10.0f, "%.8f", ImGuiSliderFlags_Logarithmic)) {
+            env.msfsEmissiveScale = emissiveScale;
+            env.msfsEmissiveScaleOverride = true;
             revisions.mark(SceneChange::RenderSettings);
         }
         UiProbe::item("scene.msfs.emissive.scale", 0);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Effective ASOBO emissive scale. Sky: cd/m^2 / 12800; HDR: 1/1000.\n"
+                              "Editing overrides both sources. Right-click to restore source defaults.\n"
+                              "Legacy MSFS 2020 units cannot be reliably identified from the glTF.\n"
+                              "Core glTF (including KHR emissive_strength) is unchanged.");
+        }
+        if (ImGui::BeginPopupContextItem("msfs_emissive_scale_default")) {
+            if (ImGui::MenuItem("Use source default", nullptr, !env.msfsEmissiveScaleOverride)) {
+                env.msfsEmissiveScaleOverride = false;
+                revisions.mark(SceneChange::RenderSettings);
+            }
+            UiProbe::item("scene.msfs.emissive.default", 0);
+            ImGui::EndPopup();
+        }
 
         const char* timeOfDayNames[] = { "Day", "Night", "Automatic" };
         if (ImGui::Combo("Emissive Day/Night", &env.timeOfDay, timeOfDayNames, 3)) {
@@ -528,6 +545,55 @@ void SceneInspector::render(SceneEnvironmentState& env,
     UiProbe::item("scene.ambient", 0);
     if (ambientOpen) {
         renderAmbient(env, revisions);
+    }
+
+    // A3.9: after Ambient Light (collapsed by default), so every existing control keeps its place.
+    const bool skyOcclusionOpen = ImGui::CollapsingHeader("Sky Occlusion");
+    UiProbe::item("scene.sky_occlusion", 0);
+    if (skyOcclusionOpen) {
+        renderSkyOcclusion(env, sky, revisions);
+    }
+}
+
+void SceneInspector::renderSkyOcclusion(SceneEnvironmentState& env, const SkyStatus* sky, SceneRevisions& revisions)
+{
+    int mode = env.skyOcclusion < 0 ? 0 : env.skyOcclusion != 0 ? 1 : 2;
+    if (ImGui::Combo("Sky Occlusion", &mode, "Auto (on with the procedural sky)\0On\0Off\0")) {
+        env.skyOcclusion = mode == 0 ? -1 : mode == 1 ? 1 : 0;
+        revisions.mark(SceneChange::RenderSettings);
+    }
+    UiProbe::item("scene.sky_occlusion.mode", 0);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("How much sky each point sees past the model's own geometry (a cockpit, a wheel well), baked\n"
+                          "into a volume over the model and applied to the sky light (IBL) only. The sun keeps its\n"
+                          "shadows; punctual lights, emissive, the ambient light and the background are unchanged.\n"
+                          "Auto: on with the procedural sky, off with the HDR.");
+    }
+    int quality = std::clamp(env.skyOcclusionQuality, 0, 2);
+    if (ImGui::Combo("Bake Quality", &quality, "Low (64 directions, 64 cells)\0Medium (128 directions, 96 cells)\0"
+                                              "High (256 directions, 128 cells)\0")) {
+        env.skyOcclusionQuality = quality;
+        revisions.mark(SceneChange::RenderSettings);
+    }
+    UiProbe::item("scene.sky_occlusion.quality", 0);
+    if (ImGui::Checkbox("Environment occluders block the sky", &env.skyOcclusionOccluders)) {
+        revisions.mark(SceneChange::RenderSettings);
+    }
+    UiProbe::item("scene.sky_occlusion.occluders", 0);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("ASOBO_material_environment_occluder geometry (hidden in the image) closes a cabin for the\n"
+                          "environment; its sky portals then bring the window light.");
+    }
+    if (sky != nullptr) {
+        if (sky->skyOcclusionBaking) {
+            ImGui::TextDisabled("Baking... %.0f%%", sky->skyOcclusionProgress * 100.0f);
+        } else if (sky->skyOcclusionActive) {
+            ImGui::TextDisabled("Volume %d x %d x %d, cell %.3g, %.1f MiB, baked in %.0f ms", sky->skyOcclusionDims[0],
+                                sky->skyOcclusionDims[1], sky->skyOcclusionDims[2], sky->skyOcclusionCell,
+                                sky->skyOcclusionMemoryMiB, sky->skyOcclusionBakeMs);
+        } else {
+            ImGui::TextDisabled("Not in use");
+        }
     }
 }
 

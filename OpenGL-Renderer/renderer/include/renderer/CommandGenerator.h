@@ -168,6 +168,24 @@ public:
         m_ssaoTexture->handle = m_ssaoEnabled != 0 ? texture : 0;
     }
     bool isSsaoEnabled() const { return m_ssaoEnabled != 0; }
+    // A3.9: the sky-visibility volume (EnvironmentBlock u_SkyOcclusion*, sampler u_SkyOcclusionVolume, a borrowed
+    // GL_TEXTURE_3D handle). Only materials compiled with SKY_OCCLUSION read them; the application defines it on the
+    // drawables of a viewport that applies the volume.
+    struct SkyOcclusionParameters {
+        bool enabled = false;
+        GLuint texture = 0;
+        glm::vec3 origin = glm::vec3(0.0f);
+        float cell = 1.0f;
+        glm::vec3 dims = glm::vec3(0.0f);
+        float normalOffsetCells = 1.0f;
+        float openFraction = 1.0f;
+    };
+    void setSkyOcclusion(const SkyOcclusionParameters& parameters)
+    {
+        m_skyOcclusion = parameters;
+        m_skyOcclusionTexture->handle = parameters.enabled ? parameters.texture : 0;
+    }
+    const SkyOcclusionParameters& getSkyOcclusion() const { return m_skyOcclusion; }
     // A3.7: the active viewport's sky portals (EnvironmentBlock u_SkyPortal*; at most kMaxSkyPortals are uploaded)
     // and its strength. Only materials compiled with ASOBO_SKY_PORTAL read them.
     void setSkyPortals(const std::vector<SkyPortalLight>& portals, float strength)
@@ -270,6 +288,10 @@ protected:
     int32_t m_ssaoEnabled = 0;
     std::unique_ptr<gl::Texture> m_ssaoTexture;
     std::unique_ptr<gl::Sampler> m_ssaoSampler;
+    // A3.9 sky-visibility volume (borrowed texture handle; stable wrapper, nearest sampler).
+    SkyOcclusionParameters m_skyOcclusion;
+    std::unique_ptr<gl::Texture> m_skyOcclusionTexture;
+    std::unique_ptr<gl::Sampler> m_skyOcclusionSampler;
     // A2.2: six borrowed views of the shared accumulation targets and their samplers. The
     // wrappers live as long as the generator; setDecalTargets refreshes only the handles.
     std::array<std::unique_ptr<gl::Texture>, 6> m_decalTextures;

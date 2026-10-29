@@ -32,6 +32,7 @@ precision highp float;
 #include <asobo_sss.glsl>
 #include <shadow.glsl>
 #include <ssao.glsl>
+#include <sky_occlusion.glsl>
 #include <asobo_sky_portal.glsl>
 #include <material_info.glsl>
 
@@ -523,6 +524,16 @@ void main()
     }
 #endif
 
+#ifdef SKY_OCCLUSION
+    // A3.9 sky occlusion (sky_occlusion.glsl): the visibility of the sky from this point through the model's own
+    // geometry, for the IBL terms only (applied below, before the ambient light and the occlusion maps). The lookup moves
+    // along the geometric normal on the viewer's side, so a thin double-sided panel reads the side it is seen from.
+    vec3 skyOffsetNormal = dot(normalInfo.ng, v) >= 0.0 ? normalInfo.ng : -normalInfo.ng;
+    vec4 skyMoments = skyOcclusionMoments(v_Position, skyOffsetNormal);
+    float skyDiffuse = skyDiffuseVisibility(skyMoments, n);
+    float skySpecular = skySpecularVisibility(skyMoments, n, reflect(-v, n), materialInfo.alphaRoughness, skyDiffuse);
+#endif
+
     // Calculate lighting contribution from image based lighting source (IBL)
 #ifdef USE_IBL
 #if defined(MATERIAL_ANISOTROPY) && !defined(ASOBO_WINDSHIELD_SSR)
@@ -543,8 +554,14 @@ void main()
     f_specular += getIBLRadianceGGXIridescence(n, v, materialInfo.perceptualRoughness, materialInfo.f0, iridescenceFresnel, materialInfo.iridescenceFactor, materialInfo.specularWeight);
 #else
 #ifdef ASOBO_WINDSHIELD_SSR
+#ifdef SKY_OCCLUSION
+    // A3.9: only the IBL fallback is occluded; the screen-space reflection shows the actual interior.
+    f_specular += windshieldReflection(skySpecular * getIBLRadianceGGX(n, v, materialInfo.perceptualRoughness, materialInfo.f0, materialInfo.specularWeight),
+        n, v, materialInfo.perceptualRoughness, materialInfo.f0, materialInfo.specularWeight, normalInfo.ng);
+#else
     f_specular += windshieldReflection(getIBLRadianceGGX(n, v, materialInfo.perceptualRoughness, materialInfo.f0, materialInfo.specularWeight),
         n, v, materialInfo.perceptualRoughness, materialInfo.f0, materialInfo.specularWeight, normalInfo.ng);
+#endif
 #else
     f_specular += getIBLRadianceGGX(n, v, materialInfo.perceptualRoughness, materialInfo.f0, materialInfo.specularWeight);
 #endif
@@ -585,6 +602,27 @@ void main()
 #if defined(ASOBO_SKY_PORTAL) && defined(USE_IBL) && ALPHAMODE != ALPHAMODE_BLEND
     // A3.7: the unoccluded IBL diffuse, the upper bound of what the portals may add back.
     vec3 skyPortalUnoccludedDiffuse = f_diffuse;
+#endif
+#ifdef SKY_OCCLUSION
+    // A3.9: the IBL terms (every alpha mode: BLEND and transmissive surfaces get it in their reflection and diffuse
+    // share) times the sky visibility: the cosine-weighted visibility for the diffuse (incl. the A3.4 back radiance), the
+    // lobe visibility for specular, sheen and clearcoat. The windshield's IBL fallback was occluded above. No
+    // multi-bounce fit: it assumes surroundings of the receiver's albedo, which overestimates bright parts in a dark
+    // cabin. The authored occlusion, the decal AO and SSAO below multiply on top (product): the lookup sits a cell off
+    // the surface, so it does not see the creases and gaps those cover.
+    f_diffuse *= skyDiffuse;
+#ifndef ASOBO_WINDSHIELD_SSR
+    f_specular *= skySpecular;
+#endif
+#ifdef MATERIAL_SHEEN
+    f_sheen *= skySpecularVisibility(skyMoments, n, reflect(-v, n),
+        materialInfo.sheenRoughnessFactor * materialInfo.sheenRoughnessFactor, skyDiffuse);
+#endif
+#ifdef MATERIAL_CLEARCOAT
+    f_clearcoat *= skySpecularVisibility(skyMoments, materialInfo.clearcoatNormal, reflect(-v, materialInfo.clearcoatNormal),
+        materialInfo.clearcoatRoughness * materialInfo.clearcoatRoughness,
+        skyDiffuseVisibility(skyMoments, materialInfo.clearcoatNormal));
+#endif
 #endif
     // A3.8 viewer ambient light (environment_block.glsl): a uniform radiance L from every direction, added to the IBL
     // terms before the occlusion below, so the authored AO, the decal AO and SSAO darken it exactly as the IBL. For a
@@ -703,6 +741,12 @@ void main()
                 portalOcclusion = min(portalOcclusion, ssaoMultiBounce(portalSsao, materialInfo.c_diff));
             }
         }
+#ifdef SKY_OCCLUSION
+        // A3.9: the sky visibility took its share of the IBL diffuse too (product, as applied above): inside a cabin
+        // closed by environment occluders it is about 0, and the portals bring the window light; where the sky is seen
+        // directly, they add only the remainder.
+        portalOcclusion *= skyDiffuse;
+#endif
         vec3 portalDiffuse = u_SkyPortalStrength * skyPortalIrradiance(v_Position, n) * materialInfo.c_diff / M_PI;
         f_diffuse += clamp(vec3(1.0) - portalOcclusion, 0.0, 1.0) * min(portalDiffuse, skyPortalUnoccludedDiffuse);
     }
@@ -1171,6 +1215,14 @@ vec3 specularTexture = vec3(1.0);
     // authored occlusion); 1 where SSAO is off or the surface is not the prepass surface of its pixel.
 #if ALPHAMODE != ALPHAMODE_BLEND
     g_finalColor = vec4(vec3(u_SsaoEnabled != 0 ? ssaoVisibility(v_Position) : 1.0), 1.0);
+#else
+    g_finalColor = vec4(vec3(1.0), 1.0);
+#endif
+#endif
+#if DEBUG == DEBUG_SKY_VISIBILITY
+    // A3.9: the cosine-weighted sky visibility around the shading normal (1 where the viewport does not apply it).
+#ifdef SKY_OCCLUSION
+    g_finalColor = vec4(vec3(skyDiffuse), 1.0);
 #else
     g_finalColor = vec4(vec3(1.0), 1.0);
 #endif

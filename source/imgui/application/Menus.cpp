@@ -46,6 +46,7 @@ constexpr ShadingModeInfo s_shadingModes[] = {
     {"Shadow Cascades", ux3d::renderer::RenderMode::ShadowCascades, nullptr, false},
     {"Shadow Visibility", ux3d::renderer::RenderMode::ShadowVisibility, nullptr, false},
     {"SSAO", ux3d::renderer::RenderMode::SSAO, nullptr, false},
+    {"Sky Visibility", ux3d::renderer::RenderMode::SkyVisibility, nullptr, false},
     {"Shading Normal", ux3d::renderer::RenderMode::ShadingNormal, nullptr, false},
     {"Alpha", ux3d::renderer::RenderMode::Alpha, nullptr, false},
     {"", ux3d::renderer::RenderMode::None, nullptr, true},
@@ -156,6 +157,8 @@ ux3d::renderer::RenderMode Application::getRenderModeFromIndex(int idx)
         return ux3d::renderer::RenderMode::ShadowVisibility;
     case 36:
         return ux3d::renderer::RenderMode::SSAO;
+    case 37:
+        return ux3d::renderer::RenderMode::SkyVisibility;
     default:
         return ux3d::renderer::RenderMode::None;
     }
@@ -303,6 +306,8 @@ int Application::getIndexFromRenderMode(ux3d::renderer::RenderMode mode)
         return 35;
     case RM::SSAO:
         return 36;
+    case RM::SkyVisibility:
+        return 37;
     default:
         return 0;
     }
@@ -342,6 +347,8 @@ const char* Application::getRenderModeLabel(ux3d::renderer::RenderMode mode)
         return "Shadow Visibility";
     case RM::SSAO:
         return "SSAO";
+    case RM::SkyVisibility:
+        return "Sky Visibility";
     case RM::Alpha:
         return "Alpha";
     case RM::Occlusion:

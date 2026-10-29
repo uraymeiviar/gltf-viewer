@@ -39,7 +39,7 @@ MSFS as practical, while still opening any glTF.
 | A0 | [Foundations: typed extension model, support matrix, fixtures, harness, reference screenshots](ASOBO_EXTENSIONS_PHASE_0.md) | Planned |
 | A1 | [Basic materials and draw order: normal convention, ORM/occlusion, emissive, draw order, dither, DDS](ASOBO_EXTENSIONS_PHASE_1.md) | Planned (A1.1 invisible materials: done, `00274ce`) |
 | A2 | [Decal buffer and decals](ASOBO_EXTENSIONS_PHASE_2.md) | Designed |
-| A3 | [Sun, shadows, macro lights (deferred), SSS, ambient occlusion, ground plane, sky portals, viewer ambient light](ASOBO_EXTENSIONS_PHASE_3.md) | In progress (A3.1, A3.2, A3.4, A3.5, A3.6, A3.7, A3.8 done) |
+| A3 | [Sun, shadows, macro lights (deferred), SSS, ambient occlusion, ground plane, sky portals, viewer ambient light](ASOBO_EXTENSIONS_PHASE_3.md) | In progress (A3.1, A3.2, A3.4, A3.5, A3.6, A3.7, A3.8, A3.9 done) |
 | A4 | [Glass, windshields, glow (bloom), fresnel and ghost opacity](ASOBO_EXTENSIONS_PHASE_4.md) | Planned |
 | A5 | [Detail map, UV options, parallax window, wind flex](ASOBO_EXTENSIONS_PHASE_5.md) | A5.1 done |
 | A6 | [Time of day: sky, dynamic environment lighting, exposure, night sky, sun glare, optional ocean](ASOBO_EXTENSIONS_PHASE_6.md) | In progress (A6.1-A6.7 done except A6.8) |
@@ -164,3 +164,4 @@ Argon's quota runs out, the task returns to Claude unchanged.
 | 2026-10-24 | A0 started. A0.1 typed extension model (Claude) and A0.6 exporter semantics (DeepSeek, `ASOBO_EXTENSIONS_SEMANTICS.md`) done; A0.3 reference views running on Gemini Flash. Details in [Phase A0](ASOBO_EXTENSIONS_PHASE_0.md). |
 | 2026-10-24 | A0 tasks done: A0.2 support matrix (GPT Astra), A0.3 views (Gemini Flash), A0.4 viewport switches and A0.5 harness with `--search-path` (Claude). The MSFS screenshots are still to come. The regression runner now runs the ASOBO harnesses one at a time after the parallel batch, because their E195 renders upset `validate_p8_5.py`'s edge clicks. |
 | 2026-10-29 | A3.8 viewer ambient light (maintainer's decision): a scene-environment uniform radiance in cd/m^2 (12,800 cd/m^2 per environment unit with both sources), added to the IBL terms and occluded like them, default off. Details in [Phase A3](ASOBO_EXTENSIONS_PHASE_3.md). |
+| 2026-10-29 | A3.9 sky occlusion inside the model: a time-sliced sky-visibility volume baked from the model's own geometry (plus environment occluders) darkens only the IBL terms; default on with the procedural sky, off with the HDR. Details in [Phase A3](ASOBO_EXTENSIONS_PHASE_3.md). |

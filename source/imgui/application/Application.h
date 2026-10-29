@@ -17,6 +17,7 @@
 #include "imgui/ResourcesPanel.h"
 #include "imgui/ViewportInstance.h"
 #include "imgui/SkyEnvironment.h"
+#include "imgui/SkyOcclusion.h"
 #include "imgui/ViewportOverrides.h"
 #include "imgui/SelfCheckResult.h"
 #include "imgui/UiScenarioHarness.h"
@@ -423,6 +424,13 @@ private:
                           const glm::mat4& projection, const ux3d::imgui::SceneEnvironmentState& environment,
                           bool shadingAllowed, int vpW, int vpH, std::optional<float> groundHeight = std::nullopt);
     nlohmann::json sunShadowStateJson() const;
+    // A3.9: the scene's sky-visibility volume: (re)bakes it time-sliced when the model, its visibility, transforms,
+    // materials, the isolation or the quality change (never per frame, animation ignored), releases it while off.
+    // Called once per frame before the viewports render. skyOcclusionApplies() says whether a viewport's shaded render
+    // uses the volume this frame.
+    void updateSkyOcclusion(const ux3d::imgui::SceneEnvironmentState& environment, FrameContext& frame);
+    bool skyOcclusionApplies() const { return skyOcclusionWanted && skyOcclusionVolume.ready(); }
+    nlohmann::json skyOcclusionStateJson(const ux3d::imgui::SceneEnvironmentState& environment) const;
     nlohmann::json probePixel(ux3d::imgui::ViewportInstance* vp, int x, int y, bool withPick);
     nlohmann::json probeRegion(ux3d::imgui::ViewportInstance* vp, int x0, int y0, int x1, int y1);
 
@@ -474,6 +482,15 @@ private:
     // each viewport keeps its own shadow map).
     std::unique_ptr<ux3d::renderer::ShadowCasterLayer> shadowCasterLayer;
     std::unique_ptr<ux3d::renderer::Camera> sunShadowCamera;
+    // A3.9: the sky-visibility volume of the active scene (shared by all viewports), its caster pass (own material
+    // pool) and the camera its depth maps draw with.
+    ux3d::imgui::SkyOcclusionVolume skyOcclusionVolume;
+    std::unique_ptr<ux3d::renderer::ShadowCasterLayer> skyOcclusionCasterLayer;
+    std::unique_ptr<ux3d::renderer::Camera> skyOcclusionCamera;
+    bool skyOcclusionWanted = false;
+    uint64_t skyOcclusionModelKey = 0;
+    size_t skyOcclusionLastCasters = 0;
+    size_t skyOcclusionLastOccluders = 0;
     ux3d::renderer::ReverseMapping currentReverseMapping;
     std::vector<std::unique_ptr<ux3d::imgui::ViewportInstance>> viewports;
     ux3d::imgui::ViewportInstance* activeViewport = nullptr;

@@ -71,7 +71,7 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
                 "Clearcoat Factor", "Clearcoat Roughness", "Clearcoat Normal",
                 "Sheen Color", "Sheen Roughness", "Specular Factor", "Specular Color",
                 "Transmission Factor", "Volume Thickness", "Iridescence Factor", "Iridescence Thickness",
-                "SSR", "SSR Ray", "Shadow Cascades", "Shadow Visibility", "SSAO"
+                "SSR", "SSR Ray", "Shadow Cascades", "Shadow Visibility", "SSAO", "Sky Visibility"
             };
 
             if (ImGui::Combo("Debug Mode", &state.renderModeIdx, renderModes, IM_ARRAYSIZE(renderModes))) {

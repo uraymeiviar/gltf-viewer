@@ -156,7 +156,7 @@ void Application::runFrame()
     }
     const bool frameActive = inputThisFrame || s_sceneRenderTotal != sceneRendersAtFrameStart ||
                              sceneRevisions.hasPending() || animationPlayer.isPlaying() || turntableActive || timeOfDayPlaying ||
-                             skyEnvironment.busy() ||
+                             skyEnvironment.busy() || skyOcclusionVolume.busy() ||
                              io.WantTextInput || ImGui::IsAnyMouseDown();
     idleQuietFrames = frameActive ? 0 : idleQuietFrames + 1;
     frameInProgress = false;

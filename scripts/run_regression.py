@@ -39,6 +39,9 @@ Quick tier (equivalence only: byte-identical viewport images, identical selectio
   rotation, emissive day/night blend, registry/CLI; the HDR defaults against the baseline),
   validate_ambient.py (A3.8 viewer ambient light: Lambert/metal radiance, AO/SSAO like the IBL, emissive and
   background unchanged, CLI = pipe, HDR = sky; ambient off against the baseline),
+  validate_emissive_units.py (A1.6b ASOBO sky emissive in cd/m^2, HDR/core parity, explicit overrides and bloom),
+  validate_sky_occlusion.py (A3.9 sky occlusion: open box against the analytic opening, occluders, thin-wall leak,
+  open plane/spheres unchanged, bake completion and swap, real-asset bake cost; the HDR default against the baseline),
   validate_asobo_decal_modes.py,
   validate_agent_control.py (control pipe, shared command registry, MCP shim; CLI flags against the baseline),
   validate_viewport_image.py (Viewport capture/save/copy, capture folder setting)
@@ -127,6 +130,8 @@ serial_jobs = [
     ("sun_disk", ["scripts/validate_sun_disk.py", "--baseline-exe", str(baseline)]),
     ("night", ["scripts/validate_night.py", "--baseline-exe", str(baseline)]),
     ("ambient", ["scripts/validate_ambient.py", "--baseline-exe", str(baseline)]),
+    ("emissive_units", ["scripts/validate_emissive_units.py", "--baseline-exe", str(baseline)]),
+    ("sky_occlusion", ["scripts/validate_sky_occlusion.py", "--baseline-exe", str(baseline)]),
     ("asobo_packaged", ["scripts/validate_asobo_packaged.py"]),
     ("asobo_decal_modes", ["scripts/validate_asobo_decal_modes.py", "--baseline-exe", str(baseline)]),
     ("texture_dds", ["scripts/validate_texture_dds.py"]),

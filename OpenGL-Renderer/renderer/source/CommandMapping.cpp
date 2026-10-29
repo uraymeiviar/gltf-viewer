@@ -546,6 +546,7 @@ gl::Program* CommandMapping::buildProgram(const Mesh& meshRef, const Material& m
     fragmentDefines.define("DEBUG_SHADOW_CASCADES", static_cast<int>(RenderMode::ShadowCascades));
     fragmentDefines.define("DEBUG_SHADOW_VISIBILITY", static_cast<int>(RenderMode::ShadowVisibility));
     fragmentDefines.define("DEBUG_SSAO", static_cast<int>(RenderMode::SSAO));
+    fragmentDefines.define("DEBUG_SKY_VISIBILITY", static_cast<int>(RenderMode::SkyVisibility));
     fragmentDefines.defineAllOf(mesh->defines);
     fragmentDefines.defineAllOf(material->defines);
 
@@ -803,6 +804,11 @@ std::optional<CmdDesc> CommandMapping::makeCommand(MeshMaterialTuple meshMat)
     // A3.5: the viewport's SSAO result (ssao.glsl), after the shadow map for the same reason.
     if (material->fragmentShader == "pbr.frag") {
         command->samplers.push_back(m_scene.m_ssaoSampler.get());
+    }
+    // A3.9: the sky-visibility volume (sky_occlusion.glsl), only for programs compiled with it, so every other
+    // program keeps its sampler list.
+    if (material->fragmentShader == "pbr.frag" && material->defines.isDefined("SKY_OCCLUSION")) {
+        command->samplers.push_back(m_scene.m_skyOcclusionSampler.get());
     }
 
     // P8.1a: resolve the program's bindings once instead of by name on every draw, and

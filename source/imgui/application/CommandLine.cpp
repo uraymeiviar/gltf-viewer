@@ -875,6 +875,13 @@ std::optional<int> Application::configure(int argc, char** argv)
         } else if (arg == "--ambient" && i + 1 < argc) {
             // A3.8: the viewer ambient light.
             if (!applyCliSetting(SettingScope::Environment, "ambient", toLowerAscii(argv[++i]), "--ambient")) return 1;
+        } else if (arg == "--sky-occlusion" && i + 1 < argc) {
+            // A3.9: sky occlusion inside the model (scene environment).
+            if (!applyCliSetting(SettingScope::Environment, "sky_occlusion", toLowerAscii(argv[++i]), "--sky-occlusion")) return 1;
+        } else if (arg == "--sky-occlusion-quality" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Environment, "sky_occlusion_quality", toLowerAscii(argv[++i]), "--sky-occlusion-quality")) return 1;
+        } else if (arg == "--sky-occlusion-occluders" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Environment, "sky_occlusion_occluders", toLowerAscii(argv[++i]), "--sky-occlusion-occluders")) return 1;
         } else if (arg == "--ambient-color" && i + 1 < argc) {
             if (!applyCliSetting(SettingScope::Environment, "ambient_color", argv[++i], "--ambient-color")) return 1;
         } else if (arg == "--ambient-intensity" && i + 1 < argc) {

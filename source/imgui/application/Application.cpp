@@ -272,6 +272,9 @@ int Application::run(int argc, char** argv)
     // A3.2: the sun shadow caster pass.
     shadowCasterLayer = std::make_unique<ux3d::renderer::ShadowCasterLayer>(gladGL.get());
     sunShadowCamera = std::make_unique<ux3d::renderer::Camera>(gladGL.get());
+    // A3.9: the sky occlusion bake's caster pass and camera.
+    skyOcclusionCasterLayer = std::make_unique<ux3d::renderer::ShadowCasterLayer>(gladGL.get());
+    skyOcclusionCamera = std::make_unique<ux3d::renderer::Camera>(gladGL.get());
     // P5.2: the one picking target shared by all viewports, a single pixel.
     pickingTarget.resize(1, 1, 1);
 
@@ -442,6 +445,9 @@ int Application::run(int argc, char** argv)
     decalPrepassLayer.reset();
     shadowCasterLayer.reset();
     sunShadowCamera.reset();
+    skyOcclusionVolume.release();
+    skyOcclusionCasterLayer.reset();
+    skyOcclusionCamera.reset();
     // A6.2: the procedural sky's textures, while the GL context still exists.
     releaseSkyEnvironment();
     if (gltfLayer != nullptr) {

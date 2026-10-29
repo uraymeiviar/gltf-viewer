@@ -542,6 +542,7 @@ struct ProfileReport {
     nlohmann::json sun; // A3.1: effective sun and the HDR's detected sun (get_state "sun")
     nlohmann::json ambient; // A3.8: the viewer ambient light (get_state "ambient")
     nlohmann::json ssao; // A3.5: per-viewport SSAO settings, state, memory and GPU time (get_state "ssao")
+    nlohmann::json skyOcclusion; // A3.9: the sky-visibility volume, its bake and cost (get_state "skyOcclusion")
 };
 
 struct BenchmarkReport {

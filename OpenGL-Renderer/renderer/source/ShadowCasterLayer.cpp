@@ -74,13 +74,19 @@ void ShadowCasterLayer::collect(const core::LinkedList<std::tuple<Mesh*, Materia
         if (mesh == nullptr || material == nullptr || material->renderPass == nullptr || !isSceneMesh(mesh)) {
             continue;
         }
-        // OPAQUE, MASK and dithered materials draw in the Opaque pass; BLEND and transmission do not cast.
-        if (material->renderPass->getId() != RenderPassType::Opaque) {
-            ++m_stats.notOpaquePass;
-            continue;
-        }
-        if (!materialCasts(*material, options, &m_stats)) {
-            continue;
+        // A3.9: environment occluders block the sky in the sky occlusion bake, whatever their pass.
+        const bool occluder = options.includeEnvironmentOccluders && material->environmentOccluder && !material->invisible;
+        if (occluder) {
+            ++m_stats.occluders;
+        } else {
+            // OPAQUE, MASK and dithered materials draw in the Opaque pass; BLEND and transmission do not cast.
+            if (material->renderPass->getId() != RenderPassType::Opaque) {
+                ++m_stats.notOpaquePass;
+                continue;
+            }
+            if (!materialCasts(*material, options, &m_stats)) {
+                continue;
+            }
         }
 
         Entry& entry = m_materials[material];
@@ -101,6 +107,7 @@ void ShadowCasterLayer::collect(const core::LinkedList<std::tuple<Mesh*, Materia
             copy.isDoubleSided = true;
             copy.defines.undefine("ASOBO_DECAL_RECEIVER");
             copy.defines.undefine("RAW_SSR_OVERLAY");
+            copy.defines.undefine("SKY_OCCLUSION");
             copy.defines.define("DEBUG", 0);
             copy.drawOrderClass = DrawOrderClass::None;
             copy.drawOrderActive = false;

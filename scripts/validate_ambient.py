@@ -248,11 +248,18 @@ def check_baseline(baseline):
         return
     print(f"  INFO baseline {baseline.name}")
     off_settings = ["--ambient", "off", "--ambient-color", "1,0.2,0.1", "--ambient-intensity", "500"]
-    sources = (("hdr", []), ("sky", ["--environment", "sky", "--sky-time-slicing", "off"]))
+    # A1.6b changes the sky's default ASOBO emissive units. Pin the old scale on BOTH binaries to isolate ambient
+    # parity; validate_emissive_units covers the corrected sky default independently. A6.4c moved the highlight
+    # meter's target, so the average meter is pinned on both as well (validate_night covers the meter).
+    sources = (("hdr", []), ("sky", ["--environment", "sky", "--sky-time-slicing", "off",
+                                    "--msfs-emissive-scale", "0.001", "--exposure-metering", "average"]))
+    # A3.9 sky occlusion is on by default with the sky; the baseline has none (and does not know the flag), so only the
+    # current binary is told --sky-occlusion off: both sides then render without it. validate_sky_occlusion.py covers it.
+    current_only = {"hdr": [], "sky": ["--sky-occlusion", "off"]}
     for source, source_flags in sources:
         for name, flags in (("default", []), ("off_settings", off_settings)):
-            now, _ = render(None, f"base_now_hellocube_{source}_{name}", source_flags + flags, view=False)
-            before, _ = render(None, f"base_ref_hellocube_{source}_{name}", source_flags, exe=baseline, view=False)
+            now, _ = render(None, f"base_now_hellocube_{source}_{name}", source_flags + flags + current_only[source], view=False)
+            before, _ = render(None, f"base_ref_hellocube_{source}_{name}", source_flags + flags, exe=baseline, view=False)
             check(same(now, before), f"HelloCube {source} ({name}): byte-identical to {baseline.stem}")
         for name in ("exterior_fuselage_nose", "cockpit_main_displays"):
             try:
@@ -260,8 +267,9 @@ def check_baseline(baseline):
             except StopIteration:
                 print(f"  SKIP reference view {name} not found")
                 continue
-            now = render_view(EXE, entry, f"base_now_{source}_{name}", source_flags + off_settings, folder=OUT)
-            before = render_view(baseline, entry, f"base_ref_{source}_{name}", source_flags, folder=OUT)
+            now = render_view(EXE, entry, f"base_now_{source}_{name}", source_flags + off_settings + current_only[source],
+                              folder=OUT)
+            before = render_view(baseline, entry, f"base_ref_{source}_{name}", source_flags + off_settings, folder=OUT)
             if now is None and before is None:
                 print(f"  SKIP {name}: E195 asset not available")
                 continue

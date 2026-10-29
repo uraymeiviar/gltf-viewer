@@ -68,6 +68,20 @@ Commands run on the render thread between frames, strictly in order. Multi-frame
 - Edits stay in memory. The glTF file is never written; extensions are never added or removed
   (`set_material_param` edits parameters of extensions the material already has).
 
+## MSFS emissive units (A1.6b)
+
+- ASOBO emissive defaults to cd/m² / 12800 with the procedural sky; HDR keeps its previous scale 1/1000.
+  Factor × texture × KHR emissive strength × ASOBO day/night multipliers are preserved. For example, the DA62's
+  authored 5000 is 0.390625 sky units (5000 cd/m²), and 5 HDR units. ASOBO/MSFS emissive off is unchanged.
+- `set_environment msfs_emissive_scale <x>` / `--msfs-emissive-scale <x>` explicitly override **both** sources,
+  including an explicit 0.001. `get_environment` returns the effective value; `get_state.msfsEmissive` includes
+  `effectiveScale`, `overridden`, nullable `overrideScale`. Scene Inspector displays the effective value in the
+  existing field; editing overrides both sources, right-click → *Use source default* restores automatic selection.
+  This is scene/session state, never persisted or written into the glTF.
+- No reliable glTF-only signal distinguishes MSFS 2020 multiplier exports from 2024 nits exports. All ASOBO assets
+  use nits with the sky, so legacy files may need an override. Core non-ASOBO glTF (including KHR emissive_strength)
+  keeps its existing behavior with either environment source.
+
 ## Sun (A3.1)
 
 - `set_environment sun true`, then `sun_dir [az, el]` (degrees; azimuth around +Y from +Z towards +X, elevation
@@ -138,7 +152,7 @@ Commands run on the render thread between frames, strictly in order. Multi-frame
   from the time of day: sun + sky + moon + night glow illuminance). `auto_exposure true/false` = `auto` / `manual`.
 - `exposure_metering` (environment, sky `auto` only): `highlight` (default) = the darker of the average meter and a
   highlight meter that keeps the brightest lit surfaces (0.3% of the image; the background sky, moon and stars do not
-  count) at 0.8 exposed, so lit cockpit screens are not blown out; `average` = the average meter only (the A6.4
+  count) at 1.05 exposed (0.8 before A6.4c: the A3.9 interior is darker), so lit cockpit screens are not blown out; `average` = the average meter only (the A6.4
   behaviour: dark interiors brighter, screens clipped). `get_state` `night.exposure.viewports[].meter`: `averageEv`,
   `highlightEv`, `highlightLuminance`, `surfaceFraction`, `limitedBy`. Capture runs (`--fixed-frame-time`,
   `--capture-viewport`, `--dump-frame`, `--ui-script`; pipe sessions started with them) snap Auto to the meter every frame,
@@ -158,8 +172,8 @@ Commands run on the render thread between frames, strictly in order. Multi-frame
   `directionalLight.source` (`sun` / `moon`), `emissiveNightBlend`. `sun.shadows.viewports[].light` names the light.
 - `time_of_day auto` blends the ASOBO_material_emissive day/night multipliers over twilight (night weight smoothstep
   from threshold + 3 to threshold - 3 deg; `timeOfDay.dayNight.nightBlend`).
-- Interiors at night: the default `auto` with `highlight` metering keeps the MSFS-scaled screens readable (they are
-  3-5 units = 40,000-64,000 cd/m^2, so the unlit panel and the stars are near black); `exposure_metering average`
+- Interiors at night: the default `auto` with `highlight` metering keeps the MSFS-scaled screens readable (A1.6b:
+  3000-5000 cd/m² = 0.234375-0.390625 sky units; an unlit panel and the stars can still be near black); `exposure_metering average`
   shows the dark cockpit and the stars with the screens clipped; `curve` is the exterior's and overexposes cockpits.
 
 ## Ground (A3.6)
@@ -214,9 +228,32 @@ Commands run on the render thread between frames, strictly in order. Multi-frame
 - `get_state` / `--profile-report` `ambient`: `enabled`, `color`, `intensity` (cd/m^2), `intensityEnvironmentUnits`,
   `radiance` (what the shaders receive, zero while off).
 - Tuning: the exposure decides what is visible. At night with the procedural sky's Auto exposure the highlight meter
-  is held by the MSFS-scaled screens (DA62: 5 units = 64,000 cd/m^2, EV -2.6), so 1-10 cd/m^2 changes at most 2
-  levels and 1000 cd/m^2 only shows the panel faintly; with Manual exposure or a cockpit without bright screens the
-  ambient is the panel light. Under the default HDR (exterior, Manual EV 0) 3 cd/m^2 changes at most 1 level.
+  is held by the MSFS-scaled screens (A1.6b: DA62 0.390625 units = 5000 cd/m²). Correcting the previous 1/1000
+  scale lets Auto expose the ambient about 3.68 EV brighter in display-limited interiors, but a few cd/m² may still
+  be dim beside the screens. With Manual exposure or a cockpit without bright screens the ambient is the panel
+  light. Under the default HDR (exterior, Manual EV 0) 3 cd/m² changes at most 1 level.
+
+## Sky occlusion (A3.9)
+
+- How much sky a point sees past the model's own geometry (a cockpit, a wheel well), baked once into a volume over
+  the model and applied to the sky light (IBL diffuse, specular, sheen, clearcoat) of every surface. `set_environment`
+  keys: `sky_occlusion` `auto` (default: on with the procedural sky, off with the HDR, so HDR renders are unchanged),
+  `on`, `off`; `sky_occlusion_quality` `low` (64 directions, up to 64 cells per axis), `medium` (default, 128 x 96),
+  `high` (256 x 128); `sky_occlusion_occluders` (default true: `ASOBO_material_environment_occluder` geometry, hidden
+  in the image, blocks the sky; its sky portals then bring the window light). The sun (its own shadows), punctual
+  lights, emissive, the A3.8 ambient light, the background and the ground plane are unchanged. Without IBL (the Low
+  quality preset) nothing is baked.
+- The bake is time-sliced (8 frames at medium / high, 4 at low) and runs after a model load and after a visibility,
+  transform, material, isolation, quality or occluder change, never per frame (animation is ignored). The previous
+  complete volume stays in use until the new one is done; right after a load there is none (open sky). Wait until
+  `get_state` `skyOcclusion.baking` is false (or capture with `settle_frames` 16) before judging an image.
+- `get_state` / `--profile-report` `skyOcclusion`: `setting`, `enabled`, `active`, `quality`, `directions`,
+  `baking`, `progress`, `casters`, `occluderCasters`, `volume` (`dims`, `cell` in scene units, `origin`, `max`,
+  `memoryBytes`), `bake` (`completed`, `frames`, `cpuMs`, `gpuMs`, `maxFrameCpuMs`, `maxFrameGpuMs`), per-viewport
+  `applied`.
+- Debug view `skyvisibility` (`set_viewport_setting render_mode skyvisibility`): the cosine-weighted sky visibility,
+  1 white (open) to 0 black; `probe` reads it. Walls thinner than a cell leak up to about a cell from the wall;
+  `volume.cell` says how large that is.
 
 ## Pitfalls
 

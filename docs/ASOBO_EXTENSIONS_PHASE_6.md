@@ -248,8 +248,8 @@ setting, and changing it is seamless.
       channel of its four taps per 64 x 64 cell; cells showing the background (scene depth = 1, a nearest-sampled 64 x 64
       blit of the scene depth; single-sample targets only, with MSAA every cell counts) count as black, so the sky's
       glow round a low sun, the moon and the stars may compress in the shoulder as before. The value at the **99.7th
-      percentile** of the image area (minimum bright area 0.3%, about 12 cells) is exposed to **0.8** (PBR Neutral's
-      shoulder starts at 0.76; displayed about 0.87 sRGB), plus `exposure_compensation`; no key curve (a display limit).
+      percentile** of the image area (minimum bright area 0.3%, about 12 cells) is exposed to **1.05** (A6.4c; 0.8 in
+      A6.4b; PBR Neutral's shoulder starts at 0.76; displayed about 0.94 sRGB), plus `exposure_compensation`; no key curve (a display limit).
       The exposure is the **darker** of that and the average meter (unchanged: trimmed centre-weighted log average, EV100,
       key curve, compensation, EV100 limits). Single LEDs, the moon and stars do not move it (measured below).
     - **Pre-exposure follows Auto:** `2^round(adapted EV)` (a power of two: exact, so the image does not depend on which
@@ -261,6 +261,11 @@ setting, and changing it is seamless.
     - **Determinism:** capture runs (`--fixed-frame-time`, `--dump-frame`, `--capture-viewport`, `--capture-first-frame`,
       `--ui-script`) snap the sky's Auto to its meter every frame and set the pre-exposure from the last frame only, so
       pipe and CLI give byte-identical images (validate_sky's pipe = CLI and validate_night's Auto pipe = CLI pass).
+    - **A6.4c (target 0.8 -> 1.05):** A3.9 (sky occlusion) darkens the sunlit-cockpit interior, so the sunlit white
+      `$DRM_UI_SCREEN` surface, not the panel, limits the noon exposure and the panel median fell to 0.035 (< 0.04) with
+      screen-to-bezel contrast 0.285-0.291 (< 0.3). Raising the target to 1.05 (+0.39 EV at noon: -1.01 -> -0.62) passes
+      both; the percentile (0.997 -> 0.999) does not help (the sunlit area is larger than 0.1%). Night screens' 99th
+      percentile 0.941 (limit 0.95). The numbers below are the A6.4b ones at 0.8.
     - **Measured** (validate_night, 1280 x 720, no AA): E195 cockpit main displays at night EV -1.91 (average meter 1.56,
       highlight -1.91), screens' 99th percentile 0.871-0.882, 6.5% of the panel outside the screens lit above 0.1;
       E195 windshield view at noon EV -2.56, screens 0.702, 0.37% of the image clipped, panel median 0.059; DA62 at night
@@ -273,6 +278,21 @@ setting, and changing it is seamless.
       gives the A6.4 look (530 stars detected, screens clipped). The E195/DA62 screens have no content in the glTF
       (render targets), so "content contrast" is the screen against its bezel. A physically calibrated MSFS emissive
       scale for the sky's units would ease this; not changed here (A1.6 setting).
+  - **A1.6b (2026-10-29):** the preceding A6.4b measurements describe the old 1/1000 mapping. The sky now uses
+    ASOBO cd/m² / 12800 by default (E195 3000 → 0.234375 units; DA62 5000 → 0.390625, 12.8 times dimmer).
+    HDR, core glTF and KHR emissive_strength on non-ASOBO files stay unchanged. Explicit MSFS scale overrides both
+    sources (A1.6). The highlight meter, key curve, adaptation, tone mapping and bloom are unchanged. With an
+    emissive-limited night interior the expected Auto shift is +log2(12.8) = +3.678 EV, so displayed screens keep
+    their highlight limit while real ambient light becomes more visible. Curve remains an exterior incident meter
+    and can still clip cockpit screens. Global exposure cannot span a 5000 cd/m² display and a starlit sky at once.
+    Measured with `validate_night` (1280 x 720, no AA): E195 night **EV +1.771**, DA62 night **+1.034**, screen
+    99th percentile 0.875 (below 0.95) and contrast above 0.83; E195 noon **EV -1.283**, panel median 0.098,
+    exterior clipped 0.37%. The noon screens are dimmer: 99th percentile 0.274 (MFD/PFD) / 0.665 (EICAS), with
+    screen-to-bezel contrast **0.179-0.196**. Three existing contrast assertions fail their unchanged 0.3 threshold;
+    every screen still passes the not-clipped limit. The physical conversion is retained; neither authored values,
+    exposure nor those thresholds are adjusted to recover the old over-bright displays.
+    Updated measured exposures and captures: `emissive-units.report.md` in the maintainer's codex-runs folder;
+    `scripts/review_emissive_units.py` writes `build/review/emissive_units/contact_sheet.png`.
 - [x] **A6.5 — Emissive day/night and lights (R2). Owner: Claude.** The A1.6 day/night switch and the A3.3 macro
   lights' day/night cycle follow the time of day.
   - **Done 2026-10-29.** Automatic day/night now blends: night weight w = smoothstep from threshold + 3 to threshold - 3

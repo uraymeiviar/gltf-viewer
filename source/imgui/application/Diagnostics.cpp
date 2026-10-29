@@ -1019,6 +1019,7 @@ void Application::finishFrame(FrameContext& frame, int displayW, int displayH)
         // A6.4-A6.6: exposure, moon, stars (only with the procedural sky, so HDR reports are unchanged).
         if (activeEnvironment.environmentSource != 0) report.night = nightStateJson(activeEnvironment);
         report.ssao = ssaoStateJson();
+        report.skyOcclusion = skyOcclusionStateJson(activeEnvironment);
         if (!reportNodeArgs.empty()) {
             for (const auto& spec : reportNodeArgs) {
                 auto* node = findNode(spec);

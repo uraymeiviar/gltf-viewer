@@ -91,14 +91,14 @@ inline float ev100FromIlluminance(float illuminanceUnits)
 // (64 x 64 over the viewport, uniform weight) that shows a surface (scene depth < 1: the background sky, its glow
 // around a low sun, the moon and the stars count as black, so they may compress in the tone mapper's shoulder as
 // before), and the value below which kHighlightPercentile of the image area lies; the exposure that maps it to
-// kHighlightTarget (PBR Neutral's shoulder starts at 0.76: displayed about 0.87 sRGB) keeps the brightest lit surfaces
-// out of the tone mapper's compression. The image's exposure is the darker of the two meters, so the highlights
+// kHighlightTarget (1.05: in the tone mapper's shoulder, which starts at 0.76, displayed about 0.94 sRGB; 0.8 until A3.9)
+// keeps the brightest lit surfaces out of its hard clip. The image's exposure is the darker of the two meters, so the highlights
 // darken the image only while a bright surface covers at least 1 - kHighlightPercentile of the image (about 12 of
 // the 4096 cells); a single LED covers a cell or two and is ignored. Both meters include the exposure compensation;
 // the key curve applies to the average only (the highlight term is a display limit, not a scene key).
 enum class ExposureMetering : int { Average = 0, Highlight = 1 };
 inline constexpr float kHighlightPercentile = 0.997f; // 0.3% of the image area lies above the metered highlight
-inline constexpr float kHighlightTarget = 0.8f;       // exposed brightest-channel value of that highlight
+inline constexpr float kHighlightTarget = 1.05f;     // exposed brightest-channel value of that highlight
 
 // Eye adaptation of the physically based Auto exposure (exponential, 1 / s): the scene's two speeds are read as the
 // scene brightness going up (autoExposureSpeedUp, default 3 / s: light adaptation, the exposure goes down) and going

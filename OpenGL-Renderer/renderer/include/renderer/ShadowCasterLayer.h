@@ -44,6 +44,9 @@ public:
         uint64_t sourceRevision = 0;
         // Changes when the model is replaced: the pool is emptied (its keys are the old model's materials).
         uint64_t modelGeneration = 0;
+        // A3.9 sky occlusion bake: environment occluders cast too (whatever their pass; never while they are also
+        // invisible), although the colour passes hide them.
+        bool includeEnvironmentOccluders = false;
     };
 
     struct Stats {
@@ -53,6 +56,7 @@ public:
         size_t glass = 0;
         size_t invisible = 0;       // invisible materials and environment occluders
         size_t noCastShadow = 0;
+        size_t occluders = 0;       // environment occluders cast (includeEnvironmentOccluders)
     };
 
     explicit ShadowCasterLayer(gl::GL* gl);

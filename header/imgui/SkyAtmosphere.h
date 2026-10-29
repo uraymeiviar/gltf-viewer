@@ -138,6 +138,14 @@ struct SkyStatus {
     double budgetMs = 0.0;
     glm::vec3 groundAlbedo = glm::vec3(0.0f);
     bool groundFromPlane = false;
+    // A3.9 sky occlusion (shown in the Scene Inspector's Sky Occlusion section).
+    bool skyOcclusionActive = false;   // the volume is baked and used
+    bool skyOcclusionBaking = false;
+    float skyOcclusionProgress = 0.0f; // of the running bake, 0..1
+    int skyOcclusionDims[3] = { 0, 0, 0 };
+    float skyOcclusionCell = 0.0f;
+    double skyOcclusionMemoryMiB = 0.0;
+    double skyOcclusionBakeMs = 0.0;   // CPU time of the last bake
 };
 
 } // namespace ux3d::imgui

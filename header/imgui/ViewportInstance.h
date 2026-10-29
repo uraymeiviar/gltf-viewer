@@ -53,6 +53,7 @@ struct ViewportRenderKey {
     const void* attachedCameraNode = nullptr;
     ViewportSettingsState settings;
     SceneEnvironmentState environment;
+    uint64_t skyOcclusion = 0; // A3.9: key of the sky-visibility volume the render reads (0 = none)
 
     bool operator==(const ViewportRenderKey&) const = default;
 };
@@ -92,6 +93,8 @@ struct ViewportInstance {
     // computed and applied the term.
     AmbientOcclusion ambientOcclusion;
     bool ssaoActive = false;
+    // A3.9: whether this viewport's last render read the scene's sky-visibility volume.
+    bool skyOcclusionActive = false;
     // A3.7: the number of sky portals that lit this viewport's last render (0 when none or switched off).
     int skyPortalCount = 0;
     // A6.4: the pre-exposure this viewport's last render wrote its scene target with (1 = none) and its exposure.

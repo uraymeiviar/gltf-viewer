@@ -87,6 +87,29 @@ emissive and normals close to MSFS (user priority 1), and the explicit draw orde
     With ASOBO off or undeclared, factors are clamped to `[0, 1]` for exact glTF 2.0 / baseline parity.
   - Interactive HDR color / intensity editing supported in Material Inspector.
 
+  - **A1.6b (2026-10-29), deviation per environment source:** the procedural sky has a physical scale
+    (1 environment unit = 12,800 cd/m²), so ASOBO emissive is interpreted as cd/m² and the default effective
+    scale is **1/12800**. The HDR panorama has no absolute scale and keeps **1/1000**, byte-identical to A1.6.
+    `effectiveMsfsEmissiveScale` (`SceneEnvironment.h`) supplies the renderer (including decals), registry and
+    Inspector. Authored factors/textures, KHR strength and day/night multipliers are never changed.
+    An explicit `--msfs-emissive-scale`, pipe `msfs_emissive_scale`, or Inspector edit overrides **both** sources,
+    even when explicitly set to 0.001. The field displays the effective scale; right-click → *Use source default*
+    restores automatic source selection. Scene/session state only. `--msfs-emissive off` / ASOBO off keep their clamp.
+    Core non-ASOBO glTF, including `KHR_materials_emissive_strength`, keeps its previous behavior with both sources.
+    `get_state.msfsEmissive` reports `effectiveScale`, `overridden` and nullable `overrideScale`.
+    - **Authoring (verified):** E195 cockpit/exterior: MSFS2024 Blender exporter 8.4.1, factors 3000; no KHR strength or
+      ASOBO day/night extension. DA62 SDK cockpit: Babylon/3ds Max 2022 exporter 1.0.9238.19262, displays 5000,
+      ASOBO day/night multipliers 1/1; Text is 100 with 15/1, Lights_01 is 1500. No KHR strength. None of these three
+      source files declares `ASOBO_asset_optimized` (no version). That extension identifies packaging; its version
+      is not a documented emissive-unit version. Generator strings are optional exporter provenance, not a unit tag.
+    - **Limitation:** the 2024 SDK *Exterior Lights* says the old 0–100 multiplier became cd/m². No reliable glTF-only
+      discriminator for old multiplier exports was found: all ASOBO files use nits with the sky, including legacy
+      files. A legacy multiplier asset may need an explicit override; no systems.cfg or outside metadata is read.
+    - **Checks:** `scripts/validate_emissive_units.py` (serial list): HDR real assets/core parity, sky emissive-only
+      patch at 5000/12800 within 1% through `probe` and `probe_region` (pre-exposure removed), source switching,
+      explicit overrides including zero and 0.001, KHR strength/day-night composition, non-ASOBO unchanged,
+      disabled paths, CLI = pipe and bright-screen bloom. Review: `scripts/review_emissive_units.py`.
+
   Glow (bloom) is A4.3.
 - [x] **A1.7 — `ASOBO_material_alphamode_dither` (R3). Owner: Claude (planned for GPT Astra).** Dithered (screen-door) transparency in
   the opaque pass, using a per-pixel discard pattern.

@@ -380,10 +380,15 @@ json Application::agentStateJson()
     st["glErrors"] = s_glErrorTotal;
     st["sun"] = sunStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene));
     st["ambient"] = ambientStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene));
+    const auto& environment = getSceneEnvironment(sceneEnvironments, gltfModel, activeScene);
+    st["msfsEmissive"] = {{"effectiveScale", ux3d::imgui::effectiveMsfsEmissiveScale(environment)},
+                          {"overridden", environment.msfsEmissiveScaleOverride},
+                          {"overrideScale", environment.msfsEmissiveScaleOverride ? json(environment.msfsEmissiveScale) : json(nullptr)}};
     st["timeOfDay"] = timeOfDayStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene));
     st["sky"] = skyStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene));
     st["night"] = nightStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene));
     st["ssao"] = ssaoStateJson();
+    st["skyOcclusion"] = skyOcclusionStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene));
     if (activeViewport != nullptr) {
         // A3.6: the active viewport's ground. height/albedo are what the last render used (the albedo is what A6.2
         // reads); modelBase is the scene's lowest point whatever the height mode.
@@ -757,6 +762,20 @@ ux3d::imgui::SkyStatus Application::skyStatus(const ux3d::imgui::SceneEnvironmen
     status.budgetMs = s_skyBudgetMs;
     status.groundAlbedo = skyAtmosphere(environment).groundAlbedo;
     status.groundFromPlane = environment.skyGroundAlbedo < 0.0f && skyGroundFromPlane();
+    status.skyOcclusionActive = skyOcclusionApplies();
+    status.skyOcclusionBaking = skyOcclusionVolume.busy();
+    status.skyOcclusionProgress = skyOcclusionVolume.busy() && skyOcclusionVolume.jobDirections() > 0
+        ? static_cast<float>(skyOcclusionVolume.jobDirectionsDone()) / static_cast<float>(skyOcclusionVolume.jobDirections())
+        : 0.0f;
+    if (skyOcclusionVolume.ready()) {
+        const auto& bounds = skyOcclusionVolume.frontBounds();
+        status.skyOcclusionDims[0] = bounds.dims.x;
+        status.skyOcclusionDims[1] = bounds.dims.y;
+        status.skyOcclusionDims[2] = bounds.dims.z;
+        status.skyOcclusionCell = bounds.cell;
+        status.skyOcclusionMemoryMiB = static_cast<double>(skyOcclusionVolume.frontBytes()) / (1024.0 * 1024.0);
+        status.skyOcclusionBakeMs = skyOcclusionVolume.stats().lastCpuMs;
+    }
     return status;
 }
 
@@ -1843,9 +1862,20 @@ void Application::registerAgentSettings()
                    "Simulated seconds per real second while time_playing (600 = 10 minutes per second).",
                    "--time-scale <x>", 0.0, 1.0e6);
     }
-    addSetting(floatSetting<ES>("msfs_emissive_scale", E, &ES::msfsEmissiveScale,
-                                              "MSFS emissive scale for ASOBO assets (default 1/1000).",
-                                              "--msfs-emissive-scale <x>"));
+    {
+        auto spec = floatSetting<ES>("msfs_emissive_scale", E, &ES::msfsEmissiveScale,
+            "Effective ASOBO emissive scale: sky 1/12800 (cd/m^2 to environment units), HDR 1/1000. "
+            "Setting a value overrides both sources. Core glTF, including KHR emissive_strength, is unchanged.",
+            "--msfs-emissive-scale <x>");
+        spec.get = [](void* t) { return json(ux3d::imgui::effectiveMsfsEmissiveScale(*static_cast<ES*>(t))); };
+        spec.set = [](void* t, const json& v, std::string&) {
+            auto& environment = *static_cast<ES*>(t);
+            environment.msfsEmissiveScale = static_cast<float>(v.get<double>());
+            environment.msfsEmissiveScaleOverride = true;
+            return true;
+        };
+        addSetting(std::move(spec));
+    }
     addSetting(boolSetting<ES>("bloom", E, &ES::bloomEnabled, "Physically based bloom.", "--bloom <on|off>"));
     addSetting(floatSetting<ES>("bloom_intensity", E, &ES::bloomIntensity, "Bloom intensity.", "--bloom-intensity <x>"));
     addSetting(floatSetting<ES>("bloom_radius", E, &ES::bloomRadius, "Bloom radius.", "--bloom-radius <x>"));
@@ -1987,6 +2017,36 @@ void Application::registerAgentSettings()
                                 "Ambient luminance in cd/m^2 (1 environment unit = 12,800 cd/m^2 with both sources; the "
                                 "HDR has no absolute scale, so the same unit is used for it).",
                                 "--ambient-intensity <cd/m^2>", std::pair{0.0, static_cast<double>(ux3d::imgui::kAmbientMaxLuminance)}));
+    // A3.9 sky occlusion inside the model (SkyOcclusion.h): scene-level, like the environment it occludes.
+    {
+        SettingSpec spec;
+        spec.key = "sky_occlusion";
+        spec.scope = E;
+        spec.type = SettingType::Enum;
+        spec.help = "Sky occlusion from the model's own geometry (a baked sky-visibility volume) for the IBL terms: auto "
+                    "(default) = on with the procedural sky, off with the HDR. The sun, punctual lights, emissive, the "
+                    "ambient light and the background are unchanged.";
+        spec.cliFlag = "--sky-occlusion <auto|on|off>";
+        spec.enumValues = {"auto", "on", "off"};
+        spec.get = [](void* t) {
+            const int value = static_cast<ES*>(t)->skyOcclusion;
+            return json(value < 0 ? "auto" : value != 0 ? "on" : "off");
+        };
+        spec.set = [](void* t, const json& v, std::string&) {
+            const std::string value = v.get<std::string>();
+            static_cast<ES*>(t)->skyOcclusion = value == "auto" ? -1 : value == "on" ? 1 : 0;
+            return true;
+        };
+        addSetting(std::move(spec));
+    }
+    addSetting(indexEnumSetting<ES>("sky_occlusion_quality", E, &ES::skyOcclusionQuality, {"low", "medium", "high"},
+                                    "Sky occlusion bake: low 64 directions x up to 64 cells per axis, medium (default) "
+                                    "128 x 96, high 256 x 128.",
+                                    "--sky-occlusion-quality <low|medium|high>"));
+    addSetting(boolSetting<ES>("sky_occlusion_occluders", E, &ES::skyOcclusionOccluders,
+                               "Environment occluders (ASOBO_material_environment_occluder) block the sky in the sky "
+                               "occlusion bake (default on; they stay hidden in the image either way).",
+                               "--sky-occlusion-occluders <on|off>"));
     // A6.7 sun disk (SunDisk.h): background only, never in the IBL input.
     {
         SettingSpec spec;

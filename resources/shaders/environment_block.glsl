@@ -96,4 +96,11 @@ layout(std140) uniform EnvironmentBlock
     // u_AmbientEnabled is non-zero. Not part of the glTF; never in the IBL filter input or the background.
     vec3 u_AmbientRadiance;
     int u_AmbientEnabled;
+    // A3.9 sky occlusion (sky_occlusion.glsl): the sky-visibility volume of this viewport's model. Origin: xyz world
+    // position of the volume's minimum corner, w cell edge; Dims: xyz cell counts, w normal offset of the lookup in
+    // cells; Params: x = 1 / the open fraction (values at or above it read fully open), y = 1 while the volume is used.
+    // Read only by materials compiled with SKY_OCCLUSION.
+    vec4 u_SkyOcclusionOrigin;
+    vec4 u_SkyOcclusionDims;
+    vec4 u_SkyOcclusionParams;
 };

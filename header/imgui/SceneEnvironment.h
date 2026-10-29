@@ -8,6 +8,7 @@
 #include <string>
 
 #include "imgui/NightSky.h"
+#include "imgui/SkyAtmosphere.h"
 #include "imgui/SunDisk.h"
 #include "imgui/TimeOfDay.h"
 
@@ -64,7 +65,8 @@ struct SceneEnvironmentState {
     bool iblEnabled = true;
     bool punctualLightsEnabled = true;
 
-    float msfsEmissiveScale = 0.001f; // default 1/1000
+    float msfsEmissiveScale = 0.001f; // HDR default, or an explicit override for either source
+    bool msfsEmissiveScaleOverride = false;
     int timeOfDay = 0; // ASOBO_material_emissive day/night: 0 = Day (default), 1 = Night, 2 = Automatic (DayNightMode)
 
     // A6.1 time of day: date, time, place and heading (TimeOfDay.h). With clock.enabled the sun is on and its
@@ -112,8 +114,32 @@ struct SceneEnvironmentState {
     glm::vec3 ambientColor = glm::vec3(1.0f);
     float ambientLuminance = kAmbientDefaultLuminance; // cd/m^2
 
+    // A3.9 sky occlusion (SkyOcclusion.h): -1 automatic (on with the procedural sky, off with the HDR, so every HDR
+    // render is unchanged), 0 off, 1 on. Quality: SkyOcclusionQuality (0 low, 1 medium, 2 high). Environment
+    // occluders (ASOBO_material_environment_occluder) block the sky unless skyOcclusionOccluders is off.
+    int skyOcclusion = -1;
+    int skyOcclusionQuality = 1;
+    bool skyOcclusionOccluders = true;
+
     bool operator==(const SceneEnvironmentState&) const = default;
 };
+
+// A3.9: whether the scene's sky occlusion is on (the automatic default follows the environment source).
+inline bool effectiveSkyOcclusion(const SceneEnvironmentState& environment)
+{
+    if (environment.skyOcclusion >= 0) return environment.skyOcclusion != 0;
+    return environment.environmentSource == static_cast<int>(EnvironmentSource::ProceduralSky);
+}
+
+// A1.6b: ASOBO emissive is cd/m^2 with the physically calibrated sky; the uncalibrated HDR keeps A1.6's mapping.
+// An explicit CLI/pipe/Inspector value overrides both sources (including an explicitly entered HDR default).
+// Only the existing ASOBO emissive shader path uses this scale; core glTF / KHR emissive_strength is unchanged.
+inline float effectiveMsfsEmissiveScale(const SceneEnvironmentState& environment)
+{
+    if (environment.msfsEmissiveScaleOverride) return environment.msfsEmissiveScale;
+    return environment.environmentSource == static_cast<int>(EnvironmentSource::ProceduralSky)
+        ? 1.0f / static_cast<float>(sky::kLuxPerEnvironmentUnit) : 0.001f;
+}
 
 // A6.4: the tone mapper of the procedural sky when none is chosen (sunset hues; docs/ASOBO_EXTENSIONS_PHASE_6.md A6.4).
 inline constexpr int kSkyDefaultToneMapping = 0; // Khronos PBR Neutral

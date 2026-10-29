@@ -100,6 +100,10 @@ ux3d::renderer::CommandGenerator::CommandGenerator(gl::GL* gl, const filesystem:
     // A3.5: texelFetch of the SSAO result at the fragment's pixel (nearest, clamped).
     m_ssaoTexture = std::make_unique<gl::Texture>(gl, 0, gl::TextureTarget::Texture2d, false);
     m_ssaoSampler = std::make_unique<gl::Sampler>("u_SsaoTexture", m_ssaoTexture.get(), m_decalSamplerState.get());
+    // A3.9: texelFetch of the sky-visibility volume (nearest, clamped).
+    m_skyOcclusionTexture = std::make_unique<gl::Texture>(gl, 0, gl::TextureTarget::Texture3d, false);
+    m_skyOcclusionSampler = std::make_unique<gl::Sampler>("u_SkyOcclusionVolume", m_skyOcclusionTexture.get(),
+                                                          m_decalSamplerState.get());
     setSsrOptions(true, 1, 0.5f);
     m_ssrDepthFloat.write(0);
     m_ssrFrame.write(0.0f);
@@ -163,8 +167,10 @@ void ux3d::renderer::CommandGenerator::bindFrameBlocks()
     // A3.7: int u_SkyPortalCount at 484, float u_SkyPortalStrength at 488, vec4 u_SkyPortalPositionRadius[8] at 496,
     // vec4 u_SkyPortalNormalCosInner[8] at 624, vec4 u_SkyPortalCosOuter[8] at 752,
     // A6.4: float u_PreExposure at 880, A6.5: float u_EmissiveNightBlend at 884,
-    // A3.8: vec3 u_AmbientRadiance at 896, int u_AmbientEnabled at 908 (912 bytes, a whole number of vec4).
-    uint8_t environment[912] = {};
+    // A3.8: vec3 u_AmbientRadiance at 896, int u_AmbientEnabled at 908,
+    // A3.9: vec4 u_SkyOcclusionOrigin at 912, vec4 u_SkyOcclusionDims at 928, vec4 u_SkyOcclusionParams at 944
+    // (960 bytes, a whole number of vec4).
+    uint8_t environment[960] = {};
     if (m_environmentMapRotationUniform.byteSize() == 36) {
         for (size_t column = 0; column < 3; ++column) {
             std::memcpy(environment + column * 16, m_environmentMapRotationUniform.bytes() + column * 12, 12);
@@ -224,6 +230,14 @@ void ux3d::renderer::CommandGenerator::bindFrameBlocks()
     std::memcpy(environment + 884, &m_emissiveNightBlend, 4);
     std::memcpy(environment + 896, &m_ambientRadiance[0], 12);
     std::memcpy(environment + 908, &m_ambientEnabled, 4);
+    if (m_skyOcclusion.enabled) {
+        const glm::vec4 origin(m_skyOcclusion.origin, m_skyOcclusion.cell);
+        const glm::vec4 dims(m_skyOcclusion.dims, m_skyOcclusion.normalOffsetCells);
+        const glm::vec4 params(1.0f / std::max(m_skyOcclusion.openFraction, 1.0e-3f), 1.0f, 0.0f, 0.0f);
+        std::memcpy(environment + 912, &origin[0], 16);
+        std::memcpy(environment + 928, &dims[0], 16);
+        std::memcpy(environment + 944, &params[0], 16);
+    }
     uploadFrameBlock(m_environmentBlock, gl::kEnvironmentBlockBinding, environment, sizeof(environment));
 }
 

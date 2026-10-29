@@ -69,6 +69,8 @@ enum class RenderMode : uint32_t {
     ShadowVisibility,
     // A3.5: the screen-space ambient occlusion term.
     SSAO,
+    // A3.9: the sky visibility from the model's own geometry (cosine-weighted around the normal).
+    SkyVisibility,
 
 };
 

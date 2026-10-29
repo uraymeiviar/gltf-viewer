@@ -2,7 +2,7 @@
 
 [Journal index](ASOBO_EXTENSIONS_JOURNAL.md) · [Extension reference](ASOBO_EXTENSIONS_REFERENCE.md) · [Validation rules](RENDERER_OPTIMIZATION_VALIDATION.md)
 
-**Status:** In progress: A3.1, A3.2, A3.4, A3.5, A3.6, A3.7 and A3.8 done (A3.4 ahead of A3.1); A3.3 deferred.
+**Status:** In progress: A3.1, A3.2, A3.4, A3.5, A3.6, A3.7, A3.8 and A3.9 done (A3.4 ahead of A3.1); A3.3 deferred.
 
 **Entry:** A2.2, the deferred lighting pass. **Goal:** shadows from a sun (user priority 4), and the remaining
 lighting features of user priority 5. The sun's direction is set by hand here and driven by time of day in A6.
@@ -477,6 +477,78 @@ lighting features of user priority 5. The sun's direction is set by hand here an
     screens, whose MSFS-scaled emissive is 5 units = 64,000 cd/m^2 (A6.4b report): the ambient is 13+ EV below them.
     Making the panel readable needs either a much larger ambient, a Manual exposure, or the emissive-scale calibration
     already flagged in A6.4b (maintainer decision; not changed here).
+- [x] **A3.9 — Sky occlusion inside the model (interior sky light). Owner: Claude.** Inside a cockpit every surface
+  received the full sky IBL; only the sun was shadowed (A3.2), and authored AO / A3.5 SSAO darken small creases only.
+  - **Done 2026-10-29.** Code: `header/imgui/SkyOcclusion.h` (volume, bake, time slicing),
+    `resources/shaders/sky_occlusion_bake.frag` (bake passes), `resources/shaders/sky_occlusion.glsl` (lookup),
+    `pbr.frag`, `environment_block.glsl` (`u_SkyOcclusionOrigin/Dims/Params` at 912/928/944; 960 bytes),
+    `CommandGenerator::setSkyOcclusion`, `ShadowCasterLayer` (`includeEnvironmentOccluders`), `Viewports.cpp`
+    (`updateSkyOcclusion`, the per-viewport define `SKY_OCCLUSION`), `SceneEnvironment.h`.
+  - **Bake:** N directions on a spherical Fibonacci lattice (low 64, medium 128, high 256); per direction an
+    orthographic DEPTH16 map (512 / 768 / 1024 px) fitted to the volume, drawn by the renderer through a second
+    `ShadowCasterLayer` (the sun's caster rules: OPAQUE / MASK / dither; no decals, glass, windshields or invisible
+    materials; `noCastShadow` ignored, since a part without a sun shadow still hides the sky; environment occluders
+    added although the colour passes hide them). Glass / BLEND does not block (windows let the sky in). A fragment pass
+    per slice tests every cell centre against 8 maps at a time (hardware compare, 2 x 2 PCF): visible only when the cell
+    lies at least max(0.1 cell, 0.5 texel) in front of the outermost surface, so cells on or inside closed geometry see
+    nothing. It sums (v, v d) in an RGBA32F accumulator; the last frame writes the RGBA16F volume (a, m) = (visible
+    fraction, mean visible direction), a = -1 for cells inside solids. Volume: the scene's static POSITION boxes, cubic
+    cells, at most 64 / 96 / 128 per axis including 2 padding cells. Time-sliced: 16 / 16 / 32 directions per frame
+    (4 / 8 / 8 frames). It runs after a model load and after a Visibility, Transform, Material or Extension revision, an
+    isolation, quality or occluder change; never per frame; animation is ignored (the pose at bake time). The previous
+    complete volume stays in use until the new one is complete; a new model drops it at once.
+  - **Lookup (pbr.frag):** at the world position moved one cell along the geometric normal (viewer side), the eight
+    surrounding cells interpolated trilinearly without the cells inside solids; outside the volume visibility 1.
+    Diffuse: the cosine-weighted visibility. L1 alone (a + 2 m.n) is exact for a half-space but read 25% low behind the
+    test box's opening (0.187 against 0.244), so it is blended with a visibility-cone reading (axis m, solid angle
+    4 pi a, irradiance of a horizon-clipped spherical cap, Lagarde and de Rousiers 2014) by how cap-like the visible set
+    is (|m| against sin^2(alpha) / 4). Specular / sheen / clearcoat: the visibility cone intersected with the lobe cone
+    (half-angle alpha x 90 deg), relative to the lobe's intersection with the open half-space, blended towards the
+    diffuse term with the roughness. Values at or above 0.95 of an open half-space read 1 (the lattice reads a
+    half-space as 1 +- 0.05 / 0.034 / 0.024 with 64 / 128 / 256 directions), so open and convex surfaces are unchanged.
+    Every alpha mode (BLEND and transmissive surfaces in their reflection and diffuse share); the windshield's IBL
+    fallback is occluded before the SSR mix, the SSR itself is not.
+  - **AO combination: product.** The E195's authored occlusion maps are local (creases and gaps; the panel face reads
+    0.85-0.9 in the Occlusion debug view) and the lookup sits a cell (4.9 cm at medium) off the surface, so the two
+    measure separate scales and multiply; a crease is darkened by its map only. SSAO keeps `min(authored, SSAO)` on top.
+    A multi-bounce fit (as SSAO's) was tried and rejected: it assumes surroundings of the receiver's albedo and
+    brightened the white sunlit surface that limits the noon exposure.
+  - **Not touched:** the sun (A3.2 shadows), punctual lights, emissive, the A3.8 ambient light (a viewer aid, it stays
+    uniform), the background, the IBL filter input, the A3.6 ground (the volume ends at the model's bounds, so a seam
+    would show; the sun shadow already gives the contact).
+  - **Sky portals (A3.7):** the add-back is now `(1 - min(authored, SSAO) x sky visibility) x min(strength x portal,
+    unoccluded IBL diffuse)`. The DA62's environment occluder is a closed 84-triangle hull, so its cabin sees no sky and
+    the portals become the window light (no double counting); where the sky is seen directly they add the remainder only.
+    DA62 noon, mean linear luminance of the lower panel: occluders on, portals 0 / 0.35 / 1 / 2: 0.11460 / 0.11540 /
+    0.11689 / 0.11919; occluders off (geometric windows), portals 0 / 0.35: 0.11756 / 0.11832. The portal term is about
+    0.0023 per unit strength, the geometric window light 0.0030, so strength 1.3 would match it; with occluders off,
+    0.35 adds a quarter of the window light again (partial double count). The default 0.35 is kept: it also drives the
+    HDR renders (sky occlusion off), which must stay byte-identical.
+  - **Setting:** scene environment (`sky_occlusion` auto / on / off, default auto = on with the procedural sky, off
+    with the HDR; `sky_occlusion_quality`; `sky_occlusion_occluders`), not persisted. Quality presets: Low has no IBL, so
+    nothing is baked; the others use the scene's quality (no separate preset field). Scene Inspector → *Sky Occlusion*
+    (collapsed header after *Ambient Light*): mode, quality, occluder switch, status. CLI `--sky-occlusion`,
+    `--sky-occlusion-quality`, `--sky-occlusion-occluders`; debug view `skyvisibility`; `get_state` /
+    `--profile-report` `skyOcclusion`.
+  - **Cost (measured):** E195 cockpit (588 casters): low 58x58x64 cells of 7.6 cm, 1.6 MiB, 54 ms CPU / 35 ms GPU over
+    4 frames; medium 86x86x96 of 4.9 cm, 5.4 MiB, 99 / 75 ms over 8 frames (largest frame 21 / 13 ms); high 114x114x128
+    of 3.6 cm, 12.7 MiB, 165 / 143 ms (largest 30 / 27 ms). E195 exterior (94 casters): 2.0 / 6.7 / 15.9 MiB, cells
+    71 / 46 / 34 cm, 22/17, 39/36, 71/67 ms CPU/GPU. DA62 cockpit (308 casters, 1 occluder): 1.9 / 6.6 / 15.5 MiB,
+    66/37, 100/74, 178/147 ms. No bake frame above 32 ms CPU or 27 ms GPU. Temporary memory during a bake: the
+    accumulator (16 B per cell) and 8 depth maps (medium E195 cockpit about 21 MB). Lookup: E195 cockpit main frame
+    6.065 -> 6.111 ms GPU (+0.05 ms).
+  - **Accuracy / leaks (`validate_sky_occlusion.py`):** closed box with an open top: floor centre 0.247 (low, medium) /
+    0.275 (high) against the analytic 0.244; outer walls 1.000; open plane and isolated spheres (Lambert, glossy)
+    unchanged (0.000%, debug view 1.000 everywhere). Zero-thickness walls leak up to 0.18 within one cell (2.2 cm there),
+    nothing from 2 cells on. **Limitation:** each direction is a hard test (a cone filter from an outermost-surface map
+    overestimated the box by 30% and was rejected), so small openings show faint contours of about 1 / N of the sphere
+    (visible on the test box's flat floor).
+  - **Noon E195 contrast (`validate_night.py`, thresholds unchanged):** MFD L / PFD L / EICAS screen against bezel
+    0.179 / 0.189 / 0.196 -> 0.288 / 0.285 / 0.291 (0.3 not reached); panel median 0.098 -> 0.035 (now below 0.04). The
+    exposure is limited by the highlight meter at the sunlit white `$DRM_UI_SCREEN` surface (1.95 -> 1.61 units; EV
+    -1.28 -> -1.01), which holds the screens at about 0.306 displayed, so p95 - p5 cannot exceed about 0.29 however dark
+    the bezel. No threshold, exposure or emissive value was changed.
+  - **Review:** `build/review/sky_occlusion/contact_sheet.png` (`scripts/review_sky_occlusion.py`).
 
 **Exit gate:**
 - Shadow tests pass.
