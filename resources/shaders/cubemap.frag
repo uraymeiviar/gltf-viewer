@@ -55,6 +55,16 @@ vec3 sunDisk(vec3 worldDirection)
     float footprint = max(fwidth(angle), 1.0e-6);
     float coverage = clamp((radius - angle) / footprint + 0.5, 0.0, 1.0);
     if (coverage <= 0.0) return vec3(0.0);
+    // The horizon hides the disk (a setting sun sinks behind it): the planet's horizon, sqrt(1 - (Rb / r)^2) below
+    // level for the observer's altitude, with the procedural sky; level with the HDR (its own ground lies below).
+#ifdef PROCEDURAL_SKY
+    float rb = u_SkyParams.x / u_SkyParams.z;
+    float horizon = -sqrt(max(1.0 - rb * rb, 0.0));
+#else
+    float horizon = 0.0;
+#endif
+    coverage *= clamp((worldDirection.y - horizon) / max(fwidth(worldDirection.y), 1.0e-6) + 0.5, 0.0, 1.0);
+    if (coverage <= 0.0) return vec3(0.0);
     vec3 limb = vec3(1.0);
     if (u_SunDisk.y > 0.5) {
         float rho = min(angle / radius, 1.0);
