@@ -103,7 +103,7 @@ Glider.exe [path_to_model.gltf / path_to_model.glb]
 - `--dump-frame <output.jpg>`: Renders warm-up frames and dumps the window framebuffer to disk as `.jpg` or `.png`.
 - `--exit-after-dump`: Exits the application immediately after dumping the frame.
 
-The complete list is in [`AGENTS.md`](AGENTS.md) §4.2.
+The complete list is in the [CLI reference](docs/CLI_REFERENCE.md).
 
 ---
 

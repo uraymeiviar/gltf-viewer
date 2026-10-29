@@ -143,7 +143,7 @@ Evidence: `build/review/quality_controls/reload_ui_full.log` / `.json` (959 UI f
 
 ## Documentation
 
-- `AGENTS.md` §3.6 documents the single `settings.ini`, migration, fallback and isolated rules; §4.2 documents the new flags, storage and wildcard rules.
+- [Architecture §3.6](ARCHITECTURE.md#36-docking--layout-persistence) documents the single `settings.ini`, migration, fallback and isolated rules; [CLI reference](CLI_REFERENCE.md) documents the new flags, storage and wildcard rules.
 - `docs/QUALITY_PRESETS_AND_TELEMETRY.md` describes presets, Settings, live resize, telemetry, and the KTX2 cap edge.
 - `docs/LOADING_AND_ADAPTIVE_QUALITY.md` was corrected: DDS and STB-decoded images resize on CPU, compressed KTX2 uploads trim authored mip levels when possible, and the remaining compressed cap edge is called out.
 - The loading design links to the follow-up doc and this journal.

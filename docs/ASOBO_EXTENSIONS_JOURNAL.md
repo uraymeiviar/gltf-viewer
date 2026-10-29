@@ -51,7 +51,7 @@ Shared documents:
   E195 projects, current handling and owning phase.
 - [Renderer validation rules](RENDERER_OPTIMIZATION_VALIDATION.md): risk model R0–R4, evidence template §6.6, and
   the PASS / FAIL / INCONCLUSIVE / NOT RUN / DEFERRED vocabulary. These apply here, with the additions in §2.
-- Regression tooling: `scripts/save_baseline.py`, `scripts/run_regression.py` (`AGENTS.md` §4.5).
+- Regression tooling: `scripts/save_baseline.py`, `scripts/run_regression.py` ([Build and test §4.5](BUILD_AND_TEST.md#45-regression-testing)).
 
 ---
 

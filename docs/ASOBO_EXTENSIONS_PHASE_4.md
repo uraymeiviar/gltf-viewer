@@ -379,7 +379,7 @@ KHR-only views retain their existing copy paths and do not allocate SSR depth.
 
 Viewport Settings → MSFS Extensions adds **Screen-space reflections** (on), **SSR
 quality** (Medium), and **Interior sky reflection** (0.5). CLI equivalents are `--ssr`,
-`--ssr-quality`, and `--interior-sky-reflection`; see AGENTS.md §4.2. The sky strength
+`--ssr-quality`, and `--interior-sky-reflection`; see [CLI reference](CLI_REFERENCE.md). The sky strength
 applies per fragment inside the combined world AABB of environment-occluder geometry,
 collected before those meshes are hidden. Without a bounded occluder it applies to
 all windshields. The reflection shader is compiled only for applied windshield-v3

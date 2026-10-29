@@ -261,7 +261,7 @@ lighting features of user priority 5. The sun's direction is set by hand here an
       base / Y = 0 / Custom, *Material* presets (Concrete / tarmac with 5 m slab joints, Grass, Sand, Neutral grey)
       or a custom *Albedo*, *Roughness*, *Detail*, *Detail size*, *Joint spacing*, *Haze distance*, *Show grid on
       ground*. CLI `--ground grid|plane` and `--ground-height|-preset|-color|-roughness|-detail|-detail-scale|-joints|
-      -haze|-grid` (AGENTS.md section 4.2); registry keys `ground`, `ground_height_mode`, `ground_height`,
+      -haze|-grid` ([CLI reference](CLI_REFERENCE.md)); registry keys `ground`, `ground_height_mode`, `ground_height`,
       `ground_preset`, `ground_color`, `ground_roughness`, `ground_detail`, `ground_detail_scale`,
       `ground_joint_spacing`, `ground_haze`, `ground_grid`; `get_state` `ground`.
     - **Rendering** (`resources/shaders/ground.vert` / `ground.frag` / `ground_common.glsl`;
