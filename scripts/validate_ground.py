@@ -468,7 +468,7 @@ def check_state_and_settings(black, zero):
     except Exception as error:  # noqa: BLE001
         check(False, f"pipe session failed: {error}")
         session.process.kill()
-    for bad in (["--ground", "ocean"], ["--ground-preset", "lava"], ["--ground-height", "sideways"], ["--ground-roughness", "2"]):
+    for bad in (["--ground", "lake"], ["--ground-preset", "lava"], ["--ground-height", "sideways"], ["--ground-roughness", "2"]):
         result = run([EXE, zero] + COMMON + bad + ["--exit-after-dump"], timeout=120)
         check(result.returncode != 0, f"{' '.join(bad)} is rejected")
 

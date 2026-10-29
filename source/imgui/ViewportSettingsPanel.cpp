@@ -1,5 +1,6 @@
 #include "imgui/GladGL.h"
 #include "imgui/ViewportSettingsPanel.h"
+#include "imgui/OceanSimulation.h"
 #include "imgui/RenderQuality.h"
 #include "imgui/StdFileSystem.h"
 #include "imgui/IconsMaterialDesignIcons.h"
@@ -290,21 +291,24 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
             ImGui::Separator();
             if (ImGui::CollapsingHeader("Ground", ImGuiTreeNodeFlags_DefaultOpen)) {
                 GroundSettings& ground = state.ground;
-                const char* groundNames[] = { "Grid", "Plane" };
+                const char* groundNames[] = { "Grid", "Plane", "Ocean" };
                 if (ImGui::BeginCombo("Type", groundNames[static_cast<int>(ground.mode)])) {
-                    for (int i = 0; i < 2; ++i) {
+                    for (int i = 0; i < 3; ++i) {
+                        // A6.8: the ocean needs compute shaders (OpenGL 4.3).
+                        const bool unavailable = i == static_cast<int>(GroundMode::Ocean) && !oceanAvailable();
+                        ImGui::BeginDisabled(unavailable);
                         if (ImGui::Selectable(groundNames[i], static_cast<int>(ground.mode) == i)) {
                             ground.mode = static_cast<GroundMode>(i);
                             revisions.mark(SceneChange::ViewportSettings);
                         }
+                        ImGui::EndDisabled();
+                        if (unavailable && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                            ImGui::SetTooltip("The ocean needs an OpenGL 4.3 context (compute shaders).");
+                        }
                     }
-                    // The ocean (A6.8) is the third choice once it exists.
-                    ImGui::BeginDisabled();
-                    ImGui::Selectable("Ocean (A6.8, not available yet)", false);
-                    ImGui::EndDisabled();
                     ImGui::EndCombo();
                 }
-                if (ground.mode == GroundMode::Plane) {
+                if (ground.mode == GroundMode::Plane || ground.mode == GroundMode::Ocean) {
                     const char* heightNames[] = { "Model base (lowest point)", "Y = 0", "Custom" };
                     int heightMode = static_cast<int>(ground.heightMode);
                     if (ImGui::Combo("Height", &heightMode, heightNames, IM_ARRAYSIZE(heightNames))) {
@@ -316,6 +320,15 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
                             revisions.mark(SceneChange::ViewportSettings);
                         }
                     }
+                }
+                if (ground.mode == GroundMode::Ocean) {
+                    // A6.8a: the ocean's settings UI follows with A6.8b (the registry and CLI set them meanwhile).
+                    static const char* const qualityNames[] = { "Low", "Medium", "High" };
+                    ImGui::TextDisabled("Ocean: wind %.1f m/s from %.0f deg, %s quality",
+                                        ground.ocean.windSpeed, ground.ocean.windDirection,
+                                        qualityNames[static_cast<int>(ground.ocean.quality)]);
+                }
+                if (ground.mode == GroundMode::Plane) {
                     int preset = static_cast<int>(ground.preset);
                     const char* presetLabel =
                         ground.preset == GroundPreset::Custom ? "Custom" : groundPresets()[static_cast<size_t>(preset)].label.data();

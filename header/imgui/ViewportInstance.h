@@ -16,6 +16,10 @@
 #include <array>
 #include <string>
 #include <memory>
+
+namespace ux3d::imgui {
+class OceanSimulation;
+}
 #include <unordered_map>
 
 namespace ux3d::gltf {
@@ -54,6 +58,9 @@ struct ViewportRenderKey {
     ViewportSettingsState settings;
     SceneEnvironmentState environment;
     uint64_t skyOcclusion = 0; // A3.9: key of the sky-visibility volume the render reads (0 = none)
+    // A6.8: the ocean's precomputed set and time (both 0 unless the viewport's ground is the ocean).
+    uint64_t oceanVersion = 0;
+    double oceanTime = 0.0;
 
     bool operator==(const ViewportRenderKey&) const = default;
 };
@@ -112,6 +119,13 @@ struct ViewportInstance {
     bool groundPlaneActive = false;
     float groundPlaneHeight = 0.0f;
     glm::vec3 groundAlbedo = glm::vec3(0.0f);
+    // A6.8: this viewport's ocean simulation (created while its ground is the ocean, released otherwise; shared_ptr so
+    // the type stays incomplete here) and whether its last render drew the ocean (groundPlaneActive is then true too,
+    // groundPlaneHeight is the sea level).
+    std::shared_ptr<OceanSimulation> ocean;
+    bool oceanActive = false;
+    double oceanTime = 0.0;  // the ocean time of the last render, seconds
+    double oceanClock = 0.0; // the viewport's ocean clock, seconds (Application::updateOceanClock)
 
     // Material variants live as long as this viewport. The model generation covers
     // full reloads and material-only Inspector/ASOBO syncs; viewport settings cover

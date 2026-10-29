@@ -1,0 +1,46 @@
+// A6.8: ocean spectrum at one frame of the loop (OceanSimulation.cpp). h(k, t) = h0(k) e^(i w t) + conj(h0(-k)) e^(-i w t)
+// (Tessendorf 2001) with w quantised to a whole multiple q of the cascade's quantum w0 = 2 pi m / T, so at frame f of F
+// the phase w t = 2 pi (q f mod F) / F is exact and the loop closes. Writes two complex fields for one inverse FFT:
+// (h + i Dx, Dz), D = -i (k / |k|) lambda h (the horizontal "choppy" displacement). Texel (x, z) holds wave number
+// 2 pi / L (x or x - N, z or z - N), the FFT's own ordering, so no sign correction follows the transform.
+// OCEAN_N is defined by the loader.
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(rgba32f, binding = 0) writeonly uniform image2D u_Scratch;
+layout(rgba32f, binding = 1) readonly uniform image2D u_Spectrum; // one layer: h0(k), conj(h0(-k))
+
+uniform float u_PatchSize;
+uniform float u_Omega0;
+uniform int u_Frame;
+uniform int u_Frames;
+uniform float u_Choppiness;
+
+const float PI = 3.14159265358979;
+
+vec2 cmul(vec2 a, vec2 b)
+{
+    return vec2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
+}
+
+void main()
+{
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    int nx = p.x < OCEAN_N / 2 ? p.x : p.x - OCEAN_N;
+    int nz = p.y < OCEAN_N / 2 ? p.y : p.y - OCEAN_N;
+    vec2 k = (2.0 * PI / u_PatchSize) * vec2(float(nx), float(nz));
+    float kLength = length(k);
+    vec4 h0 = imageLoad(u_Spectrum, p);
+
+    int q = int(round(sqrt(9.81 * kLength) / u_Omega0));
+    int phaseIndex = (q * u_Frame) % u_Frames;
+    float phase = 2.0 * PI * float(phaseIndex) / float(u_Frames);
+    vec2 e = vec2(cos(phase), sin(phase));
+    vec2 h = cmul(h0.xy, e) + cmul(h0.zw, vec2(e.x, -e.y));
+
+    vec2 direction = kLength > 0.0 ? k / kLength : vec2(0.0);
+    // -i (a + i b) = b - i a
+    vec2 dx = u_Choppiness * direction.x * vec2(h.y, -h.x);
+    vec2 dz = u_Choppiness * direction.y * vec2(h.y, -h.x);
+    // h + i Dx: both transform to real fields, so one complex transform carries the two.
+    vec2 s1 = h + vec2(-dx.y, dx.x);
+    imageStore(u_Scratch, p, vec4(s1, dz));
+}

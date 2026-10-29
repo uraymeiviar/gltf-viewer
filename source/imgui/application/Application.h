@@ -483,6 +483,18 @@ private:
     std::unique_ptr<ux3d::renderer::ShadowCasterLayer> skyOcclusionCasterLayer;
     std::unique_ptr<ux3d::renderer::Camera> skyOcclusionCamera;
     bool skyOcclusionWanted = false;
+    // A6.8: the ocean time of a viewport (its pinned ocean.time, else its clock ViewportInstance::oceanClock, which
+    // updateOceanClock advances by the frame time while the ocean plays: by --fixed-frame-time in capture runs, not at
+    // all in capture runs without it), and the one-time warning of a refused ocean (no OpenGL 4.3).
+    bool oceanUnavailableWarned = false;
+    double oceanTimeFor(const ux3d::imgui::ViewportInstance& vp) const;
+    void updateOceanClock(float deltaTime);
+    nlohmann::json oceanStateJson(const ux3d::imgui::ViewportInstance& vp) const;
+    // Writes the viewport's ocean (cascades, frames at its time, sea level, colour, fog, interior rule) into the ocean
+    // material before its draw (Ocean.cpp).
+    void setOceanUniforms(const ux3d::imgui::ViewportInstance& vp, ux3d::renderer::Material& material,
+                          const ux3d::imgui::SceneEnvironmentState& environment, float seaLevel,
+                          const glm::vec3& cameraEye, bool skyOcclusion);
     uint64_t skyOcclusionModelKey = 0;
     size_t skyOcclusionLastCasters = 0;
     size_t skyOcclusionLastOccluders = 0;

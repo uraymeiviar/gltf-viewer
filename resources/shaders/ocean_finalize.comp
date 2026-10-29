@@ -1,0 +1,31 @@
+// A6.8: one frame of a cascade (OceanSimulation.cpp): the transformed fields (h + i Dx, Dz) become the layer's
+// (Dx, height, Dz, J) in metres, J the Jacobian of the horizontal displacement x -> x + D(x) (central differences,
+// the patch wraps): J < 1 where the surface is compressed, J < 0 where it folds over (foam, Tessendorf 2001).
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(rgba32f, binding = 0) readonly uniform image2D u_Scratch;
+layout(rgba16f, binding = 2) writeonly uniform image2D u_Output;
+
+uniform float u_Texel; // patch size / N, metres
+
+vec3 displacement(ivec2 p)
+{
+    vec4 s = imageLoad(u_Scratch, (p + ivec2(OCEAN_N)) % OCEAN_N);
+    return vec3(s.y, s.x, s.z);
+}
+
+void main()
+{
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    vec3 centre = displacement(p);
+    vec3 px = displacement(p + ivec2(1, 0));
+    vec3 mx = displacement(p - ivec2(1, 0));
+    vec3 pz = displacement(p + ivec2(0, 1));
+    vec3 mz = displacement(p - ivec2(0, 1));
+    float scale = 0.5 / u_Texel;
+    float dxdx = (px.x - mx.x) * scale;
+    float dzdz = (pz.z - mz.z) * scale;
+    float dxdz = (pz.x - mz.x) * scale;
+    float dzdx = (px.z - mx.z) * scale;
+    float jacobian = (1.0 + dxdx) * (1.0 + dzdz) - dxdz * dzdx;
+    imageStore(u_Output, p, vec4(centre, jacobian));
+}

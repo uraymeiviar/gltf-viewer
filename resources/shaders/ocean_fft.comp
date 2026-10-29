@@ -1,0 +1,54 @@
+// A6.8: one pass of the ocean's 2D inverse FFT (OceanSimulation.cpp): each work group transforms one row
+// (u_Horizontal = 1) or one column of the scratch image in shared memory (radix-2 Cooley-Tukey, bit-reversed load,
+// e^(+i ...) twiddles, no normalisation: the result is the sum over all wave numbers). Each texel holds two complex
+// values (xy, zw) that are transformed together. OCEAN_N, OCEAN_HALF_N and OCEAN_LOG2N are defined by the loader.
+layout(local_size_x = OCEAN_HALF_N) in;
+layout(rgba32f, binding = 0) uniform image2D u_Scratch;
+
+uniform int u_Horizontal;
+
+shared vec4 s_data[OCEAN_N];
+
+const float PI = 3.14159265358979;
+
+vec4 cmul2(vec4 a, vec2 w)
+{
+    return vec4(a.x * w.x - a.y * w.y, a.x * w.y + a.y * w.x, a.z * w.x - a.w * w.y, a.z * w.y + a.w * w.x);
+}
+
+int bitReverse(int value)
+{
+    return int(bitfieldReverse(uint(value)) >> uint(32 - OCEAN_LOG2N));
+}
+
+void main()
+{
+    int line = int(gl_WorkGroupID.x);
+    int t = int(gl_LocalInvocationID.x);
+    int i0 = t;
+    int i1 = t + OCEAN_N / 2;
+    ivec2 c0 = u_Horizontal != 0 ? ivec2(i0, line) : ivec2(line, i0);
+    ivec2 c1 = u_Horizontal != 0 ? ivec2(i1, line) : ivec2(line, i1);
+    s_data[bitReverse(i0)] = imageLoad(u_Scratch, c0);
+    s_data[bitReverse(i1)] = imageLoad(u_Scratch, c1);
+    memoryBarrierShared();
+    barrier();
+
+    for (int len = 2; len <= OCEAN_N; len <<= 1) {
+        int halfLength = len >> 1;
+        int group = t / halfLength;
+        int j = t - group * halfLength;
+        int a = group * len + j;
+        int b = a + halfLength;
+        float angle = 2.0 * PI * float(j) / float(len);
+        vec4 x = s_data[a];
+        vec4 y = cmul2(s_data[b], vec2(cos(angle), sin(angle)));
+        s_data[a] = x + y;
+        s_data[b] = x - y;
+        memoryBarrierShared();
+        barrier();
+    }
+
+    imageStore(u_Scratch, c0, s_data[i0]);
+    imageStore(u_Scratch, c1, s_data[i1]);
+}

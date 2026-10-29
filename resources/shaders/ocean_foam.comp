@@ -1,0 +1,19 @@
+// A6.8: foam persistence (OceanSimulation.cpp). Run over the frames of a cascade in order, twice round the loop: the
+// stored Jacobian becomes min(J, J of the previous frame + recovery), so a fold (J < 0) is remembered and fades as the
+// value climbs back (the renderer turns low values into foam coverage). The second turn carries the end of the loop
+// into its start, so the result is periodic.
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(rgba16f, binding = 2) uniform image2DArray u_Frames;
+
+uniform int u_Layer;
+uniform int u_PreviousLayer;
+uniform float u_Recovery; // per frame
+
+void main()
+{
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    vec4 current = imageLoad(u_Frames, ivec3(p, u_Layer));
+    float previous = imageLoad(u_Frames, ivec3(p, u_PreviousLayer)).w;
+    current.w = min(current.w, previous + u_Recovery);
+    imageStore(u_Frames, ivec3(p, u_Layer), current);
+}

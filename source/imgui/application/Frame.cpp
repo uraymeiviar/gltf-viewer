@@ -1,6 +1,7 @@
 // Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
 
 #include "Application.h"
+#include "imgui/OceanSimulation.h"
 #include "core/LoadProgress.h"
 #include "imgui/RenderQuality.h"
 #include "imgui/RuntimeTelemetry.h"
@@ -66,6 +67,7 @@ void Application::runFrame()
     const auto animationUpdateStart = ux3d::imgui::profiling::Clock::now();
     animationPlayer.update(deltaTime, gltfLayer.get());
     advanceTimeOfDay(deltaTime);
+    updateOceanClock(deltaTime);
     frame.markStage("animation.update", animationUpdateStart);
 
     processInput(deltaTime);
@@ -151,11 +153,16 @@ void Application::runFrame()
     // frames to settle hover and layout before the loop starts waiting.
     const bool timeOfDayPlaying = getSceneEnvironment(sceneEnvironments, gltfModel, activeScene).clock.playing;
     bool turntableActive = false;
+    bool oceanActive = false; // A6.8: an animated ocean or a recompute in progress
+    const bool oceanClockRuns = !(s_deterministicExposure && s_fixedFrameTime < 0.0f);
     for (const auto& vp : viewports) {
         turntableActive = turntableActive || (vp->isOpen && vp->settings.turntable);
+        const auto& ocean = vp->settings.ground.ocean;
+        oceanActive = oceanActive || (vp->isOpen && vp->ocean != nullptr &&
+                                      (vp->ocean->busy() || (ocean.play && ocean.time < 0.0f && oceanClockRuns)));
     }
     const bool frameActive = inputThisFrame || s_sceneRenderTotal != sceneRendersAtFrameStart ||
-                             sceneRevisions.hasPending() || animationPlayer.isPlaying() || turntableActive || timeOfDayPlaying ||
+                             sceneRevisions.hasPending() || animationPlayer.isPlaying() || turntableActive || timeOfDayPlaying || oceanActive ||
                              skyEnvironment.busy() || skyOcclusionVolume.busy() ||
                              io.WantTextInput || ImGui::IsAnyMouseDown();
     idleQuietFrames = frameActive ? 0 : idleQuietFrames + 1;

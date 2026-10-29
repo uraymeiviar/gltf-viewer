@@ -1,6 +1,7 @@
 // Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
 
 #include "Application.h"
+#include "imgui/OceanSimulation.h"
 #include "imgui/RenderQuality.h"
 #include "imgui/Theme.h"
 #include "imgui/ObjectActions.h"
@@ -119,6 +120,8 @@ void Application::drawViewports(FrameContext& frame)
             vp->hasCachedImage = false;
             vp->sunShadowMap.release();
             vp->sunShadowActive = false;
+            vp->ocean.reset();
+            vp->oceanActive = false;
             continue;
         }
 
@@ -503,6 +506,27 @@ void Application::drawViewports(FrameContext& frame)
         glm::mat4 jitteredProj = jitterMat * proj;
         glm::mat4 viewProj = proj * view; // Overlays always use the stable camera.
 
+        // A6.8: this viewport's ocean simulation, brought up to date (the first set and capture runs at once, later
+        // changes spread over frames within kOceanBudgetMs of GPU time); released while the ground is not the ocean.
+        // Without OpenGL 4.3 the ocean is refused once with a warning and the viewport keeps the grid.
+        bool oceanReady = false;
+        if (vp->settings.ground.mode == ux3d::imgui::GroundMode::Ocean && !ux3d::imgui::oceanAvailable()) {
+            if (!oceanUnavailableWarned) {
+                ux3d::core::logWarning("Ocean ground needs an OpenGL 4.3 context (compute shaders); keeping the grid");
+                oceanUnavailableWarned = true;
+            }
+            vp->settings.ground.mode = ux3d::imgui::GroundMode::Grid;
+        }
+        if (vp->settings.ground.mode == ux3d::imgui::GroundMode::Ocean) {
+            constexpr double kOceanBudgetMs = 3.0;
+            if (vp->ocean == nullptr) vp->ocean = std::make_shared<ux3d::imgui::OceanSimulation>();
+            vp->ocean->update(vp->settings.ground.ocean, s_deterministicExposure, kOceanBudgetMs);
+            oceanReady = vp->ocean->ready();
+        } else if (vp->ocean != nullptr) {
+            vp->ocean.reset();
+        }
+        const double oceanTime = oceanReady ? oceanTimeFor(*vp) : 0.0;
+
         // P5.3: redraw only when the render key changed, a click needs the picking
         // pass, the cached image is gone, or TAA is still accumulating. The key holds
         // the unjittered projection; TAA history resets force a render.
@@ -531,6 +555,8 @@ void Application::drawViewports(FrameContext& frame)
         renderKey.environment = activeEnvironment;
         // A3.9: the sky-visibility volume in use (a finished bake or a dropped volume redraws the viewport).
         renderKey.skyOcclusion = skyOcclusionApplies() ? skyOcclusionVolume.frontKey() : 0;
+        renderKey.oceanVersion = oceanReady ? vp->ocean->version() : 0;
+        renderKey.oceanTime = oceanTime;
         const bool keyUnchanged = vp->hasCachedImage && renderKey == vp->lastRenderKey;
         const bool isTaa = aaMode == ux3d::imgui::AntiAliasingMode::TAA;
         const bool taaAccumulating =
@@ -672,16 +698,31 @@ void Application::drawViewports(FrameContext& frame)
                     groundHeight = ground.customHeight;
                 }
             }
-            vp->groundPlaneActive = groundPlane;
+            // A6.8: the ocean, under the same conditions at the same height (its sea level).
+            const bool oceanSurface = oceanReady && vp->settings.ground.mode == ux3d::imgui::GroundMode::Ocean &&
+                                      vp->settings.renderMode == ux3d::renderer::RenderMode::None && !isWireframeMode &&
+                                      activeScene != nullptr && gltfLayer->getActiveCamera() != nullptr;
+            if (oceanSurface) {
+                const auto& ground = vp->settings.ground;
+                if (ground.heightMode == ux3d::imgui::GroundHeightMode::ModelBase) {
+                    getCachedModelBaseHeight(activeScene, gltfModel, gltfLayer.get(), groundHeight);
+                } else if (ground.heightMode == ux3d::imgui::GroundHeightMode::Custom) {
+                    groundHeight = ground.customHeight;
+                }
+            }
+            const bool groundSurface = groundPlane || oceanSurface;
+            vp->groundPlaneActive = groundSurface;
             vp->groundPlaneHeight = groundHeight;
-            vp->groundAlbedo = groundPlane ? vp->settings.ground.averageAlbedo() : glm::vec3(0.0f);
+            vp->groundAlbedo = groundSurface ? vp->settings.ground.averageAlbedo() : glm::vec3(0.0f);
+            vp->oceanActive = oceanSurface;
+            vp->oceanTime = oceanTime;
 
             // A3.2: the sun's shadow map for this viewport, before the forward scene is built (the caster
             // pass builds its own unculled scene, so off-screen casters still cast). Off: no pass at all.
             {
                 const auto shadowStart = ux3d::imgui::profiling::Clock::now();
                 updateSunShadows(*vp, frame, view, proj, activeEnvironment, !isWireframeMode, vpW, vpH,
-                                 groundPlane ? std::optional<float>(groundHeight) : std::nullopt);
+                                 groundSurface ? std::optional<float>(groundHeight) : std::nullopt);
                 if (vp->sunShadowActive) frame.markStage("shadow.render", shadowStart);
             }
 
@@ -1023,6 +1064,13 @@ void Application::drawViewports(FrameContext& frame)
                                                                                   activeEnvironment.clearColor.b));
                 scene.drawables.emplace_back(groundMesh, groundMaterial);
             }
+            // A6.8: the ocean drawable, the same way (its material carries this viewport's cascades and frames).
+            auto [oceanMesh, oceanMaterial] = gltfLayer->getResourceManager().getOceanTuple();
+            if (oceanSurface && oceanMesh != nullptr && oceanMaterial != nullptr) {
+                setOceanUniforms(*vp, *oceanMaterial, activeEnvironment, groundHeight, cameraEye, skyOcclusionActive);
+                gltfLayer->getResourceManager().setOceanTexture(vp->ocean->texture());
+                scene.drawables.emplace_back(oceanMesh, oceanMaterial);
+            }
 
             const auto commandGenerationStart = ux3d::imgui::profiling::Clock::now();
             const uint64_t programHitsBefore = commandGenerator->getCommandMapping().getProgramCacheHits();
@@ -1118,10 +1166,10 @@ void Application::drawViewports(FrameContext& frame)
             ++vp->renderCount;
             frame.markStage("draw.submit", drawSubmissionStart);
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-            // A3.6: the ground plane is not pickable; clicks fall through to the background.
-            if (groundPlane) {
+            // A3.6: the ground plane is not pickable; clicks fall through to the background. A6.8: nor is the ocean.
+            if (groundSurface) {
                 for (auto it = scene.drawables.begin(); it != scene.drawables.end();) {
-                    if (std::get<0>(*it) == groundMesh) {
+                    if (std::get<0>(*it) == groundMesh || std::get<0>(*it) == oceanMesh) {
                         it = scene.drawables.erase(it);
                     } else {
                         ++it;
@@ -1290,13 +1338,13 @@ void Application::drawViewports(FrameContext& frame)
                 vp->settings.showSelectedBoundingBox && selection.type == ux3d::imgui::SelectionType::Node &&
                 selection.selectedNode != nullptr;
             const bool hasOverlays =
-                (vp->settings.showGrid && (!groundPlane || vp->settings.ground.showGrid)) || hasSceneBbox ||
+                (vp->settings.showGrid && (!groundSurface || vp->settings.ground.showGrid)) || hasSceneBbox ||
                 hasSelectedBbox || drawWireframe;
 
             if (hasOverlays) {
                 // The ground plane is in the scene depth, so overlays (the grid on the ground at the plane's own
                 // height, boxes) test against the opaque model only, rebuilt with the unjittered camera.
-                if (isTaa || groundPlane) {
+                if (isTaa || groundSurface) {
                     vp->overlayFbo.bind();
                     glDepthMask(GL_TRUE);
                     glClear(GL_DEPTH_BUFFER_BIT);
@@ -1387,6 +1435,7 @@ void Application::drawViewports(FrameContext& frame)
             }
         } else if (redrawScene) {
             vp->groundPlaneActive = false;
+            vp->oceanActive = false;
             currentReverseMapping.clear();
             vp->sceneFbo.unbind();
             vp->overlayFbo.resize(vpW, vpH, 1, false);

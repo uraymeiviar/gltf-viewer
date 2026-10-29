@@ -52,6 +52,7 @@ GltfResourceManager::GltfResourceManager(gl::GL* gl)
 
     initCubeMap();
     initGround();
+    initOcean();
     initEmptyTransmissionTuple();
 }
 
@@ -188,6 +189,85 @@ void GltfResourceManager::initGround()
     m_groundMaterial->setUniform("u_GroundDetail", math::vec3(0.0f, 1.0f, 0.0f));
     m_groundMaterial->setUniform("u_GroundHaze", math::vec2(0.0f, 0.0f));
     m_groundMaterial->setUniform("u_GroundHazeColor", math::vec3(0.0f));
+}
+
+void GltfResourceManager::initOcean()
+{
+    // A6.8: a camera-centred polar grid (ocean.vert): kSegments around, kRings rings from the centre to the horizon.
+    // a_position = (angle / 2 pi, ring parameter v, 0); the shader turns v into a radius growing with the distance.
+    constexpr uint32_t kSegments = 256;
+    constexpr uint32_t kRings = 192;
+    std::vector<float> vertices;
+    vertices.reserve(static_cast<size_t>(kSegments + 1) * kRings * 3);
+    for (uint32_t ring = 0; ring < kRings; ++ring) {
+        for (uint32_t segment = 0; segment <= kSegments; ++segment) {
+            vertices.push_back(static_cast<float>(segment) / kSegments);
+            vertices.push_back(static_cast<float>(ring) / (kRings - 1));
+            vertices.push_back(0.0f);
+        }
+    }
+    std::vector<uint16_t> indices;
+    indices.reserve(static_cast<size_t>(kSegments) * (kRings - 1) * 6);
+    for (uint32_t ring = 0; ring + 1 < kRings; ++ring) {
+        for (uint32_t segment = 0; segment < kSegments; ++segment) {
+            const uint16_t a = static_cast<uint16_t>(ring * (kSegments + 1) + segment);
+            const uint16_t b = static_cast<uint16_t>(a + 1);
+            const uint16_t c = static_cast<uint16_t>(a + kSegments + 1);
+            const uint16_t d = static_cast<uint16_t>(c + 1);
+            indices.insert(indices.end(), { a, c, b, b, c, d });
+        }
+    }
+    core::MemoryRange<const uint8_t> verticesData(reinterpret_cast<uint8_t*>(vertices.data()), vertices.size() * sizeof(float));
+    auto vertexBuffer = createWithGLContext<gl::Buffer>(verticesData);
+    core::MemoryRange<const uint8_t> indicesData(reinterpret_cast<uint8_t*>(indices.data()), indices.size() * sizeof(uint16_t));
+    auto indexBuffer = createWithGLContext<gl::Buffer>(indicesData);
+
+    gl::Attribute attribute("a_position");
+    attribute.dimension = 3;
+    attribute.type = gl::ComponentType::Float;
+    attribute.buffer = vertexBuffer;
+
+    m_oceanMesh = createWithGLContext<Mesh>();
+    m_oceanMesh->vertexShader = "ocean.vert";
+    m_oceanMesh->primitiveTopology = gl::PrimitiveTopology::TriangleList;
+    m_oceanMesh->indexFormat = gl::PrimitiveType::UnsignedShort;
+    m_oceanMesh->indexCount = indices.size();
+    m_oceanMesh->indexBuffer = indexBuffer;
+    m_oceanMesh->vertexCount = vertices.size();
+    m_oceanMesh->attributes.emplace_back(attribute);
+    // As the ground plane: a far sort position makes the ocean the last opaque draw.
+    m_oceanMesh->updateTransform(math::translate(math::mat4x4(1.0f), math::vec3(0.0f, 1.0e9f, 0.0f)));
+
+    m_oceanMaterial = createWithGLContext<Material>();
+    m_oceanMaterial->fragmentShader = "ocean.frag";
+    m_oceanMaterial->renderPass = m_opaquePass;
+    m_oceanMaterial->defines.define("LINEAR_OUTPUT", 1);
+    m_oceanMaterial->isDoubleSided = true;
+    m_oceanDisplacementTexture = create<gl::Texture>(m_gl, 0u, gl::TextureTarget::Texture2dArray, false);
+    gl::SamplerState samplerState;
+    samplerState.minFilter = gl::TextureMinFilter::LinearMipmapLinear;
+    samplerState.magFilter = gl::TextureMagFilter::Linear;
+    samplerState.wrapS = gl::TextureWrap::Repeat;
+    samplerState.wrapT = gl::TextureWrap::Repeat;
+    samplerState.wrapR = gl::TextureWrap::ClampToEdge;
+    m_oceanMaterial->samplers.emplace_back("u_OceanDisplacement", m_oceanDisplacementTexture, create<gl::SamplerState>(samplerState));
+    // Every uniform exists from the start, so later writes never move the storage the commands point at.
+    for (const char* name : { "u_OceanGrid", "u_OceanInfo", "u_OceanCascade0", "u_OceanCascade1", "u_OceanCascade2",
+                              "u_OceanCascade3", "u_OceanSlopeA0", "u_OceanSlopeB0", "u_OceanSlopeA1", "u_OceanSlopeB1",
+                              "u_OceanSlopeA2", "u_OceanSlopeB2", "u_OceanSlopeA3", "u_OceanSlopeB3", "u_OceanParams",
+                              "u_OceanInteriorMin", "u_OceanInteriorMax" }) {
+        m_oceanMaterial->setUniform(name, math::vec4(0.0f));
+    }
+    m_oceanMaterial->setUniform("u_OceanColor", math::vec3(0.0f));
+    m_oceanMaterial->setUniform("u_GroundHaze", math::vec2(0.0f, 0.0f));
+    m_oceanMaterial->setUniform("u_GroundHazeColor", math::vec3(0.0f));
+}
+
+void GltfResourceManager::setOceanTexture(GLuint handle)
+{
+    if (m_oceanDisplacementTexture != nullptr) {
+        m_oceanDisplacementTexture->handle = handle;
+    }
 }
 
 std::tuple<Mesh*, Material*> GltfResourceManager::getCubeMapTuple() const

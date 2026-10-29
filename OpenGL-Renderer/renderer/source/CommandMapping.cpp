@@ -797,8 +797,9 @@ std::optional<CmdDesc> CommandMapping::makeCommand(MeshMaterialTuple meshMat)
     // A3.2: the sun shadow map, for the programs that include shadow.glsl (pbr.frag). Last, so every other
     // sampler keeps its texture unit (rendering without the sun is unchanged). The executor logs
     // "Using too many textures" if a program ever exceeds the unit limit with it.
-    // A3.6: the ground plane (ground.frag) receives the same shadows.
-    if (material->fragmentShader == "pbr.frag" || material->fragmentShader == "ground.frag") {
+    // A3.6: the ground plane (ground.frag) receives the same shadows; A6.8: so does the ocean (ocean.frag).
+    if (material->fragmentShader == "pbr.frag" || material->fragmentShader == "ground.frag" ||
+        material->fragmentShader == "ocean.frag") {
         command->samplers.push_back(m_scene.m_sunShadowSampler.get());
     }
     // A3.5: the viewport's SSAO result (ssao.glsl), after the shadow map for the same reason.
@@ -807,7 +808,9 @@ std::optional<CmdDesc> CommandMapping::makeCommand(MeshMaterialTuple meshMat)
     }
     // A3.9: the sky-visibility volume (sky_occlusion.glsl), only for programs compiled with it, so every other
     // program keeps its sampler list.
-    if (material->fragmentShader == "pbr.frag" && material->defines.isDefined("SKY_OCCLUSION")) {
+    // A6.8: the ocean reads it for its model-interior rule.
+    if ((material->fragmentShader == "pbr.frag" || material->fragmentShader == "ocean.frag") &&
+        material->defines.isDefined("SKY_OCCLUSION")) {
         command->samplers.push_back(m_scene.m_skyOcclusionSampler.get());
     }
 

@@ -31,6 +31,11 @@ public:
     // application appends it to a scene only while a viewport's ground is the plane, and writes the
     // plane's parameters into the material's uniforms before each draw.
     std::tuple<Mesh*, Material*> getGroundTuple() const { return { m_groundMesh, m_groundMaterial }; }
+    // A6.8: the ocean drawable (a camera-centred polar grid displaced by the ocean cascades; ocean.vert / ocean.frag),
+    // used like the ground plane. setOceanTexture points its u_OceanDisplacement sampler at the simulation's array
+    // (a borrowed GL_TEXTURE_2D_ARRAY handle, never deleted here).
+    std::tuple<Mesh*, Material*> getOceanTuple() const { return { m_oceanMesh, m_oceanMaterial }; }
+    void setOceanTexture(GLuint handle);
     const std::tuple<Mesh*, Material*>& getEmptyTransmissionBlit() const { return m_emptyTransmissionTuple; }
 
     /// Loads and decodes image.
@@ -86,6 +91,11 @@ protected:
     void initGround();
     Mesh* m_groundMesh = nullptr;
     Material* m_groundMaterial = nullptr;
+
+    void initOcean();
+    Mesh* m_oceanMesh = nullptr;
+    Material* m_oceanMaterial = nullptr;
+    gl::Texture* m_oceanDisplacementTexture = nullptr; // borrowed handle
 
     gl::Texture* m_framebufferTexture = nullptr;
     gl::SamplerState* m_framebufferSamplerState = nullptr;

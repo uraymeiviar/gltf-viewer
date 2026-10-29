@@ -9,6 +9,8 @@
 #include "imgui/EmbeddedVFS.h"
 #include "imgui/ExtensionInspector.h"
 #include "imgui/GltfValidator.h"
+#include "imgui/GlCaps.h"
+#include "imgui/OceanSimulation.h"
 #include "imgui/RenderQuality.h"
 #include "imgui/SceneHierarchyPanel.h"
 #include "gltf/Material.h"
@@ -393,7 +395,7 @@ json Application::agentStateJson()
         // A3.6: the active viewport's ground. height/albedo are what the last render used (the albedo is what A6.2
         // reads); modelBase is the scene's lowest point whatever the height mode.
         const auto& ground = activeViewport->settings.ground;
-        static const char* const modes[] = {"grid", "plane"};
+        static const char* const modes[] = {"grid", "plane", "ocean"};
         static const char* const heightModes[] = {"model_base", "zero", "custom"};
         float modelBase = 0.0f;
         const bool hasBase = activeScene != nullptr && getCachedModelBaseHeight(activeScene, gltfModel, gltfLayer.get(), modelBase);
@@ -408,6 +410,7 @@ json Application::agentStateJson()
                            {"albedo", {agent::floatJson(ground.albedo.r), agent::floatJson(ground.albedo.g), agent::floatJson(ground.albedo.b)}},
                            {"roughness", agent::floatJson(ground.roughness)},
                            {"gridOnGround", ground.showGrid}};
+        groundJson["ocean"] = oceanStateJson(*activeViewport); // A6.8
         st["ground"] = groundJson;
     }
     // A3.7: the file's sky portals (world centre, direction into the cabin, disc radius) and how many lit the
@@ -668,7 +671,10 @@ ux3d::imgui::AtmosphereParameters Application::skyAtmosphere(const ux3d::imgui::
 bool Application::skyGroundFromPlane() const
 {
     // The viewport draws the A3.6 plane in shaded views only (Viewports.cpp, groundPlane).
-    return activeViewport != nullptr && activeViewport->settings.ground.mode == ux3d::imgui::GroundMode::Plane &&
+    // A6.8: the ocean too (its average albedo, GroundSettings::averageAlbedo).
+    return activeViewport != nullptr &&
+           (activeViewport->settings.ground.mode == ux3d::imgui::GroundMode::Plane ||
+            activeViewport->settings.ground.mode == ux3d::imgui::GroundMode::Ocean) &&
            activeViewport->settings.renderMode == ux3d::renderer::RenderMode::None;
 }
 
@@ -1343,16 +1349,27 @@ void Application::registerAgentSettings()
         spec.key = "ground";
         spec.scope = V;
         spec.type = SettingType::Enum;
-        spec.help = "What the viewport draws on the ground: the editor grid (default) or an infinite ground plane "
-                    "that receives IBL and the sun's shadow (ocean follows with A6.8).";
-        spec.cliFlag = "--ground <grid|plane>";
-        spec.enumValues = {"grid", "plane"};
+        spec.help = "What the viewport draws on the ground: the editor grid (default), an infinite ground plane "
+                    "that receives IBL and the sun's shadow, or an animated FFT ocean (A6.8; needs OpenGL 4.3, "
+                    "otherwise refused with a warning and the ground is kept).";
+        spec.cliFlag = "--ground <grid|plane|ocean>";
+        spec.enumValues = {"grid", "plane", "ocean"};
         spec.get = [values = spec.enumValues](void* t) {
             return json(values[static_cast<size_t>(static_cast<VS*>(t)->ground.mode)]);
         };
-        spec.set = [values = spec.enumValues](void* t, const json& v, std::string&) {
-            static_cast<VS*>(t)->ground.mode = static_cast<ux3d::imgui::GroundMode>(
+        spec.set = [this, values = spec.enumValues](void* t, const json& v, std::string&) {
+            const auto mode = static_cast<ux3d::imgui::GroundMode>(
                 std::find(values.begin(), values.end(), v.get<std::string>()) - values.begin());
+            // A6.8: with a known context below 4.3 the ocean is refused here (before the context exists, the
+            // viewport refuses it at its first render, Viewports.cpp).
+            if (mode == ux3d::imgui::GroundMode::Ocean && ux3d::imgui::glCaps().major > 0 && !ux3d::imgui::oceanAvailable()) {
+                if (!oceanUnavailableWarned) {
+                    ux3d::core::logWarning("Ocean ground needs an OpenGL 4.3 context (compute shaders); keeping the current ground");
+                    oceanUnavailableWarned = true;
+                }
+                return true;
+            }
+            static_cast<VS*>(t)->ground.mode = mode;
             return true;
         };
         addSetting(std::move(spec));
@@ -1459,6 +1476,55 @@ void Application::registerAgentSettings()
             return true;
         };
         addSetting(std::move(onGround));
+
+        // A6.8: the ocean (the remaining ocean settings come with A6.8b; OceanSettings holds them all).
+        using OS = ux3d::imgui::OceanSettings;
+        const auto oceanFloat = [&](const char* key, float OS::*member, const char* help, const char* cli,
+                                    std::pair<double, double> range) {
+            SettingSpec f;
+            f.key = key;
+            f.scope = V;
+            f.type = SettingType::Float;
+            f.help = help;
+            f.cliFlag = cli;
+            f.hasRange = true;
+            f.minimum = range.first;
+            f.maximum = range.second;
+            f.get = [member](void* t) { return agent::floatJson(static_cast<VS*>(t)->ground.ocean.*member); };
+            f.set = [member](void* t, const json& v, std::string&) {
+                static_cast<VS*>(t)->ground.ocean.*member = static_cast<float>(v.get<double>());
+                return true;
+            };
+            addSetting(std::move(f));
+        };
+        oceanFloat("ocean_wind_speed", &OS::windSpeed, "Ocean wind speed 10 m above the sea, m/s (recomputes the loop).",
+                   "--ocean-wind-speed <m/s>", {0.5, 40.0});
+        oceanFloat("ocean_wind_dir", &OS::windDirection,
+                   "Direction the wind comes from, degrees (the sun's azimuth convention: around +Y from +Z towards +X); "
+                   "the waves travel the opposite way (recomputes the loop).",
+                   "--ocean-wind-dir <deg>", {0.0, 360.0});
+        oceanFloat("ocean_time", &OS::time,
+                   "Pinned ocean time in seconds for captures; -1 follows the application clock.",
+                   "--ocean-time <s>", {-1.0, 1.0e6});
+
+        SettingSpec quality;
+        quality.key = "ocean_quality";
+        quality.scope = V;
+        quality.type = SettingType::Enum;
+        quality.help = "Ocean simulation quality: low (2 cascades of 128^2, 32 frames, 12 MiB), medium (3 x 256^2, 48 frames, "
+                       "101 MiB), high (4 x 256^2, 64 frames, 176 MiB); recomputes the loop.";
+        quality.cliFlag = "--ocean-quality <low|medium|high>";
+        quality.enumValues = {"low", "medium", "high"};
+        quality.enumAliases = {{"med", "medium"}, {"mid", "medium"}};
+        quality.get = [values = quality.enumValues](void* t) {
+            return json(values[static_cast<size_t>(static_cast<VS*>(t)->ground.ocean.quality)]);
+        };
+        quality.set = [values = quality.enumValues](void* t, const json& v, std::string&) {
+            static_cast<VS*>(t)->ground.ocean.quality = static_cast<ux3d::imgui::OceanQuality>(
+                std::find(values.begin(), values.end(), v.get<std::string>()) - values.begin());
+            return true;
+        };
+        addSetting(std::move(quality));
     }
     addSetting(boolSetting<VS>("scene_bounding_box", V, &VS::showSceneBoundingBox, "Yellow AABB around the scene."));
     addSetting(boolSetting<VS>("selection_box", V, &VS::showSelectedBoundingBox, "Orange OBB around the selected node."));

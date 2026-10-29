@@ -1,0 +1,22 @@
+// A6.8: one mip level of a cascade's frames (OceanSimulation.cpp): each texel of level l is the 2 x 2 box average of
+// level l - 1 (as glGenerateMipmap), for every frame of the cascade at once (z = frame). Averaging the displacement
+// averages its slopes, so the renderer's finite differences at level l give the mean normal over that footprint.
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+layout(rgba16f, binding = 0) readonly uniform image2DArray u_Source;
+layout(rgba16f, binding = 2) writeonly uniform image2DArray u_Target;
+
+uniform int u_LayerBase;
+uniform int u_Size; // side of the target level
+
+void main()
+{
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= u_Size || p.y >= u_Size) {
+        return;
+    }
+    int layer = u_LayerBase + int(gl_GlobalInvocationID.z);
+    ivec2 s = 2 * p;
+    vec4 sum = imageLoad(u_Source, ivec3(s, layer)) + imageLoad(u_Source, ivec3(s + ivec2(1, 0), layer)) +
+               imageLoad(u_Source, ivec3(s + ivec2(0, 1), layer)) + imageLoad(u_Source, ivec3(s + ivec2(1, 1), layer));
+    imageStore(u_Target, ivec3(p, layer), 0.25 * sum);
+}

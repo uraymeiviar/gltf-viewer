@@ -559,6 +559,15 @@ std::optional<int> Application::configure(int argc, char** argv)
             if (!applyCliSetting(SettingScope::Viewport, "ground_haze", argv[++i], "--ground-haze")) return 1;
         } else if (arg == "--ground-grid" && i + 1 < argc) {
             if (!applyCliSetting(SettingScope::Viewport, "ground_grid", toLowerAscii(argv[++i]), "--ground-grid")) return 1;
+        } else if (arg == "--ocean-wind-speed" && i + 1 < argc) {
+            // A6.8: the ocean (--ground ocean).
+            if (!applyCliSetting(SettingScope::Viewport, "ocean_wind_speed", argv[++i], "--ocean-wind-speed")) return 1;
+        } else if (arg == "--ocean-wind-dir" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "ocean_wind_dir", argv[++i], "--ocean-wind-dir")) return 1;
+        } else if (arg == "--ocean-quality" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "ocean_quality", toLowerAscii(argv[++i]), "--ocean-quality")) return 1;
+        } else if (arg == "--ocean-time" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "ocean_time", argv[++i], "--ocean-time")) return 1;
         } else if (arg == "--ssr" && i + 1 < argc) {
             const std::string value = toLowerAscii(argv[++i]);
             if (value != "on" && value != "off") return 1;
