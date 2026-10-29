@@ -67,6 +67,10 @@ void Application::drawViewports(FrameContext& frame)
                 const glm::vec3 radiance = disk.meanRadiance * disk.rangeScale;
                 skyMaterial->setUniform("u_SunDisk", ux3d::math::vec4(disk.angularRadius, activeEnvironment.sunDisk.limbDarkening ? 1.0f : 0.0f, 0.0f, 0.0f));
                 skyMaterial->setUniform("u_SunDiskRadiance", ux3d::math::vec3(radiance.r, radiance.g, radiance.b));
+                // The sun's own direction: the EnvironmentBlock's u_SunDirection is the directional light, which is the
+                // moon once the moonlight is brighter (effectiveDirectionalLight).
+                const glm::vec3 sunDirection = effectiveSun(activeEnvironment).direction;
+                skyMaterial->setUniform("u_SunDiskDirection", ux3d::math::vec3(sunDirection.x, sunDirection.y, sunDirection.z));
             }
             // A6.6: the moon disk and the stars on the procedural sky (they need the A6.1 clock); the defines are absent
             // otherwise, so every other background is unchanged.
@@ -120,6 +124,8 @@ void Application::drawViewports(FrameContext& frame)
             vp->hasCachedImage = false;
             vp->sunShadowMap.release();
             vp->sunShadowActive = false;
+            vp->ambientOcclusion.release();
+            vp->ssaoActive = false;
             vp->ocean.reset();
             vp->oceanActive = false;
             continue;
@@ -140,6 +146,10 @@ void Application::drawViewports(FrameContext& frame)
             vp->hasCachedImage = false;
             vp->sunShadowMap.release();
             vp->sunShadowActive = false;
+            vp->ambientOcclusion.release();
+            vp->ssaoActive = false;
+            vp->ocean.reset();
+            vp->oceanActive = false;
             ImGui::End();
             continue;
         }
@@ -1156,6 +1166,7 @@ void Application::drawViewports(FrameContext& frame)
                         vp->ssrExposureAa = std::make_unique<ux3d::imgui::AntiAliasing>();
                         vp->ssrExposureAa->init();
                     }
+                    vp->ssrExposureAa->setInputScale(vp->preExposure);
                     exposureHdrTexture = vp->ssrExposureAa->render(
                         aaMode, exposureHdrTexture, vpW, vpH, proj * view, frameSceneDirty);
                 }
@@ -1263,6 +1274,7 @@ void Application::drawViewports(FrameContext& frame)
             vp->antiAliasing.setRawMode(isDebugView);
             if (isTaa) {
                 const auto aaStart = ux3d::imgui::profiling::Clock::now();
+                vp->antiAliasing.setInputScale(vp->preExposure);
                 hdrTexture = vp->antiAliasing.render(
                     aaMode, hdrTexture, vpW, vpH, proj * view, frameSceneDirty);
                 frame.markStage("aa.render", aaStart);
@@ -2059,6 +2071,8 @@ void Application::updateSkyOcclusion(const ux3d::imgui::SceneEnvironmentState& e
         if (skyOcclusionVolume.busy()) skyOcclusionVolume.cancelJob();
         skyOcclusionVolume.dropFront();
         skyOcclusionModelKey = 0;
+        skyOcclusionKey = 0;
+        skyOcclusionEmptyKey = 0;
         return;
     }
     skyOcclusionWanted = true;
@@ -2072,6 +2086,7 @@ void Application::updateSkyOcclusion(const ux3d::imgui::SceneEnvironmentState& e
         if (skyOcclusionVolume.busy()) skyOcclusionVolume.cancelJob();
         skyOcclusionVolume.dropFront();
         skyOcclusionModelKey = modelKey;
+        skyOcclusionEmptyKey = 0;
     }
     const auto quality = static_cast<ux3d::imgui::SkyOcclusionQuality>(std::clamp(environment.skyOcclusionQuality, 0, 2));
     uint64_t key = modelKey;
@@ -2083,6 +2098,9 @@ void Application::updateSkyOcclusion(const ux3d::imgui::SceneEnvironmentState& e
     key = mix(key, gltfLayer->getIsolationIncludeChildren() ? 1u : 0u);
     key = mix(key, static_cast<uint64_t>(quality) + 1u);
     key = mix(key, environment.skyOcclusionOccluders ? 1u : 0u);
+    skyOcclusionKey = key;
+    // A key with nothing to bake: no volume (dropped below when it was found) and no per-frame bake scene.
+    if (key == skyOcclusionEmptyKey) return;
     const bool upToDate = skyOcclusionVolume.ready() && skyOcclusionVolume.frontKey() == key;
     if (upToDate) {
         // Back to the state of the front volume while a newer bake ran: keep the front one.
@@ -2102,6 +2120,7 @@ void Application::updateSkyOcclusion(const ux3d::imgui::SceneEnvironmentState& e
     gltfLayer->asoboOptions = options;
     gltfLayer->materialExtensionOptions = ux3d::renderer::MaterialExtensionOptions();
     auto [bakeScene, bakeMapping] = gltfLayer->createScene(activeScene);
+    ++skyOcclusionSceneBuilds;
     gltfLayer->asoboOptions = savedAsobo;
     gltfLayer->materialExtensionOptions = savedExtensions;
     gltfLayer->frustumCulling = savedCulling;
@@ -2149,8 +2168,12 @@ void Application::updateSkyOcclusion(const ux3d::imgui::SceneEnvironmentState& e
         }
         if (!std::isfinite(sceneMin.x + sceneMin.y + sceneMin.z + sceneMax.x + sceneMax.y + sceneMax.z) ||
             sceneMax.x < sceneMin.x || sceneMax.y < sceneMin.y || sceneMax.z < sceneMin.z || casters.empty()) {
-            // Nothing to bake (an empty scene): no volume, the sky stays open.
+            // Nothing to bake (an empty scene, or no casters, e.g. an isolated glass part): no volume, the sky stays
+            // open. The volume of the previous key is dropped (it belongs to geometry that is no longer there) and the
+            // key is remembered, so the bake scene is not rebuilt every frame until something changes.
             if (skyOcclusionVolume.busy()) skyOcclusionVolume.cancelJob();
+            skyOcclusionVolume.dropFront();
+            skyOcclusionEmptyKey = key;
             return;
         }
         const ux3d::imgui::SkyOcclusionSpec spec = ux3d::imgui::skyOcclusionSpec(quality);
@@ -2219,7 +2242,11 @@ nlohmann::json Application::skyOcclusionStateJson(const ux3d::imgui::SceneEnviro
                          : (skyOcclusionVolume.ready() ? 1.0 : 0.0)},
         {"jobMemoryBytes", skyOcclusionVolume.jobBytes()},
         {"casters", skyOcclusionLastCasters},
-        {"occluderCasters", skyOcclusionLastOccluders}};
+        {"occluderCasters", skyOcclusionLastOccluders},
+        // The current key's state: a front volume of this key, or a key with nothing to bake (no volume).
+        {"upToDate", skyOcclusionWanted && skyOcclusionVolume.ready() && skyOcclusionVolume.frontKey() == skyOcclusionKey},
+        {"noCasters", skyOcclusionWanted && skyOcclusionKey != 0 && skyOcclusionKey == skyOcclusionEmptyKey},
+        {"sceneBuilds", skyOcclusionSceneBuilds}};
     if (skyOcclusionVolume.ready()) {
         const auto& b = skyOcclusionVolume.frontBounds();
         out["volume"] = {{"dims", {b.dims.x, b.dims.y, b.dims.z}},

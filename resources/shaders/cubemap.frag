@@ -39,6 +39,8 @@ uniform vec4 u_SkyParams;       // x bottom radius, y top radius, z observer rad
 // source cube comes from sky_passes.frag PASS_CUBE and the HDR's from the panorama). Parameters: SunDisk.h.
 uniform vec4 u_SunDisk;          // x angular radius (radians, after the size scale), y limb darkening (0 / 1)
 uniform vec3 u_SunDiskRadiance;  // mean disk radiance E / (pi sin^2 R), already scaled into the half-float range
+uniform vec3 u_SunDiskDirection; // world, towards the sun: the sun's own direction (u_SunDirection is the moon once
+                                 // the moonlight is the directional light)
 
 // Hestroffer & Magnan (1998) limb darkening I(mu) / I(1) = mu^alpha at 680 / 550 / 440 nm, normalised so the disk
 // mean stays u_SunDiskRadiance (the disk mean of mu^alpha is 2 / (alpha + 2)).
@@ -46,13 +48,15 @@ const vec3 kSunLimbAlpha = vec3(0.397, 0.503, 0.652);
 
 vec3 sunDisk(vec3 worldDirection)
 {
-    vec3 sun = normalize(u_SunDirection);
+    vec3 sun = normalize(u_SunDiskDirection);
     // The angle to the sun's centre, accurate near 0 (acos(dot) loses it below about 1e-3 rad in float).
     float angle = atan(length(cross(worldDirection, sun)), dot(worldDirection, sun));
     float radius = u_SunDisk.x;
     // Antialiased edge: coverage over the pixel's angular footprint, so the edge is about one pixel wide and the
     // same for every TAA jitter.
     float footprint = max(fwidth(angle), 1.0e-6);
+    // Derivatives in uniform control flow, before the early returns.
+    float footprintY = max(fwidth(worldDirection.y), 1.0e-6);
     float coverage = clamp((radius - angle) / footprint + 0.5, 0.0, 1.0);
     if (coverage <= 0.0) return vec3(0.0);
     // The horizon hides the disk (a setting sun sinks behind it): the planet's horizon, sqrt(1 - (Rb / r)^2) below
@@ -63,7 +67,7 @@ vec3 sunDisk(vec3 worldDirection)
 #else
     float horizon = 0.0;
 #endif
-    coverage *= clamp((worldDirection.y - horizon) / max(fwidth(worldDirection.y), 1.0e-6) + 0.5, 0.0, 1.0);
+    coverage *= clamp((worldDirection.y - horizon) / footprintY + 0.5, 0.0, 1.0);
     if (coverage <= 0.0) return vec3(0.0);
     vec3 limb = vec3(1.0);
     if (u_SunDisk.y > 0.5) {
@@ -144,6 +148,9 @@ vec3 starFaceDirection(int face, vec2 uv)
 
 vec3 stars(vec3 worldDirection)
 {
+    // Gaussian width: about the pixel's angular size (stable under TAA jitter). The derivative is taken before the
+    // horizon test, in uniform control flow (a 2x2 quad can straddle the horizon).
+    float pixel = max(length(fwidth(worldDirection)), 1.0e-5);
     if (worldDirection.y <= 0.0) return vec3(0.0);
     vec3 c = u_StarRotation * worldDirection;
     vec3 a = abs(c);
@@ -152,8 +159,6 @@ vec3 stars(vec3 worldDirection)
     if (a.x >= a.y && a.x >= a.z) { face = c.x > 0.0 ? 0 : 1; uv = c.x > 0.0 ? vec2(-c.z, c.y) / a.x : vec2(c.z, c.y) / a.x; }
     else if (a.y >= a.z) { face = c.y > 0.0 ? 2 : 3; uv = c.y > 0.0 ? vec2(c.x, -c.z) / a.y : vec2(c.x, c.z) / a.y; }
     else { face = c.z > 0.0 ? 4 : 5; uv = c.z > 0.0 ? vec2(c.x, c.y) / a.z : vec2(-c.x, c.y) / a.z; }
-    // Gaussian width: about the pixel's angular size (stable under TAA jitter).
-    float pixel = max(length(fwidth(worldDirection)), 1.0e-5);
     float sigma = 0.6 * pixel;
     float cell = 2.0 / float(kStarGrid);
     vec2 g = (uv * 0.5 + 0.5) * float(kStarGrid);

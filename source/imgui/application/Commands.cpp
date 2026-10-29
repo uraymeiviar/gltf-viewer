@@ -380,6 +380,11 @@ json Application::agentStateJson()
     st["persist"] = agentPersist;
     st["frame"] = frameCount;
     st["glErrors"] = s_glErrorTotal;
+    // Renderer synchronisations from the glTF model (full or material-only) and the frames that needed none.
+    st["sync"] = {{"syncs", sceneSyncCount},
+                  {"skippedSyncs", skippedSceneSyncCount},
+                  {"animationOnlySyncs", animationOnlySyncCount},
+                  {"marks", sceneRevisions.markCount()}};
     st["sun"] = sunStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene));
     st["ambient"] = ambientStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene));
     const auto& environment = getSceneEnvironment(sceneEnvironments, gltfModel, activeScene);
@@ -564,7 +569,10 @@ json Application::nightStateJson(const ux3d::imgui::SceneEnvironmentState& envir
                       {"preExposure", agent::floatJson(vp->preExposure)},
                       {"exposureEv", agent::floatJson(vp->displayedExposureEv)},
                       {"meteredLuminance", agent::floatJson(vp->antiAliasing.getMeteredLuminance())},
-                      {"adapting", vp->antiAliasing.isExposureAdapting()}};
+                      {"adapting", vp->antiAliasing.isExposureAdapting()},
+                      // TAA history brought to a changed pre-exposure (last pass's factor, and how many passes needed one).
+                      {"taaHistoryScale", agent::floatJson(vp->antiAliasing.getLastHistoryScale())},
+                      {"taaHistoryRescales", vp->antiAliasing.getHistoryRescales()}};
         // A6.4b: the physically based Auto exposure's two meters (Glider EV, compensation included).
         const auto& meter = vp->antiAliasing.getMeterReport();
         if (plan.physical && plan.mode == ExposureMode::Auto && meter.valid) {
@@ -639,24 +647,36 @@ ux3d::imgui::AtmosphereParameters Application::skyAtmosphere(const ux3d::imgui::
     p.ozone = environment.skyOzone;
     if (environment.skyGroundAlbedo >= 0.0f) {
         p.groundAlbedo = glm::vec3(std::min(environment.skyGroundAlbedo, 1.0f));
-    } else if (skyGroundFromPlane()) {
-        // A3.6: the active viewport's plane albedo (ViewportInstance::groundAlbedo holds the same value after its
+    } else if (const ux3d::imgui::ViewportInstance* ground = skyGroundViewport()) {
+        // A3.6: the ground viewport's plane albedo (ViewportInstance::groundAlbedo holds the same value after its
         // render; the settings give it before the first render too, so a startup capture needs no second filter).
-        p.groundAlbedo = glm::clamp(activeViewport->settings.ground.averageAlbedo(), glm::vec3(0.0f), glm::vec3(1.0f));
+        p.groundAlbedo = glm::clamp(ground->settings.ground.averageAlbedo(), glm::vec3(0.0f), glm::vec3(1.0f));
     } else {
         p.groundAlbedo = glm::vec3(ux3d::imgui::sky::kNeutralGroundAlbedo);
     }
     return p;
 }
 
+const ux3d::imgui::ViewportInstance* Application::skyGroundViewport() const
+{
+    // The sky's ground albedo is a scene value (one IBL for every viewport), so it must not follow the keyboard focus
+    // (a focus click between a plane and a grid viewport re-filtered the whole sky). Rule: the open viewport with the
+    // lowest id that draws a ground surface, i.e. the A3.6 plane or the A6.8 ocean in its shaded view (Viewports.cpp
+    // groundPlane / oceanSurface: render mode None, which excludes wireframe and the debug views). None: neutral.
+    for (const auto& vp : viewports) {
+        if (vp == nullptr || !vp->isOpen) continue;
+        if ((vp->settings.ground.mode == ux3d::imgui::GroundMode::Plane ||
+             vp->settings.ground.mode == ux3d::imgui::GroundMode::Ocean) &&
+            vp->settings.renderMode == ux3d::renderer::RenderMode::None) {
+            return vp.get();
+        }
+    }
+    return nullptr;
+}
+
 bool Application::skyGroundFromPlane() const
 {
-    // The viewport draws the A3.6 plane in shaded views only (Viewports.cpp, groundPlane).
-    // A6.8: the ocean too (its average albedo, GroundSettings::averageAlbedo).
-    return activeViewport != nullptr &&
-           (activeViewport->settings.ground.mode == ux3d::imgui::GroundMode::Plane ||
-            activeViewport->settings.ground.mode == ux3d::imgui::GroundMode::Ocean) &&
-           activeViewport->settings.renderMode == ux3d::renderer::RenderMode::None;
+    return skyGroundViewport() != nullptr;
 }
 
 glm::vec3 Application::skySunDirection(const ux3d::imgui::SceneEnvironmentState& environment) const
@@ -706,7 +726,8 @@ void Application::updateSkyEnvironment(const ux3d::imgui::SceneEnvironmentState&
     } else if (result == SkyEnvironment::Result::Retarget) {
         gltfLayer->retargetExternalEnvironment(skyEnvironment.frontLambertian(), skyEnvironment.frontGgx(),
                                                skyEnvironment.frontSheen(), skyEnvironment.frontMipCount());
-        sceneRevisions.mark(ux3d::imgui::SceneChange::RenderSettings);
+        // The renders read the retargeted handles directly: redraw (render key, TAA) without a model resync.
+        sceneRevisions.mark(ux3d::imgui::SceneChange::Environment);
     }
     gltfLayer->getResourceManager().setSkyViewTexture(skyEnvironment.skyViewLut());
     auto* skyMaterial = std::get<1>(gltfLayer->getResourceManager().getCubeMapTuple());
@@ -838,7 +859,8 @@ void Application::advanceTimeOfDay(float deltaSeconds)
     auto& clock = getSceneEnvironment(sceneEnvironments, gltfModel, activeScene).clock;
     if (!clock.playing) return;
     ux3d::imgui::advanceClock(clock, static_cast<double>(deltaSeconds) * static_cast<double>(clock.timeScale));
-    sceneRevisions.mark(ux3d::imgui::SceneChange::RenderSettings);
+    // Every render reads the clock (the render key carries the environment): redraw without a model resync.
+    sceneRevisions.mark(ux3d::imgui::SceneChange::Environment);
 }
 
 json Application::timeOfDayStateJson(const ux3d::imgui::SceneEnvironmentState& environment) const
@@ -1881,6 +1903,9 @@ void Application::registerAgentSettings()
                 auto& env = *static_cast<ES*>(t);
                 env.clock.*member = v.get<bool>();
                 if (sunMode) {
+                    // On = the Inspector's Sun Source "Time of Day" (selectSunSource: the HDR sun is enabled, so a later
+                    // "off" restores the retained HDR mode, Manual or From HDR, exactly as after the UI selection).
+                    if (v.get<bool>()) env.sunEnabled = true;
                     env.sunSource = v.get<bool>() ? ux3d::imgui::SunSource::Clock : !env.sunEnabled
                         ? ux3d::imgui::SunSource::Off : env.sunMode == static_cast<int>(ux3d::imgui::SunMode::FromHdr)
                         ? ux3d::imgui::SunSource::FromHdr : ux3d::imgui::SunSource::Manual;
@@ -2334,8 +2359,8 @@ void Application::registerAgentSettings()
                                 "--sky-mie <x>", std::pair{0.0, 20.0}));
     addSetting(boolSetting<ES>("sky_ozone", E, &ES::skyOzone, "Procedural sky: ozone absorption.", "--sky-ozone <on|off>"));
     addSetting(floatSetting<ES>("sky_ground_albedo", E, &ES::skyGroundAlbedo,
-                                "Procedural sky: grey ground albedo below the horizon; -1 = automatic (the active viewport's "
-                                "A3.6 ground plane albedo, else 0.3).",
+                                "Procedural sky: grey ground albedo below the horizon; -1 = automatic (the plane or ocean "
+                                "albedo of the lowest-id open viewport that draws one, else 0.3).",
                                 "--sky-ground-albedo <x|auto>", std::pair{-1.0, 1.0}));
     // A6.6 night sky (NightSky.h): moon and stars need the A6.1 clock; the glow is part of the sky (and its IBL).
     {

@@ -33,6 +33,7 @@ enum class SceneChange : uint8_t {
     ViewportLayout,   // viewport creation
     ViewCamera,       // per-viewport user camera: focus, attach/detach, projection, FoV
     Selection,        // inspector/OBB/gizmo selection only
+    Environment,      // per-frame environment ticks (time-of-day clock, procedural-sky IBL swap): read every render
     Count
 };
 
@@ -57,6 +58,7 @@ inline const char* sceneChangeName(SceneChange change)
     case SceneChange::ViewportLayout: return "ViewportLayout";
     case SceneChange::ViewCamera: return "ViewCamera";
     case SceneChange::Selection: return "Selection";
+    case SceneChange::Environment: return "Environment";
     case SceneChange::Count: break;
     }
     return "Unknown";
@@ -82,10 +84,15 @@ constexpr uint32_t kAllSceneChanges = (1u << kSceneChangeCount) - 1u;
 //   including KHR_animation_pointer, writes renderer objects, not the model.
 //   The sync point re-applies the pose instead of rebuilding. Clip-set changes
 //   are AnimationSet and still rebuild.
+// - Environment: the clock and the procedural sky's cube swap are read by every
+//   render (CommandGenerator frame values, the EnvironmentBlock, the retargeted
+//   cube handles); the mark only redraws the viewports (render key) and keeps TAA
+//   responsive, it never rebuilds the model.
 constexpr uint32_t kRendererSyncChanges = kAllSceneChanges
     & ~sceneChangeBit(SceneChange::Selection)
     & ~sceneChangeBit(SceneChange::ViewCamera)
-    & ~sceneChangeBit(SceneChange::AnimationTime);
+    & ~sceneChangeBit(SceneChange::AnimationTime)
+    & ~sceneChangeBit(SceneChange::Environment);
 
 // Per-kind monotonically increasing revisions plus the set of kinds marked
 // since the last consume. Revisions never reset, so a cache can key on the

@@ -131,7 +131,7 @@ setting, and changing it is seamless.
       off below it; `sun_color`, `sun_intensity` and `sun_mode` do not apply. Hooks: `cubemap.frag` marks where A6.7
       adds the sun disk (background only, after filtering) and A6.6 the moon and stars.
     - **Parameters:** `sky_mie` (Mie density x, 1 = clear; 0..20), `sky_ozone` (on/off), `sky_ground_albedo` (grey
-      override 0..1; -1 = automatic: the active viewport's A3.6 plane albedo while it draws the plane, else 0.3, Earth's
+      override 0..1; -1 = automatic: the A3.6 plane (or A6.8 ocean) albedo of the lowest-id open viewport that draws one in its shaded view (focus never changes it), else 0.3, Earth's
       mean albedo). `get_state` / profile report `sky`: parameters, effective ground albedo and its source, sun
       direction / transmittance / illuminance, refinement state, GPU statistics, memory.
   - **Check:** `scripts/validate_sky.py` (quick regression, serial list). Reference: `scripts/sky_reference.py`, an

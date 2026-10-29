@@ -402,11 +402,12 @@ private:
     // A3.5: every viewport's SSAO settings, whether its last render applied the term, memory and GPU time.
     nlohmann::json ssaoStateJson() const;
     // A6.2 / A6.3: the procedural sky's atmosphere for a scene environment (the ground albedo resolved through the
-    // active viewport's A3.6 plane), the sun direction it is lit from, the per-frame update (LUTs, time-sliced IBL,
+    // lowest-id open viewport's A3.6 plane / A6.8 ocean, skyGroundViewport), the sun direction it is lit from, the per-frame update (LUTs, time-sliced IBL,
     // environment map hand-over) and its state for get_state and profile reports.
     ux3d::imgui::AtmosphereParameters skyAtmosphere(const ux3d::imgui::SceneEnvironmentState& environment) const;
     glm::vec3 skySunDirection(const ux3d::imgui::SceneEnvironmentState& environment) const;
     bool skyGroundFromPlane() const;
+    const ux3d::imgui::ViewportInstance* skyGroundViewport() const; // the viewport whose ground the sky reads (or null)
     void updateSkyEnvironment(const ux3d::imgui::SceneEnvironmentState& environment, FrameContext& frame);
     void releaseSkyEnvironment();
     nlohmann::json skyStateJson(const ux3d::imgui::SceneEnvironmentState& environment) const;
@@ -424,7 +425,14 @@ private:
     // Called once per frame before the viewports render. skyOcclusionApplies() says whether a viewport's shaded render
     // uses the volume this frame.
     void updateSkyOcclusion(const ux3d::imgui::SceneEnvironmentState& environment, FrameContext& frame);
-    bool skyOcclusionApplies() const { return skyOcclusionWanted && skyOcclusionVolume.ready(); }
+    // The front volume is used for the current key, or (the documented A3.9 rule) while the bake of the current key runs;
+    // never for a key that has no volume (no casters), so a stale volume of another key is never shaded with.
+    bool skyOcclusionApplies() const
+    {
+        return skyOcclusionWanted && skyOcclusionVolume.ready() &&
+               (skyOcclusionVolume.frontKey() == skyOcclusionKey ||
+                (skyOcclusionVolume.busy() && skyOcclusionVolume.jobKey() == skyOcclusionKey));
+    }
     nlohmann::json skyOcclusionStateJson(const ux3d::imgui::SceneEnvironmentState& environment) const;
     nlohmann::json probePixel(ux3d::imgui::ViewportInstance* vp, int x, int y, bool withPick);
     nlohmann::json probeRegion(ux3d::imgui::ViewportInstance* vp, int x0, int y0, int x1, int y1);
@@ -497,6 +505,9 @@ private:
                           const ux3d::imgui::SceneEnvironmentState& environment, float seaLevel,
                           const glm::vec3& cameraEye, bool skyOcclusion);
     uint64_t skyOcclusionModelKey = 0;
+    uint64_t skyOcclusionKey = 0;      // the key of the current frame (model, revisions, isolation, quality, occluders)
+    uint64_t skyOcclusionEmptyKey = 0; // a key with nothing to bake (no casters / empty bounds): no volume, no rebuild
+    uint64_t skyOcclusionSceneBuilds = 0; // bake-scene traversals (get_state: flat while nothing changes)
     size_t skyOcclusionLastCasters = 0;
     size_t skyOcclusionLastOccluders = 0;
     ux3d::renderer::ReverseMapping currentReverseMapping;

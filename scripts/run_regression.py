@@ -45,6 +45,8 @@ Quick tier (equivalence only: byte-identical viewport images, identical selectio
   validate_ocean.py (A6.8a FFT ocean: loop seam, deterministic captures, CLI = pipe, GL 4.3 gate, hull depth, not
   pickable, model interior, GPU cost and precompute; Grid/Plane against the baseline),
   validate_asobo_decal_modes.py,
+  validate_review_fixes.py (v1.2.0 review fixes: no renderer sync while the clock plays, SSAO freed on viewport close,
+    no stale sky-occlusion volume without casters, pipe time_of_day_mode = Inspector Sun Source),
   validate_agent_control.py (control pipe, shared command registry, MCP shim; CLI flags against the baseline),
   validate_viewport_image.py (Viewport capture/save/copy, capture folder setting)
 Full tier adds:
@@ -136,6 +138,7 @@ serial_jobs = [
     ("emissive_units", ["scripts/validate_emissive_units.py", "--baseline-exe", str(baseline)]),
     ("sky_occlusion", ["scripts/validate_sky_occlusion.py", "--baseline-exe", str(baseline)]),
     ("ocean", ["scripts/validate_ocean.py", "--baseline-exe", str(baseline)]),
+    ("review_fixes", ["scripts/validate_review_fixes.py", "--baseline-exe", str(baseline)]),
     ("asobo_packaged", ["scripts/validate_asobo_packaged.py"]),
     ("asobo_decal_modes", ["scripts/validate_asobo_decal_modes.py", "--baseline-exe", str(baseline)]),
     ("texture_dds", ["scripts/validate_texture_dds.py"]),

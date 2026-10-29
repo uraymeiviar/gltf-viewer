@@ -117,7 +117,7 @@ Commands run on the render thread between frames, strictly in order. Multi-frame
   `environment hdr` (the default) brings the panorama back.
 - Units: 1 environment unit = 12,800 lux; the top-of-atmosphere sun is 10, about 9 at the ground at noon.
 - Keys: `sky_mie` (aerosol density x, 1 = clear), `sky_ozone`, `sky_ground_albedo` (grey albedo below the horizon,
-  -1 = the active viewport's A3.6 plane albedo, else 0.3); renderer-wide (through `set_viewport_setting`):
+  -1 = the plane/ocean albedo of the lowest-id open viewport that draws one, else 0.3); renderer-wide (through `set_viewport_setting`):
   `sky_time_slicing` (default true), `sky_budget_ms` (default 2.5).
 - When the sky changes (time, sun, parameters) the background follows at once; the lighting cubes are re-filtered
   at 128 px over a few frames and swapped in when complete, then refined to the quality preset's sizes once the sky

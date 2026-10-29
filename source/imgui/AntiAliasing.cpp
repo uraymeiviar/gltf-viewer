@@ -106,6 +106,7 @@ uniform sampler2D u_HistoryTexture;
 uniform vec2 u_TexelSize;
 uniform float u_BlendFactor;
 uniform int u_RawMode;
+uniform float u_HistoryScale; // current / history input scale (pre-exposure change); 1 otherwise
 
 float hdrLuma(vec3 c) {
     return max(0.0, dot(c, vec3(0.2126, 0.7152, 0.0722)));
@@ -148,7 +149,7 @@ void main() {
     }
 
     vec4 history4 = texture(u_HistoryTexture, v_TexCoord);
-    vec3 history = max(vec3(0.0), history4.rgb);
+    vec3 history = max(vec3(0.0), history4.rgb) * u_HistoryScale;
     vec3 historyW = (u_RawMode != 0) ? history : karisWeight(history);
 
     // Clamp history into the current neighborhood bounding box
@@ -610,6 +611,7 @@ void AntiAliasing::init()
         m_taaTexelSizeLoc = glGetUniformLocation(m_taaProgram, "u_TexelSize");
         m_taaBlendFactorLoc = glGetUniformLocation(m_taaProgram, "u_BlendFactor");
         m_taaRawModeLoc = glGetUniformLocation(m_taaProgram, "u_RawMode");
+        m_taaHistoryScaleLoc = glGetUniformLocation(m_taaProgram, "u_HistoryScale");
     }
 
     // Compile Tone Mapping program
@@ -1046,6 +1048,12 @@ GLuint AntiAliasing::render(AntiAliasingMode mode,
         glUniform2f(m_taaTexelSizeLoc, 1.0f / static_cast<float>(width), 1.0f / static_cast<float>(height));
         glUniform1f(m_taaBlendFactorLoc, blendFactor);
         glUniform1i(m_taaRawModeLoc, m_rawMode ? 1 : 0);
+        // The history was written at its frame's pre-exposure: bring it to this frame's (exact 1 when unchanged).
+        const float historyScale = historyWasValid && m_historyInputScale > 0.0f ? m_inputScale / m_historyInputScale : 1.0f;
+        m_lastHistoryScale = historyScale;
+        if (historyScale != 1.0f) ++m_historyRescales;
+        glUniform1f(m_taaHistoryScaleLoc, historyScale);
+        m_historyInputScale = m_inputScale;
 
         glBindVertexArray(m_quadVao);
         glDrawArrays(GL_TRIANGLES, 0, 6);

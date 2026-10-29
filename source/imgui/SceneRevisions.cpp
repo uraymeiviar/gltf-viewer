@@ -71,16 +71,18 @@ SelfCheckResult SceneRevisions::runSelfCheck(bool forceFailure)
     check(revisions.pendingMask() == sceneChangeBit(SceneChange::AnimationTime) && revisions.revision(SceneChange::Count) == 0,
           "Count sentinel ignored");
 
-    // Renderer sync mask: everything except Selection, ViewCamera (P4.2) and AnimationTime (P4.3).
+    // Renderer sync mask: everything except Selection, ViewCamera (P4.2), AnimationTime (P4.3) and Environment.
     check((kRendererSyncChanges & sceneChangeBit(SceneChange::Selection)) == 0, "Selection does not require renderer sync");
     check((kRendererSyncChanges & sceneChangeBit(SceneChange::ViewCamera)) == 0, "ViewCamera does not require renderer sync");
     check((kRendererSyncChanges & sceneChangeBit(SceneChange::SceneCamera)) != 0, "SceneCamera still requires renderer sync");
     check((kRendererSyncChanges & sceneChangeBit(SceneChange::AnimationTime)) == 0, "AnimationTime does not require renderer sync");
     check((kRendererSyncChanges & sceneChangeBit(SceneChange::AnimationSet)) != 0, "AnimationSet still requires renderer sync");
+    check((kRendererSyncChanges & sceneChangeBit(SceneChange::Environment)) == 0, "Environment does not require renderer sync");
     bool othersRequireSync = true;
     for (size_t i = 0; i < kSceneChangeCount; ++i) {
         const auto change = static_cast<SceneChange>(i);
-        if (change == SceneChange::Selection || change == SceneChange::ViewCamera || change == SceneChange::AnimationTime) continue;
+        if (change == SceneChange::Selection || change == SceneChange::ViewCamera || change == SceneChange::AnimationTime ||
+            change == SceneChange::Environment) continue;
         if ((kRendererSyncChanges & sceneChangeBit(change)) == 0) othersRequireSync = false;
     }
     check(othersRequireSync, "every other kind still requires renderer sync");

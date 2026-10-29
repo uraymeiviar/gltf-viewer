@@ -95,6 +95,11 @@ public:
                            const HdrPostProcessParams& params);
 
     void setRawMode(bool rawMode) { m_rawMode = rawMode; }
+    // A6.4: the scale of the next TAA input (the scene's pre-exposure). The history was written at the scale of its own
+    // frame; a change rescales it by current / previous (exactly 1, so byte-identical, while the scale is unchanged).
+    void setInputScale(float scale) { m_inputScale = scale > 0.0f ? scale : 1.0f; }
+    float getLastHistoryScale() const { return m_lastHistoryScale; }
+    uint64_t getHistoryRescales() const { return m_historyRescales; } // TAA passes whose history scale was not 1
 
     void resetHistory();
 
@@ -182,7 +187,12 @@ private:
     GLint m_taaTexelSizeLoc = -1;
     GLint m_taaBlendFactorLoc = -1;
     GLint m_taaRawModeLoc = -1;
+    GLint m_taaHistoryScaleLoc = -1;
     bool m_rawMode = false;
+    float m_inputScale = 1.0f;        // scale of the TAA input being rendered (pre-exposure)
+    float m_historyInputScale = 1.0f; // scale the history was written at
+    float m_lastHistoryScale = 1.0f;  // current / history scale of the last TAA pass
+    uint64_t m_historyRescales = 0;
 
     // Post-processing Tone Mapping resources
     GLuint m_tonemapProgram = 0;
