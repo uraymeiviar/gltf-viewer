@@ -13,6 +13,8 @@ Checks:
     PROBE_TOLERANCE, and does not change the next capture; probe_region agrees;
   * pipe commands write no settings.ini (GLIDER_DATA_DIR in a temporary folder, no --isolated);
   * a second simultaneous client is refused with a "busy" error;
+  * set_camera (and its legacy alias camera) then get_camera returns the requested eye and target within
+    CAMERA_TOLERANCE for asymmetric eyes in every octant and at both poles, around non-origin targets;
   * scripts/glider_mcp.py: initialize, tools/list and a tools/call capture over stdio return valid JSON-RPC and
     an image content item;
   * --agent-guide writes the guide with the generated command table;
@@ -53,6 +55,22 @@ CLEAR_COLOR = (0.1, 0.2, 0.3)
 # RGBA16F stores 11 significant bits: 0.75 is exact, 0.1 rounds to 0.0999755859375.
 PROBE_TOLERANCE = 2e-3
 FRESNEL = "ASOBO_material_fresnel_fade"
+# set_camera round trip: float trigonometry over offsets of a few to ~20 units.
+CAMERA_TOLERANCE = 1e-4
+# (eye, target): asymmetric offsets in all eight octants, the two poles and a far eye, around non-origin targets.
+CAMERA_CASES = [
+    ((3.0, 2.0, 5.0), (0.5, -0.25, 0.75)),
+    ((-4.0, 1.5, 2.5), (0.5, -0.25, 0.75)),
+    ((2.5, -3.0, 4.0), (-1.0, 0.5, 2.0)),
+    ((-1.75, -2.25, 3.5), (0.0, 0.0, 0.0)),
+    ((3.25, 2.75, -4.5), (1.0, 1.0, -1.0)),
+    ((-2.0, 3.5, -1.25), (0.25, 0.75, 0.5)),
+    ((1.5, -2.5, -3.75), (-0.5, 0.25, 0.0)),
+    ((-3.5, -1.0, -2.0), (0.5, 0.5, 0.5)),
+    ((0.5, 6.0, -0.25), (0.5, -0.5, -0.25)),     # +Y pole
+    ((-1.0, -7.0, 2.0), (-1.0, 0.0, 2.0)),       # -Y pole
+    ((12.0, 4.0, -15.0), (0.3, 0.2, 0.1)),
+]
 
 failures = []
 
@@ -168,8 +186,8 @@ def script_capture(model, name, lines, flags=()):
 class Session:
     """A Glider with --control-pipe and a connected client."""
 
-    def __init__(self, model, flags=(), env_extra=None, isolated=True):
-        args = [str(EXE), str(model)] + (COMMON if isolated else [a for a in COMMON if a != "--isolated"])
+    def __init__(self, model, flags=(), env_extra=None, isolated=True, exe=None):
+        args = [str(exe or EXE), str(model)] + (COMMON if isolated else [a for a in COMMON if a != "--isolated"])
         args += list(flags) + ["--control-pipe"]
         env = os.environ.copy()
         env.update(env_extra or {})
@@ -288,6 +306,44 @@ def check_exit_gate_and_paths():
     check(cli is not None and same(cli, pipe), "pipe capture == CLI capture (byte-identical)")
     check(same(cli, script), "--ui-script `frame` capture == CLI capture (byte-identical)")
     check(same(cli, script_new), "--ui-script `frame_node` (registry name) capture == CLI capture")
+
+
+def camera_round_trip(exe=None):
+    """set_camera / camera then get_camera for CAMERA_CASES; returns (worst eye error, worst target error, rows)."""
+    session = Session(HIERARCHY, exe=exe)
+    rows = []
+    try:
+        for index, (eye, target) in enumerate(CAMERA_CASES):
+            # Alternate the registry name and the legacy alias (same command).
+            command = "set_camera" if index % 2 == 0 else "camera"
+            session.call(command, eye=list(eye), target=list(target), fov_y=40.0)
+            got = session.call("get_camera")
+            eye_error = max(abs(a - b) for a, b in zip(got["eye"], eye))
+            target_error = max(abs(a - b) for a, b in zip(got["target"], target))
+            rows.append((command, eye, target, got["eye"], eye_error, target_error))
+        # An orbit afterwards starts from the same state: a view preset then the same set_camera again.
+        session.call("set_view", view="front")
+        eye, target = CAMERA_CASES[0]
+        session.call("set_camera", eye=list(eye), target=list(target))
+        got = session.call("get_camera")
+        rows.append(("set_camera after set_view", eye, target, got["eye"],
+                     max(abs(a - b) for a, b in zip(got["eye"], eye)),
+                     max(abs(a - b) for a, b in zip(got["target"], target))))
+        gl_errors = session.close()
+    except Exception:
+        session.close(quit_app=False)
+        raise
+    return rows, gl_errors
+
+
+def check_set_camera():
+    print("[set_camera then get_camera returns the requested eye and target]")
+    rows, gl_errors = camera_round_trip()
+    for command, eye, target, got, eye_error, target_error in rows:
+        check(eye_error <= CAMERA_TOLERANCE and target_error <= CAMERA_TOLERANCE,
+              f"{command} eye {list(eye)} target {list(target)}: got eye {[round(v, 5) for v in got]} "
+              f"(eye error {eye_error:.2e}, target error {target_error:.2e}, tolerance {CAMERA_TOLERANCE})")
+    check(gl_errors == 0, f"no GL errors in the camera session ({gl_errors})")
 
 
 def check_settings_and_probe(fixture):
@@ -548,6 +604,7 @@ def main():
     fixture = write_quad_fixture(OUT / "agent_quads.gltf")
     check_agent_guide()
     check_exit_gate_and_paths()
+    check_set_camera()
     check_settings_and_probe(fixture)
     check_persistence_busy_and_mcp(fixture)
     if args.baseline_exe:

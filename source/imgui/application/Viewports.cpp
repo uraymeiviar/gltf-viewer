@@ -992,7 +992,8 @@ void Application::drawViewports(FrameContext& frame)
                 commandGenerator->setPreExposure(vp->preExposure);
             }
             // A6.2: the procedural sky is in world space; the HDR's intensity, rotation and blur do not apply to it.
-            commandGenerator->setEnvironmentMapIntensity(skyActive ? 1.0f : activeEnvironment.hdrIntensity);
+            // With half-float cubes the sky's IBL is range-encoded: the front set's 1 / S decodes it (exactly 1 at 32 bit).
+            commandGenerator->setEnvironmentMapIntensity(skyActive ? skyEnvironment.frontRadianceDecode() : activeEnvironment.hdrIntensity);
             commandGenerator->setEnvironmentMapRotation(skyActive ? 0.0f : activeEnvironment.hdrRotation);
             commandGenerator->setEnvironmentMapBlurNormalized(skyActive ? 0.0f : activeEnvironment.hdrBlur);
             commandGenerator->setIBLEnabled(activeEnvironment.iblEnabled && ux3d::imgui::RenderQuality::allowIbl());

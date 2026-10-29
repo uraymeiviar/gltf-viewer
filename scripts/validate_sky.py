@@ -193,12 +193,8 @@ class Session:
         return self.size
 
     def place(self, eye, target, fov_y=20.0):
-        """set_camera with the eye at `eye` looking at `target`. set_camera places the eye at target + (-dx, -dy, dz)
-        for a requested offset (dx, dy, dz) = eye - target (also in 501ee4d), so the request mirrors x and y; the
-        camera it reports is checked against the wanted one."""
-        offset = [eye[i] - target[i] for i in range(3)]
-        request = [target[0] - offset[0], target[1] - offset[1], target[2] + offset[2]]
-        self.call("set_camera", eye=request, target=list(target), fov_y=fov_y)
+        """set_camera with the eye at `eye` looking at `target`; the camera it reports is checked against the wanted one."""
+        self.call("set_camera", eye=list(eye), target=list(target), fov_y=fov_y)
         camera = self.call("get_camera")
         got = [camera["target"][i] - camera["eye"][i] for i in range(3)]
         want = [target[i] - eye[i] for i in range(3)]

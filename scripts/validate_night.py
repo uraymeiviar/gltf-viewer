@@ -33,7 +33,11 @@ Checks:
     night, readable at noon (median >= NOON_PANEL_MEDIAN) with at most WINDOW_CLIP_FRACTION of the image clipped; the
     DA62's stars through the windows are counted (and checked with --exposure-metering average); a star field and the
     moon change the Auto EV by at most POINT_LIGHT_EV; Auto through the pipe ends in the same image as on the command
-    line (byte-identical).
+    line (byte-identical);
+  * half-float IBL: a white Lambert sphere lit only by the night airglow (moonless clock night, moon / stars / ambient /
+    sky occlusion off, the procedural cubes filtered synchronously) has the same diffuse IBL radiance with
+    --ibl-precision 16 as with 32 (luminance within HALF_FLOAT_TOLERANCE at normals up / side / down, nonzero), and
+    --sky-airglow 0 leaves it dark (the probes measure the airglow).
 
 Run: python scripts/validate_night.py [--baseline-exe build/baselines/<sha>.exe] [--only a,b]
 """
@@ -79,6 +83,7 @@ PANEL_LIT_FRACTION = 0.005
 NOON_PANEL_MEDIAN = 0.04
 WINDOW_CLIP_FRACTION = 0.02      # noon cockpit: pixels with a channel >= 250 / 255 outside the screens
 POINT_LIGHT_EV = 0.25
+HALF_FLOAT_TOLERANCE = 0.01      # 16-bit vs 32-bit IBL: relative luminance of the airglow-lit sphere
 
 E195_SCREENS = ["SCREEN_EICAS", "LCD_MFD_SCREEN_L", "LCD_MFD_SCREEN_R", "LCD_PFD_SCREEN_L", "LCD_PFD_SCREEN_R"]
 DA62 = Path(r"C:\MSFS 2024 Flighting SDK\Samples\DevmodeProjects\SimObjects\Aircraft\DA62")
@@ -158,8 +163,8 @@ def mean_luma(png):
 
 
 class Session:
-    def __init__(self, model, flags=(), common=None):
-        args = [str(EXE), str(model)] + list(COMMON if common is None else common) + list(flags) + ["--control-pipe"]
+    def __init__(self, model, flags=(), common=None, exe=EXE):
+        args = [str(exe), str(model)] + list(COMMON if common is None else common) + list(flags) + ["--control-pipe"]
         self.process = subprocess.Popen(args, cwd=REPO, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                         stderr=subprocess.DEVNULL)
         deadline = time.time() + 120
@@ -189,11 +194,8 @@ class Session:
         return path
 
     def place(self, eye, target, fov_y):
-        """set_camera with the eye at `eye` looking at `target` (set_camera mirrors the requested offset's x and y, also
-        in the baseline: validate_sky.py), checked against get_camera; returns a Camera of the viewport."""
-        offset = [eye[i] - target[i] for i in range(3)]
-        request = [target[0] - offset[0], target[1] - offset[1], target[2] + offset[2]]
-        self.call("set_camera", eye=request, target=list(target), fov_y=fov_y)
+        """set_camera with the eye at `eye` looking at `target`, checked against get_camera; returns a Camera."""
+        self.call("set_camera", eye=list(eye), target=list(target), fov_y=fov_y)
         return self.camera(want=[target[i] - eye[i] for i in range(3)])
 
     def look(self, view, fov_y):
@@ -513,6 +515,48 @@ def check_moonlight():
     except Exception as error:  # noqa: BLE001
         check(False, f"moon shadow session failed: {error}")
         session.process.kill()
+
+
+AIRGLOW_NORMALS = (("up", (0.0, 1.0, 0.0)), ("side", (0.0, 0.0, 1.0)), ("down", (0.0, -1.0, 0.0)))
+
+
+def airglow_probes(precision, airglow=1.0, exe=EXE):
+    """Diffuse IBL radiance of a white Lambert sphere at a moonless clock night, lit by the airglow alone."""
+    model = write("lambert", lambert())
+    flags = SKY + ["--time-preset", "night", "--moon", "off", "--stars", "off", "--ambient", "off",
+                   "--sky-occlusion", "off", "--sky-airglow", str(airglow), "--bloom", "off", "--exposure-mode", "curve",
+                   "--sky-time-slicing", "off", "--ibl-precision", str(precision)]
+    session = Session(model, flags, exe=exe)
+    try:
+        values = {}
+        for name, normal in AIRGLOW_NORMALS:
+            # Small x/z offset at the poles so the eye is never exactly on the orbit axis.
+            offset = (0.013, 0.0, 0.017) if abs(normal[1]) > 0.9 else (0.0, 0.0, 0.0)
+            camera = session.place([4.0 * normal[i] + offset[i] for i in range(3)], [0.0, 0.0, 0.0], 20.0)
+            session.capture("_airglow_settle", frames=3)
+            values[name] = session.probe(camera.width // 2, camera.height // 2)
+        state = session.call("get_state")
+        errors = session.close()
+    except Exception:
+        session.process.kill()
+        raise
+    return values, state, errors
+
+
+def check_half_float():
+    print("[Half-float IBL: the night airglow survives --ibl-precision 16]")
+    full, state32, errors32 = airglow_probes(32)
+    half, state16, errors16 = airglow_probes(16)
+    dark, _, errors0 = airglow_probes(32, airglow=0.0)
+    check(state16["sun"]["active"] is False and state16["night"]["moon"].get("lighting") is not True,
+          "airglow probes: no sun or moon light at the moonless night")
+    for name, _ in AIRGLOW_NORMALS:
+        a, b, z = luminance(full[name]), luminance(half[name]), luminance(dark[name])
+        check(a > 0.0 and z <= 0.01 * a, f"normal {name}: the airglow lights the sphere (32-bit {a:.4g}, airglow 0: {z:.3g})")
+        check(b > 0.0 and rel(b, a) <= HALF_FLOAT_TOLERANCE,
+              f"normal {name}: 16-bit IBL {b:.4g} vs 32-bit {a:.4g} ({rel(b, a) * 100:.3f}%, tolerance "
+              f"{HALF_FLOAT_TOLERANCE * 100:g}%)")
+    check(errors32 == 0 and errors16 == 0 and errors0 == 0, f"half-float sessions: GL errors {errors32}, {errors16}, {errors0}")
 
 
 def detect_stars(png, camera, background_margin=0.06):
@@ -932,7 +976,7 @@ def main():
     only = {s for s in args.only.split(",") if s}
     for name, function in (("baseline", lambda: check_baseline(baseline)), ("exposure", check_exposure), ("moon", check_moon),
                            ("moonlight", check_moonlight), ("stars", check_stars), ("emissive", check_emissive),
-                           ("registry", check_registry), ("interiors", check_interiors)):
+                           ("registry", check_registry), ("interiors", check_interiors), ("halffloat", check_half_float)):
         if only and name not in only:
             continue
         session_check(name, function)

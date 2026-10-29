@@ -166,11 +166,8 @@ class Session:
         return None
 
     def place(self, eye, target, fov_y):
-        """set_camera with the eye at `eye` looking at `target` (set_camera mirrors the requested offset's x and y,
-        also in the baseline: validate_sky.py), checked against get_camera; returns a Camera."""
-        offset = [eye[i] - target[i] for i in range(3)]
-        request = [target[0] - offset[0], target[1] - offset[1], target[2] + offset[2]]
-        self.call("set_camera", eye=request, target=list(target), fov_y=fov_y)
+        """set_camera with the eye at `eye` looking at `target`, checked against get_camera; returns a Camera."""
+        self.call("set_camera", eye=list(eye), target=list(target), fov_y=fov_y)
         return self.camera(want=[target[i] - eye[i] for i in range(3)])
 
     def look(self, view, fov_y):

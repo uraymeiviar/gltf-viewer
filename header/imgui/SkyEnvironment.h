@@ -90,6 +90,10 @@ public:
         double skyViewLutMs = 0.0;        // measured GPU time of one sky-view LUT build
         double atmosphereLutsMs = 0.0;    // ... of the transmittance + multiple-scattering LUTs
         double fastSourceMs = 0.0;        // ... of a fast job's source cube (6 faces + mips)
+        // Half-float range encoding (chooseRadianceScale): sky-view LUT readbacks and their CPU wall time (the
+        // readback waits for the LUT build).
+        uint64_t radianceScaleReadbacks = 0;
+        double radianceScaleMsLast = 0.0, radianceScaleMsMax = 0.0, radianceScaleMsSum = 0.0;
     };
 
     static constexpr uint32_t kFastCubeSize = 128;
@@ -114,6 +118,9 @@ public:
     GLuint frontLambertian() const { return m_front ? m_front->lambertian : 0; }
     GLuint frontGgx() const { return m_front ? m_front->ggx : 0; }
     GLuint frontSheen() const { return m_front ? m_front->sheen : 0; }
+    // The renderer's environment intensity for the front cubes: 1 / the range-encoding scale they were filtered with
+    // (exactly 1 with 32-bit cubes). Always the completed front set's, never the job in flight.
+    float frontRadianceDecode() const { return m_front ? 1.0f / m_front->radianceScale : 1.0f; }
     uint32_t frontMipCount() const { return m_front ? m_front->mipLevels : 0; }
     uint32_t frontSize() const { return m_front ? m_front->size : 0; }
     GLuint ggxLut() const { return m_ggxLut; }
@@ -309,6 +316,7 @@ private:
         uint32_t size = 0, lambertianSize = 0, mipLevels = 0;
         bool halfFloat = false;
         bool full = false;
+        float radianceScale = 1.0f; // stored radiance / physical radiance (half-float range encoding)
         uint64_t version = 0;
         uint64_t bytes = 0;
     };
@@ -320,6 +328,7 @@ private:
     };
 
     struct SourceCube {
+        float radianceScale = 1.0f; // chosen at job start from the sky-view LUT (chooseRadianceScale)
         GLuint cube = 0;
         uint32_t size = 0;
         uint64_t bytes = 0;
@@ -834,6 +843,51 @@ private:
         ++m_stats.lutSkyViewBuilds;
     }
 
+    // Half-float output cubes (RGBA16F: smallest subnormal 6e-8, smallest normal 6.1e-5) cannot hold the night sky's
+    // radiance (the airglow is 1.6e-8 environment units at the zenith: it rounds to zero). With 16-bit cubes the source
+    // cube (RGBA32F) is therefore written as radiance x S, S a power of two from 2^20 down until the sky-view LUT's
+    // brightest channel x S is at most 32000 (bilinear LUT reads and the positive, normalised IBL filters cannot exceed
+    // it; half of the 65504 range stays as headroom), and the renderer decodes the front set with 1 / S
+    // (frontRadianceDecode, the environment intensity). 32-bit cubes keep S = 1: nothing is read back or changed.
+    float chooseRadianceScale()
+    {
+        if (!m_config.halfFloat || m_skyViewLut.texture == 0) return 1.0f;
+        const auto start = profiling::Clock::now();
+        std::vector<float> pixels(static_cast<size_t>(m_skyViewLut.width) * m_skyViewLut.height * 4);
+        GLint packBuffer = 0;
+        glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, &packBuffer);
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+        GLint packAlignment = 4;
+        glGetIntegerv(GL_PACK_ALIGNMENT, &packAlignment);
+        glPixelStorei(GL_PACK_ALIGNMENT, 4);
+        glActiveTexture(GL_TEXTURE0);
+        GLint bound = 0;
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &bound);
+        glBindTexture(GL_TEXTURE_2D, m_skyViewLut.texture);
+        glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_FLOAT, pixels.data());
+        glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(bound));
+        glPixelStorei(GL_PACK_ALIGNMENT, packAlignment);
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, static_cast<GLuint>(packBuffer));
+        float peak = 0.0f;
+        bool finite = true;
+        for (size_t i = 0; i < pixels.size(); i += 4) {
+            for (size_t c = 0; c < 3; ++c) {
+                const float value = pixels[i + c];
+                if (!std::isfinite(value)) finite = false;
+                else peak = std::max(peak, value * sky::kSolarIlluminance);
+            }
+        }
+        float scale = 1048576.0f; // 2^20
+        if (!finite) scale = 1.0f;
+        while (scale > 1.0f && peak * scale > 32000.0f) scale *= 0.5f;
+        const double ms = profiling::elapsedMs(start);
+        ++m_stats.radianceScaleReadbacks;
+        m_stats.radianceScaleMsLast = ms;
+        m_stats.radianceScaleMsMax = std::max(m_stats.radianceScaleMsMax, ms);
+        m_stats.radianceScaleMsSum += ms;
+        return scale;
+    }
+
     // One face of the source cube from the current sky-view LUT.
     void renderSourceFace(const SourceCube& source, GLint face)
     {
@@ -842,7 +896,8 @@ private:
         glDrawBuffers(1, &drawBuffer);
         glUseProgram(m_cubeProgram);
         setAtmosphereUniforms(m_cubeProgram);
-        glUniform1f(glGetUniformLocation(m_cubeProgram, "u_RadianceScale"), sky::kSolarIlluminance);
+        // 32-bit cubes: exactly kSolarIlluminance (S = 1).
+        glUniform1f(glGetUniformLocation(m_cubeProgram, "u_RadianceScale"), sky::kSolarIlluminance * source.radianceScale);
         glUniform2f(glGetUniformLocation(m_cubeProgram, "u_TargetSize"), static_cast<float>(source.size), static_cast<float>(source.size));
         glViewport(0, 0, static_cast<GLsizei>(source.size), static_cast<GLsizei>(source.size));
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_CUBE_MAP_POSITIVE_X + face, source.cube, 0);
@@ -1001,6 +1056,8 @@ private:
     {
         ensureSet(target, spec);
         SourceCube& source = ensureSource(spec.full, spec.size);
+        // The LUT is final for this job (a sky change aborts refine jobs; fast jobs render their source now).
+        source.radianceScale = chooseRadianceScale();
         const bool sourceItems = refine && sliceSource;
         if (!sourceItems) renderSourceCube(source);
         m_job = Job();
@@ -1064,6 +1121,7 @@ private:
         if (m_job.next < m_job.items.size()) ++m_stats.incompleteSwaps; // never: only complete jobs are swapped in
         OutputSet* target = m_job.target;
         target->version = m_job.version;
+        target->radianceScale = m_job.source->radianceScale;
         m_front = target;
         ++m_stats.swaps;
         const bool fullSource = m_job.source == &m_sourceFull;

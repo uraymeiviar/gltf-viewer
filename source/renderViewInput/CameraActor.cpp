@@ -232,8 +232,10 @@ void CameraActor::setCameraEyeAndTarget(const math::vec3& eye, const math::vec3&
         return;
     }
     const math::vec3 dir = offset / dist;
-    const float pitch = -std::asinf(std::clamp(dir.y, -1.0f, 1.0f));
-    const float yaw = std::atan2(dir.x, dir.z);
+    // toLocalRotation multiplies a row vector by Rx(pitch) * Ry(yaw): the +Z offset becomes
+    // (-sin(yaw) cos(pitch), sin(pitch), cos(yaw) cos(pitch)). Invert exactly that.
+    const float pitch = std::asinf(std::clamp(dir.y, -1.0f, 1.0f));
+    const float yaw = -std::atan2(dir.x, dir.z);
     m_lookTarget = target;
     setZoom(dist);
     setCameraRotation(yaw, pitch);

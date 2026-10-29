@@ -841,7 +841,13 @@ json Application::skyStateJson(const ux3d::imgui::SceneEnvironmentState& environ
                    {"msPerMegaUnit", stats.msPerMegaUnit},
                    {"skyViewLutMs", stats.skyViewLutMs},
                    {"atmosphereLutsMs", stats.atmosphereLutsMs},
-                   {"fastSourceMs", stats.fastSourceMs}}},
+                   {"fastSourceMs", stats.fastSourceMs},
+                   {"radianceScaleReadbacks", stats.radianceScaleReadbacks},
+                   {"radianceScaleMsLast", stats.radianceScaleMsLast},
+                   {"radianceScaleMsMax", stats.radianceScaleMsMax},
+                   {"radianceScaleMsMean", stats.radianceScaleReadbacks > 0
+                                               ? stats.radianceScaleMsSum / static_cast<double>(stats.radianceScaleReadbacks) : 0.0}}},
+        {"frontRadianceScale", agent::floatJson(1.0f / skyEnvironment.frontRadianceDecode())},
         {"memoryBytes", skyEnvironment.memoryBytes()}};
     return out;
 }
