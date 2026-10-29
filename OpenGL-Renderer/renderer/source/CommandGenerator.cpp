@@ -162,8 +162,9 @@ void ux3d::renderer::CommandGenerator::bindFrameBlocks()
     // A3.5: int u_SsaoEnabled at 480,
     // A3.7: int u_SkyPortalCount at 484, float u_SkyPortalStrength at 488, vec4 u_SkyPortalPositionRadius[8] at 496,
     // vec4 u_SkyPortalNormalCosInner[8] at 624, vec4 u_SkyPortalCosOuter[8] at 752,
-    // A6.4: float u_PreExposure at 880, A6.5: float u_EmissiveNightBlend at 884 (896 bytes, a whole number of vec4).
-    uint8_t environment[896] = {};
+    // A6.4: float u_PreExposure at 880, A6.5: float u_EmissiveNightBlend at 884,
+    // A3.8: vec3 u_AmbientRadiance at 896, int u_AmbientEnabled at 908 (912 bytes, a whole number of vec4).
+    uint8_t environment[912] = {};
     if (m_environmentMapRotationUniform.byteSize() == 36) {
         for (size_t column = 0; column < 3; ++column) {
             std::memcpy(environment + column * 16, m_environmentMapRotationUniform.bytes() + column * 12, 12);
@@ -221,6 +222,8 @@ void ux3d::renderer::CommandGenerator::bindFrameBlocks()
     }
     std::memcpy(environment + 880, &m_preExposure, 4);
     std::memcpy(environment + 884, &m_emissiveNightBlend, 4);
+    std::memcpy(environment + 896, &m_ambientRadiance[0], 12);
+    std::memcpy(environment + 908, &m_ambientEnabled, 4);
     uploadFrameBlock(m_environmentBlock, gl::kEnvironmentBlockBinding, environment, sizeof(environment));
 }
 

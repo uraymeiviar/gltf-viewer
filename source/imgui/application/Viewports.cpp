@@ -919,6 +919,8 @@ void Application::drawViewports(FrameContext& frame)
                 const EffectiveSun sun = effectiveDirectionalLight(activeEnvironment);
                 commandGenerator->setSun(sun.enabled, sun.direction, sun.illuminance, sun.angularRadius);
             }
+            // A3.8: the viewer ambient light (a scene-environment setting, both environment sources).
+            commandGenerator->setAmbient(activeEnvironment.ambientEnabled, ux3d::imgui::ambientRadiance(activeEnvironment));
             commandGenerator->setAsoboNormalMapConvention(
                 gltfLayer->usesDirectXNormalMaps() &&
                 vp->settings.asobo.applies("ASOBO_normal_map_convention"));

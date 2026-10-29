@@ -393,6 +393,8 @@ private:
     // A6.5: the ASOBO_material_emissive night weight (0 day .. 1 night; Automatic blends over twilight).
     float emissiveNightBlend(const ux3d::imgui::SceneEnvironmentState& environment) const;
     nlohmann::json sunStateJson(const ux3d::imgui::SceneEnvironmentState& environment) const;
+    // A3.8: the viewer ambient light (get_state / --profile-report "ambient").
+    static nlohmann::json ambientStateJson(const ux3d::imgui::SceneEnvironmentState& environment);
     // A6.7: the sun disk the background draws (SunDisk.h): visible while the sun is on and the background shown.
     ux3d::imgui::SunDiskEvaluation sunDiskEvaluation(const ux3d::imgui::SceneEnvironmentState& environment) const;
     // A6.1: the computed time-of-day state (sun, moon, events, day/night) for get_state and profile reports; the

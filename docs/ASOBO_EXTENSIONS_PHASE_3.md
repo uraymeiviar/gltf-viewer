@@ -2,7 +2,7 @@
 
 [Journal index](ASOBO_EXTENSIONS_JOURNAL.md) · [Extension reference](ASOBO_EXTENSIONS_REFERENCE.md) · [Validation rules](RENDERER_OPTIMIZATION_VALIDATION.md)
 
-**Status:** In progress: A3.1, A3.2, A3.4, A3.5, A3.6 and A3.7 done (A3.4 ahead of A3.1); A3.3 deferred.
+**Status:** In progress: A3.1, A3.2, A3.4, A3.5, A3.6, A3.7 and A3.8 done (A3.4 ahead of A3.1); A3.3 deferred.
 
 **Entry:** A2.2, the deferred lighting pass. **Goal:** shadows from a sun (user priority 4), and the remaining
 lighting features of user priority 5. The sun's direction is set by hand here and driven by time of day in A6.
@@ -418,6 +418,65 @@ lighting features of user priority 5. The sun's direction is set by hand here an
     falling off with the cone angles; no light leaks outside the hull; DA62 cockpit before/after review.
   - **Deferred, not planned:** `ASOBO_macro_light` (deprecated MSFS 2020 name), `ASOBO_street_light`,
     `ASOBO_advanced_light` (user decision 2026-10-28; aircraft lights mostly live in `systems.cfg`, outside glTF).
+
+- [x] **A3.8 — Viewer ambient light (R2). Owner: Claude.** Maintainer's decision (2026-10-29): "Ambient light is
+  always there on the scene, so the user doesn't need to add a light node; it can be turned on/off regardless of HDR
+  IBL or procedural sky; it's not part of the glTF, but part of the viewer." Motivation: the DA62 cockpit at night is
+  black apart from its screens, because nothing in the glTF lights the panel (MSFS panel lighting comes from
+  `systems.cfg` lights, which Glider does not read).
+  - **Done 2026-10-29.** Code: `header/imgui/SceneEnvironment.h` (`ambientEnabled`, `ambientColor`,
+    `ambientLuminance`, `kAmbientUnitLuminance`, `ambientRadiance()`), `environment_block.glsl`
+    (`u_AmbientRadiance` at 896, `u_AmbientEnabled` at 908; the block grows to 912 bytes), `pbr.frag` (after the
+    A3.7 bound, before the occlusion), `ground.frag`, `CommandGenerator::setAmbient`, `Viewports.cpp`.
+  - **Setting:** scene environment (one per glTF scene, like the sun), not persisted (like the sun). Off by default:
+    every render is byte-identical to before. Colour linear RGB (default white), intensity a luminance in cd/m^2
+    (0..10000, default 3 when switched on, logarithmic slider), radiance L = colour x intensity / 12,800 in
+    environment units. 12,800 cd/m^2 is the procedural sky's calibrated unit (`SkyAtmosphere.h`); an HDR panorama
+    has no absolute scale, so the same unit is used with it (stated in the UI tooltip): a given cd/m^2 adds the same
+    radiance with both sources. Pre-exposure (`u_PreExposure`) applies to it as to every scene output.
+  - **Shading:** a uniform radiance L from every direction. For a constant environment the split-sum integrals reduce
+    to diffuse `c_diff x L` (Lambert, irradiance pi L) and specular `specularWeight x L x (F0 A + B)` with A, B from
+    the existing BRDF LUT at (N.V, roughness); clearcoat `L x (F0_cc A + B)` at the clearcoat normal and roughness,
+    sheen `L x sheenColor x CharlieLUT`. Added to `f_diffuse` / `f_specular` / `f_clearcoat` / `f_sheen` before the
+    occlusion, so authored AO (with A1.5 strength, A5.1 detail AO), decal AO and A3.5 SSAO (`min(authored, SSAO)`,
+    multi-bounce / Lagarde specular occlusion) darken it exactly as they darken the IBL. Without IBL (`ibl` off) the
+    SSAO block now also runs while the ambient is on. Not on emissive, not on the background, never in the IBL filter
+    input. KHR transmission: its diffuse share is weighted by `1 - transmission` like the IBL diffuse and the
+    refracted scene copy is not changed (the scene behind already contains the ambient); BLEND, glass v2 and
+    windshield v3 surfaces get the same uniform reflection term in their specular (glass v2 masked by its reflection
+    mask like the IBL; the windshield's SSR is unchanged, the ambient reflection is added beside it). A3.4 SSS back
+    radiance and iridescence/anisotropy variants use the plain terms (deviation). A3.7 portals keep their bound (the
+    unoccluded IBL diffuse, captured before the ambient is added). The A3.6 ground plane adds `albedo x L` and, with an
+    environment, `L x (0.04 A + B)`.
+  - **No double counting:** the ambient is an explicit viewer addition on top of the environment, default off. It
+    stands for light the glTF and the environment do not carry (cabin flood and panel lights); it is not derived from
+    the HDR or the sky, so nothing in the IBL is counted twice.
+  - **UI / CLI / agent:** Scene Inspector → *Ambient Light* (collapsed header after *Night Sky*): checkbox, colour,
+    intensity (cd/m^2) with a units tooltip, the value in environment units. `--ambient on|off`,
+    `--ambient-color r,g,b`, `--ambient-intensity <cd/m^2>`; registry keys `ambient`, `ambient_color`,
+    `ambient_intensity` (`set_environment`); `get_state` / `--profile-report` `ambient` (`enabled`, `color`,
+    `intensity`, `intensityEnvironmentUnits`, `unitLuminance`, `radiance`).
+  - **Check:** `scripts/validate_ambient.py` (quick regression, serial list). 44 PASS against b96d742: ambient
+    off (also with non-default colour / intensity) byte-identical for HelloCube and E195 `exterior_fuselage_nose` /
+    `cockpit_main_displays` with the HDR and with the procedural sky (`--sky-time-slicing off` on both binaries);
+    white Lambert sphere (specularFactor 0) under a black HDR, L = (0.5, 0.25, 0.125): every probe exact to 0.000%,
+    3 cd/m^2 gives 2.344e-4 units (0.004%); smooth metal (F0 0.9/0.6/0.3, roughness 0) against
+    `L x (F0 + (1 - F0)(1 - N.V)^5)` (the LUT integral at roughness 0) worst 0.08%; uniform 0.502 occlusion texture
+    halves ambient and constant-HDR IBL diffuse alike (difference 0.0002); SSAO on two touching spheres darkens both
+    alike (darkest 0.63, difference 0.0006); emissive sphere byte-identical on/off, 0 of 383,088 background pixels
+    changed; ground plane lit; CLI = pipe byte-identical; HDR and sky add the same radiance (0.37%) equal to
+    albedo x L (0.39%); registry, refusals (pipe and CLI), get_state / profile report; zero GL errors. Also pass:
+    `validate_night`, `validate_sky` (incl. its GPU-timing checks), `validate_sun`, `validate_shadows`,
+    `validate_ssao`, `validate_asobo_sky_portal`, `validate_p4_exit_gate`, `validate_agent_control`.
+  - **Review:** `build/review/ambient/contact_sheet.png` (`scripts/review_ambient.py`). DA62 cockpit at night
+    (procedural sky, Auto, highlight meter EV -2.6 in every capture): off, 1, 3 and 10 cd/m^2 look the same (black
+    apart from the display strips; 10 cd/m^2 changes at most 2 levels), 100 cd/m^2 shows a hint of the canopy frame,
+    1000 cd/m^2 the panel and frame faintly. E195 cockpit at night (EV -1.9) off / 3 cd/m^2: identical to the eye (at
+    most 1 level). E195 exterior, default HDR: off / 3 cd/m^2 identical to the eye (9,533 pixels change by 1 level).
+    **Finding:** the night cockpit stays black at the brief's 1-10 cd/m^2 because the highlight meter is held by the
+    screens, whose MSFS-scaled emissive is 5 units = 64,000 cd/m^2 (A6.4b report): the ambient is 13+ EV below them.
+    Making the panel readable needs either a much larger ambient, a Manual exposure, or the emissive-scale calibration
+    already flagged in A6.4b (maintainer decision; not changed here).
 
 **Exit gate:**
 - Shadow tests pass.

@@ -1013,6 +1013,7 @@ void Application::finishFrame(FrameContext& frame, int displayW, int displayH)
         report.capture = s_captureRecord;
         report.camera = getCameraJson(activeViewport);
         report.sun = sunStateJson(activeEnvironment);
+        report.ambient = ambientStateJson(activeEnvironment);
         report.timeOfDay = timeOfDayStateJson(activeEnvironment);
         if (activeEnvironment.environmentSource != 0) report.sky = skyStateJson(activeEnvironment);
         // A6.4-A6.6: exposure, moon, stars (only with the procedural sky, so HDR reports are unchanged).

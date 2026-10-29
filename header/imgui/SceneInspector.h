@@ -37,6 +37,8 @@ private:
     static void renderSunDisk(SceneEnvironmentState& env, SceneRevisions& revisions);
     // A6.6: Night Sky (moon, moonlight, stars, night sky glow).
     static void renderNightSky(SceneEnvironmentState& env, SceneRevisions& revisions);
+    // A3.8 viewer ambient light.
+    static void renderAmbient(SceneEnvironmentState& env, SceneRevisions& revisions);
 };
 
 } // namespace ux3d::imgui

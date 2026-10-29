@@ -540,6 +540,7 @@ struct ProfileReport {
     nlohmann::json sky; // A6.2/A6.3: the procedural sky (get_state "sky"); only while it is the environment source
     nlohmann::json night; // A6.4-A6.6: exposure, moon, stars (get_state "night"); only with the procedural sky
     nlohmann::json sun; // A3.1: effective sun and the HDR's detected sun (get_state "sun")
+    nlohmann::json ambient; // A3.8: the viewer ambient light (get_state "ambient")
     nlohmann::json ssao; // A3.5: per-viewport SSAO settings, state, memory and GPU time (get_state "ssao")
 };
 

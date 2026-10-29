@@ -646,6 +646,9 @@ bool writeProfileReport(const std::string& path, const ProfileReport& report)
     if (!report.sun.is_null()) {
         document["sun"] = report.sun;
     }
+    if (!report.ambient.is_null()) {
+        document["ambient"] = report.ambient;
+    }
     if (!report.camera.is_null() && !report.camera.empty()) {
         document["camera"] = report.camera;
     }

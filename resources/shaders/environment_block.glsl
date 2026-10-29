@@ -91,4 +91,9 @@ layout(std140) uniform EnvironmentBlock
     float u_PreExposure;
     // A6.5: night weight of the ASOBO_material_emissive multipliers while u_TimeOfDay is 2 (Automatic, twilight).
     float u_EmissiveNightBlend;
+    // A3.8 viewer ambient light (SceneEnvironment.h kAmbientUnitLuminance): a uniform radiance from every direction in
+    // environment units (before u_PreExposure), added to the IBL terms of pbr.frag and ground.frag while
+    // u_AmbientEnabled is non-zero. Not part of the glTF; never in the IBL filter input or the background.
+    vec3 u_AmbientRadiance;
+    int u_AmbientEnabled;
 };

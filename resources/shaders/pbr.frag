@@ -586,6 +586,27 @@ void main()
     // A3.7: the unoccluded IBL diffuse, the upper bound of what the portals may add back.
     vec3 skyPortalUnoccludedDiffuse = f_diffuse;
 #endif
+    // A3.8 viewer ambient light (environment_block.glsl): a uniform radiance L from every direction, added to the IBL
+    // terms before the occlusion below, so the authored AO, the decal AO and SSAO darken it exactly as the IBL. For a
+    // constant environment the split-sum integrals reduce to Lambert (c_diff x L) and the BRDF LUT (L x (F0 A + B)),
+    // plus the same for clearcoat and the Charlie sheen LUT. Emissive, the background and the refracted scene copy of
+    // transmission never see it; transmissive, BLEND and windshield/glass surfaces get it in their reflection and
+    // diffuse share like the IBL (the scene they refract already contains it). After the sky-portal bound above, so
+    // A3.7 still adds back at most the unoccluded IBL diffuse.
+    if (u_AmbientEnabled != 0) {
+        vec2 ambientAB = texture(u_GGXLUT, clamp(vec2(NdotV, materialInfo.perceptualRoughness), vec2(0.0), vec2(1.0))).rg;
+        f_diffuse += materialInfo.c_diff * u_AmbientRadiance;
+        f_specular += materialInfo.specularWeight * u_AmbientRadiance * (materialInfo.f0 * ambientAB.x + ambientAB.y);
+#ifdef MATERIAL_CLEARCOAT
+        vec2 ambientClearcoatAB = texture(u_GGXLUT, clamp(vec2(clampedDot(materialInfo.clearcoatNormal, v),
+            materialInfo.clearcoatRoughness), vec2(0.0), vec2(1.0))).rg;
+        f_clearcoat += u_AmbientRadiance * (materialInfo.clearcoatF0 * ambientClearcoatAB.x + ambientClearcoatAB.y);
+#endif
+#ifdef MATERIAL_SHEEN
+        f_sheen += u_AmbientRadiance * materialInfo.sheenColorFactor *
+            texture(u_CharlieLUT, clamp(vec2(NdotV, materialInfo.sheenRoughnessFactor), vec2(0.0), vec2(1.0))).b;
+#endif
+    }
     float ao = 1.0;
     // A3.5: the authored occlusion as applied to the IBL terms below (material map with its strength, times the
     // decal AO); only the SSAO combination reads it.
@@ -637,14 +658,19 @@ void main()
         ssaoAuthoredOcclusion *= decalReceiver.occlusion;
     }
 #endif
-#if defined(USE_IBL) && ALPHAMODE != ALPHAMODE_BLEND
+#if ALPHAMODE != ALPHAMODE_BLEND
     // A3.5: screen-space ambient occlusion of the sky light. Only the IBL terms above (diffuse incl. the SSS back
     // radiance, specular, sheen, clearcoat): the sun and punctual lights below have their own shadows, emissive and
     // the background never see it. MSFS's authored occlusion is already the ratio of sky light incl. bounces, so
     // the two are combined as min(authored, SSAO) per term, with the SSAO term made comparable first (multi-bounce
     // for diffuse, Lagarde's specular occlusion for the lobes): a crease both contain is darkened once, occlusion
     // only SSAO sees (other objects, moving parts, assets without AO maps) is added.
+#ifdef USE_IBL
     if (u_SsaoEnabled != 0) {
+#else
+    // A3.8: without IBL the only terms here are the ambient light's.
+    if (u_SsaoEnabled != 0 && u_AmbientEnabled != 0) {
+#endif
         float ssao = ssaoVisibility(v_Position);
         if (ssao < 1.0) {
             float authored = max(ssaoAuthoredOcclusion, 1.0e-4);

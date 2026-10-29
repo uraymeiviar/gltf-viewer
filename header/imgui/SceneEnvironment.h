@@ -20,6 +20,15 @@ inline constexpr const char* kDefaultEnvironmentFile = "default_hdr_env4k.hdr";
 // HDR panorama (IBLSampler's EnvironmentSun), turned with the HDR rotation and scaled by the HDR intensity.
 enum class SunMode : int { Manual = 0, FromHdr = 1 };
 
+// A3.8 viewer ambient light (docs/ASOBO_EXTENSIONS_PHASE_3.md, A3.8): a uniform radiance from every direction, added to
+// the IBL terms of pbr.frag and ground.frag. A viewer light: never read from or written into the glTF. Its intensity is
+// a luminance in cd/m^2, converted with the procedural sky's unit (1 environment unit = 12,800 cd/m^2, SkyAtmosphere.h).
+// An HDR panorama has no absolute scale; the same unit is used with it, so a given cd/m^2 adds the same environment
+// radiance with either source.
+inline constexpr float kAmbientUnitLuminance = 12800.0f;     // cd/m^2 per environment radiance unit
+inline constexpr float kAmbientDefaultLuminance = 3.0f;      // cd/m^2 when switched on
+inline constexpr float kAmbientMaxLuminance = 10000.0f;      // cd/m^2
+
 struct SceneEnvironmentState {
     bool showBackground = true;
     glm::vec4 clearColor = glm::vec4(0.12f, 0.12f, 0.14f, 1.0f);
@@ -97,6 +106,12 @@ struct SceneEnvironmentState {
     // A6.6 moon, stars and night sky glow (procedural sky; the moon and the stars need the A6.1 clock).
     night::NightSettings nightSky;
 
+    // A3.8 viewer ambient light (see kAmbientUnitLuminance): off by default (every render unchanged). The colour is
+    // linear RGB and multiplies the luminance like the sun's colour (white (1, 1, 1) has luminance 1).
+    bool ambientEnabled = false;
+    glm::vec3 ambientColor = glm::vec3(1.0f);
+    float ambientLuminance = kAmbientDefaultLuminance; // cd/m^2
+
     bool operator==(const SceneEnvironmentState&) const = default;
 };
 
@@ -116,6 +131,14 @@ inline ExposureMode effectiveExposureMode(const SceneEnvironmentState& environme
     const ExposureMode mode = static_cast<ExposureMode>(std::clamp(environment.exposureMode, -1, 2));
     if (mode != ExposureMode::Default) return mode;
     return environment.environmentSource == 1 ? ExposureMode::Auto : ExposureMode::Manual;
+}
+
+// A3.8: the ambient radiance in environment units (zero while off), before the pre-exposure.
+inline glm::vec3 ambientRadiance(const SceneEnvironmentState& environment)
+{
+    if (!environment.ambientEnabled) return glm::vec3(0.0f);
+    const float luminance = std::clamp(environment.ambientLuminance, 0.0f, kAmbientMaxLuminance);
+    return (glm::max)(environment.ambientColor, glm::vec3(0.0f)) * (luminance / kAmbientUnitLuminance);
 }
 
 // Unit vector from the surface towards the sun for the A3.1 convention above.

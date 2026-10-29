@@ -872,6 +872,13 @@ std::optional<int> Application::configure(int argc, char** argv)
             if (!applyCliSetting(SettingScope::Environment, "hdr_rotation", argv[++i], "--hdr-rotation")) return 1;
         } else if (arg == "--sun" && i + 1 < argc) {
             if (!applyCliSetting(SettingScope::Environment, "sun", toLowerAscii(argv[++i]), "--sun")) return 1;
+        } else if (arg == "--ambient" && i + 1 < argc) {
+            // A3.8: the viewer ambient light.
+            if (!applyCliSetting(SettingScope::Environment, "ambient", toLowerAscii(argv[++i]), "--ambient")) return 1;
+        } else if (arg == "--ambient-color" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Environment, "ambient_color", argv[++i], "--ambient-color")) return 1;
+        } else if (arg == "--ambient-intensity" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Environment, "ambient_intensity", argv[++i], "--ambient-intensity")) return 1;
         } else if (arg == "--sun-mode" && i + 1 < argc) {
             if (!applyCliSetting(SettingScope::Environment, "sun_mode", toLowerAscii(argv[++i]), "--sun-mode")) return 1;
         } else if (arg == "--sun-dir" && i + 1 < argc) {

@@ -114,6 +114,13 @@ public:
     // 0 day, 1 night, 2 blend (A6.5: the night weight is setEmissiveNightBlend's).
     void setTimeOfDay(int timeOfDay);
     void setEmissiveNightBlend(float blend) { m_emissiveNightBlend = blend; }
+    // A3.8: the viewer ambient light (EnvironmentBlock u_AmbientRadiance / u_AmbientEnabled): a uniform radiance in
+    // environment units added to the IBL terms; off uploads zeros (every render unchanged).
+    void setAmbient(bool enabled, const glm::vec3& radiance)
+    {
+        m_ambientEnabled = enabled ? 1 : 0;
+        m_ambientRadiance = enabled ? radiance : glm::vec3(0.0f);
+    }
     // A6.4: multiplier of the scene's linear outputs (EnvironmentBlock u_PreExposure); 1 = none.
     void setPreExposure(float preExposure) { m_preExposure = preExposure; }
     float getPreExposure() const { return m_preExposure; }
@@ -248,6 +255,8 @@ protected:
     float m_sunAngularRadius = 0.0f;
     float m_preExposure = 1.0f;
     float m_emissiveNightBlend = 0.0f;
+    int32_t m_ambientEnabled = 0;
+    glm::vec3 m_ambientRadiance = glm::vec3(0.0f);
     // A3.2 sun shadow map (borrowed texture handle; stable wrapper and comparison sampler).
     SunShadowParameters m_sunShadow;
     std::unique_ptr<gl::Texture> m_sunShadowTexture;

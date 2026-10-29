@@ -379,6 +379,7 @@ json Application::agentStateJson()
     st["frame"] = frameCount;
     st["glErrors"] = s_glErrorTotal;
     st["sun"] = sunStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene));
+    st["ambient"] = ambientStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene));
     st["timeOfDay"] = timeOfDayStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene));
     st["sky"] = skyStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene));
     st["night"] = nightStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene));
@@ -955,6 +956,21 @@ json Application::ssaoStateJson() const
                         {"gpuMsAverage", ao.getAverageGpuMs() >= 0.0 ? json(ao.getAverageGpuMs()) : json(nullptr)}});
     }
     return {{"viewports", list}};
+}
+
+json Application::ambientStateJson(const ux3d::imgui::SceneEnvironmentState& environment)
+{
+    auto vec3Json = [](const glm::vec3& v) {
+        return json{agent::floatJson(v.x), agent::floatJson(v.y), agent::floatJson(v.z)};
+    };
+    // A3.8: radiance is what the shaders receive (zero while off); luminance in cd/m^2 and in environment units.
+    const glm::vec3 radiance = ux3d::imgui::ambientRadiance(environment);
+    return json{{"enabled", environment.ambientEnabled},
+                {"color", vec3Json(environment.ambientColor)},
+                {"intensity", agent::floatJson(environment.ambientLuminance)},
+                {"intensityEnvironmentUnits", agent::floatJson(environment.ambientLuminance / ux3d::imgui::kAmbientUnitLuminance)},
+                {"unitLuminance", agent::floatJson(ux3d::imgui::kAmbientUnitLuminance)},
+                {"radiance", vec3Json(radiance)}};
 }
 
 json Application::sunStateJson(const ux3d::imgui::SceneEnvironmentState& environment) const
@@ -1942,6 +1958,35 @@ void Application::registerAgentSettings()
     addSetting(floatSetting<ES>("sun_angular_radius", E, &ES::sunAngularRadius,
                                 "Sun angular radius in degrees (widens the specular highlight; 0.27 = the real sun).",
                                 "--sun-angular-radius <deg>", std::pair{0.0, 10.0}));
+    // A3.8 viewer ambient light (SceneEnvironment.h kAmbientUnitLuminance): not part of the glTF.
+    addSetting(boolSetting<ES>("ambient", E, &ES::ambientEnabled,
+                               "Viewer ambient light: a uniform radiance from every direction added to the IBL terms "
+                               "(occluded like the IBL), with either environment source. Not part of the glTF.",
+                               "--ambient <on|off>"));
+    {
+        SettingSpec spec;
+        spec.key = "ambient_color";
+        spec.scope = E;
+        spec.type = SettingType::Color3;
+        spec.help = "Ambient light colour, linear RGB (multiplies ambient_intensity; white = luminance 1).";
+        spec.cliFlag = "--ambient-color <r,g,b>";
+        spec.hasRange = true;
+        spec.minimum = 0.0;
+        spec.maximum = 1000.0;
+        spec.get = [](void* t) {
+            const glm::vec3& c = static_cast<ES*>(t)->ambientColor;
+            return json{agent::floatJson(c.r), agent::floatJson(c.g), agent::floatJson(c.b)};
+        };
+        spec.set = [](void* t, const json& v, std::string&) {
+            static_cast<ES*>(t)->ambientColor = glm::vec3(v[0].get<float>(), v[1].get<float>(), v[2].get<float>());
+            return true;
+        };
+        addSetting(std::move(spec));
+    }
+    addSetting(floatSetting<ES>("ambient_intensity", E, &ES::ambientLuminance,
+                                "Ambient luminance in cd/m^2 (1 environment unit = 12,800 cd/m^2 with both sources; the "
+                                "HDR has no absolute scale, so the same unit is used for it).",
+                                "--ambient-intensity <cd/m^2>", std::pair{0.0, static_cast<double>(ux3d::imgui::kAmbientMaxLuminance)}));
     // A6.7 sun disk (SunDisk.h): background only, never in the IBL input.
     {
         SettingSpec spec;

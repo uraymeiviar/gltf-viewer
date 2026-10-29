@@ -37,6 +37,8 @@ Quick tier (equivalence only: byte-identical viewport images, identical selectio
   and lens effect, registry/CLI; the sun off against the baseline),
   validate_night.py (A6.4-A6.6 exposure across the day, moon position/phase/moonlight/shadows, stars and sidereal
   rotation, emissive day/night blend, registry/CLI; the HDR defaults against the baseline),
+  validate_ambient.py (A3.8 viewer ambient light: Lambert/metal radiance, AO/SSAO like the IBL, emissive and
+  background unchanged, CLI = pipe, HDR = sky; ambient off against the baseline),
   validate_asobo_decal_modes.py,
   validate_agent_control.py (control pipe, shared command registry, MCP shim; CLI flags against the baseline),
   validate_viewport_image.py (Viewport capture/save/copy, capture folder setting)
@@ -124,6 +126,7 @@ serial_jobs = [
     ("sky", ["scripts/validate_sky.py", "--baseline-exe", str(baseline)]),
     ("sun_disk", ["scripts/validate_sun_disk.py", "--baseline-exe", str(baseline)]),
     ("night", ["scripts/validate_night.py", "--baseline-exe", str(baseline)]),
+    ("ambient", ["scripts/validate_ambient.py", "--baseline-exe", str(baseline)]),
     ("asobo_packaged", ["scripts/validate_asobo_packaged.py"]),
     ("asobo_decal_modes", ["scripts/validate_asobo_decal_modes.py", "--baseline-exe", str(baseline)]),
     ("texture_dds", ["scripts/validate_texture_dds.py"]),

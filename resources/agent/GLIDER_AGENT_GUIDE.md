@@ -203,6 +203,21 @@ Commands run on the render thread between frames, strictly in order. Multi-frame
 - Tuning: `capture` / `probe_region` with `ASOBO_sky_portal` false and true at the same camera; the difference is the
   portal light.
 
+## Ambient light (A3.8)
+
+- A viewer light, not part of the glTF: `set_environment` keys `ambient` (default false), `ambient_color` (linear
+  RGB, default white) and `ambient_intensity` (luminance in cd/m^2, 0..10000, default 3). A uniform radiance
+  L = colour x intensity / 12,800 (1 environment unit = 12,800 cd/m^2 with both the HDR and the procedural sky) from
+  every direction, added to the IBL terms: diffuse `c_diff x L`, specular `L x (F0 A + B)` from the BRDF LUT, also
+  clearcoat and sheen, then darkened by the authored occlusion and SSAO exactly like the IBL. Emissive, the background
+  and the IBL filter input never see it; the A3.6 ground plane gets it too.
+- `get_state` / `--profile-report` `ambient`: `enabled`, `color`, `intensity` (cd/m^2), `intensityEnvironmentUnits`,
+  `radiance` (what the shaders receive, zero while off).
+- Tuning: the exposure decides what is visible. At night with the procedural sky's Auto exposure the highlight meter
+  is held by the MSFS-scaled screens (DA62: 5 units = 64,000 cd/m^2, EV -2.6), so 1-10 cd/m^2 changes at most 2
+  levels and 1000 cd/m^2 only shows the panel faintly; with Manual exposure or a cockpit without bright screens the
+  ambient is the panel light. Under the default HDR (exterior, Manual EV 0) 3 cd/m^2 changes at most 1 level.
+
 ## Pitfalls
 
 - **Minimised window**: `capture` fails with `window_minimized`; restore the window first.

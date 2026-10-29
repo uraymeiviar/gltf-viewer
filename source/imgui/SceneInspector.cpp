@@ -522,6 +522,45 @@ void SceneInspector::render(SceneEnvironmentState& env,
     if (nightOpen) {
         renderNightSky(env, revisions);
     }
+
+    // A3.8: after Night Sky (collapsed by default), so every existing control keeps its place.
+    const bool ambientOpen = ImGui::CollapsingHeader("Ambient Light");
+    UiProbe::item("scene.ambient", 0);
+    if (ambientOpen) {
+        renderAmbient(env, revisions);
+    }
+}
+
+void SceneInspector::renderAmbient(SceneEnvironmentState& env, SceneRevisions& revisions)
+{
+    if (ImGui::Checkbox("Ambient Light", &env.ambientEnabled)) {
+        revisions.mark(SceneChange::RenderSettings);
+    }
+    UiProbe::item("scene.ambient.on", 0);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("A viewer light, not part of the glTF: a uniform radiance from every direction, with the HDR or\n"
+                          "the procedural sky. It lights surfaces like the IBL (darkened by the same occlusion and SSAO),\n"
+                          "never the background or emissive surfaces.");
+    }
+    ImGui::BeginDisabled(!env.ambientEnabled);
+    if (ImGui::ColorEdit3("Ambient Color", &env.ambientColor.x, ImGuiColorEditFlags_Float)) {
+        env.ambientColor = (glm::max)(env.ambientColor, glm::vec3(0.0f));
+        revisions.mark(SceneChange::RenderSettings);
+    }
+    UiProbe::item("scene.ambient.color", 0);
+    if (ImGui::SliderFloat("Ambient Intensity", &env.ambientLuminance, 0.0f, kAmbientMaxLuminance, "%.3g cd/m^2",
+                           ImGuiSliderFlags_Logarithmic)) {
+        revisions.mark(SceneChange::RenderSettings);
+    }
+    UiProbe::item("scene.ambient.intensity", 0);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Luminance of the ambient light in cd/m^2 (times the colour; white = luminance 1).\n"
+                          "1 environment unit = 12,800 cd/m^2, the procedural sky's calibrated unit. An HDR panorama has no\n"
+                          "absolute scale, so the same unit is used with it: a value adds the same radiance with both sources.\n"
+                          "For scale: a dim cockpit 1-3, an office wall about 50-100, the clear zenith sky about 2,000.");
+    }
+    ImGui::TextDisabled("%.3g environment units", env.ambientLuminance / kAmbientUnitLuminance);
+    ImGui::EndDisabled();
 }
 
 void SceneInspector::renderNightSky(SceneEnvironmentState& env, SceneRevisions& revisions)
