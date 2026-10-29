@@ -487,6 +487,7 @@ uniform vec3 u_ClearColor;
 
 void main() {
     vec3 sumRgb = vec3(0.0);
+    float peak = 0.0;
     for (int y = -1; y <= 1; y += 2) {
         for (int x = -1; x <= 1; x += 2) {
             vec2 uv = clamp(v_TexCoord + vec2(float(x), float(y)) * 0.25 * u_TexelSize, vec2(0.001), vec2(0.999));
@@ -497,11 +498,14 @@ void main() {
                 c = max(vec3(0.0), c - u_ClearColor * (1.0 - cov));
             }
             sumRgb += c;
+            peak = max(peak, max(c.r, max(c.g, c.b)));
         }
     }
     vec3 avgRgb = sumRgb * 0.25;
     float luma = dot(avgRgb, vec3(0.2126, 0.7152, 0.0722));
-    FragColor = vec4(luma, 0.0, 0.0, 1.0);
+    // A6.4b: the brightest channel of the four taps for the highlight meter (a thin screen strip partly covering the
+    // cell still reads its own value); the HDR's auto exposure reads only the red channel.
+    FragColor = vec4(luma, peak, 0.0, 1.0);
 }
 )";
 
@@ -1257,6 +1261,14 @@ GLuint AntiAliasing::renderBloom(GLuint inputHdrTexture, int width, int height, 
 
 void AntiAliasing::releaseMeterTargets()
 {
+    if (m_meterDepthRbo != 0) {
+        glDeleteRenderbuffers(1, &m_meterDepthRbo);
+        m_meterDepthRbo = 0;
+    }
+    if (m_meterDepthFbo != 0) {
+        glDeleteFramebuffers(1, &m_meterDepthFbo);
+        m_meterDepthFbo = 0;
+    }
     if (m_meterTexture != 0) {
         glDeleteTextures(1, &m_meterTexture);
         m_meterTexture = 0;
@@ -1276,7 +1288,7 @@ void AntiAliasing::ensureMeterBuffers()
 
     glGenTextures(1, &m_meterTexture);
     glBindTexture(GL_TEXTURE_2D, m_meterTexture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, kMeterSize, kMeterSize, 0, GL_RED, GL_FLOAT, nullptr);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RG32F, kMeterSize, kMeterSize, 0, GL_RG, GL_FLOAT, nullptr);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -1323,6 +1335,48 @@ float AntiAliasing::updateAutoExposure(GLuint inputHdrTexture, int width, int he
 
     std::vector<float> pixels(kMeterSize * kMeterSize, 0.0f);
     glReadPixels(0, 0, kMeterSize, kMeterSize, GL_RED, GL_FLOAT, pixels.data());
+    // A6.4b: the brightest channel per cell, for the physically based highlight meter, and which cells show a surface
+    // (scene depth below 1, nearest-sampled at the cell): the background sky (its glow around the sun, the moon, the
+    // stars) may compress in the tone mapper's shoulder as before; lit surfaces (screens, panels, an exterior seen
+    // through a window) are what the highlight meter keeps readable.
+    std::vector<float> peaks;
+    float surfaceFraction = 1.0f;
+    if (params.physicalExposure && params.highlightMetering) {
+        std::vector<float> cells(kMeterSize * kMeterSize, 0.0f);
+        glReadPixels(0, 0, kMeterSize, kMeterSize, GL_GREEN, GL_FLOAT, cells.data());
+        std::vector<float> depth;
+        if (params.sceneDepthFbo != 0) {
+            if (m_meterDepthFbo == 0) {
+                glGenRenderbuffers(1, &m_meterDepthRbo);
+                glBindRenderbuffer(GL_RENDERBUFFER, m_meterDepthRbo);
+                glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, kMeterSize, kMeterSize); // the scene's format
+                glBindRenderbuffer(GL_RENDERBUFFER, 0);
+                glGenFramebuffers(1, &m_meterDepthFbo);
+                glBindFramebuffer(GL_FRAMEBUFFER, m_meterDepthFbo);
+                glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, m_meterDepthRbo);
+                glDrawBuffer(GL_NONE);
+                glReadBuffer(GL_NONE);
+            }
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_meterDepthFbo);
+            if (glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) {
+                glBindFramebuffer(GL_READ_FRAMEBUFFER, params.sceneDepthFbo);
+                glBlitFramebuffer(0, 0, width, height, 0, 0, kMeterSize, kMeterSize, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+                glBindFramebuffer(GL_READ_FRAMEBUFFER, m_meterDepthFbo);
+                depth.assign(kMeterSize * kMeterSize, 1.0f);
+                glReadPixels(0, 0, kMeterSize, kMeterSize, GL_DEPTH_COMPONENT, GL_FLOAT, depth.data());
+            }
+            glBindFramebuffer(GL_FRAMEBUFFER, m_meterFbo);
+        }
+        peaks.reserve(cells.size());
+        size_t surfaces = 0;
+        for (size_t i = 0; i < cells.size(); ++i) {
+            // Sky cells count as black: they still make up their share of the image area.
+            const bool surface = depth.empty() || depth[i] < 1.0f;
+            peaks.push_back(surface ? cells[i] : 0.0f);
+            surfaces += surface ? 1 : 0;
+        }
+        surfaceFraction = static_cast<float>(surfaces) / static_cast<float>(cells.size());
+    }
 
     struct Sample {
         float logLuma;
@@ -1370,13 +1424,35 @@ float AntiAliasing::updateAutoExposure(GLuint inputHdrTexture, int width, int he
     float maxEv = std::max(params.autoExposureMinEv, params.autoExposureMaxEv);
     float targetEv = 0.0f;
     if (params.physicalExposure) {
+        namespace night = ux3d::imgui::night;
         // A6.4: EV100 of the metered average (pre-exposure removed), limited, then Glider's EV with the key curve.
         const float luminance = std::max(avgLuma, 1e-4f) / params.preExposure;
         m_meteredLuminance = luminance;
-        targetEv = ux3d::imgui::night::gliderEvFromEv100(ux3d::imgui::night::ev100FromLuminance(luminance), params.minEv100,
-                                                          params.maxEv100, params.exposureCompensationEv);
-        minEv = ux3d::imgui::night::gliderEvFromEv100(params.maxEv100, params.minEv100, params.maxEv100, params.exposureCompensationEv);
-        maxEv = ux3d::imgui::night::gliderEvFromEv100(params.minEv100, params.minEv100, params.maxEv100, params.exposureCompensationEv);
+        targetEv = night::gliderEvFromEv100(night::ev100FromLuminance(luminance), params.minEv100, params.maxEv100,
+                                            params.exposureCompensationEv);
+        minEv = night::gliderEvFromEv100(params.maxEv100, params.minEv100, params.maxEv100, params.exposureCompensationEv);
+        maxEv = night::gliderEvFromEv100(params.minEv100, params.minEv100, params.maxEv100, params.exposureCompensationEv);
+        m_meterReport = MeterReport{};
+        m_meterReport.valid = true;
+        m_meterReport.averageEv = targetEv;
+        m_meterReport.highlightEv = targetEv;
+        if (!peaks.empty()) {
+            // A6.4b highlight meter (NightSky.h): the brightest channel below which kHighlightPercentile of the cells lie,
+            // exposed to kHighlightTarget (plus the compensation); the darker of the two meters.
+            const size_t rank = static_cast<size_t>(night::kHighlightPercentile * static_cast<float>(peaks.size() - 1) + 0.5f);
+            std::nth_element(peaks.begin(), peaks.begin() + static_cast<std::ptrdiff_t>(rank), peaks.end());
+            const float highlight = std::max(peaks[rank], 1e-4f) / params.preExposure;
+            const float highlightEv = std::log2(night::kHighlightTarget / highlight) + params.exposureCompensationEv;
+            m_meterReport.highlightLuminance = highlight;
+            m_meterReport.surfaceFraction = surfaceFraction;
+            m_meterReport.highlightEv = highlightEv;
+            if (highlightEv < targetEv) {
+                targetEv = highlightEv;
+                m_meterReport.highlightLimited = true;
+            }
+        }
+        targetEv = std::clamp(targetEv, minEv, maxEv);
+        m_meterReport.targetEv = targetEv;
     } else {
         m_meteredLuminance = std::max(avgLuma, 1e-4f);
         targetEv = std::clamp(params.exposureCompensationEv - std::log2(std::max(avgLuma, 1e-4f) / 0.18f), minEv, maxEv);
@@ -1393,7 +1469,11 @@ float AntiAliasing::updateAutoExposure(GLuint inputHdrTexture, int width, int he
             m_adaptedEv = std::clamp(params.exposureEv, minEv, maxEv);
             m_exposureValid = true;
         }
-        const float speed = (targetEv > m_adaptedEv) ? params.autoExposureSpeedUp : params.autoExposureSpeedDown;
+        // A6.4b: with the physically based exposure the speeds are the scene brightness going up (the EV goes down:
+        // light adaptation, the faster default) and going down (dark adaptation).
+        const float speed = params.physicalExposure
+                                ? ((targetEv < m_adaptedEv) ? params.autoExposureSpeedUp : params.autoExposureSpeedDown)
+                                : ((targetEv > m_adaptedEv) ? params.autoExposureSpeedUp : params.autoExposureSpeedDown);
         const float dt = std::max(0.0f, params.deltaTime);
         const float factor = 1.0f - std::exp(-std::max(0.0f, speed * dt));
         m_adaptedEv = std::clamp(m_adaptedEv + (targetEv - m_adaptedEv) * factor, minEv, maxEv);

@@ -568,6 +568,10 @@ private:
     // frame so runs are reproducible; --force-full-sync restores the P4.1 mapping
     // (any pending change runs the full renderer sync) as an A/B reference.
     float s_fixedFrameTime = -1.0f;
+    // A6.4b: capture runs (--fixed-frame-time, --dump-frame, --capture-viewport, --capture-first-frame, --ui-script):
+    // the procedural sky's Auto exposure snaps to its meter every frame (no adaptation history), so a setting given on
+    // the command line or over the pipe ends in the same image.
+    bool s_deterministicExposure = false;
     bool s_forceFullSync = false;
     // A2.2 material-edit cost check: the material whose emissive factor is changed every
     // frame, and the resolved glTF material (null until the model is loaded).

@@ -207,7 +207,7 @@ setting, and changing it is seamless.
     `cubemap.frag` (`environment_block.glsl` `u_PreExposure`).
     - **Modes** (`exposure_mode`, Scene Inspector → Environment → Exposure Mode): *Manual* (the EV, unchanged), *Auto (eye
       adaptation)*, *Time-of-day curve*, and *default*: Manual with the HDR source (byte-identical to before), the curve
-      with the procedural sky. `auto_exposure on/off` = auto / manual. With the HDR, Auto is the previous metered auto
+      with the procedural sky (Auto since A6.4b, below). `auto_exposure on/off` = auto / manual. With the HDR, Auto is the previous metered auto
       exposure and the curve acts as Manual (an HDR panorama has no time of day).
     - **Units:** saturation-based exposure at ISO 100 (Lagarde & de Rousiers 2014) H = 1 / (1.2 x 2^EV100) per cd/m^2;
       with A6.2's 1 unit = 12,800 cd/m^2 this is **Glider EV = 13.38 - EV100** (EV 0 = EV100 13.4). Auto meters the
@@ -238,6 +238,41 @@ setting, and changing it is seamless.
     32 x 32 multiple-scattering LUT was filtered linearly where Psi_ms falls by orders of magnitude): `sky_passes.frag`
     now interpolates it bilinearly in log space (validate_sky still passes, references within tolerance). Interiors at
     night (MSFS-scaled emissive panels) need Auto: the curve is the exterior's and overexposes cockpits.
+  - **A6.4b (2026-10-29), deviation: Auto is the procedural sky's default, with highlight metering.** Review of the
+    A6.4 commit: with the sky at night the curve blew the E195 cockpit out, and Auto clipped its screens (and those of
+    the DA62, metered EV 21.5 from the dark sky and stars through the windows).
+    - `exposure_mode default` = **Auto** with the procedural sky (Manual with the HDR, byte-identical); Curve and Manual
+      stay selectable. `exposure_metering average|highlight` (default highlight; Scene Inspector → Metering, after the
+      exposure controls).
+    - **Highlight meter** (`NightSky.h`, `AntiAliasing::updateAutoExposure`): the meter pass also writes the brightest
+      channel of its four taps per 64 x 64 cell; cells showing the background (scene depth = 1, a nearest-sampled 64 x 64
+      blit of the scene depth; single-sample targets only, with MSAA every cell counts) count as black, so the sky's
+      glow round a low sun, the moon and the stars may compress in the shoulder as before. The value at the **99.7th
+      percentile** of the image area (minimum bright area 0.3%, about 12 cells) is exposed to **0.8** (PBR Neutral's
+      shoulder starts at 0.76; displayed about 0.87 sRGB), plus `exposure_compensation`; no key curve (a display limit).
+      The exposure is the **darker** of that and the average meter (unchanged: trimmed centre-weighted log average, EV100,
+      key curve, compensation, EV100 limits). Single LEDs, the moon and stars do not move it (measured below).
+    - **Pre-exposure follows Auto:** `2^round(adapted EV)` (a power of two: exact, so the image does not depend on which
+      one was used) instead of the curve's; with the curve's (2^20.6 at night) the 3-5 unit MSFS-scaled screens were
+      clipped at the half-float target's 13,000 limit before the meter saw them. Interactively it changes when the
+      adapted EV is more than 1 EV away (hysteresis).
+    - **Adaptation:** with the sky the two speeds are read as the scene getting brighter (3 /s, light adaptation) and
+      darker (1.5 /s); the sliders are labelled *Adapt to Brighter / Darker*. The HDR's Auto is unchanged.
+    - **Determinism:** capture runs (`--fixed-frame-time`, `--dump-frame`, `--capture-viewport`, `--capture-first-frame`,
+      `--ui-script`) snap the sky's Auto to its meter every frame and set the pre-exposure from the last frame only, so
+      pipe and CLI give byte-identical images (validate_sky's pipe = CLI and validate_night's Auto pipe = CLI pass).
+    - **Measured** (validate_night, 1280 x 720, no AA): E195 cockpit main displays at night EV -1.91 (average meter 1.56,
+      highlight -1.91), screens' 99th percentile 0.871-0.882, 6.5% of the panel outside the screens lit above 0.1;
+      E195 windshield view at noon EV -2.56, screens 0.702, 0.37% of the image clipped, panel median 0.059; DA62 at night
+      EV -2.64 (average 7.2), screens 0.875. Exterior Auto unchanged from A6.4 (noon 0.343, sunset 0.295, dusk 0.202,
+      night 0.114, full moon 0.093; sweep largest step 0.0185). Star field on/off 0.004 EV, moon in view on/off 0.000 EV,
+      a single LED on a surface 0.002 EV.
+    - **Not met / finding:** the MSFS-scaled displays are flat emissive 3000-5000 (A1.6: x 0.001 = 3-5 units =
+      38,000-64,000 cd/m^2 in the sky's units, 50-100 x a real avionics display), 28 EV above the night sky. Keeping them
+      unclipped leaves the DA62 interior and its stars black (the stars need about EV 18+). `exposure_metering average`
+      gives the A6.4 look (530 stars detected, screens clipped). The E195/DA62 screens have no content in the glTF
+      (render targets), so "content contrast" is the screen against its bezel. A physically calibrated MSFS emissive
+      scale for the sky's units would ease this; not changed here (A1.6 setting).
 - [x] **A6.5 — Emissive day/night and lights (R2). Owner: Claude.** The A1.6 day/night switch and the A3.3 macro
   lights' day/night cycle follow the time of day.
   - **Done 2026-10-29.** Automatic day/night now blends: night weight w = smoothstep from threshold + 3 to threshold - 3

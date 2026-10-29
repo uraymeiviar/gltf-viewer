@@ -133,9 +133,17 @@ Commands run on the render thread between frames, strictly in order. Multi-frame
 
 ## Exposure, moon, stars, night (A6.4 / A6.5 / A6.6)
 
-- `exposure_mode` (environment): `default` (Manual with the HDR, `curve` with the procedural sky), `manual` (the
+- `exposure_mode` (environment): `default` (Manual with the HDR, `auto` with the procedural sky), `manual` (the
   `exposure` EV), `auto` (metered eye adaptation; with the sky in EV100 with a key curve), `curve` (the sky's exposure
   from the time of day: sun + sky + moon + night glow illuminance). `auto_exposure true/false` = `auto` / `manual`.
+- `exposure_metering` (environment, sky `auto` only): `highlight` (default) = the darker of the average meter and a
+  highlight meter that keeps the brightest lit surfaces (0.3% of the image; the background sky, moon and stars do not
+  count) at 0.8 exposed, so lit cockpit screens are not blown out; `average` = the average meter only (the A6.4
+  behaviour: dark interiors brighter, screens clipped). `get_state` `night.exposure.viewports[].meter`: `averageEv`,
+  `highlightEv`, `highlightLuminance`, `surfaceFraction`, `limitedBy`. Capture runs (`--fixed-frame-time`,
+  `--capture-viewport`, `--dump-frame`, `--ui-script`; pipe sessions started with them) snap Auto to the meter every frame,
+  so a pipe setting and the same CLI flag give the same image; interactively it adapts (3 /s to brighter, 1.5 /s to
+  darker).
   Glider EV = 13.38 - EV100 + key (+ `exposure_compensation`); `exposure_min_ev100` (-12) / `exposure_max_ev100` (18).
   With the sky in `auto`/`curve` the scene target is pre-exposed: `probe` / `probe_region` still return linear
   radiance in environment units (`get_state` `night.exposure.viewports[].preExposure`, `exposureEv`).
@@ -150,7 +158,9 @@ Commands run on the render thread between frames, strictly in order. Multi-frame
   `directionalLight.source` (`sun` / `moon`), `emissiveNightBlend`. `sun.shadows.viewports[].light` names the light.
 - `time_of_day auto` blends the ASOBO_material_emissive day/night multipliers over twilight (night weight smoothstep
   from threshold + 3 to threshold - 3 deg; `timeOfDay.dayNight.nightBlend`).
-- Interiors at night: use `exposure_mode auto` (the curve is the exterior's; MSFS-scaled panels stay much brighter).
+- Interiors at night: the default `auto` with `highlight` metering keeps the MSFS-scaled screens readable (they are
+  3-5 units = 40,000-64,000 cd/m^2, so the unlit panel and the stars are near black); `exposure_metering average`
+  shows the dark cockpit and the stars with the screens clipped; `curve` is the exterior's and overexposes cockpits.
 
 ## Ground (A3.6)
 

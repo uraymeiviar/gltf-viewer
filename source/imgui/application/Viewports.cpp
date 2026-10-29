@@ -530,8 +530,13 @@ void Application::drawViewports(FrameContext& frame)
         const bool exposureAdapting = exposure.mode == ux3d::imgui::ExposureMode::Auto && vp->antiAliasing.isExposureAdapting();
         const bool cameraJumped = !vp->hasCachedImage ||
             (glm::distance(cameraEye, vp->lastRenderKey.eye) > 0.5f * std::max(1.0f, cameraZoom));
+        // A6.4b: the physically based Auto asks for a new pre-exposure (its scene target follows the adapted EV).
+        const bool autoPhysical = exposure.physical && exposure.mode == ux3d::imgui::ExposureMode::Auto;
+        if (!autoPhysical) vp->autoPreExposure = 0.0f;
+        const bool preExposurePending = autoPhysical && vp->physicalExposure && vp->autoPreExposure > 0.0f &&
+                                        vp->autoPreExposure != vp->preExposure;
         const bool redrawScene = s_disableRedrawSkip || !keyUnchanged || pickingRendered || taaAccumulating || exposureAdapting
-            || ux3d::imgui::RenderQuality::wantsSample();
+            || preExposurePending || ux3d::imgui::RenderQuality::wantsSample();
         if (redrawScene) {
             vp->taaStableRenders =
                 (keyUnchanged && isTaa && vp->antiAliasing.isHistoryValid()) ? vp->taaStableRenders + 1 : 0;
@@ -894,7 +899,13 @@ void Application::drawViewports(FrameContext& frame)
             // runs; debug views stay unscaled).
             {
                 const bool debugView = mode != ux3d::renderer::RenderMode::None && mode != ux3d::renderer::RenderMode::Wireframe;
-                vp->preExposure = exposure.physical && !debugView ? exposure.preExposure : 1.0f;
+                vp->physicalExposure = exposure.physical && !debugView;
+                // A6.4b: Auto writes its scene target at its own adapted exposure once it has metered (before that, and
+                // in Curve, at the time-of-day curve's).
+                const float physicalPreExposure =
+                    (exposure.mode == ux3d::imgui::ExposureMode::Auto && vp->autoPreExposure > 0.0f) ? vp->autoPreExposure
+                                                                                                     : exposure.preExposure;
+                vp->preExposure = vp->physicalExposure ? physicalPreExposure : 1.0f;
                 commandGenerator->setPreExposure(vp->preExposure);
             }
             // A6.2: the procedural sky is in world space; the HDR's intensity, rotation and blur do not apply to it.
@@ -1183,8 +1194,12 @@ void Application::drawViewports(FrameContext& frame)
             postParams.autoExposure = exposure.mode == ux3d::imgui::ExposureMode::Auto;
             // A6.4: the procedural sky's physical modes (pre-exposed input; Curve = the curve's EV, Auto = metered EV100).
             postParams.preExposure = vp->preExposure;
-            if (exposure.physical && vp->preExposure != 1.0f) {
+            if (exposure.physical && vp->physicalExposure) {
                 postParams.physicalExposure = true;
+                postParams.highlightMetering = activeEnvironment.exposureMetering ==
+                                               static_cast<int>(ux3d::imgui::night::ExposureMetering::Highlight);
+                // A6.4b: the scene depth tells the highlight meter surfaces from the sky (single-sample targets only).
+                if (vp->sceneFbo.getSamples() <= 1) postParams.sceneDepthFbo = vp->sceneFbo.getFbo();
                 postParams.minEv100 = activeEnvironment.exposureMinEV100;
                 postParams.nightVision = std::clamp(activeEnvironment.nightSky.nightVision, 0.0f, 1.0f);
                 postParams.maxEv100 = activeEnvironment.exposureMaxEV100;
@@ -1202,8 +1217,23 @@ void Application::drawViewports(FrameContext& frame)
             postParams.autoExposureSpeedDown = activeEnvironment.autoExposureSpeedDown;
             postParams.deltaTime = frame.deltaTime;
             postParams.snapExposure = cameraJumped && !activeEnvironment.autoExposureStartFromManual;
+            // A6.4b: capture runs snap the physically based Auto to its meter on every frame (no adaptation history, so
+            // the CLI and the pipe end in the same image).
+            if (postParams.physicalExposure && s_deterministicExposure) postParams.snapExposure = true;
             vp->antiAliasing.renderPostProcess(hdrTexture, vp->overlayFbo.getFbo(), vpW, vpH, postParams);
             vp->displayedExposureEv = postParams.autoExposure ? vp->antiAliasing.getAdaptedExposureEv() : postParams.exposureEv;
+            if (postParams.autoExposure && postParams.physicalExposure && vp->antiAliasing.hasAdaptedExposure()) {
+                // A6.4b: the next render's pre-exposure: 2^round(adapted EV), a power of two (exact in floating point,
+                // so the image does not depend on which one was used). Interactively it changes only once the
+                // adaptation has moved a whole EV away (hysteresis: no new value every frame); capture runs follow the
+                // meter exactly, so the final pre-exposure is a function of the final frame only.
+                const float adapted = vp->antiAliasing.getAdaptedExposureEv();
+                const float wanted = std::exp2(std::round(std::clamp(adapted, -40.0f, 60.0f)));
+                if (s_deterministicExposure || vp->autoPreExposure <= 0.0f ||
+                    std::abs(adapted - std::log2(vp->autoPreExposure)) > 1.0f) {
+                    vp->autoPreExposure = wanted;
+                }
+            }
 
             if (aaMode == ux3d::imgui::AntiAliasingMode::FXAA) {
                 const auto aaStart = ux3d::imgui::profiling::Clock::now();

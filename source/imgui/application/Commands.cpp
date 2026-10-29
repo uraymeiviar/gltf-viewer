@@ -570,15 +570,28 @@ json Application::nightStateJson(const ux3d::imgui::SceneEnvironmentState& envir
                      {"curveEv100", agent::floatJson(plan.curveEv100)},
                      {"curveEv", agent::floatJson(plan.curveEv)},
                      {"preExposure", agent::floatJson(plan.preExposure)},
+                     {"metering", environment.exposureMetering == static_cast<int>(night::ExposureMetering::Average) ? "average"
+                                                                                                                       : "highlight"},
                      {"toneMapping", effectiveToneMapping(environment)}};
     json viewportsJson = json::array();
     for (const auto& vp : viewports) {
         if (vp == nullptr) continue;
-        viewportsJson.push_back({{"viewport", vp->id},
-                                 {"preExposure", agent::floatJson(vp->preExposure)},
-                                 {"exposureEv", agent::floatJson(vp->displayedExposureEv)},
-                                 {"meteredLuminance", agent::floatJson(vp->antiAliasing.getMeteredLuminance())},
-                                 {"adapting", vp->antiAliasing.isExposureAdapting()}});
+        json entry = {{"viewport", vp->id},
+                      {"preExposure", agent::floatJson(vp->preExposure)},
+                      {"exposureEv", agent::floatJson(vp->displayedExposureEv)},
+                      {"meteredLuminance", agent::floatJson(vp->antiAliasing.getMeteredLuminance())},
+                      {"adapting", vp->antiAliasing.isExposureAdapting()}};
+        // A6.4b: the physically based Auto exposure's two meters (Glider EV, compensation included).
+        const auto& meter = vp->antiAliasing.getMeterReport();
+        if (plan.physical && plan.mode == ExposureMode::Auto && meter.valid) {
+            entry["meter"] = {{"averageEv", agent::floatJson(meter.averageEv)},
+                              {"highlightEv", agent::floatJson(meter.highlightEv)},
+                              {"highlightLuminance", agent::floatJson(meter.highlightLuminance)},
+                              {"targetEv", agent::floatJson(meter.targetEv)},
+                              {"surfaceFraction", agent::floatJson(meter.surfaceFraction)},
+                              {"limitedBy", meter.highlightLimited ? "highlight" : "average"}};
+        }
+        viewportsJson.push_back(std::move(entry));
     }
     exposure["viewports"] = viewportsJson;
 
@@ -1627,7 +1640,7 @@ void Application::registerAgentSettings()
         spec.type = SettingType::Enum;
         spec.help = "Exposure: manual (the exposure EV), auto (eye adaptation: metered; with the procedural sky in EV100 "
                     "with the key curve and exposure_min/max_ev100), curve (procedural sky: from the sun/moon/sky "
-                    "illuminance of the time of day; Manual with the HDR) or default (Manual with the HDR source, curve "
+                    "illuminance of the time of day; Manual with the HDR) or default (Manual with the HDR source, auto "
                     "with the procedural sky).";
         spec.cliFlag = "--exposure-mode <default|manual|auto|curve>";
         static const std::vector<std::string> modes = {"default", "manual", "auto", "curve"};
@@ -1651,6 +1664,12 @@ void Application::registerAgentSettings()
     addSetting(floatSetting<ES>("exposure_max_ev100", E, &ES::exposureMaxEV100,
                                 "Procedural sky, Auto/Curve exposure: brightest scene exposed for, in EV100 (default 18).",
                                 "--exposure-max-ev100 <ev>", std::pair{-20.0, 25.0}));
+    addSetting(indexEnumSetting<ES>("exposure_metering", E, &ES::exposureMetering, {"average", "highlight"},
+                                    "Procedural sky, Auto exposure: average (trimmed centre-weighted log average with the "
+                                    "key curve) or highlight (default: the darker of the average and an exposure that keeps "
+                                    "the brightest lit surfaces (0.3% of the image) below the tone mapper's shoulder; lit "
+                                    "screens stay readable; the sky, moon, stars and single lights are ignored).",
+                                    "--exposure-metering <average|highlight>"));
     addSetting(floatSetting<ES>("hdr_rotation", E, &ES::hdrRotation, "Environment rotation in degrees.", "--hdr-rotation <deg>"));
     addSetting(floatSetting<ES>("hdr_intensity", E, &ES::hdrIntensity, "Environment (IBL) intensity."));
     addSetting(floatSetting<ES>("hdr_blur", E, &ES::hdrBlur, "Background blur.", {}, std::pair{0.0, 1.0}));

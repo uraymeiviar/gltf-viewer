@@ -32,8 +32,8 @@ struct SceneEnvironmentState {
     // before A6.4), kSkyDefaultToneMapping with the procedural sky.
     int toneMappingIdx = -1;
     float exposureEV = 0.0f; // EV value, exposure = 2^EV
-    // A6.4: ExposureMode (NightSky.h). Default = Manual with the HDR source (the behaviour before A6.4), Curve with the
-    // procedural sky. Auto with the HDR is the metered auto exposure (EV limits below); with the procedural sky it is
+    // A6.4: ExposureMode (NightSky.h). Default = Manual with the HDR source (the behaviour before A6.4), Auto with the
+    // procedural sky (A6.4b; Curve before). Auto with the HDR is the metered auto exposure (EV limits below); with the procedural sky it is
     // physically based (EV100, limits exposureMinEV100..MaxEV100, key curve), and so is Curve (from the sun/moon).
     int exposureMode = static_cast<int>(ExposureMode::Default);
     bool autoExposureStartFromManual = false;
@@ -44,6 +44,9 @@ struct SceneEnvironmentState {
     float autoExposureSpeedDown = 1.5f;
     float exposureMinEV100 = night::kDefaultMinEv100; // A6.4 physically based modes (procedural sky)
     float exposureMaxEV100 = night::kDefaultMaxEv100;
+    // A6.4b: metering of the procedural sky's Auto exposure (night::ExposureMetering): Highlight (default) is the darker
+    // of the average and the highlight meter, Average the average meter only (the A6.4 behaviour).
+    int exposureMetering = static_cast<int>(night::ExposureMetering::Highlight);
 
     bool bloomEnabled = true;
     float bloomIntensity = 0.04f;
@@ -112,7 +115,7 @@ inline ExposureMode effectiveExposureMode(const SceneEnvironmentState& environme
 {
     const ExposureMode mode = static_cast<ExposureMode>(std::clamp(environment.exposureMode, -1, 2));
     if (mode != ExposureMode::Default) return mode;
-    return environment.environmentSource == 1 ? ExposureMode::Curve : ExposureMode::Manual;
+    return environment.environmentSource == 1 ? ExposureMode::Auto : ExposureMode::Manual;
 }
 
 // Unit vector from the surface towards the sun for the A3.1 convention above.

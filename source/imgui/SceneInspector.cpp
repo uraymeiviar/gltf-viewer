@@ -337,7 +337,7 @@ void SceneInspector::render(SceneEnvironmentState& env,
         }
 
         // Exposure mode (Manual / Auto / Time-of-day curve, A6.4) and controls. An unset mode shows the source's
-        // default (Manual with the HDR, Time-of-day curve with the procedural sky).
+        // default (Manual with the HDR, Auto with the procedural sky).
         const char* exposureModeNames[] = { "Manual", "Auto (eye adaptation)", "Time-of-day curve" };
         const ExposureMode effectiveMode = effectiveExposureMode(env);
         int exposureModeIdx = static_cast<int>(effectiveMode);
@@ -351,7 +351,7 @@ void SceneInspector::render(SceneEnvironmentState& env,
             ImGui::SetTooltip("Manual: the EV below. Auto: metered eye adaptation (with the procedural sky in EV100 with a key\n"
                               "curve that keeps night darker than day). Time-of-day curve: the procedural sky's exposure from\n"
                               "the sun, sky, moon and night glow illuminance (Manual with the HDR). Default: Manual with the\n"
-                              "HDR, Time-of-day curve with the procedural sky.");
+                              "HDR, Auto with the procedural sky.");
         }
         const bool physicalExposure = env.environmentSource == static_cast<int>(EnvironmentSource::ProceduralSky) &&
                                       effectiveMode != ExposureMode::Manual;
@@ -373,11 +373,26 @@ void SceneInspector::render(SceneEnvironmentState& env,
                 revisions.mark(SceneChange::RenderSettings);
             }
             if (effectiveMode == ExposureMode::Auto) {
-                if (ImGui::SliderFloat("Adapt Speed Up", &env.autoExposureSpeedUp, 0.2f, 20.0f, "%.1f /s")) {
+                // A6.4b: the physically based speeds are the scene brightness going up (light adaptation) / down.
+                if (ImGui::SliderFloat("Adapt to Brighter", &env.autoExposureSpeedUp, 0.2f, 20.0f, "%.1f /s")) {
                     revisions.mark(SceneChange::RenderSettings);
                 }
-                if (ImGui::SliderFloat("Adapt Speed Down", &env.autoExposureSpeedDown, 0.2f, 20.0f, "%.1f /s")) {
+                if (ImGui::SliderFloat("Adapt to Darker", &env.autoExposureSpeedDown, 0.2f, 20.0f, "%.1f /s")) {
                     revisions.mark(SceneChange::RenderSettings);
+                }
+                // A6.4b metering (NightSky.h), after the existing controls.
+                const char* meteringNames[] = { "Average", "Average + highlights" };
+                int metering = std::clamp(env.exposureMetering, 0, 1);
+                if (ImGui::Combo("Metering", &metering, meteringNames, 2)) {
+                    env.exposureMetering = metering;
+                    revisions.mark(SceneChange::RenderSettings);
+                }
+                UiProbe::item("scene.exposure.metering", 0);
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Average: trimmed centre-weighted log average with the key curve.\n"
+                                      "Average + highlights (default): the darker of the average and an exposure that keeps the\n"
+                                      "brightest lit surfaces (0.3%% of the image: screens, panels) below the tone mapper's shoulder.\n"
+                                      "The sky, the moon, the stars and single lights do not count.");
                 }
             }
         } else if (effectiveMode != ExposureMode::Auto) {

@@ -51,6 +51,13 @@ struct HdrPostProcessParams {
     bool physicalExposure = false;
     float minEv100 = -12.0f;
     float maxEv100 = 18.0f;
+    // A6.4b (NightSky.h): Auto with physicalExposure also meters the highlights (the darker of the average and the
+    // highlight exposure) unless highlightMetering is off. Adaptation: autoExposureSpeedUp while the scene gets
+    // brighter (the EV goes down), autoExposureSpeedDown while it gets darker.
+    bool highlightMetering = true;
+    // A6.4b: single-sample framebuffer holding the scene depth of this frame (0 = none, e.g. with MSAA): the highlight
+    // meter then counts only surfaces (depth < 1), not the background sky; without it every cell counts.
+    GLuint sceneDepthFbo = 0;
     // A6.6: largest weight of the per-pixel scotopic (rod vision) shift; 0 = off (the image is unchanged). Only with
     // calibrated units (the procedural sky's physical exposure).
     float nightVision = 0.0f;
@@ -122,6 +129,19 @@ public:
     float getAdaptedExposureEv() const { return m_adaptedEv; }
     // A6.4: the last metered scene average luminance (environment units, pre-exposure removed; 0 before metering).
     float getMeteredLuminance() const { return m_meteredLuminance; }
+    // A6.4b: the physically based Auto exposure's two meters (Glider EV, compensation included) and the highlight
+    // luminance (brightest channel at kHighlightPercentile, environment units); valid after a physical metering.
+    struct MeterReport {
+        bool valid = false;
+        float averageEv = 0.0f;
+        float highlightEv = 0.0f;
+        float highlightLuminance = 0.0f;
+        float targetEv = 0.0f;
+        bool highlightLimited = false; // the target is the highlight meter's
+        float surfaceFraction = 1.0f;  // fraction of the meter cells counted by the highlight meter (surfaces)
+    };
+    const MeterReport& getMeterReport() const { return m_meterReport; }
+    bool hasAdaptedExposure() const { return m_exposureValid; }
     // Restart auto-exposure (model load, camera jump); independent of the TAA history.
     void resetExposure();
     bool isExposureAdapting() const { return m_exposureAdapting; }
@@ -214,8 +234,11 @@ private:
     GLint m_meterClearColorLoc = -1;
     GLuint m_meterFbo = 0;
     GLuint m_meterTexture = 0;
+    GLuint m_meterDepthFbo = 0; // A6.4b: kMeterSize^2 nearest-sampled scene depth (sky exclusion)
+    GLuint m_meterDepthRbo = 0;
     float m_adaptedEv = 0.0f;
     float m_meteredLuminance = 0.0f;
+    MeterReport m_meterReport;
     bool m_exposureValid = false;
     bool m_exposureAdapting = false;
     bool m_snapExposureNext = false;

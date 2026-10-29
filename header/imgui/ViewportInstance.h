@@ -96,6 +96,11 @@ struct ViewportInstance {
     int skyPortalCount = 0;
     // A6.4: the pre-exposure this viewport's last render wrote its scene target with (1 = none) and its exposure.
     float preExposure = 1.0f;
+    bool physicalExposure = false; // the last render used the procedural sky's physically based exposure
+    // A6.4b: the pre-exposure the physically based Auto exposure asks for (2^round(adapted EV); 0 = none yet): the
+    // scene target is written near the displayed range, so lit screens far above the time-of-day curve's exposure
+    // do not saturate the half-float target.
+    float autoPreExposure = 0.0f;
     // A6.6: the light the shadow map was rendered for (the moon at night) and its direction.
     bool sunShadowFromMoon = false;
     glm::vec3 sunShadowDirection = glm::vec3(0.0f, 1.0f, 0.0f);

@@ -24,7 +24,16 @@ Checks:
   * emissive: Automatic day/night blends the ASOBO_material_emissive multipliers as a smoothstep from threshold + 3 to
     threshold - 3 degrees (radiance of an emissive quad = day x (1 - w) + night x w, w the reported nightBlend), exactly
     Day / Night outside;
-  * registry keys and CLI flags, invalid values refused, pipe = CLI (byte-identical), zero GL errors.
+  * registry keys and CLI flags, invalid values refused, pipe = CLI (byte-identical), zero GL errors;
+  * A6.4b interiors (Auto with the highlight meter, the procedural sky's default): E195 cockpit main displays at night
+    and the E195 windshield view at noon, the DA62 SDK cockpit at night (if installed, read only): the display screens
+    (found by their nodes' screen rectangles, --report-node) are not clipped (99th percentile of the displayed luma in
+    each rectangle < SCREEN_CLIP_LIMIT) and stand out from their bezels (95th - 5th percentile >= SCREEN_CONTRAST);
+    the rest of the panel is not black (its lit legends and buttons: PANEL_LIT_FRACTION of it above PANEL_LIT_LUMA) at
+    night, readable at noon (median >= NOON_PANEL_MEDIAN) with at most WINDOW_CLIP_FRACTION of the image clipped; the
+    DA62's stars through the windows are counted (and checked with --exposure-metering average); a star field and the
+    moon change the Auto EV by at most POINT_LIGHT_EV; Auto through the pipe ends in the same image as on the command
+    line (byte-identical).
 
 Run: python scripts/validate_night.py [--baseline-exe build/baselines/<sha>.exe] [--only a,b]
 """
@@ -63,6 +72,21 @@ MOONLIGHT_TOLERANCE = 0.10
 ROTATION_TOLERANCE = 1.0         # degrees
 SIDEREAL_DEG_PER_HOUR = 15.041
 EMISSIVE_TOLERANCE = 0.01
+SCREEN_CLIP_LIMIT = 0.95         # A6.4b: 99th percentile of the displayed luma in a screen rectangle
+SCREEN_CONTRAST = 0.3            # 95th - 5th percentile in a screen rectangle (screen against its bezel)
+PANEL_LIT_LUMA = 0.1             # night: lit legends / buttons outside the screens
+PANEL_LIT_FRACTION = 0.005
+NOON_PANEL_MEDIAN = 0.04
+WINDOW_CLIP_FRACTION = 0.02      # noon cockpit: pixels with a channel >= 250 / 255 outside the screens
+POINT_LIGHT_EV = 0.25
+
+E195_SCREENS = ["SCREEN_EICAS", "LCD_MFD_SCREEN_L", "LCD_MFD_SCREEN_R", "LCD_PFD_SCREEN_L", "LCD_PFD_SCREEN_R"]
+DA62 = Path(r"C:\MSFS 2024 Flighting SDK\Samples\DevmodeProjects\SimObjects\Aircraft\DA62")
+DA62_COCKPIT = DA62 / "PackageSources/SimObjects/Airplanes/DA62_SDK/attachments/asobo/Part_Interior_Cockpit/model/Cockpit_LOD00.gltf"
+DA62_CAMERA = ["--camera-target", "0.3,0.62,0.1", "--camera-distance", "0.05", "--camera-pitch", "-20", "--camera-fov", "55",
+               "--camera-yaw", "220", "--search-path", str(DA62 / "Sources/Art/Max/textures")]
+DA62_SCREENS = ["COCKPIT_Attitude_Screen", "COCKPIT_Speed_Screen"]
+NIGHT_EMISSIVE = ["--time-preset", "night", "--time-of-day", "auto"]
 
 # Dates (Seattle, UTC-7): the 2026-05-01 full moon (17:23 UTC) at 23:30 local is 15 degrees up; 2026-04-26 22:00 a
 # waxing gibbous; 2026-04-22 21:30 a crescent before the first quarter; the default 2026-04-15 is two days before the
@@ -291,8 +315,10 @@ def check_exposure():
                   f"sun el {data['timeOfDay']['sun']['elevation']:.1f})")
     # Default mode with the sky is Auto, with the HDR Manual.
     _, data = render(model, "exposure_default_mode", SKY + ["--ground", "plane"] + E195_CAMERA, frame=2)
-    check(data["night"]["exposure"]["mode"] == "default" and data["night"]["exposure"]["effectiveMode"] == "curve",
-          f"default exposure mode with the procedural sky resolves to curve ({data['night']['exposure']['effectiveMode']})")
+    check(data["night"]["exposure"]["mode"] == "default" and data["night"]["exposure"]["effectiveMode"] == "auto" and
+          data["night"]["exposure"]["metering"] == "highlight",
+          f"default exposure mode with the procedural sky resolves to auto with highlight metering (A6.4b; "
+          f"{data['night']['exposure']['effectiveMode']}, {data['night']['exposure'].get('metering')})")
 
     # Evening sweep: sunset - 30 min .. sunset + 2.5 h.
     for mode in ("curve", "auto"):
@@ -645,19 +671,19 @@ def check_registry():
     try:
         listed = {s["key"]: s for s in session.call("list_settings", scope="environment")["settings"]}
         wanted = ["exposure_mode", "exposure_min_ev100", "exposure_max_ev100", "moon", "moonlight_scale", "stars",
-                  "star_density", "sky_airglow", "night_vision", "tone_mapping", "auto_exposure"]
+                  "star_density", "sky_airglow", "night_vision", "tone_mapping", "auto_exposure", "exposure_metering"]
         missing = [k for k in wanted if k not in listed]
         check(not missing, f"registry keys listed ({', '.join(wanted)}); missing {missing}")
         check(listed["exposure_mode"]["values"] == ["default", "manual", "auto", "curve"],
               f"exposure_mode values {listed['exposure_mode'].get('values')}")
         refused = 0
         for key, value in (("exposure_mode", "sometimes"), ("moonlight_scale", -1), ("star_density", 50),
-                           ("tone_mapping", "filmic"), ("night_vision", 2)):
+                           ("tone_mapping", "filmic"), ("night_vision", 2), ("exposure_metering", "spot")):
             try:
                 session.env(key, value)
             except glider_ctl.GliderError:
                 refused += 1
-        check(refused == 5, f"invalid values refused ({refused} of 5)")
+        check(refused == 6, f"invalid values refused ({refused} of 6)")
         session.env("exposure_mode", "manual")
         check(session.call("get_environment", key="auto_exposure")["value"] is False, "exposure_mode manual: auto_exposure off")
         session.env("auto_exposure", True)
@@ -668,7 +694,7 @@ def check_registry():
         check(False, f"registry session failed: {error}")
         session.process.kill()
     for flag, value in (("--exposure-mode", "sometimes"), ("--moon", "maybe"), ("--stars", "maybe"),
-                        ("--moonlight-scale", "-1")):
+                        ("--moonlight-scale", "-1"), ("--exposure-metering", "spot")):
         result = run([EXE, model, "--isolated", flag, value], timeout=120)
         check(result.returncode != 0, f"{flag} {value} is refused (exit {result.returncode})")
     # Pipe = CLI.
@@ -690,6 +716,207 @@ def check_registry():
         session.process.kill()
 
 
+def luma_image(png):
+    a = load(png)
+    return a, a[..., 0] * LUMA[0] + a[..., 1] * LUMA[1] + a[..., 2] * LUMA[2]
+
+
+def screen_rects(data, shape):
+    """Clipped [x0, y0, x1, y1] of every reported node on screen (capture-image coordinates)."""
+    rects = {}
+    for node in (data or {}).get("nodes", []):
+        if not node.get("onScreen"):
+            continue
+        x0, y0, x1, y1 = [int(round(v)) for v in node["screenRect"]]
+        x0, y0, x1, y1 = max(x0, 0), max(y0, 0), min(x1, shape[1]), min(y1, shape[0])
+        if x1 - x0 >= 4 and y1 - y0 >= 4:
+            rects[node["name"]] = (x0, y0, x1, y1)
+    return rects
+
+
+def interior(name, model, flags, screens, search_paths=()):
+    """Captures an interior and the screens' rectangles; returns (rgb, luma, rects, outside-screens mask, report)."""
+    import numpy as np
+    extra = [a for p in search_paths for a in ("--search-path", p)] + [a for n in screens for a in ("--report-node", n)]
+    png, data = render(model, name, SKY + extra + list(flags), frame=24)
+    if png is None or data is None:
+        return None
+    rgb, luma = luma_image(png)
+    rects = screen_rects(data, luma.shape)
+    outside = np.ones(luma.shape, dtype=bool)
+    for x0, y0, x1, y1 in rects.values():
+        outside[y0:y1, x0:x1] = False
+    return rgb, luma, rects, outside, data
+
+
+def check_screens(label, luma, rects, expected):
+    import numpy as np
+    check(len(rects) >= expected, f"{label}: {len(rects)} screen rectangles in the image (>= {expected})")
+    for node, (x0, y0, x1, y1) in sorted(rects.items()):
+        region = luma[y0:y1, x0:x1]
+        p99 = float(np.percentile(region, 99))
+        contrast = float(np.percentile(region, 95) - np.percentile(region, 5))
+        check(p99 < SCREEN_CLIP_LIMIT and contrast >= SCREEN_CONTRAST,
+              f"{label} {node}: not clipped (99th percentile {p99:.3f} < {SCREEN_CLIP_LIMIT}), against its bezel "
+              f"{contrast:.3f} >= {SCREEN_CONTRAST}")
+
+
+def exposure_of(data):
+    vp = data["night"]["exposure"]["viewports"][0]
+    return vp["exposureEv"], vp.get("meter") or {}
+
+
+def describe(label, data):
+    ev, meter = exposure_of(data)
+    print(f"  INFO {label}: EV {ev:.2f}; average meter {meter.get('averageEv', 0):.2f}, highlight meter "
+          f"{meter.get('highlightEv', 0):.2f} ({meter.get('highlightLuminance', 0):.3g} units, "
+          f"{meter.get('surfaceFraction', 0) * 100:.0f}% surfaces); limited by {meter.get('limitedBy')}")
+    return ev, meter
+
+
+def stars_in(png, top=0.6):
+    """Star-like local maxima clearly above the local background in the upper part of the image (the DA62 view's
+    windows; its lit keypad is below), detect_stars without a camera."""
+    import numpy as np
+    from scipy import ndimage
+    _, luma = luma_image(png)
+    local_max = ndimage.maximum_filter(luma, size=5) == luma
+    background = ndimage.median_filter(luma, size=15)
+    peaks = local_max & (luma > background + 0.06)
+    peaks[:3, :] = peaks[-3:, :] = False
+    peaks[:, :3] = peaks[:, -3:] = False
+    peaks[int(top * peaks.shape[0]):, :] = False
+    return list(zip(*np.nonzero(peaks)))
+
+
+def check_interiors():
+    print("[A6.4b interiors: Auto with the highlight meter (the procedural sky's default)]")
+    import numpy as np
+    from validate_asobo_common import E195_SEARCH_PATHS, view
+    cockpit = REAL_ASSETS.get("Cockpit")
+    if cockpit and Path(cockpit).exists():
+        result = interior("interior_e195_night", cockpit, list(view("cockpit_main_displays")["flags"]) + NIGHT_EMISSIVE,
+                          E195_SCREENS, E195_SEARCH_PATHS)
+        if result is None:
+            check(False, "E195 cockpit night: no capture")
+        else:
+            rgb, luma, rects, outside, data = result
+            _, meter = describe("E195 cockpit night (main displays)", data)
+            check(data["night"]["exposure"]["effectiveMode"] == "auto" and meter.get("limitedBy") == "highlight",
+                  "E195 cockpit night: the default exposure is Auto, limited by the highlight meter")
+            check_screens("E195 cockpit night", luma, rects, 5)
+            lit = float((luma[outside] >= PANEL_LIT_LUMA).mean())
+            check(lit >= PANEL_LIT_FRACTION, f"E195 cockpit night: panel not black: {lit * 100:.2f}% of it (outside the "
+                                             f"screens) above {PANEL_LIT_LUMA} (>= {PANEL_LIT_FRACTION * 100:.1f}%; "
+                                             f"99th percentile {float(np.percentile(luma[outside], 99)):.3f})")
+        result = interior("interior_e195_noon", cockpit, list(view("cockpit_windshield_inside")["flags"]) +
+                          ["--time-preset", "noon", "--time-of-day", "auto"], E195_SCREENS, E195_SEARCH_PATHS)
+        if result is None:
+            check(False, "E195 cockpit noon: no capture")
+        else:
+            rgb, luma, rects, outside, data = result
+            describe("E195 cockpit noon (windshield view)", data)
+            check_screens("E195 cockpit noon", luma, rects, 2)
+            clipped = float((rgb.max(axis=2)[outside] >= 250.0 / 255.0).mean())
+            median = float(np.median(luma[outside]))
+            check(clipped <= WINDOW_CLIP_FRACTION, f"E195 cockpit noon: exterior through the windows not blown "
+                                                   f"({clipped * 100:.2f}% clipped <= {WINDOW_CLIP_FRACTION * 100:.0f}%)")
+            check(median >= NOON_PANEL_MEDIAN, f"E195 cockpit noon: panel readable (median displayed luma {median:.3f} "
+                                               f">= {NOON_PANEL_MEDIAN})")
+    else:
+        print("  SKIP E195 cockpit not available")
+    if DA62_COCKPIT.exists():
+        result = interior("interior_da62_night", DA62_COCKPIT, NIGHT_EMISSIVE + DA62_CAMERA, DA62_SCREENS)
+        if result is None:
+            check(False, "DA62 cockpit night: no capture")
+        else:
+            rgb, luma, rects, outside, data = result
+            describe("DA62 cockpit night", data)
+            check_screens("DA62 cockpit night", luma, rects, 2)
+            # Stars through the windows: next to the not clipped 2.5-5 unit (32,000-64,000 cd/m^2) MSFS-scaled displays
+            # they are far below black. Counted, and checked with the average meter (the A6.4 behaviour).
+            print(f"  INFO DA62 cockpit night: {len(stars_in(OUT / 'interior_da62_night.png'))} stars visible with the "
+                  f"highlight meter")
+            png, data = render(DA62_COCKPIT, "interior_da62_night_average", SKY + NIGHT_EMISSIVE + DA62_CAMERA +
+                               ["--exposure-metering", "average"], frame=24)
+            count = len(stars_in(png)) if png else 0
+            check(count >= 20 and data["night"]["exposure"]["metering"] == "average",
+                  f"DA62 cockpit night, --exposure-metering average: {count} stars visible through the windows")
+    else:
+        print("  SKIP DA62 SDK cockpit not installed")
+
+    print("[A6.4b small bright points do not change the Auto exposure]")
+    model = e195_model()
+    if model is not None:
+        base = SKY + ["--ground", "plane"] + E195_CAMERA + ["--time-preset", "night"]
+        _, on = render(model, "point_stars_on", base, frame=24)
+        _, off = render(model, "point_stars_off", base + ["--stars", "off"], frame=24)
+        if on and off:
+            a, b = exposure_of(on)[0], exposure_of(off)[0]
+            check(abs(a - b) <= POINT_LIGHT_EV, f"E195 exterior, star field on / off: Auto EV {a:.3f} / {b:.3f} "
+                                                f"(|difference| {abs(a - b):.3f} <= {POINT_LIGHT_EV})")
+        else:
+            check(False, "star field on / off: no capture")
+    # A single LED on a surface: a small emissive sphere (radius 0.04, 1 unit = 12,800 cd/m^2) in front of the Lambert
+    # sphere at a full-moon night, lit / unlit (emissive 0: the same geometry, so the framing is the same).
+    for lit in (True, False):
+        doc = lambert()
+        doc["materials"].append({"name": "LED", "emissiveFactor": [1.0, 0.25, 0.1] if lit else [0.0, 0.0, 0.0],
+                                 "pbrMetallicRoughness": {"baseColorFactor": [0.02, 0.02, 0.02, 1], "metallicFactor": 0.0}})
+        doc["meshes"].append({"name": "LED", "primitives": [dict(doc["meshes"][0]["primitives"][0], material=1)]})
+        doc["nodes"].append({"name": "LED", "mesh": 1, "translation": [0.35, 0.35, 1.05], "scale": [0.04, 0.04, 0.04]})
+        doc["scenes"][0]["nodes"].append(len(doc["nodes"]) - 1)
+        write(f"led_{'on' if lit else 'off'}", doc)
+    _, on = render(OUT / "led_on.gltf", "point_led_on", SKY + FULL_MOON + ["--camera-yaw", "0", "--camera-pitch", "0"], frame=24)
+    _, off = render(OUT / "led_off.gltf", "point_led_off", SKY + FULL_MOON + ["--camera-yaw", "0", "--camera-pitch", "0"], frame=24)
+    if on and off:
+        a, b = exposure_of(on)[0], exposure_of(off)[0]
+        check(abs(a - b) <= POINT_LIGHT_EV, f"single LED on a surface on / off: Auto EV {a:.3f} / {b:.3f} (|difference| "
+                                            f"{abs(a - b):.3f} <= {POINT_LIGHT_EV}; limited by "
+                                            f"{exposure_of(on)[1].get('limitedBy')})")
+    else:
+        check(False, "single LED on / off: no capture")
+    # The moon disk in view, on / off, in a scene without surfaces (so its light changes nothing else).
+    session = Session(empty_model(), SKY + FULL_MOON)
+    try:
+        moon = session.call("get_state")["night"]["moon"]
+        session.look(moon["direction"], 60.0)
+        values = []
+        for setting in (True, False):
+            session.env("moon", setting)
+            session.capture(f"point_moon_{'on' if setting else 'off'}", frames=8)
+            values.append(session.call("get_state")["night"]["exposure"]["viewports"][0]["exposureEv"])
+        a, b = values
+        check(abs(a - b) <= POINT_LIGHT_EV, f"moon in view on / off: Auto EV {a:.3f} / {b:.3f} (|difference| "
+                                            f"{abs(a - b):.3f} <= {POINT_LIGHT_EV})")
+        errors = session.close()
+        check(errors == 0, f"moon session: {errors} GL errors")
+    except Exception as error:  # noqa: BLE001
+        check(False, f"moon session failed: {error}")
+        session.process.kill()
+
+    print("[A6.4b Auto: command line = pipe after convergence]")
+    flags = ["--time", "20:40", "--ground", "plane", "--ground-height", "-1", "--exposure-compensation", "0.5"]
+    model = write("lambert", lambert())
+    cli, _ = render(model, "auto_cli_reference", SKY + ["--sky-time-slicing", "off"] + flags, frame=16)
+    session = Session(model, SKY + ["--sky-time-slicing", "off"])
+    try:
+        session.env("time", "20:40")
+        session.call("set_viewport_setting", key="ground", value="plane")
+        session.call("set_viewport_setting", key="ground_height_mode", value="custom")
+        session.call("set_viewport_setting", key="ground_height", value=-1)
+        session.env("exposure_compensation", 0.5)
+        piped = session.capture("auto_pipe", frames=16)
+        state = session.call("get_state")["night"]["exposure"]
+        errors = session.close()
+        check(state["effectiveMode"] == "auto" and same(cli, piped),
+              "Auto (the sky's default): pipe settings = CLI flags (byte-identical capture)")
+        check(errors == 0, f"Auto pipe session: {errors} GL errors")
+    except Exception as error:  # noqa: BLE001
+        check(False, f"Auto pipe session failed: {error}")
+        session.process.kill()
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--baseline-exe", type=Path, default=None)
@@ -705,7 +932,7 @@ def main():
     only = {s for s in args.only.split(",") if s}
     for name, function in (("baseline", lambda: check_baseline(baseline)), ("exposure", check_exposure), ("moon", check_moon),
                            ("moonlight", check_moonlight), ("stars", check_stars), ("emissive", check_emissive),
-                           ("registry", check_registry)):
+                           ("registry", check_registry), ("interiors", check_interiors)):
         if only and name not in only:
             continue
         session_check(name, function)

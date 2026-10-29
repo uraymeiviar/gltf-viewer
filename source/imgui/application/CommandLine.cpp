@@ -439,6 +439,9 @@ std::optional<int> Application::configure(int argc, char** argv)
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
+        // A6.4b: capture runs expose the procedural sky's Auto without adaptation history (Application.h).
+        s_deterministicExposure |= arg == "--fixed-frame-time" || arg == "--dump-frame" || arg == "--capture-viewport" ||
+                                   arg == "--capture-first-frame" || arg == "--ui-script";
         if (arg == "--dump-frame" && i + 1 < argc) {
             dumpFramePath = argv[++i];
             dumpFrameCountdown = 8;
@@ -893,6 +896,9 @@ std::optional<int> Application::configure(int argc, char** argv)
         } else if (arg == "--exposure-mode" && i + 1 < argc) {
             // A6.4: default|manual|auto|curve.
             if (!applyCliSetting(SettingScope::Environment, "exposure_mode", toLowerAscii(argv[++i]), "--exposure-mode")) return 1;
+        } else if (arg == "--exposure-metering" && i + 1 < argc) {
+            // A6.4b: average|highlight.
+            if (!applyCliSetting(SettingScope::Environment, "exposure_metering", toLowerAscii(argv[++i]), "--exposure-metering")) return 1;
         } else if (arg == "--exposure-min-ev100" && i + 1 < argc) {
             if (!applyCliSetting(SettingScope::Environment, "exposure_min_ev100", argv[++i], "--exposure-min-ev100")) return 1;
         } else if (arg == "--exposure-max-ev100" && i + 1 < argc) {

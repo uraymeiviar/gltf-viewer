@@ -19,8 +19,10 @@ namespace ux3d::imgui {
 // (SkyAtmosphere.h: 1 unit = sky::kLuxPerEnvironmentUnit = 12,800 lux = 12,800 cd/m^2 x sr).
 
 // Exposure mode of a scene (SceneEnvironmentState::exposureMode). Default resolves per environment source: Manual for
-// the HDR panorama (exactly the behaviour before A6.4), Curve for the procedural sky (deterministic: a function of the
-// time of day only, so a capture does not depend on the frames before it; Auto is the eye-adaptation alternative).
+// the HDR panorama (exactly the behaviour before A6.4), Auto for the procedural sky (A6.4b: metered eye adaptation with
+// the highlight meter, so lit cockpit screens are not blown out; capture runs snap it to the meter every frame, so a
+// capture does not depend on the frames before it). Curve (a function of the time of day only, the A6.4 default) and
+// Manual stay selectable.
 enum class ExposureMode : int { Default = -1, Manual = 0, Auto = 1, Curve = 2 };
 
 namespace night {
@@ -80,6 +82,28 @@ inline float ev100FromIlluminance(float illuminanceUnits)
 {
     return std::log2(std::max(illuminanceUnits, 1.0e-20f) * static_cast<float>(kLuxPerUnit) * 100.0f / kIncidentMeterC);
 }
+
+// ---- A6.4b highlight-aware metering (Auto with the procedural sky) ----
+// The average meter (trimmed, centre-weighted log average, AntiAliasing::updateAutoExposure) exposes for the mid tones
+// and the key curve. Lit screens and panels are far brighter than that average at night (the MSFS-scaled emissive of
+// a cockpit display is about 3-5 environment units, 40,000-60,000 cd/m^2, against a night sky of 1e-8 units);
+// exposing for the average clips them to white. The highlight meter takes the brightest channel of every meter cell
+// (64 x 64 over the viewport, uniform weight) that shows a surface (scene depth < 1: the background sky, its glow
+// around a low sun, the moon and the stars count as black, so they may compress in the tone mapper's shoulder as
+// before), and the value below which kHighlightPercentile of the image area lies; the exposure that maps it to
+// kHighlightTarget (PBR Neutral's shoulder starts at 0.76: displayed about 0.87 sRGB) keeps the brightest lit surfaces
+// out of the tone mapper's compression. The image's exposure is the darker of the two meters, so the highlights
+// darken the image only while a bright surface covers at least 1 - kHighlightPercentile of the image (about 12 of
+// the 4096 cells); a single LED covers a cell or two and is ignored. Both meters include the exposure compensation;
+// the key curve applies to the average only (the highlight term is a display limit, not a scene key).
+enum class ExposureMetering : int { Average = 0, Highlight = 1 };
+inline constexpr float kHighlightPercentile = 0.997f; // 0.3% of the image area lies above the metered highlight
+inline constexpr float kHighlightTarget = 0.8f;       // exposed brightest-channel value of that highlight
+
+// Eye adaptation of the physically based Auto exposure (exponential, 1 / s): the scene's two speeds are read as the
+// scene brightness going up (autoExposureSpeedUp, default 3 / s: light adaptation, the exposure goes down) and going
+// down (autoExposureSpeedDown, default 1.5 / s: dark adaptation is the slower one). The HDR's Auto keeps its meaning
+// (the EV going up / down).
 
 // Time-of-day curve (ExposureMode::Curve): an incident meter reads the horizontal illuminance, but an exterior view also
 // sees the sky that gives it, which at twilight (and under the night glow) is brighter than the lit ground. The curve
