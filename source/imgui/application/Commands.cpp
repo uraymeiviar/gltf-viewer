@@ -392,26 +392,7 @@ json Application::agentStateJson()
     st["ssao"] = ssaoStateJson();
     st["skyOcclusion"] = skyOcclusionStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene));
     if (activeViewport != nullptr) {
-        // A3.6: the active viewport's ground. height/albedo are what the last render used (the albedo is what A6.2
-        // reads); modelBase is the scene's lowest point whatever the height mode.
-        const auto& ground = activeViewport->settings.ground;
-        static const char* const modes[] = {"grid", "plane", "ocean"};
-        static const char* const heightModes[] = {"model_base", "zero", "custom"};
-        float modelBase = 0.0f;
-        const bool hasBase = activeScene != nullptr && getCachedModelBaseHeight(activeScene, gltfModel, gltfLayer.get(), modelBase);
-        json groundJson = {{"mode", modes[static_cast<size_t>(ground.mode)]},
-                           {"heightMode", heightModes[static_cast<size_t>(ground.heightMode)]},
-                           {"preset", ground.preset == ux3d::imgui::GroundPreset::Custom
-                                          ? json("custom")
-                                          : json(std::string(ux3d::imgui::groundPresets()[static_cast<size_t>(ground.preset)].key))},
-                           {"active", activeViewport->groundPlaneActive},
-                           {"height", agent::floatJson(activeViewport->groundPlaneHeight)},
-                           {"modelBase", hasBase ? json(agent::floatJson(modelBase)) : json(nullptr)},
-                           {"albedo", {agent::floatJson(ground.albedo.r), agent::floatJson(ground.albedo.g), agent::floatJson(ground.albedo.b)}},
-                           {"roughness", agent::floatJson(ground.roughness)},
-                           {"gridOnGround", ground.showGrid}};
-        groundJson["ocean"] = oceanStateJson(*activeViewport); // A6.8
-        st["ground"] = groundJson;
+        st["ground"] = groundStateJson(*activeViewport);
     }
     // A3.7: the file's sky portals (world centre, direction into the cabin, disc radius) and how many lit the
     // active viewport's last render.
@@ -1477,7 +1458,7 @@ void Application::registerAgentSettings()
         };
         addSetting(std::move(onGround));
 
-        // A6.8: the ocean (the remaining ocean settings come with A6.8b; OceanSettings holds them all).
+        // A6.8: the ocean (all its settings are in OceanSettings, per viewport, not persisted).
         using OS = ux3d::imgui::OceanSettings;
         const auto oceanFloat = [&](const char* key, float OS::*member, const char* help, const char* cli,
                                     std::pair<double, double> range) {
@@ -1506,13 +1487,82 @@ void Application::registerAgentSettings()
         oceanFloat("ocean_time", &OS::time,
                    "Pinned ocean time in seconds for captures; -1 follows the application clock.",
                    "--ocean-time <s>", {-1.0, 1.0e6});
+        oceanFloat("ocean_fetch", &OS::fetch,
+                   "Distance in metres over which the wind has blown (JONSWAP); beyond full development (about 22000 "
+                   "x U^2 / g) it changes nothing (recomputes the loop).",
+                   "--ocean-fetch <m>", {1000.0, 1.0e7});
+        oceanFloat("ocean_choppiness", &OS::choppiness,
+                   "Horizontal displacement factor (Tessendorf's lambda) 0..2: sharper crests, more foam (recomputes the loop).",
+                   "--ocean-choppiness <0..2>", {0.0, 2.0});
+        oceanFloat("ocean_swell", &OS::swell,
+                   "Swell 0..1: narrows the directional spread of the waves (Horvath 2015; recomputes the loop).",
+                   "--ocean-swell <0..1>", {0.0, 1.0});
+        oceanFloat("ocean_foam", &OS::foam,
+                   "Foam amount 0..1: 0 none, 0.5 the whitecap coverage of the wind speed (Monahan 1980: 0.02% at 3 m/s, "
+                   "1% at 10, 10% at 20), 1 four times that.",
+                   "--ocean-foam <0..1>", {0.0, 1.0});
+        oceanFloat("ocean_period", &OS::period,
+                   "Loop period in seconds of the precomputed (looping) mode: the surface repeats exactly after it "
+                   "(recomputes the loop; ignored in live mode).",
+                   "--ocean-period <s>", {5.0, 120.0});
+        {
+            SettingSpec c;
+            c.key = "ocean_color";
+            c.scope = V;
+            c.type = SettingType::Color3;
+            c.help = "Water body colour, linear RGB 0..1: the light scattered back out of the water (times the sky's "
+                     "diffuse light and the sun). The ocean's average albedo (0.066 + colour) feeds A6.2.";
+            c.cliFlag = "--ocean-color <r,g,b>";
+            c.hasRange = true;
+            c.minimum = 0.0;
+            c.maximum = 1.0;
+            c.get = [](void* t) {
+                const glm::vec3& v = static_cast<VS*>(t)->ground.ocean.color;
+                return json{agent::floatJson(v.r), agent::floatJson(v.g), agent::floatJson(v.b)};
+            };
+            c.set = [](void* t, const json& v, std::string&) {
+                static_cast<VS*>(t)->ground.ocean.color = glm::vec3(v[0].get<float>(), v[1].get<float>(), v[2].get<float>());
+                return true;
+            };
+            addSetting(std::move(c));
+        }
+        {
+            SettingSpec mode;
+            mode.key = "ocean_mode";
+            mode.scope = V;
+            mode.type = SettingType::Enum;
+            mode.help = "Ocean mode: loop (default; a precomputed set that repeats every ocean_period, per-frame cost is "
+                        "texture sampling) or live (the FFT runs every frame; 512^2 at high quality). A mode change builds "
+                        "the new set at once.";
+            mode.cliFlag = "--ocean-mode <loop|live>";
+            mode.enumValues = {"loop", "live"};
+            mode.enumAliases = {{"looping", "loop"}, {"precomputed", "loop"}};
+            mode.get = [](void* t) { return json(static_cast<VS*>(t)->ground.ocean.live ? "live" : "loop"); };
+            mode.set = [](void* t, const json& v, std::string&) {
+                static_cast<VS*>(t)->ground.ocean.live = v.get<std::string>() == "live";
+                return true;
+            };
+            addSetting(std::move(mode));
+        }
+        {
+            SettingSpec play = boolSetting<VS>("ocean_play", V, &VS::showGrid, "", "--ocean-play <on|off>");
+            play.help = "Whether the ocean animates (on, default) or holds its current time (off; a pinned ocean_time "
+                        "holds regardless).";
+            play.get = [](void* t) { return json(static_cast<VS*>(t)->ground.ocean.play); };
+            play.set = [](void* t, const json& v, std::string&) {
+                static_cast<VS*>(t)->ground.ocean.play = v.get<bool>();
+                return true;
+            };
+            addSetting(std::move(play));
+        }
 
         SettingSpec quality;
         quality.key = "ocean_quality";
         quality.scope = V;
         quality.type = SettingType::Enum;
         quality.help = "Ocean simulation quality: low (2 cascades of 128^2, 32 frames, 12 MiB), medium (3 x 256^2, 48 frames, "
-                       "101 MiB), high (4 x 256^2, 64 frames, 176 MiB); recomputes the loop.";
+                       "101 MiB), high (4 x 256^2, 64 frames, 176 MiB); live mode: 2 x 128^2, 3 x 256^2, 4 x 512^2; "
+                       "recomputes the loop.";
         quality.cliFlag = "--ocean-quality <low|medium|high>";
         quality.enumValues = {"low", "medium", "high"};
         quality.enumAliases = {{"med", "medium"}, {"mid", "medium"}};

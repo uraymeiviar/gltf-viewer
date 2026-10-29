@@ -42,7 +42,7 @@ MSFS as practical, while still opening any glTF.
 | A3 | [Sun, shadows, macro lights (deferred), SSS, ambient occlusion, ground plane, sky portals, viewer ambient light](ASOBO_EXTENSIONS_PHASE_3.md) | In progress (A3.1, A3.2, A3.4–A3.10 implemented; A3.10 checks in task report) |
 | A4 | [Glass, windshields, glow (bloom), fresnel and ghost opacity](ASOBO_EXTENSIONS_PHASE_4.md) | Planned |
 | A5 | [Detail map, UV options, parallax window, wind flex](ASOBO_EXTENSIONS_PHASE_5.md) | A5.1 done |
-| A6 | [Time of day: sky, dynamic environment lighting, exposure, night sky, sun glare, optional ocean](ASOBO_EXTENSIONS_PHASE_6.md) | In progress (A6.1-A6.7 done except A6.8) |
+| A6 | [Time of day: sky, dynamic environment lighting, exposure, night sky, sun glare, optional ocean](ASOBO_EXTENSIONS_PHASE_6.md) | In progress (A6.1-A6.8 implemented) |
 | A7 | [Remaining extensions: layered BRDFs, overlays, metadata, simulator-only](ASOBO_EXTENSIONS_PHASE_7.md) | Planned |
 
 Shared documents:
@@ -158,6 +158,7 @@ Argon's quota runs out, the task returns to Claude unchanged.
 ## 5. Status Log
 
 | Date | Change |
+| 2026-10-29 | A6.8 FFT ocean ground (A6.8a core, A6.8b finish): `--ground ocean`, a looping precomputed Tessendorf sea (JONSWAP x Horvath 2015, 2 / 3 / 4 cascades, exact loop period) or a live per-frame FFT (up to 4 x 512²), GL 4.3 compute with a gate below it; settings UI, `--ocean-*` flags and registry keys, `ground.ocean` in `get_state` and `--profile-report`; whitecaps calibrated to Monahan's coverage, a shadow that keeps the sky terms, no ocean SSR. Details and numbers in [Phase 6](ASOBO_EXTENSIONS_PHASE_6.md) A6.8; `scripts/validate_ocean.py`, `scripts/review_ocean.py`. |
 | 2026-10-29 | A3.10 Sun Source replaces the implicit enable/mode/clock precedence, with separate HDR/sky choices and ordered legacy mappings. Auto ambient returns white k × outdoor horizontal illuminance / pi only where the A3.9 sky is hidden (uniform without a volume); sky default on/Auto, HDR default off. Manual retained. See [Phase A3](ASOBO_EXTENSIONS_PHASE_3.md), the fill sweep and task report for verified checks. |
 |---|---|
 | 2026-10-23 | Journal created (planning only): inventory of 38 schemas and of usage across 207 E195 project files. `ASOBO_material_invisible` implemented earlier, during the multi-viewport follow-up (`00274ce`); recorded as A1.1. |

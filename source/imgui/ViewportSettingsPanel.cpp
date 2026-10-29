@@ -3,6 +3,7 @@
 #include "imgui/OceanSimulation.h"
 #include "imgui/RenderQuality.h"
 #include "imgui/StdFileSystem.h"
+#include "imgui/UiProbe.h"
 #include "imgui/IconsMaterialDesignIcons.h"
 #include "imgui/AntiAliasing.h"
 #include "imgui/ExtensionInspector.h"
@@ -15,6 +16,18 @@
 #include <cmath>
 
 namespace ux3d::imgui {
+
+namespace {
+// Runs an ImGui widget and registers its rectangle with the UI scenario harness (--ui-script: hoverp / clickp <tag>), so
+// the Ground controls can be hovered one by one to check for ImGui ID conflicts.
+template <typename Widget>
+bool probed(const char* tag, Widget&& widget)
+{
+    const bool result = widget();
+    UiProbe::item(tag, 0);
+    return result;
+}
+} // namespace
 
 void ViewportSettingsPanel::render(ViewportSettingsState& state,
                                    ux3d::renderer::CommandGenerator* commandGenerator,
@@ -281,7 +294,9 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
         // -------------------------------------------------------------
         // Tab 2: Camera & Helpers
         // -------------------------------------------------------------
-        if (ImGui::BeginTabItem("Camera & Helpers")) {
+        const bool cameraTabOpen = ImGui::BeginTabItem("Camera & Helpers");
+        UiProbe::item("vp.tab.camera", 0);
+        if (cameraTabOpen) {
             ImGui::Text("Viewport Display:");
             ImGui::Checkbox("Show Ground Grid", &state.showGrid);
             ImGui::SameLine();
@@ -292,7 +307,7 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
             if (ImGui::CollapsingHeader("Ground", ImGuiTreeNodeFlags_DefaultOpen)) {
                 GroundSettings& ground = state.ground;
                 const char* groundNames[] = { "Grid", "Plane", "Ocean" };
-                if (ImGui::BeginCombo("Type", groundNames[static_cast<int>(ground.mode)])) {
+                if (probed("vp.ground.type", [&] { return ImGui::BeginCombo("Type", groundNames[static_cast<int>(ground.mode)]); })) {
                     for (int i = 0; i < 3; ++i) {
                         // A6.8: the ocean needs compute shaders (OpenGL 4.3).
                         const bool unavailable = i == static_cast<int>(GroundMode::Ocean) && !oceanAvailable();
@@ -311,28 +326,111 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
                 if (ground.mode == GroundMode::Plane || ground.mode == GroundMode::Ocean) {
                     const char* heightNames[] = { "Model base (lowest point)", "Y = 0", "Custom" };
                     int heightMode = static_cast<int>(ground.heightMode);
-                    if (ImGui::Combo("Height", &heightMode, heightNames, IM_ARRAYSIZE(heightNames))) {
+                    if (probed("vp.ground.height", [&] { return ImGui::Combo("Height", &heightMode, heightNames, IM_ARRAYSIZE(heightNames)); })) {
                         ground.heightMode = static_cast<GroundHeightMode>(heightMode);
                         revisions.mark(SceneChange::ViewportSettings);
                     }
                     if (ground.heightMode == GroundHeightMode::Custom) {
-                        if (ImGui::DragFloat("Height (scene units)", &ground.customHeight, 0.01f, -1.0e6f, 1.0e6f, "%.3f")) {
+                        if (probed("vp.ground.custom_height", [&] { return ImGui::DragFloat("Height (scene units)", &ground.customHeight, 0.01f, -1.0e6f, 1.0e6f, "%.3f"); })) {
                             revisions.mark(SceneChange::ViewportSettings);
                         }
                     }
                 }
                 if (ground.mode == GroundMode::Ocean) {
-                    // A6.8a: the ocean's settings UI follows with A6.8b (the registry and CLI set them meanwhile).
-                    static const char* const qualityNames[] = { "Low", "Medium", "High" };
-                    ImGui::TextDisabled("Ocean: wind %.1f m/s from %.0f deg, %s quality",
-                                        ground.ocean.windSpeed, ground.ocean.windDirection,
-                                        qualityNames[static_cast<int>(ground.ocean.quality)]);
+                    // A6.8: the ocean. Wind, fetch, choppiness, swell, quality and period recompute the simulation
+                    // (a looping set in the background, a live set at once); foam, colour and play only change the
+                    // shading. Every ID carries an "##ocean" suffix (no clash with the plane's or other tabs' labels).
+                    OceanSettings& ocean = ground.ocean;
+                    const OceanUiStatus& status = oceanUiStatus();
+                    ImGui::Spacing();
+                    ImGui::Text("Ocean");
+                    int mode = ocean.live ? 1 : 0;
+                    if (probed("vp.ocean.mode", [&] { return ImGui::Combo("Mode##oceanMode", &mode, "Looping (precomputed)\0Live (FFT every frame)\0"); })) {
+                        ocean.live = mode == 1;
+                        revisions.mark(SceneChange::ViewportSettings);
+                    }
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::SetTooltip("Looping: a precomputed set that repeats every Period; the per-frame cost is texture sampling.\n"
+                                          "Live: the FFT runs every frame (512x512 at High quality); it costs GPU time each frame.");
+                    }
+                    int quality = static_cast<int>(ocean.quality);
+                    if (probed("vp.ocean.quality", [&] { return ImGui::Combo("Quality##oceanQuality", &quality, "Low\0Medium\0High\0"); })) {
+                        ocean.quality = static_cast<OceanQuality>(quality);
+                        revisions.mark(SceneChange::ViewportSettings);
+                    }
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::SetTooltip("Looping: 2 x 128^2 (32 frames, 12 MiB), 3 x 256^2 (48 frames, 101 MiB), 4 x 256^2 (64 frames, 176 MiB).\n"
+                                          "Live: 2 x 128^2, 3 x 256^2, 4 x 512^2.");
+                    }
+                    if (probed("vp.ocean.wind_speed", [&] { return ImGui::SliderFloat("Wind speed (m/s)##oceanWindSpeed", &ocean.windSpeed, 0.5f, 40.0f, "%.1f"); })) {
+                        revisions.mark(SceneChange::ViewportSettings);
+                    }
+                    if (probed("vp.ocean.wind_dir", [&] { return ImGui::SliderFloat("Wind from (deg)##oceanWindDirection", &ocean.windDirection, 0.0f, 360.0f, "%.0f"); })) {
+                        revisions.mark(SceneChange::ViewportSettings);
+                    }
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::SetTooltip("The direction the wind comes from, around +Y from +Z towards +X (the sun's azimuth). The waves travel the other way.");
+                    }
+                    if (probed("vp.ocean.choppiness", [&] { return ImGui::SliderFloat("Choppiness##oceanChoppiness", &ocean.choppiness, 0.0f, 2.0f, "%.2f"); })) {
+                        revisions.mark(SceneChange::ViewportSettings);
+                    }
+                    if (probed("vp.ocean.swell", [&] { return ImGui::SliderFloat("Swell##oceanSwell", &ocean.swell, 0.0f, 1.0f, "%.2f"); })) {
+                        revisions.mark(SceneChange::ViewportSettings);
+                    }
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::SetTooltip("Narrows the directional spread of the waves (long, parallel swell).");
+                    }
+                    if (probed("vp.ocean.foam", [&] { return ImGui::SliderFloat("Foam amount##oceanFoam", &ocean.foam, 0.0f, 1.0f, "%.2f"); })) {
+                        revisions.mark(SceneChange::ViewportSettings);
+                    }
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::SetTooltip("Whitecaps. 0.5 is the coverage observed at this wind speed (about 1%% at 10 m/s, 10%% at 20 m/s); 1 is four times that.");
+                    }
+                    if (probed("vp.ocean.color", [&] { return ImGui::ColorEdit3("Water colour##oceanColor", &ocean.color.x, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR); })) {
+                        revisions.mark(SceneChange::ViewportSettings);
+                    }
+                    ImGui::BeginDisabled(ocean.live);
+                    if (probed("vp.ocean.period", [&] { return ImGui::DragFloat("Loop period (s)##oceanPeriod", &ocean.period, 0.5f, 5.0f, 120.0f, "%.1f"); })) {
+                        ocean.period = std::clamp(ocean.period, 5.0f, 120.0f);
+                        revisions.mark(SceneChange::ViewportSettings);
+                    }
+                    ImGui::EndDisabled();
+                    if (probed("vp.ocean.fetch", [&] { return ImGui::DragFloat("Fetch (m)##oceanFetch", &ocean.fetch, 100.0f, 1000.0f, 1.0e7f, "%.0f", ImGuiSliderFlags_Logarithmic); })) {
+                        ocean.fetch = std::clamp(ocean.fetch, 1000.0f, 1.0e7f);
+                        revisions.mark(SceneChange::ViewportSettings);
+                    }
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::SetTooltip("Distance the wind has blown over. Beyond full development (about 22000 x U^2 / g) it changes nothing.");
+                    }
+                    if (probed("vp.ocean.play", [&] { return ImGui::Checkbox("Animate##oceanPlay", &ocean.play); })) {
+                        revisions.mark(SceneChange::ViewportSettings);
+                    }
+                    ImGui::SameLine();
+                    if (probed("vp.ocean.reset", [&] { return ImGui::Button("Reset ocean##oceanReset"); })) {
+                        ocean = OceanSettings();
+                        revisions.mark(SceneChange::ViewportSettings);
+                    }
+                    if (ocean.time >= 0.0f) {
+                        ImGui::TextDisabled("Time pinned at %.2f s (--ocean-time).", ocean.time);
+                    }
+                    if (status.busy) {
+                        ImGui::ProgressBar(status.progress, ImVec2(-FLT_MIN, 0.0f), "Recomputing the waves");
+                    } else if (status.ready) {
+                        if (status.live) {
+                            ImGui::TextDisabled("Hs %.2f m, %.1f MiB, %.2f ms GPU per frame (live)", status.significantWaveHeight,
+                                                static_cast<double>(status.memoryBytes) / 1048576.0, status.liveGpuMs);
+                        } else {
+                            ImGui::TextDisabled("Hs %.2f m, %.1f MiB (precomputed, sampled per frame)", status.significantWaveHeight,
+                                                static_cast<double>(status.memoryBytes) / 1048576.0);
+                        }
+                    }
+                    ImGui::TextDisabled("Reflections: sky and environment only (no ocean SSR).");
                 }
                 if (ground.mode == GroundMode::Plane) {
                     int preset = static_cast<int>(ground.preset);
                     const char* presetLabel =
                         ground.preset == GroundPreset::Custom ? "Custom" : groundPresets()[static_cast<size_t>(preset)].label.data();
-                    if (ImGui::BeginCombo("Material", presetLabel)) {
+                    if (probed("vp.ground.material", [&] { return ImGui::BeginCombo("Material", presetLabel); })) {
                         for (size_t i = 0; i < groundPresets().size(); ++i) {
                             if (ImGui::Selectable(groundPresets()[i].label.data(), static_cast<size_t>(preset) == i)) {
                                 ground.applyPreset(static_cast<GroundPreset>(i));
@@ -341,35 +439,33 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
                         }
                         ImGui::EndCombo();
                     }
-                    if (ImGui::ColorEdit3("Albedo", &ground.albedo.x, ImGuiColorEditFlags_Float)) {
+                    if (probed("vp.ground.albedo", [&] { return ImGui::ColorEdit3("Albedo", &ground.albedo.x, ImGuiColorEditFlags_Float); })) {
                         ground.preset = GroundPreset::Custom;
                         revisions.mark(SceneChange::ViewportSettings);
                     }
-                    if (ImGui::SliderFloat("Roughness", &ground.roughness, 0.0f, 1.0f, "%.2f")) {
+                    if (probed("vp.ground.roughness", [&] { return ImGui::SliderFloat("Roughness", &ground.roughness, 0.0f, 1.0f, "%.2f"); })) {
                         ground.preset = GroundPreset::Custom;
                         revisions.mark(SceneChange::ViewportSettings);
                     }
-                    if (ImGui::SliderFloat("Detail", &ground.detail, 0.0f, 1.0f, "%.2f")) {
+                    if (probed("vp.ground.detail", [&] { return ImGui::SliderFloat("Detail", &ground.detail, 0.0f, 1.0f, "%.2f"); })) {
                         ground.preset = GroundPreset::Custom;
                         revisions.mark(SceneChange::ViewportSettings);
                     }
-                    if (ImGui::DragFloat("Detail size", &ground.detailScale, 0.01f, 0.0001f, 1.0e6f, "%.3f",
-                                         ImGuiSliderFlags_Logarithmic)) {
+                    if (probed("vp.ground.detail_size", [&] { return ImGui::DragFloat("Detail size", &ground.detailScale, 0.01f, 0.0001f, 1.0e6f, "%.3f", ImGuiSliderFlags_Logarithmic); })) {
                         ground.preset = GroundPreset::Custom;
                         revisions.mark(SceneChange::ViewportSettings);
                     }
-                    if (ImGui::DragFloat("Joint spacing", &ground.jointSpacing, 0.05f, 0.0f, 1.0e6f, ground.jointSpacing > 0.0f ? "%.2f" : "None")) {
+                    if (probed("vp.ground.joints", [&] { return ImGui::DragFloat("Joint spacing", &ground.jointSpacing, 0.05f, 0.0f, 1.0e6f, ground.jointSpacing > 0.0f ? "%.2f" : "None"); })) {
                         ground.preset = GroundPreset::Custom;
                         revisions.mark(SceneChange::ViewportSettings);
                     }
-                    if (ImGui::DragFloat("Haze distance", &ground.haze, 1.0f, 0.0f, 1.0e9f, ground.haze > 0.0f ? "%.0f" : "Auto",
-                                         ImGuiSliderFlags_Logarithmic)) {
+                    if (probed("vp.ground.haze", [&] { return ImGui::DragFloat("Haze distance", &ground.haze, 1.0f, 0.0f, 1.0e9f, ground.haze > 0.0f ? "%.0f" : "Auto", ImGuiSliderFlags_Logarithmic); })) {
                         revisions.mark(SceneChange::ViewportSettings);
                     }
                     if (ImGui::IsItemHovered()) {
                         ImGui::SetTooltip("Distance at which the plane has faded 98% into the horizon colour. 0 = automatic (0.9 x far plane).");
                     }
-                    if (ImGui::Checkbox("Show grid on ground", &ground.showGrid)) {
+                    if (probed("vp.ground.show_grid", [&] { return ImGui::Checkbox("Show grid on ground", &ground.showGrid); })) {
                         revisions.mark(SceneChange::ViewportSettings);
                     }
                     ImGui::TextDisabled("Lit by the environment (its own lower hemisphere) and the sun with shadows.");

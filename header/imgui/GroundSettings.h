@@ -28,7 +28,7 @@ enum class OceanQuality : int {
 // A6.8: the ocean's settings (per viewport, part of GroundSettings). Wind direction uses the sun's azimuth convention
 // (around +Y from +Z towards +X) and names the direction the wind comes FROM (aviation and meteorology), so the waves
 // travel towards windDirection + 180 degrees. Simulation fields (wind, fetch, choppiness, swell, quality, period)
-// recompute the precomputed loop; foam, colour, time and play are applied while rendering.
+// recompute the precomputed loop (or rebuild the live set); foam, colour, time and play are applied while rendering.
 struct OceanSettings {
     float windSpeed = 8.0f;          // m/s, 10 m above the sea
     float windDirection = 0.0f;      // degrees, the direction the wind comes from
@@ -38,7 +38,8 @@ struct OceanSettings {
     float foam = 0.5f;               // 0..1, foam where the surface folds (displacement Jacobian)
     glm::vec3 color = glm::vec3(0.0035f, 0.022f, 0.035f); // linear, light scattered back out of the water body
     OceanQuality quality = OceanQuality::Medium;
-    float period = 30.0f;            // s, the loop's repeat period
+    float period = 30.0f;            // s, the loop's repeat period (Looping mode)
+    bool live = false;               // Live mode: the FFT runs every frame (no loop, 512^2 at high quality)
     float time = -1.0f;              // s, a pinned phase for captures; < 0: application time
     bool play = true;
 

@@ -1020,6 +1020,10 @@ void Application::finishFrame(FrameContext& frame, int displayW, int displayH)
         if (activeEnvironment.environmentSource != 0) report.night = nightStateJson(activeEnvironment);
         report.ssao = ssaoStateJson();
         report.skyOcclusion = skyOcclusionStateJson(activeEnvironment);
+        // A6.8: the ocean's settings, cascades, memory, precompute and live GPU cost (only while the ground is the ocean).
+        if (activeViewport != nullptr && activeViewport->settings.ground.mode == ux3d::imgui::GroundMode::Ocean) {
+            report.ground = groundStateJson(*activeViewport);
+        }
         if (!reportNodeArgs.empty()) {
             for (const auto& spec : reportNodeArgs) {
                 auto* node = findNode(spec);

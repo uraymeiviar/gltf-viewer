@@ -405,62 +405,103 @@ setting, and changing it is seamless.
     `cubemap.vert`'s projection (changing it would change every HDR image); `validate_sun.py`'s check that the HDR's
     own sun is removed from the background now passes `--sun-disk off` (the drawn disk is there by design) and a new
     check confirms the drawn disk replaces it.
-- [ ] **A6.8 — Ocean (R3, optional, later). Owner: Claude.** An FFT ocean (Tessendorf) as the A3.6 *Ocean* ground
-  choice, for seaplanes, carrier aircraft and showcase views. Not required for the exit gate.
-  - **Simulation:** 3–4 cascades at 256², a modern directional spectrum (JONSWAP / Horvath 2015), foam from the
-    displacement Jacobian.
-  - **Looping precomputed variant (default):** choose a repeat period (for example 30 s), compute the
-    displacement and normal maps for that period once with GL 4.3+ compute, and store them in a texture array, so
-    the per-frame cost is texture sampling only. Changing wind or sea state recomputes in the background, spread
-    over frames like A6.3. Live per-frame FFT is an option on capable GPUs. Below GL 4.3 the ocean is
-    unavailable (the choice is disabled).
-  - **Rendering:** a projected-grid or clipmap mesh to the horizon; sky and SSR reflections; the ocean's average
-    colour feeds the lower hemisphere of the environment lighting (as A3.6's ground albedo); stable under TAA;
-    correct depth where floats and hulls meet the water.
-  - **Settings:** wind speed and direction, sea state, quality (cascades, resolution), loop period.
-  - **Tests:** the loop is seamless (frame 0 equals frame N); deterministic captures with `--anim-time`; the
-    per-frame cost of the looping variant is measured.
-  - **A6.8a status (2026-10-29, core done; A6.8b finishing open).** `--ground ocean` / registry `ground ocean` draw the
-    ocean; `--ocean-wind-speed`, `--ocean-wind-dir` (the direction the wind comes from, the sun's azimuth convention),
-    `--ocean-quality <low|medium|high>` and `--ocean-time <s>` (pinned phase, -1 = clock) go through the registry
-    (CLI = pipe). All ocean parameters live in `OceanSettings` (`header/imgui/GroundSettings.h`, per viewport).
-    - **Simulation** (`header/imgui/OceanSimulation.h`, `source/imgui/OceanSimulation.cpp`, `ocean_*.comp`): JONSWAP
-      (fetch-limited, clamped at full development) x Horvath 2015 spread; C cascades whose wave-number bands tile
-      [k_peak / 8, 2 pi / 4 cm) with ratio B = min(N / 8, (F / 7.5)^2, range^(1/C)); h0 on the CPU (hashed Box-Muller,
-      deterministic), per frame on the GPU: spectrum, row and column radix-2 inverse FFT in shared memory, finalize
-      (Dx, h, Dz, Jacobian), then per cascade two foam turns (min(J, J_prev + 0.6/s x dt)) and a compute mip chain.
-      Loop: every cascade's dispersion is quantised to multiples of 2 pi m / T (m per cascade so its lowest band
-      frequency is >= 1.25 quanta), so the set repeats after T exactly; F frames of T / m, rendering interpolates
-      the two nearest. Quality: low 2 x 128^2 x 32 frames (11.9 MiB), medium 3 x 256^2 x 48 (101 MiB, default),
-      high 4 x 256^2 x 64 (176 MiB; the brief's 512^2 would need 0.5-1 GB for a precomputed loop, left to A6.8b's
-      live mode). Synchronous set (first set, capture runs): low 4.9 / medium 18.6 / high 24.1 ms wall, 1.2 / 3.5 /
-      6.1 ms GPU (RTX-class GPU under VM load). Later changes recompute in the background (timestamp-timed slices
-      ramping 1, 2, 4 ... units within 3 ms; medium: 8 frames, largest slice 1.2 ms), the old array stays until the
-      swap. Below GL 4.3 (`oceanAvailable()`, test hook `GLIDER_TEST_NO_COMPUTE=1`) the combo entry is disabled with a
-      tooltip and `ground ocean` logs one warning and keeps the ground.
-    - **Rendering** (`ocean.vert` / `ocean.frag`, `GltfResourceManager::initOcean`, `Application::setOceanUniforms` in
-      `source/imgui/application/Ocean.cpp`): a camera-centred polar grid (256 x 192, radius s (e^(vL) - 1), s = half
-      the camera height, reaching 2000 heights / >= 100 km; chosen over a projected grid because rotating the view
-      never moves a vertex), displaced at the mip of the ring spacing; sea level = the A3.6 height mode; Opaque pass,
-      linear HDR, writes its depth (vertices beyond the far plane clamped, fragments write 1 there). Normals from
-      central differences at the pixel footprint's mip per cascade; the slope variance lost to the mip and to the
-      finest cascade (Cox-Munk total) is added to GGX alpha^2. Fresnel F0 0.02 split-sum against the GGX cube (a
-      reflection below the horizon is mirrored above it); body = colour x (sky diffuse + sun) plus a crest forward-
-      scattering term; A3.1 sun GGX with the A3.2 shadow visibility; foam = Lambert 0.8 where the accumulated Jacobian
-      is below 1.2 foam - 0.2; A3.8 ambient; the plane's fog. Only sky/IBL reflections (no ocean SSR yet). TAA: the
-      plane's reprojection (no motion vectors); the animated surface relies on the neighbourhood clamp. Not pickable
-      (removed before picking with the plane). Shadow cascades cover it like the plane; its average albedo
-      (0.066 + colour) feeds A6.2's ground albedo. Debug views and wireframe: drawn in shaded mode only, like the plane.
-    - **Model interiors:** with the A3.9 volume (default with the procedural sky) water where < 5% of the sky is
-      visible is discarded; without it, while the camera is inside the model's bounds, water inside the bounds is
-      discarded (limit: from a cockpit the water under the wings / between floats inside the bounding box is hidden too).
-    - **Time:** per-viewport clock advanced by the frame time while playing; capture runs move it only by
-      `--fixed-frame-time` steps; `--ocean-time` pins it.
-    - **Checks:** `scripts/validate_ocean.py` (registered in `run_regression.py`). Review: `scripts/review_ocean.py`.
-    - **A6.8b to do:** settings UI and the remaining flags/keys (choppiness, swell, foam, colour, period, fetch, mode,
-      play), live mode (and 512^2), `get_state` / `--profile-report` fields beyond `ground.ocean`'s current set, ocean
-      SSR, energy check under a uniform sky, the full review set (sunset, moonlit night, HDR, settings UI, strip
-      across the seam), AGENTS.md, this section's final write-up and the agent guide.
+- [x] **A6.8 — Ocean (R3, optional, later). Owner: Claude.** An FFT ocean (Tessendorf) as the A3.6 *Ocean* ground
+  choice, for seaplanes, carrier aircraft and showcase views. Not required for the exit gate. Done in two parts (A6.8a
+  core, A6.8b settings, live mode, calibration; 2026-10-29).
+  - **Simulation:** 2 / 3 / 4 cascades (Low / Medium / High) at 128² / 256² / 256², a JONSWAP spectrum with the Horvath
+    2015 directional spread, foam from the displacement Jacobian.
+  - **Looping precomputed variant (default):** the surface repeats exactly every loop period (default 30 s); the
+    frames are computed once with GL 4.3+ compute into a texture array, so the per-frame cost is texture sampling only.
+    Changing wind or sea state recomputes in the background, spread over frames like A6.3. **Live** mode runs the FFT
+    every frame (512² at High). Below GL 4.3 the ocean is unavailable (the choice is disabled).
+  - **Rendering:** a camera-centred polar grid to the horizon; sky / IBL reflections (no ocean SSR); the ocean's average
+    colour feeds the lower hemisphere of the environment lighting (as A3.6's ground albedo); stable under TAA; correct
+    depth where floats and hulls meet the water.
+  - **Settings:** wind speed and direction, fetch, choppiness, swell, foam amount, water colour, quality, loop period,
+    mode (Looping / Live), play / pause.
+  - **Tests:** the loop is seamless; deterministic captures; the per-frame cost of both modes is measured
+    (`scripts/validate_ocean.py`).
+  - **Design (as built).**
+    - **Spectrum and cascades** (`header/imgui/OceanSimulation.h`, `source/imgui/OceanSimulation.cpp`,
+      `resources/shaders/ocean_{spectrum,fft,finalize,foam,mip}.comp`): JONSWAP (fetch-limited alpha and peak frequency,
+      the fetch clamped at full development, g F / U² <= 2.2e4) x the Horvath 2015 spread (Donelan-Banner / Mitsuyasu
+      exponent plus the swell term). The wave-number range [k_peak / 8, 2 pi / 4 cm) is cut into log-equal bands, one per
+      cascade, ratio B = min(N / 8, (F / 7.5)², range^(1/C)) (the frame term only when looping); each patch puts its band
+      top at 4 texels per wavelength. h0 is made on the CPU from hashed Box-Muller numbers (deterministic, independent of
+      the C++ library) and uploaded as RGBA32F. Per frame on the GPU: spectrum, row and column radix-2 inverse FFT in
+      shared memory (one complex transform carries h + i Dx, a second Dz), finalize into (lambda Dx, h, lambda Dz, J), then
+      for a loop two foam turns per cascade (min(J, J_prev + 0.6 / s x dt)) and a compute mip chain.
+    - **Loop:** every cascade's dispersion is quantised to multiples of 2 pi m / T (m per cascade so its lowest band
+      frequency is >= 1.25 quanta), so the set repeats after T exactly (time t and t + T are byte-identical for exactly
+      representable times); F frames of T / m (32 / 48 / 64) are interpolated at render time. Memory (array + mips +
+      scratch): Low 11.9 MiB, Medium 101.0 MiB, High 175.7 MiB (4 x 256² x 64 frames; a precomputed 512² loop would need
+      0.5 to 1 GB, so 512² is live only). Synchronous set (the first set, capture runs): 6.8 / 18.1 / 25.0 ms wall (the CPU
+      spectrum dominates), 2.9 / 3.3 / 6.7 ms GPU. Later changes recompute in the background in timestamp-timed slices
+      (1, 2, 4 ... units within 3 ms; Medium: 8 frames, 4.3 ms GPU in total, largest slice 1.43 ms); the old array stays
+      until the swap. Per-frame cost of drawing the loop (Opaque pass against the plane, ocean filling the frame): 0.060 /
+      0.108 / 0.114 ms.
+    - **Live:** one layer per cascade (2 x 128², 3 x 256², 4 x 512²), recomputed every frame at time t with the exact
+      dispersion (the phase in double precision, `glUniform1d`), foam accumulating in J itself; the first step after a rebuild,
+      a seek back or a pause over 0.5 s pre-rolls 1.5 s of foam history (15 steps of 0.1 s), so a pinned time shows the foam a
+      running clock has. Measured GPU time per frame (all cascades: spectrum, two FFT passes, finalize, mips): 0.052 / 0.089
+      / 0.285 ms (RTX-class GPU under VM load; maxima 0.8 / 1.0 / 4.7 ms are first-step outliers), memory 1.1 / 6.0 / 30.7
+      MiB. A setting or mode change builds the live set at once (the CPU spectrum: 3.6 / 12.8 / 64 to 123 ms wall); a mode
+      change drops the old set (the programs and scratch are shared).
+    - **Mesh** (`ocean.vert`, `GltfResourceManager::initOcean`): a camera-centred polar grid of 256 x 192, radius s (e^(vL) - 1),
+      s = half the camera height above the sea (at least 0.5 m), reaching 2000 heights and at least 100 km. Chosen over a
+      projected grid because turning the camera never moves a vertex. The grid is centred on the camera in X/Z, so a
+      camera move slides the vertices over the waves; displacement is therefore sampled one mip level coarser than the
+      ring spacing, which keeps waves shorter than about four vertices out of the geometry (they would change with the vertex
+      positions). Five camera positions 0.2 m apart at a fixed ocean time (grazing 6 degrees, `review_ocean.py`
+      `swim_strip.png`) differ frame to frame by 3.22 / 3.24 / 3.27 / 3.32 levels: even steps, no swimming visible;
+      the pixel normals are sampled from the field and never swim.
+    - **Shading** (`ocean.frag`): per-pixel normals from the displaced field at the footprint's mip per cascade; the slope
+      variance the mips and the finest cascade lose is added to the GGX roughness (Cox-Munk total 0.003 + 5.12e-3 U). Fresnel
+      (IOR 1.33, F0 0.02) between the sky / IBL reflection (the split-sum LUT; a reflection below the horizon is mirrored
+      above it) and the water body; the A3.1 sun's GGX highlight with the A3.2 shadow visibility. Under a uniform sky of
+      radiance L a calm sea at nadir reads L (0.02 + 0.98 colour) within 0.4% per channel. Reflections are sky / IBL only:
+      **no ocean SSR** (the SSR path belongs to the windshield pass, after the opaque pass; the ocean is an Opaque-pass draw,
+      so it would need its own copy of the opaque scene: not clean, dropped).
+    - **Shadow on the water:** the shadow removes the sun's direct specular and two thirds of the sun-driven body light; the
+      sky reflection and the sky-lit body light are untouched. The remaining third stands for light that entered the water
+      outside the shadow and diffused sideways (diffusion lengths of metres to tens of metres, more than a hull's shadow
+      is wide). The body is lighter at crests and darker in troughs (+-35% at Hs). Measured lit / shadowed radiance
+      (sun 55 degrees, procedural sky, 6 m/s, glitter-free sample): 1.88; with the sun-driven part removed completely it
+      is about 2.5 (the A6.8a look the review found too dark).
+    - **Foam:** whitecaps where the summed Jacobian J = 1 + sum over the cascades of (J_c - 1) is low (the per-cascade test
+      of A6.8a never saw a fold: each cascade's J varies by about 0.07, the sum by 0.07 to 0.085; the first-order estimate
+      lambda sqrt(S) is about 2.2 times too wide because of the 4-texel central differences and the persistence). The threshold sits z
+      standard deviations below the mean (-0.03), z chosen so the coverage is the whitecap fraction of Monahan and
+      O'Muircheartaigh (1980), W = 3.84e-6 U^3.41 (0.02% at 3 m/s, 1% at 10, 10% at 20, 42% at 30), times 4 x amount² (amount 0.5 =
+      the observed fraction), trimmed by a measured gain of 0.8; sigma narrows with the slope variance the pixel footprint still
+      resolves, so the coverage holds at every distance. Edge width 0.7 sigma; the threshold is perturbed by noise fixed to
+      the undisplaced water coordinate (lace; foam moves with the water, not the crests). Measured whitecap fraction (uniform
+      sky, 120 m of sea, Medium): 0.00 / 0.89 / 11.7% at 3 / 10 / 20 m/s (30 m view: 0.00 / 0.64 / 2.98%); live with a pinned time
+      0.70% / 8.9% at 10 / 20 m/s.
+    - **Integration:** Opaque pass like the plane; removed before picking and never in the overlay depth (not pickable); the
+      shadow cascades cover it; its average albedo (0.066 + colour) feeds A6.2; shaded views only (debug views and wireframe show
+      the sky). TAA: the plane's reprojection (no motion vectors); the animated surface relies on the neighbourhood clamp.
+    - **Model interiors:** with the A3.9 volume (default with the procedural sky) water where < 5% of the sky is visible is
+      discarded; without it, while the camera is inside the model's bounds, water inside the bounds is discarded (limit: from a
+      cockpit the water under the wings / between floats inside the bounding box is hidden too).
+    - **Time:** per-viewport clock advanced by the frame time while playing; capture runs move it only by `--fixed-frame-time`
+      steps; `--ocean-time` pins it; `--ocean-play off` holds it.
+  - **Interface:** `--ground ocean`; `--ocean-wind-speed`, `--ocean-wind-dir` (the direction the wind comes FROM, the sun's
+    azimuth convention), `--ocean-fetch`, `--ocean-choppiness`, `--ocean-swell`, `--ocean-foam`, `--ocean-color`,
+    `--ocean-quality`, `--ocean-mode <loop|live>`, `--ocean-period`, `--ocean-time`, `--ocean-play`, all through the registry
+    (CLI = pipe; out-of-range values refused); the settings UI in Viewport Settings → Camera & Helpers → Ground (unique IDs,
+    checked with a UI script in Ocean and Plane mode: no ImGui ID conflict on any control); `get_state` and `--profile-report`
+    carry `ground.ocean` (settings, cascades, memory, precompute progress and slices, live GPU ms, foam parameters).
+  - **Checks:** `scripts/validate_ocean.py` (registered in `run_regression.py`): Grid and Plane byte-identical to the baseline,
+    loop seam (0 s and 30 s byte-identical; 7.25 s and 37.25 s), deterministic captures (loop and live), CLI = pipe for every
+    flag, refused values, GL 4.3 gate (test hook), hull depth and pick, closed-box interior, uniform-sky energy, foam against the
+    wind, shadow ratio, UI ID conflicts, GPU cost. Review: `scripts/review_ocean.py` (`build/review/ocean/contact_sheet.png`,
+    `seam_strip.png`, `swim_strip.png`).
+  - **Deviations:** High (looping) is 4 x 256², not 512² (memory); no ocean SSR; the shadow keeps a third of the sun-driven body light
+    (lateral light diffusion in the water); the foam threshold is calibrated against measurements, not derived (the first-order
+    Jacobian statistics were 2.2 times too wide); the seam check compares 7.25 s and 37.25 s (exactly representable) instead
+    of 7.3 s and 37.3 s (4e-6 s apart as floats: one pixel of 450,000 differed by 2 levels); a pinned live time pre-rolls its
+    foam history instead of starting without it.
 
 **Exit gate:**
 - Moving time from dawn to night is seamless (frame budget met).

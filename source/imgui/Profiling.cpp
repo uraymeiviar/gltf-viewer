@@ -637,6 +637,9 @@ bool writeProfileReport(const std::string& path, const ProfileReport& report)
     if (!report.skyOcclusion.is_null()) {
         document["skyOcclusion"] = report.skyOcclusion;
     }
+    if (!report.ground.is_null()) {
+        document["ground"] = report.ground;
+    }
     if (!report.timeOfDay.is_null()) {
         document["timeOfDay"] = report.timeOfDay;
     }

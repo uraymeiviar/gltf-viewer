@@ -11,7 +11,7 @@ in vec3 a_position;
 
 uniform sampler2DArray u_OceanDisplacement;
 uniform vec4 u_OceanGrid;     // x: sea level (world Y), y: ring scale s, z: L = ln(1 + r_max / s), w: rings - 1
-uniform vec4 u_OceanInfo;     // x: cascade count, y: texels per side N, z: foam threshold, w: unresolved slope variance
+uniform vec4 u_OceanInfo;     // x: cascade count, y: texels per side N, w: unresolved slope variance
 // Per cascade: x: 1 / patch size, y: layer of the frame before the current time, z: layer of the frame after, w: blend
 uniform vec4 u_OceanCascade0;
 uniform vec4 u_OceanCascade1;
@@ -23,10 +23,14 @@ out vec2 v_SurfaceCoord; // the undisplaced X/Z, where the cascades are sampled
 out float v_Height;      // the displaced height above sea level
 
 const float OCEAN_PI = 3.141592653589793;
+// The grid is centred on the camera, so a camera move slides every vertex over the waves. Sampling the displacement one
+// mip level coarser than the ring spacing keeps waves shorter than about four vertices out of the geometry (they would
+// change with the vertex positions: "swimming" silhouettes); the pixel shader still shades them from the full field.
+const float OCEAN_VERTEX_LOD_BIAS = 1.0;
 
 vec3 oceanCascadeDisplacement(vec4 cascade, vec2 xz, float spacing)
 {
-    float lod = max(log2(spacing * cascade.x * u_OceanInfo.y), 0.0);
+    float lod = max(log2(spacing * cascade.x * u_OceanInfo.y) + OCEAN_VERTEX_LOD_BIAS, 0.0);
     vec2 uv = xz * cascade.x;
     vec3 a = textureLod(u_OceanDisplacement, vec3(uv, cascade.y), lod).xyz;
     vec3 b = textureLod(u_OceanDisplacement, vec3(uv, cascade.z), lod).xyz;

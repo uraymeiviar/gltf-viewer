@@ -526,6 +526,21 @@ void Application::drawViewports(FrameContext& frame)
             vp->ocean.reset();
         }
         const double oceanTime = oceanReady ? oceanTimeFor(*vp) : 0.0;
+        // Live mode: the per-frame FFT at this time (the clock moves it; a pinned time stays one step).
+        if (oceanReady && vp->ocean->live()) vp->ocean->stepLive(oceanTime);
+        if (vp.get() == activeViewport) {
+            auto& status = ux3d::imgui::oceanUiStatus();
+            status = ux3d::imgui::OceanUiStatus();
+            if (vp->ocean != nullptr) {
+                status.ready = vp->ocean->ready();
+                status.live = vp->ocean->live();
+                status.busy = vp->ocean->busy();
+                status.progress = vp->ocean->progress();
+                status.memoryBytes = vp->ocean->memoryBytes();
+                status.liveGpuMs = vp->ocean->stats().liveGpuAverageMs;
+                status.significantWaveHeight = vp->ocean->significantWaveHeight();
+            }
+        }
 
         // P5.3: redraw only when the render key changed, a click needs the picking
         // pass, the cached image is gone, or TAA is still accumulating. The key holds

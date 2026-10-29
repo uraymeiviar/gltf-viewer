@@ -1,11 +1,18 @@
-// A6.8: one frame of a cascade (OceanSimulation.cpp): the transformed fields (h + i Dx, Dz) become the layer's
-// (Dx, height, Dz, J) in metres, J the Jacobian of the horizontal displacement x -> x + D(x) (central differences,
-// the patch wraps): J < 1 where the surface is compressed, J < 0 where it folds over (foam, Tessendorf 2001).
+// A6.8: one frame of a cascade (OceanSimulation.cpp): the transformed fields (h + i Dx, Dz), computed at choppiness 1,
+// become the layer's (lambda Dx, height, lambda Dz, J) in metres. J is the Jacobian of the horizontal map
+// x -> x + lambda_f D(x) (central differences, the patch wraps; lambda_f = u_FoamStrength): J < 1 where the surface is
+// compressed, J < 0 where it folds over (foam, Tessendorf 2001). Live mode (u_Accumulate) keeps the foam from frame to
+// frame in J itself: J = min(J, previous J + u_Recovery), unless u_Reset starts from the raw value.
 layout(local_size_x = 8, local_size_y = 8) in;
 layout(rgba32f, binding = 0) readonly uniform image2D u_Scratch;
-layout(rgba16f, binding = 2) writeonly uniform image2D u_Output;
+layout(rgba16f, binding = 2) uniform image2D u_Output;
 
 uniform float u_Texel; // patch size / N, metres
+uniform float u_Choppiness;
+uniform float u_FoamStrength;
+uniform int u_Accumulate;
+uniform int u_Reset;
+uniform float u_Recovery;
 
 vec3 displacement(ivec2 p)
 {
@@ -21,11 +28,14 @@ void main()
     vec3 mx = displacement(p - ivec2(1, 0));
     vec3 pz = displacement(p + ivec2(0, 1));
     vec3 mz = displacement(p - ivec2(0, 1));
-    float scale = 0.5 / u_Texel;
+    float scale = 0.5 * u_FoamStrength / u_Texel;
     float dxdx = (px.x - mx.x) * scale;
     float dzdz = (pz.z - mz.z) * scale;
     float dxdz = (pz.x - mz.x) * scale;
     float dzdx = (px.z - mx.z) * scale;
     float jacobian = (1.0 + dxdx) * (1.0 + dzdz) - dxdz * dzdx;
-    imageStore(u_Output, p, vec4(centre, jacobian));
+    if (u_Accumulate != 0 && u_Reset == 0) {
+        jacobian = min(jacobian, imageLoad(u_Output, p).w + u_Recovery);
+    }
+    imageStore(u_Output, p, vec4(u_Choppiness * centre.x, centre.y, u_Choppiness * centre.z, jacobian));
 }

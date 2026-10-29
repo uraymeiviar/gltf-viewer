@@ -490,6 +490,7 @@ private:
     double oceanTimeFor(const ux3d::imgui::ViewportInstance& vp) const;
     void updateOceanClock(float deltaTime);
     nlohmann::json oceanStateJson(const ux3d::imgui::ViewportInstance& vp) const;
+    nlohmann::json groundStateJson(const ux3d::imgui::ViewportInstance& vp); // get_state / --profile-report "ground"
     // Writes the viewport's ocean (cascades, frames at its time, sea level, colour, fog, interior rule) into the ocean
     // material before its draw (Ocean.cpp).
     void setOceanUniforms(const ux3d::imgui::ViewportInstance& vp, ux3d::renderer::Material& material,

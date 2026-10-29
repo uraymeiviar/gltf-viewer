@@ -45,6 +45,7 @@ uniform vec4 u_OceanSlopeA3;
 uniform vec4 u_OceanSlopeB3;
 uniform vec3 u_OceanColor;          // linear, the light scattered back out of the water body
 uniform vec4 u_OceanParams;         // x: significant wave height (m)
+uniform vec4 u_OceanFoam;           // x: z of the whitecap coverage (P(Z > z) = coverage), y: sigma of J at full resolution, z: 1 / total slope variance, w: edge width / sigma
 uniform vec4 u_OceanInteriorMin;    // xyz: model bounds minimum, w: 1 = the camera is inside the bounds
 uniform vec4 u_OceanInteriorMax;    // xyz: model bounds maximum
 uniform vec2 u_GroundHaze;          // as ground.frag
@@ -52,6 +53,31 @@ uniform vec3 u_GroundHazeColor;
 
 const float OCEAN_F0 = 0.02;   // ((1.33 - 1) / (1.33 + 1))^2
 const float FOAM_ALBEDO = 0.8;
+// A shadow removes the sun's direct specular and the sun-driven part of the water body's scattering, but the light that
+// entered the water outside the shadow diffuses sideways (diffusion lengths of metres to tens of metres, more than the
+// width of a hull's shadow): a third of the sun-driven body light remains. The sky reflection and the sky-lit body
+// light are never touched by the shadow.
+const float OCEAN_SHADOW_FILL = 0.3;
+// The body is lighter at the wave crests and darker in the troughs (thinner / thicker water layer, more light scattered
+// towards the viewer): +-35% at the significant wave height.
+const float OCEAN_CREST_TINT = 0.35;
+const float FOAM_MEAN = -0.03;
+
+float oceanHash(vec2 p)
+{
+    vec3 q = fract(vec3(p.xyx) * 0.1031);
+    q += dot(q, q.yzx + 33.33);
+    return fract((q.x + q.y) * q.z);
+}
+
+float oceanValueNoise(vec2 p)
+{
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(oceanHash(i), oceanHash(i + vec2(1.0, 0.0)), f.x),
+               mix(oceanHash(i + vec2(0.0, 1.0)), oceanHash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
 
 float oceanSlopeLookup(vec4 a, vec4 b, float lod)
 {
@@ -70,10 +96,11 @@ vec4 oceanSample(vec4 cascade, vec2 uv, float lod)
     return mix(a, b, cascade.w);
 }
 
-// Adds a cascade's surface derivatives (d/dx and d/dz of (Dx, h, Dz)), its foam coverage and its unresolved slope
-// variance at this pixel's footprint.
+// Adds a cascade's surface derivatives (d/dx and d/dz of (Dx, h, Dz)), its part of the summed Jacobian (J - 1, the
+// compression of its displacement, persisting for a while after a fold) and its unresolved slope variance at this
+// pixel's footprint.
 void oceanCascade(vec4 cascade, vec4 slopeA, vec4 slopeB, vec2 xz, float footprint,
-                  inout vec3 dPdx, inout vec3 dPdz, inout float foam, inout float slopeVariance)
+                  inout vec3 dPdx, inout vec3 dPdz, inout float jacobian, inout float foamSlope, inout float slopeVariance)
 {
     float n = u_OceanInfo.y;
     float texel = 1.0 / (cascade.x * n);
@@ -88,9 +115,10 @@ void oceanCascade(vec4 cascade, vec4 slopeA, vec4 slopeB, vec2 xz, float footpri
     float inv = 0.5 / stepSize;
     dPdx += (px.xyz - mx.xyz) * inv;
     dPdz += (pz.xyz - mz.xyz) * inv;
-    float jacobian = 0.25 * (px.w + mx.w + pz.w + mz.w);
-    foam += clamp((u_OceanInfo.z - jacobian) * 2.0, 0.0, 1.0);
-    slopeVariance += oceanSlopeLookup(slopeA, slopeB, lod);
+    jacobian += oceanSample(cascade, uv, lod).w - 1.0;
+    float lost = oceanSlopeLookup(slopeA, slopeB, lod);
+    slopeVariance += lost;
+    foamSlope += slopeB.w - lost; // what this cascade still resolves at this footprint (its J varies with it)
 }
 
 void main()
@@ -115,14 +143,24 @@ void main()
     float footprint = max(max(length(dFdx(xz)), length(dFdy(xz))), 1.0e-5);
     vec3 dPdx = vec3(1.0, 0.0, 0.0);
     vec3 dPdz = vec3(0.0, 0.0, 1.0);
-    float foam = 0.0;
+    float jacobian = 1.0; // the Jacobian of the summed displacement: 1 + the sum of the cascades' (J - 1)
+    float foamSlope = 0.0;
     float slopeVariance = u_OceanInfo.w;
     int count = int(u_OceanInfo.x + 0.5);
-    if (count > 0) oceanCascade(u_OceanCascade0, u_OceanSlopeA0, u_OceanSlopeB0, xz, footprint, dPdx, dPdz, foam, slopeVariance);
-    if (count > 1) oceanCascade(u_OceanCascade1, u_OceanSlopeA1, u_OceanSlopeB1, xz, footprint, dPdx, dPdz, foam, slopeVariance);
-    if (count > 2) oceanCascade(u_OceanCascade2, u_OceanSlopeA2, u_OceanSlopeB2, xz, footprint, dPdx, dPdz, foam, slopeVariance);
-    if (count > 3) oceanCascade(u_OceanCascade3, u_OceanSlopeA3, u_OceanSlopeB3, xz, footprint, dPdx, dPdz, foam, slopeVariance);
-    foam = clamp(foam, 0.0, 1.0);
+    if (count > 0) oceanCascade(u_OceanCascade0, u_OceanSlopeA0, u_OceanSlopeB0, xz, footprint, dPdx, dPdz, jacobian, foamSlope, slopeVariance);
+    if (count > 1) oceanCascade(u_OceanCascade1, u_OceanSlopeA1, u_OceanSlopeB1, xz, footprint, dPdx, dPdz, jacobian, foamSlope, slopeVariance);
+    if (count > 2) oceanCascade(u_OceanCascade2, u_OceanSlopeA2, u_OceanSlopeB2, xz, footprint, dPdx, dPdz, jacobian, foamSlope, slopeVariance);
+    if (count > 3) oceanCascade(u_OceanCascade3, u_OceanSlopeA3, u_OceanSlopeB3, xz, footprint, dPdx, dPdz, jacobian, foamSlope, slopeVariance);
+    // Whitecaps: the summed Jacobian J (1 + the sum of the cascades' J - 1) is about Gaussian, FOAM_MEAN +- sigma; sigma is
+    // u_OceanFoam.y at full resolution and narrows with the slope variance the footprint still resolves (distance). The
+    // threshold z sigma below the mean covers the whitecap fraction of the sea whatever the distance. The fold
+    // statistics of the stored (central-difference, persisted) Jacobian were measured, not derived (OceanSimulation.h).
+    float sigma = u_OceanFoam.y * sqrt(clamp(foamSlope * u_OceanFoam.z, 0.0, 1.0));
+    // Lace: the threshold is perturbed by noise fixed to the undisplaced water coordinate (foam moves with the water, not
+    // with the crests), fading out once a pixel covers more than a few of its cells.
+    float lace = (0.65 * oceanValueNoise(xz * 2.3) + 0.35 * oceanValueNoise(xz * 8.7 + 17.0)) - 0.5;
+    lace *= 1.0 - smoothstep(0.04, 0.3, footprint);
+    float foam = clamp((1.0 + FOAM_MEAN - u_OceanFoam.x * sigma + 1.6 * sigma * lace - jacobian) / max(u_OceanFoam.w * sigma, 0.02), 0.0, 1.0);
 
     vec3 n = normalize(cross(dPdz, dPdx));
     vec3 toCamera = u_Camera - position;
@@ -171,6 +209,7 @@ void main()
     if (u_SunEnabled != 0) {
         float visibility = sunShadowVisibility(position, vec3(0.0, 1.0, 0.0));
         vec3 sunIntensity = u_SunIlluminance * visibility;
+        vec3 sunBody = u_SunIlluminance * mix(OCEAN_SHADOW_FILL, 1.0, visibility);
         vec3 l = normalize(u_SunDirection);
         vec3 h = normalize(l + v);
         float NdotL = clampedDot(n, l);
@@ -182,7 +221,7 @@ void main()
                           BRDF_specularGGX(vec3(OCEAN_F0), vec3(1.0), sunAlpha, 1.0, VdotH, NdotL, NdotV, NdotH);
         }
         float sunUp = max(l.y, 0.0);
-        body += u_OceanColor * sunIntensity * (sunUp / M_PI) * (1.0 - OCEAN_F0);
+        body += u_OceanColor * sunBody * (sunUp / M_PI) * (1.0 - OCEAN_F0);
         // Light passing through the wave crests towards a viewer who looks towards the sun.
         float crest = clamp(v_Height / max(0.5 * u_OceanParams.x, 0.05), 0.0, 1.0);
         float forward = pow(clampedDot(l, -v), 4.0) * pow(clamp(0.5 - 0.5 * dot(l, n), 0.0, 1.0), 3.0);
@@ -190,6 +229,8 @@ void main()
         foamDiffuse += sunIntensity * NdotL / M_PI;
     }
 
+    float level = clamp(v_Height / max(u_OceanParams.x, 0.1), -1.0, 1.0);
+    body *= 1.0 + OCEAN_CREST_TINT * level;
     vec3 color = reflected + body + sunSpecular;
     color = mix(color, FOAM_ALBEDO * foamDiffuse, foam);
 

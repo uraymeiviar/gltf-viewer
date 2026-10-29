@@ -255,7 +255,7 @@ void GltfResourceManager::initOcean()
     for (const char* name : { "u_OceanGrid", "u_OceanInfo", "u_OceanCascade0", "u_OceanCascade1", "u_OceanCascade2",
                               "u_OceanCascade3", "u_OceanSlopeA0", "u_OceanSlopeB0", "u_OceanSlopeA1", "u_OceanSlopeB1",
                               "u_OceanSlopeA2", "u_OceanSlopeB2", "u_OceanSlopeA3", "u_OceanSlopeB3", "u_OceanParams",
-                              "u_OceanInteriorMin", "u_OceanInteriorMax" }) {
+                              "u_OceanInteriorMin", "u_OceanInteriorMax", "u_OceanFoam" }) {
         m_oceanMaterial->setUniform(name, math::vec4(0.0f));
     }
     m_oceanMaterial->setUniform("u_OceanColor", math::vec3(0.0f));

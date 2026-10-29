@@ -191,6 +191,32 @@ Commands run on the render thread between frames, strictly in order. Multi-frame
   sky will read). `probe` returns the plane's linear colour like any pixel: with `sun` on and the shadows on, the
   shadow of the model on the plane is visible in it.
 
+## Ocean (A6.8)
+
+- `set_viewport_setting ground ocean` replaces the ground by an animated FFT sea at the Height of the ground (the same
+  `ground_height_mode` / `ground_height` keys as the plane; `model_base` puts a hull's lowest point at sea level).
+  It needs OpenGL 4.3 (compute shaders): below that, `ground ocean` logs one warning and keeps the ground. Shaded views
+  only; the sea is not pickable (`pick` / `probe` see through it to the background) and is lit by the sky / environment
+  reflection (no ocean SSR) and the sun with the A3.2 shadows.
+- Sea state: `ocean_wind_speed` (m/s, 0.5..40), `ocean_wind_dir` (degrees, the direction the wind comes FROM, the sun's
+  azimuth convention), `ocean_fetch` (m), `ocean_choppiness` (0..2), `ocean_swell` (0..1), `ocean_quality`
+  (`low|medium|high`), `ocean_period` (loop period, s). Changing one recomputes the waves: in a looping set in the
+  background within a 3 ms GPU budget per frame (`get_state` `ground.ocean.busy` / `progress`; the old set stays until
+  the new one is complete), in capture runs at once.
+- Look: `ocean_foam` (0..1; 0.5 is the whitecap coverage observed at that wind speed, about 1% at 10 m/s and 10% at
+  20 m/s), `ocean_color` (linear water body colour).
+- Time: the sea follows a per-viewport clock; capture runs (`capture`, `--fixed-frame-time`) advance it only by the
+  fixed frame time. `ocean_time` pins it (seconds, -1 follows the clock) for reproducible images; `ocean_play false`
+  holds the clock. A looping set repeats exactly every `ocean_period` seconds (time t and t + period are the same
+  image). `ocean_mode live` runs the FFT every frame instead (no loop; 512^2 at high quality; `ground.ocean.live`
+  reports its GPU ms per frame); a mode change builds the new set at once.
+- Reading it: `probe` returns the sea's linear colour like any pixel (a calm sea under a uniform sky of radiance L
+  reads about L (0.02 + 0.98 colour) per channel at nadir); `get_state` `ground.ocean` reports the settings, the
+  cascades (patch size, wave-number band, loop divisor), memory, precompute and the foam parameters.
+- Interiors: with the A3.9 sky-visibility volume (default with the procedural sky) the sea is not drawn where less than
+  5% of the sky is visible (inside hulls and cabins); without it, not inside the model's bounds while the camera is
+  inside them.
+
 ## Ambient occlusion (A3.5)
 
 - `set_viewport_setting ssao true` turns on screen-space ambient occlusion (GTAO) for that viewport (off by default;

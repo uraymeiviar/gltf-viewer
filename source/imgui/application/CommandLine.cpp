@@ -568,6 +568,22 @@ std::optional<int> Application::configure(int argc, char** argv)
             if (!applyCliSetting(SettingScope::Viewport, "ocean_quality", toLowerAscii(argv[++i]), "--ocean-quality")) return 1;
         } else if (arg == "--ocean-time" && i + 1 < argc) {
             if (!applyCliSetting(SettingScope::Viewport, "ocean_time", argv[++i], "--ocean-time")) return 1;
+        } else if (arg == "--ocean-fetch" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "ocean_fetch", argv[++i], "--ocean-fetch")) return 1;
+        } else if (arg == "--ocean-choppiness" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "ocean_choppiness", argv[++i], "--ocean-choppiness")) return 1;
+        } else if (arg == "--ocean-swell" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "ocean_swell", argv[++i], "--ocean-swell")) return 1;
+        } else if (arg == "--ocean-foam" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "ocean_foam", argv[++i], "--ocean-foam")) return 1;
+        } else if (arg == "--ocean-color" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "ocean_color", argv[++i], "--ocean-color")) return 1;
+        } else if (arg == "--ocean-period" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "ocean_period", argv[++i], "--ocean-period")) return 1;
+        } else if (arg == "--ocean-mode" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "ocean_mode", toLowerAscii(argv[++i]), "--ocean-mode")) return 1;
+        } else if (arg == "--ocean-play" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "ocean_play", toLowerAscii(argv[++i]), "--ocean-play")) return 1;
         } else if (arg == "--ssr" && i + 1 < argc) {
             const std::string value = toLowerAscii(argv[++i]);
             if (value != "on" && value != "off") return 1;
