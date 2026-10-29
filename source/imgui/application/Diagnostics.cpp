@@ -1018,7 +1018,10 @@ void Application::finishFrame(FrameContext& frame, int displayW, int displayH)
         if (activeEnvironment.environmentSource != 0) report.sky = skyStateJson(activeEnvironment);
         // A6.4-A6.6: exposure, moon, stars (only with the procedural sky, so HDR reports are unchanged).
         if (activeEnvironment.environmentSource != 0) report.night = nightStateJson(activeEnvironment);
+        resolveAllViewportSettings();
         report.ssao = ssaoStateJson();
+        report.quality = qualityStateJson();
+        report.effects = effectsStateJson(activeEnvironment);
         report.skyOcclusion = skyOcclusionStateJson(activeEnvironment);
         // A6.8: the ocean's settings, cascades, memory, precompute and live GPU cost (only while the ground is the ocean).
         if (activeViewport != nullptr && activeViewport->settings.ground.mode == ux3d::imgui::GroundMode::Ocean) {
@@ -1290,31 +1293,20 @@ void Application::finishFrame(FrameContext& frame, int displayW, int displayH)
             uiFrame.viewports.push_back(vinfo);
         }
         uiFrame.setAaMode = [&](const std::string& modeStr, uint32_t vpId) {
-            ux3d::imgui::ViewportInstance* targetVp = activeViewport;
-            if (vpId != 0) {
-                for (const auto& vp : viewports) {
-                    if (vp && vp->id == vpId) {
-                        targetVp = vp.get();
-                        break;
-                    }
-                }
-            }
-            if (!targetVp) return false;
+            // Settings scopes: AA is renderer-wide; the viewport argument only has to name a viewport.
+            if (vpId != 0 && findViewportById(vpId) == nullptr) return false;
             std::string m = toLowerAscii(modeStr);
-            if (m == "none" || m == "0")
-                targetVp->settings.setLegacyAA(0);
-            else if (m == "msaa2" || m == "1")
-                targetVp->settings.setLegacyAA(1);
-            else if (m == "msaa4" || m == "2")
-                targetVp->settings.setLegacyAA(2);
-            else if (m == "msaa8" || m == "3")
-                targetVp->settings.setLegacyAA(3);
-            else if (m == "fxaa" || m == "4")
-                targetVp->settings.setLegacyAA(4);
-            else if (m == "taa" || m == "5")
-                targetVp->settings.setLegacyAA(5);
-            else
-                return false;
+            static const char* const names[] = {"none", "msaa2", "msaa4", "msaa8", "fxaa", "taa"};
+            int mode = -1;
+            for (int k = 0; k < 6; ++k) {
+                if (m == names[k] || m == std::to_string(k)) mode = k;
+            }
+            if (mode < 0) return false;
+            auto& quality = ux3d::imgui::RenderQuality::settings();
+            quality.msaaIdx = mode >= 1 && mode <= 3 ? mode : 0;
+            quality.postAAIdx = mode >= 4 ? mode - 3 : 0;
+            ux3d::imgui::RenderQuality::pinAA();
+            sceneRevisions.mark(ux3d::imgui::SceneChange::ViewportSettings);
             return true;
         };
         uiFrame.createViewport = [&]() {
@@ -1325,8 +1317,7 @@ void Application::finishFrame(FrameContext& frame, int displayW, int displayH)
             std::string vpName = "Viewport " + std::to_string(nextId);
             auto newVp = std::make_unique<ux3d::imgui::ViewportInstance>(nextId, vpName, gladGL.get());
             if (activeViewport != nullptr) {
-                newVp->settings = activeViewport->settings;
-                newVp->settings.setLegacyAA(5); // New viewports start with MSAA Off + TAA.
+                newVp->settings = activeViewport->settings; // AA is renderer-wide (settings scopes)
                 if (activeScene != nullptr) {
                     newVp->cameraActor.fitCameraToScene(*activeScene, &gltfModel);
                 }

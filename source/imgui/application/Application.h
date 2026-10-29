@@ -16,6 +16,7 @@
 #include "imgui/StatusBar.h"
 #include "imgui/ResourcesPanel.h"
 #include "imgui/ViewportInstance.h"
+#include "imgui/RenderQuality.h"
 #include "imgui/SkyEnvironment.h"
 #include "imgui/SkyOcclusion.h"
 #include "imgui/ViewportOverrides.h"
@@ -401,6 +402,12 @@ private:
     void advanceTimeOfDay(float deltaSeconds);
     // A3.5: every viewport's SSAO settings, whether its last render applied the term, memory and GPU time.
     nlohmann::json ssaoStateJson() const;
+    // Settings scopes (docs/SETTINGS_SCOPES.md): writes every viewport's resolved mirrors from the global quality and
+    // the active scene's effects (RenderQuality::resolveViewport); resets a viewport's TAA history when its AA changed.
+    void resolveAllViewportSettings();
+    // get_state: the global quality, the scene's effects and each viewport's overrides with the effective values.
+    nlohmann::json qualityStateJson() const;
+    nlohmann::json effectsStateJson(const ux3d::imgui::SceneEnvironmentState& environment) const;
     // A6.2 / A6.3: the procedural sky's atmosphere for a scene environment (the ground albedo resolved through the
     // lowest-id open viewport's A3.6 plane / A6.8 ocean, skyGroundViewport), the sun direction it is lit from, the per-frame update (LUTs, time-sliced IBL,
     // environment map hand-over) and its state for get_state and profile reports.
@@ -725,6 +732,7 @@ private:
     // reset returns here: the viewport settings and scene environment after startup flags.
     ux3d::imgui::ViewportSettingsState agentStartupViewportSettings;
     ux3d::imgui::SceneEnvironmentState agentStartupEnvironment;
+    ux3d::imgui::RenderQualitySettings agentStartupQuality; // reset restores the AA / effect quality fields
     // CLI environment flags, replayed onto every scene environment after the model loads.
     std::vector<std::pair<std::string, std::string>> cliEnvironmentSettings;
 

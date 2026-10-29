@@ -363,7 +363,12 @@ bool Application::loadGltfModel(const std::string& filePath, ux3d::gltf::Gltf& g
         }
         selection = ux3d::imgui::SelectionState();
         const size_t sceneCount = gltfModel.getElements<ux3d::gltf::Scene>().size();
+        // Settings scopes: the scene effects (shadows, SSR, SSAO, icing, ...) were per-viewport settings, which a
+        // load kept; they carry over to the new model's scenes. The rest of the environment starts from its defaults.
+        const ux3d::imgui::SceneEffectSettings carriedEffects =
+            sceneEnvironments.empty() ? ux3d::imgui::SceneEffectSettings{} : sceneEnvironments.front().effects;
         sceneEnvironments.assign(std::max<size_t>(1, sceneCount), ux3d::imgui::SceneEnvironmentState{});
+        for (auto& environment : sceneEnvironments) environment.effects = carriedEffects;
 
         const auto uploadStart = ux3d::imgui::profiling::Clock::now();
         if (const char* fault = std::getenv("GLIDER_TEST_LOAD_FAILURE"); fault && std::string(fault) == "upload") throw std::bad_alloc();

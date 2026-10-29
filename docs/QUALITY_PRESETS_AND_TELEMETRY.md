@@ -24,3 +24,9 @@ Statistics has Overview, Textures and Meshes tabs. Overview includes DXGI local 
 Texture rows show mapped resident GL payload, dimensions/mip count, decoded CPU data and retained encoded bytes. Mesh rows deduplicate base attribute/index accessor buffers within each mesh. Shared buffers may appear in more than one mesh row. Generated tangents, morph/skin resources, driver padding and allocation overhead are not assigned to these per-mesh figures. Resource totals are payload estimates and need not equal OS GPU accounting. Unknown GPU metrics remain explicitly unknown. Inspectors also expose the texture/mesh payload estimates.
 
 Implementation entry points are `RenderQuality.cpp` (profiles/controller/persistence), `SearchPathsPanel.cpp` (Settings), `AppSettings.cpp` (wildcard cache), `RuntimeTelemetry.h` / `MemoryInfo.h` / `ResourceMemory.h` (samples and accounting), and the status/statistics/inspector panels. `scripts/check_quality_controls.py` exercises the new controls using generated private assets and a private settings directory. See `QUALITY_CONTROLS_HANDOFF.md` for current validation state and remaining work; original loading measurements are reported separately.
+
+## Settings scopes
+
+Since the settings-scopes change the presets hold every per-effect quality as well (AA, SSR, SSAO quality and
+resolution, sky-occlusion and ocean quality); there is no per-viewport quality. Which settings are quality, scene
+effects or viewport view, and how the former keys map, is in `docs/SETTINGS_SCOPES.md`.

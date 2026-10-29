@@ -8,6 +8,7 @@
 #include <string>
 
 #include "imgui/NightSky.h"
+#include "imgui/SettingsScopes.h"
 #include "imgui/SkyAtmosphere.h"
 #include "imgui/SunDisk.h"
 #include "imgui/TimeOfDay.h"
@@ -134,11 +135,15 @@ struct SceneEnvironmentState {
     float ambientLuminance = kAmbientDefaultLuminance; // cd/m^2
 
     // A3.9 sky occlusion (SkyOcclusion.h): -1 automatic (on with the procedural sky, off with the HDR, so every HDR
-    // render is unchanged), 0 off, 1 on. Quality: SkyOcclusionQuality (0 low, 1 medium, 2 high). Environment
-    // occluders (ASOBO_material_environment_occluder) block the sky unless skyOcclusionOccluders is off.
+    // render is unchanged), 0 off, 1 on. Its quality is renderer-wide (RenderQualitySettings::skyOcclusionQuality).
+    // Environment occluders (ASOBO_material_environment_occluder) block the sky unless skyOcclusionOccluders is off.
     int skyOcclusion = -1;
-    int skyOcclusionQuality = 1;
     bool skyOcclusionOccluders = true;
+
+    // Settings scopes: effect switches and look parameters of this scene (shadows, SSR, SSAO, icing, sky portals,
+    // decal tolerance). Every viewport follows them unless it overrides shadows / SSR / SSAO. Unlike the rest of the
+    // environment they carry over to the next model (they were per-viewport settings, which survived a load).
+    SceneEffectSettings effects;
 
     bool operator==(const SceneEnvironmentState&) const = default;
 };

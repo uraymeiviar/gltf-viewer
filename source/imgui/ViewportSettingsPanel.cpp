@@ -59,7 +59,9 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
         // -------------------------------------------------------------
         // Tab 1: Debug Render Modes
         // -------------------------------------------------------------
-        if (ImGui::BeginTabItem("Render Modes")) {
+        const bool renderTabOpen = ImGui::BeginTabItem("Render Modes");
+        UiProbe::item("vp.tab.render", 0);
+        if (renderTabOpen) {
             const char* renderModes[] = {
                 "None / Shaded (Default)",
                 "Wireframe",
@@ -94,25 +96,42 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
 
             ImGui::TextDisabled("Allows inspecting individual PBR channels, geometry, or UVs.");
 
+            // Settings scopes: anti-aliasing is renderer-wide (Quality tab); in its place, this viewport's overrides of
+            // the scene's effects. The block keeps the rows' heights (a text and two rows of combos), so the controls
+            // below keep their places (validate_p4_exit_gate.py clicks them by position).
             ImGui::Separator();
-            ImGui::Text("Anti-Aliasing (AA):");
-            const char* msaaModes[] = { "Off", "2x", "4x", "8x" };
-            int msaa = state.effectiveMsaaIdx();
-            if (ImGui::Combo("MSAA", &msaa, msaaModes, 4)) {
-                state.msaaIdx = msaa;
-                if (antiAliasing) antiAliasing->resetHistory();
-                revisions.mark(SceneChange::ViewportSettings);
+            ImGui::Text("Effect overrides (Scene / Off / On):");
+            const char* overrideNames[] = { "Scene", "Off", "On" };
+            const float overrideWidth = 70.0f;
+            const auto overrideCombo = [&](const char* label, const char* tag, EffectOverride& value, bool effective,
+                                           const char* tooltip) {
+                int index = static_cast<int>(value);
+                ImGui::SetNextItemWidth(overrideWidth);
+                const bool changed = ImGui::Combo(label, &index, overrideNames, 3);
+                UiProbe::item(tag, 0);
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("%s\nScene: follow the Scene Inspector. Now %s in this viewport.", tooltip,
+                                      effective ? "on" : "off");
+                }
+                if (changed) {
+                    value = static_cast<EffectOverride>(index);
+                    if (antiAliasing) antiAliasing->resetHistory();
+                    revisions.mark(SceneChange::ViewportSettings);
+                }
+                return changed;
+            };
+            overrideCombo("Shadows##vpShadowsOverride", "vp.override.shadows", state.shadowsOverride, state.sunShadows,
+                          "Sun shadows in this viewport.");
+            ImGui::SameLine();
+            if (overrideCombo("SSR##vpSsrOverride", "vp.override.ssr", state.ssrOverride, state.screenSpaceReflections,
+                              "Windshield screen-space reflections in this viewport.")) {
+                RenderQuality::pinSsr();
             }
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Crisp geometry edges; costs memory and fill rate.");
-            const char* postModes[] = { "None", "FXAA", "TAA" };
-            int post = state.effectivePostAAIdx();
-            if (ImGui::Combo("Post AA", &post, postModes, 3)) {
-                state.postAAIdx = post;
-                if (antiAliasing) antiAliasing->resetHistory();
-                revisions.mark(SceneChange::ViewportSettings);
-            }
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                "FXAA: cheap, slightly soft.\nTAA: stable, best on shader aliasing and decals; can ghost.");
+            overrideCombo("SSAO##vpSsaoOverride", "vp.override.ssao", state.ssaoOverride, state.ssao.enabled,
+                          "Screen-space ambient occlusion in this viewport.");
+            ImGui::SameLine();
+            ImGui::TextDisabled("Now: shadows %s, SSR %s, SSAO %s", state.sunShadows ? "on" : "off",
+                                state.screenSpaceReflections ? "on" : "off", state.ssao.enabled ? "on" : "off");
 
             ImGui::Separator();
             ImGui::Text("Face Culling & Winding:");
@@ -130,30 +149,10 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
             }
             // One switch per extension Glider renders, from the A0.2 support table.
             ImGui::BeginDisabled(!state.asobo.enabled);
-            if (ImGui::Checkbox("Screen-space reflections", &state.screenSpaceReflections)) {
-                revisions.mark(SceneChange::ViewportSettings);
-            }
-            if (ImGui::Combo("SSR quality", &state.ssrQuality, "Low\0Medium\0High\0")) {
-                revisions.mark(SceneChange::ViewportSettings);
-            }
-            if (ImGui::SliderFloat("Interior sky reflection", &state.interiorSkyReflection, 0.0f, 1.0f)) {
-                revisions.mark(SceneChange::ViewportSettings);
-            }
-            if (ImGui::SliderFloat("Icing", &state.windshieldIcing, 0.0f, 1.0f, "%.2f")) {
-                revisions.mark(SceneChange::ViewportSettings);
-            }
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Windshield icing and frosted geometry decals (0 = clean aircraft).");
-            }
+            // Settings scopes: SSR, interior sky reflection, icing, sky portal strength and the decal tolerance are
+            // scene settings now (Scene Inspector > Shadows, Reflections & AO); SSR quality is in the Quality tab.
             if (gltfLayer != nullptr && gltfLayer->hasSkyPortals()) {
-                // A3.7: shown only for files with ASOBO_sky_portal nodes.
-                if (ImGui::SliderFloat("Sky portal strength", &state.skyPortalStrength, 0.0f, 4.0f, "%.2f")) {
-                    revisions.mark(SceneChange::ViewportSettings);
-                }
-                if (ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("Window light of the sky portals, added only where the occlusion\n"
-                                      "removed sky light: (1 - occlusion) x strength x portal light.");
-                }
+                // A3.7: shown only for files with ASOBO_sky_portal nodes (the gizmos are a view helper).
                 if (ImGui::Checkbox("Show sky portals", &state.showSkyPortals)) {
                     revisions.mark(SceneChange::ViewportSettings);
                 }
@@ -184,16 +183,6 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
                                       static_cast<int>(info.note.size()), info.note.data());
                 }
             }
-            const bool usesDecalBuffer = gltfLayer != nullptr && gltfLayer->getIsolationRoot() == nullptr
-                && state.renderMode != ux3d::renderer::RenderMode::Wireframe
-                && ((gltfLayer->hasGeometryDecalMaterials() && state.asobo.applies("ASOBO_material_geometry_decal"))
-                    || (gltfLayer->hasBlendGbufferMaterials() && state.asobo.applies("ASOBO_material_blend_gbuffer")));
-            if (usesDecalBuffer) {
-                if (ImGui::DragFloat("Decal depth tolerance (mm)", &state.decalDepthToleranceMm,
-                                     0.05f, 0.0f, 10.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp)) {
-                    revisions.mark(SceneChange::ViewportSettings);
-                }
-            }
             ImGui::Unindent();
             ImGui::EndDisabled();
             ImGui::TextDisabled("Off: this viewport renders the file as if it had no ASOBO extensions.");
@@ -215,40 +204,6 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
                 state.wireframeBlend = static_cast<WireframeBlendMode>(currentWireBlend);
                 revisions.mark(SceneChange::ViewportSettings);
             }
-
-            // A3.5: screen-space ambient occlusion of the sky light, per viewport. Auto quality never changes it.
-            ImGui::Separator();
-            ImGui::Text("Ambient Occlusion:");
-            if (ImGui::Checkbox("Screen-space ambient occlusion (SSAO)", &state.ssao.enabled)) {
-                revisions.mark(SceneChange::ViewportSettings);
-            }
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("GTAO from the scene depth: darkens the sky light (IBL) in creases, corners and\n"
-                                  "under nearby objects. The sun and punctual lights keep their own shadows.\n"
-                                  "Combined with the authored occlusion maps as min(authored, SSAO).");
-            }
-            ImGui::BeginDisabled(!state.ssao.enabled);
-            if (ImGui::DragFloat("AO radius", &state.ssao.radius, 0.01f, 0.01f, 100.0f, "%.2f",
-                                 ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic)) {
-                revisions.mark(SceneChange::ViewportSettings);
-            }
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("World units (metres in MSFS assets): occluders farther away do not count.");
-            }
-            if (ImGui::SliderFloat("AO intensity", &state.ssao.intensity, 0.0f, 4.0f, "%.2f")) {
-                revisions.mark(SceneChange::ViewportSettings);
-            }
-            int ssaoQuality = static_cast<int>(state.ssao.quality);
-            if (ImGui::Combo("AO quality", &ssaoQuality, "Low (2 x 4 samples)\0Medium (3 x 6)\0High (4 x 8)\0")) {
-                state.ssao.quality = static_cast<SsaoQuality>(ssaoQuality);
-                revisions.mark(SceneChange::ViewportSettings);
-            }
-            int ssaoResolution = state.ssao.halfResolution ? 1 : 0;
-            if (ImGui::Combo("AO resolution", &ssaoResolution, "Full\0Half (depth-aware upsample)\0")) {
-                state.ssao.halfResolution = ssaoResolution == 1;
-                revisions.mark(SceneChange::ViewportSettings);
-            }
-            ImGui::EndDisabled();
 
             // Material Variants (KHR_materials_variants)
             if (gltfModel != nullptr && gltfModel->hasMaterialVariants()) {
@@ -353,14 +308,14 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
                         ImGui::SetTooltip("Looping: a precomputed set that repeats every Period; the per-frame cost is texture sampling.\n"
                                           "Live: the FFT runs every frame (512x512 at High quality); it costs GPU time each frame.");
                     }
-                    int quality = static_cast<int>(ocean.quality);
-                    if (probed("vp.ocean.quality", [&] { return ImGui::Combo("Quality##oceanQuality", &quality, "Low\0Medium\0High\0"); })) {
-                        ocean.quality = static_cast<OceanQuality>(quality);
-                        revisions.mark(SceneChange::ViewportSettings);
-                    }
-                    if (ImGui::IsItemHovered()) {
-                        ImGui::SetTooltip("Looping: 2 x 128^2 (32 frames, 12 MiB), 3 x 256^2 (48 frames, 101 MiB), 4 x 256^2 (64 frames, 176 MiB).\n"
-                                          "Live: 2 x 128^2, 3 x 256^2, 4 x 512^2.");
+                    // Settings scopes: the simulation quality is renderer-wide (Quality tab); shown here for reference.
+                    {
+                        const char* qualityNames[] = { "Low", "Medium", "High" };
+                        probed("vp.ocean.quality", [&] {
+                            ImGui::TextDisabled("Quality: %s (Quality tab, all viewports)",
+                                                qualityNames[std::clamp(static_cast<int>(ocean.quality), 0, 2)]);
+                            return false;
+                        });
                     }
                     if (probed("vp.ocean.wind_speed", [&] { return ImGui::SliderFloat("Wind speed (m/s)##oceanWindSpeed", &ocean.windSpeed, 0.5f, 40.0f, "%.1f"); })) {
                         revisions.mark(SceneChange::ViewportSettings);
@@ -600,9 +555,11 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
         }
 
         // -------------------------------------------------------------
-        // Tab 3: Render Quality (all viewports)
+        // Tab 3: Render Quality (all viewports): AA, resolution, effect quality, IBL filter, sun shadow maps
         // -------------------------------------------------------------
-        if (ImGui::BeginTabItem("Quality")) {
+        const bool qualityTabOpen = ImGui::BeginTabItem("Quality");
+        UiProbe::item("vp.tab.quality", 0);
+        if (qualityTabOpen) {
             RenderQuality::drawSettings(gltfLayer, revisions);
             ImGui::EndTabItem();
         }
@@ -610,7 +567,9 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
         // -------------------------------------------------------------
         // Tab 4: Post (A6.7 lens effect; after the existing tabs so they keep their places)
         // -------------------------------------------------------------
-        if (ImGui::BeginTabItem("Post")) {
+        const bool postTabOpen = ImGui::BeginTabItem("Post");
+        UiProbe::item("vp.tab.post", 0);
+        if (postTabOpen) {
             ImGui::SeparatorText(ICON_MDI_FLARE " Lens Effect");
             const char* lensModes[] = { "Off", "Ghosts + Halo", "Anamorphic Streak", "Ghosts + Streak" };
             int lens = std::clamp(state.lensFlare, 0, 3);

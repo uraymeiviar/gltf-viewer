@@ -184,7 +184,7 @@ if section("equivalence"):
 
         print("[production fixture: two live viewports, clicks in both]")
         lines, n = grid(range(320, 980, 80), range(260, 560, 100), "pick")
-        script = (["wait 8", "vpcreate", "wait 10", "vpsplit 2", "wait 10", "vpsetting 2 doublesided on", "wait 6",
+        script = (["wait 8", "vpcreate", "aamode none 2", "wait 10", "vpsplit 2", "wait 10", "vpsetting 2 doublesided on", "wait 6",
                    "snap split_idle0", "wait 20", "snap split_idle1"] + lines + ["shot @OUT@/split.png", "wait 2"])
         cand = equivalence("split", "\n".join(script) + "\n", [FIXTURE, "--aa", "none"] + BEHIND, n, idle=[("split_idle0", "split_idle1")])
         if cand:

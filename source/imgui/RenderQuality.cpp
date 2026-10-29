@@ -2,6 +2,7 @@
 
 #include "imgui/RenderQuality.h"
 #include "imgui/MemoryInfo.h"
+#include "imgui/SettingsScopes.h"
 #include "imgui/ViewportSettingsPanel.h"
 #include "core/LoadProgress.h"
 #include "core/Logger.h"
@@ -52,6 +53,10 @@ QualityProfile defaultProfile(int index)
 {
     QualityProfile p;
     p.render.autoQuality = false;
+    // AA and SSR quality as the profiles had them before they moved into render (Low: none / low).
+    p.render.msaaIdx = 0;
+    p.render.postAAIdx = 0;
+    p.render.ssrQuality = 0;
     // A3.2 sun shadows: Low 1024 x 2 hard, Mid 1024 x 3 PCF, High 2048 x 3 PCF (the default), Ultra 2048 x 4 soft.
     p.render.shadowResolution = index <= 1 ? 1024 : 2048;
     p.render.shadowCascades = index == 0 ? 2 : (index == 3 ? 4 : 3);
@@ -62,13 +67,13 @@ QualityProfile defaultProfile(int index)
         p.render.iblCubeSize = 256; p.render.iblIrradianceSize = 32;
         p.render.iblLutSize = 128; p.render.iblSpecularSamples = 128; p.render.iblHalfFloat = true;
     } else if (index == 1) {
-        p.textureMaxSize = 1024; p.msaaIdx = 1;
+        p.textureMaxSize = 1024; p.render.msaaIdx = 1;
         p.render.iblCubeSize = 512; p.render.iblIrradianceSize = 64;
         p.render.iblLutSize = 256; p.render.iblSpecularSamples = 512; p.render.iblHalfFloat = true;
     } else {
         p.textureMaxSize = index == 2 ? 4096 : 0;
-        p.msaaIdx = index == 3 ? 2 : 1;
-        p.postAAIdx = 2; p.ssr = p.bloom = true; p.ssrQuality = index == 3 ? 2 : 1;
+        p.render.msaaIdx = index == 3 ? 2 : 1;
+        p.render.postAAIdx = 2; p.ssr = p.bloom = true; p.render.ssrQuality = index == 3 ? 2 : 1;
     }
     return p;
 }
@@ -211,11 +216,19 @@ bool readQualityProfiles(SettingsFile& settings)
         if (field == "textureMaxSize") {
             if (parseUint(value, u) && isValidTextureMax(u)) profile.textureMaxSize = u; else invalid = true;
         } else if (field == "msaa") {
-            if (parseInt(value, i) && i >= 0 && i <= 3) profile.msaaIdx = i; else invalid = true;
+            if (parseInt(value, i) && i >= 0 && i <= 3) profile.render.msaaIdx = i; else invalid = true;
         } else if (field == "postAA") {
-            if (parseInt(value, i) && i >= 0 && i <= 2) profile.postAAIdx = i; else invalid = true;
+            if (parseInt(value, i) && i >= 0 && i <= 2) profile.render.postAAIdx = i; else invalid = true;
         } else if (field == "ssrQuality") {
-            if (parseInt(value, i) && i >= 0 && i <= 2) profile.ssrQuality = i; else invalid = true;
+            if (parseInt(value, i) && i >= 0 && i <= 2) profile.render.ssrQuality = i; else invalid = true;
+        } else if (field == "ssaoQuality") {
+            if (parseInt(value, i) && i >= 0 && i <= 2) profile.render.ssaoQuality = i; else invalid = true;
+        } else if (field == "ssaoResolution") {
+            if (value == "full" || value == "half") profile.render.ssaoHalfResolution = value == "half"; else invalid = true;
+        } else if (field == "skyOcclusionQuality") {
+            if (parseInt(value, i) && i >= 0 && i <= 2) profile.render.skyOcclusionQuality = i; else invalid = true;
+        } else if (field == "oceanQuality") {
+            if (parseInt(value, i) && i >= 0 && i <= 2) profile.render.oceanQuality = i; else invalid = true;
         } else if (field == "skybox") {
             if (parseBool(value, b)) profile.skybox = b; else invalid = true;
         } else if (field == "ibl") {
@@ -421,6 +434,24 @@ void RenderQualitySettings::copyShadows(const RenderQualitySettings& from)
     copyShadowTuning(from);
 }
 
+void RenderQualitySettings::copyEffectQuality(const RenderQualitySettings& from)
+{
+    msaaIdx = from.msaaIdx;
+    postAAIdx = from.postAAIdx;
+    ssrQuality = from.ssrQuality;
+    ssaoQuality = from.ssaoQuality;
+    ssaoHalfResolution = from.ssaoHalfResolution;
+    skyOcclusionQuality = from.skyOcclusionQuality;
+    oceanQuality = from.oceanQuality;
+}
+
+int RenderQualitySettings::legacyAAIndex() const
+{
+    if (postAAIdx == 0) return std::clamp(msaaIdx, 0, 3);
+    if (msaaIdx == 0) return postAAIdx == 1 ? 4 : 5;
+    return -1;
+}
+
 uint64_t RenderQualitySettings::estimatedIblBytes() const
 {
     const uint32_t texelBytes = iblHalfFloat ? 8u : 16u;
@@ -506,8 +537,8 @@ void RenderQuality::drawProfilesEditor(SceneRevisions& revisions)
         UiProbe::item("quality.texture.max",i+1);
         const char* aa[] = {"Off","2x","4x","8x"};
         const char* post[] = {"None","FXAA","TAA"};
-        changed |= ImGui::Combo("MSAA",&p.msaaIdx,aa,4);
-        changed |= ImGui::Combo("Post AA",&p.postAAIdx,post,3);
+        changed |= ImGui::Combo("MSAA",&p.render.msaaIdx,aa,4);
+        changed |= ImGui::Combo("Post AA",&p.render.postAAIdx,post,3);
         changed |= ImGui::Checkbox("HDR skybox",&p.skybox);
         changed |= ImGui::Checkbox("Image-based lighting (IBL)",&p.ibl);
         changed |= ImGui::Checkbox("Punctual lights",&p.lights);
@@ -516,16 +547,24 @@ void RenderQuality::drawProfilesEditor(SceneRevisions& revisions)
         changed |= sizeCombo("IBL LUT",p.render.iblLutSize,kLutSizes,"");
         changed |= sizeCombo("IBL samples",p.render.iblSpecularSamples,kSampleCounts,"");
         changed |= ImGui::Checkbox("IBL half float",&p.render.iblHalfFloat);
-        changed |= ImGui::Checkbox("Screen-space reflections",&p.ssr);
+        changed |= ImGui::Checkbox("Allow screen-space reflections",&p.ssr);
         const char* ssr[] = {"Low","Med","High"};
-        changed |= ImGui::Combo("SSR quality",&p.ssrQuality,ssr,3);
-        changed |= ImGui::Checkbox("Bloom",&p.bloom);
+        changed |= ImGui::Combo("SSR quality",&p.render.ssrQuality,ssr,3);
+        changed |= ImGui::Combo("SSAO quality",&p.render.ssaoQuality,ssr,3);
+        {
+            int half = p.render.ssaoHalfResolution ? 1 : 0;
+            const char* resolutions[] = {"Full","Half"};
+            if (ImGui::Combo("SSAO resolution",&half,resolutions,2)) { p.render.ssaoHalfResolution = half == 1; changed = true; }
+        }
+        changed |= ImGui::Combo("Sky occlusion quality",&p.render.skyOcclusionQuality,ssr,3);
+        changed |= ImGui::Combo("Ocean quality",&p.render.oceanQuality,ssr,3);
+        changed |= ImGui::Checkbox("Allow bloom",&p.bloom);
         int grid = static_cast<int>(p.render.gridMode);
         const char* grids[] = {"Screen ray","Mesh"};
         if (ImGui::Combo("Ground grid",&grid,grids,2)) { p.render.gridMode = static_cast<GridMode>(grid); changed = true; }
         changed |= ImGui::SliderFloat("Render scale",&p.render.renderScale,.5f,1.f,"%.2f");
         // A3.2 sun shadows (used only while the sun is on).
-        changed |= ImGui::Checkbox("Sun shadows",&p.render.shadows);
+        changed |= ImGui::Checkbox("Allow sun shadows",&p.render.shadows);
         changed |= sizeCombo("Shadow map size",p.render.shadowResolution,kShadowResolutions,"");
         changed |= ImGui::SliderInt("Shadow cascades",&p.render.shadowCascades,2,4);
         changed |= ImGui::DragFloat("Shadow distance",&p.render.shadowDistance,1.0f,kShadowDistanceMin,kShadowDistanceMax,"%.0f m",ImGuiSliderFlags_AlwaysClamp);
@@ -553,6 +592,12 @@ bool RenderQuality::allowBloom(bool requested)
     return requested && (!s_profilesActive || s_pinBloom || targetProfile().bloom) && (!autoActive() || s_pinBloom || s_autoLevel >= 4);
 }
 void RenderQuality::pinShadows() { s_pinShadow = true; }
+void RenderQuality::pinAA() { s_pinAA = true; }
+void RenderQuality::pinSsr() { s_pinSsr = true; }
+bool RenderQuality::allowSsr()
+{
+    return (!s_profilesActive || s_pinSsr || targetProfile().ssr) && (!autoActive() || s_pinSsr || s_autoLevel >= 5);
+}
 bool RenderQuality::validShadowResolution(uint32_t value) { return isOneOf(value, kShadowResolutions); }
 const char* RenderQuality::shadowFilterName(ShadowFilter filter)
 {
@@ -622,41 +667,44 @@ RenderQualitySettings RenderQuality::effective()
         if (s_autoLevel < 2) result.shadowCascades = std::min(result.shadowCascades, 2);
         if (result.shadowFilter == ShadowFilter::Soft) result.shadowFilter = ShadowFilter::Pcf;
     }
+    // AA and SSR quality (formerly adapted per viewport): cheap AA until step 4, low SSR until step 6. A user edit
+    // pins the group for the session; the controller never writes the configured settings.
+    if (!s_pinAA && s_autoLevel < 4) { result.msaaIdx = 0; result.postAAIdx = 1; }
+    if (!s_pinSsr && s_autoLevel < 6) result.ssrQuality = 0;
     return result;
 }
 
-ViewportSettingsState RenderQuality::effectiveViewport(ViewportSettingsState& configured)
+ViewportSettingsState RenderQuality::effectiveViewport(const ViewportSettingsState& configured)
 {
-    static std::unordered_map<const ViewportSettingsState*, ViewportSettingsState> previous;
-    static std::unordered_map<const ViewportSettingsState*, uint64_t> versions;
-    if (s_profilesActive && versions[&configured] != s_profileVersion) {
-        const auto& p = targetProfile();
-        if (!s_pinAA) { configured.msaaIdx = p.msaaIdx; configured.postAAIdx = p.postAAIdx; }
-        if (!s_pinSsr) { configured.screenSpaceReflections = p.ssr; configured.ssrQuality = p.ssrQuality; }
-        previous[&configured] = configured;
-        versions[&configured] = s_profileVersion;
-    }
-    if (auto it = previous.find(&configured); it != previous.end()) {
-        s_pinAA |= configured.effectiveMsaaIdx() != it->second.effectiveMsaaIdx() ||
-            configured.effectivePostAAIdx() != it->second.effectivePostAAIdx();
-        s_pinSsr |= configured.screenSpaceReflections != it->second.screenSpaceReflections || configured.ssrQuality != it->second.ssrQuality;
-        it->second = configured;
-    } else previous.emplace(&configured, configured);
     auto result = configured;
-    if (s_profilesActive) {
-        const auto& p = targetProfile();
-        if (!s_pinAA) { result.msaaIdx = p.msaaIdx; result.postAAIdx = p.postAAIdx; }
-        if (!s_pinSsr) { result.screenSpaceReflections = p.ssr; result.ssrQuality = p.ssrQuality; }
-    }
-    if (!autoActive()) return result;
-    // A user edit pins that group for this session. The controller never writes the
-    // configured state, so it cannot mistake its own changes for manual edits.
-    if (!s_pinAA && s_autoLevel < 4) { result.msaaIdx = 0; result.postAAIdx = 1; }
-    if (!s_pinSsr) {
-        result.screenSpaceReflections = result.screenSpaceReflections && s_autoLevel >= 5;
-        if (s_autoLevel < 6) result.ssrQuality = 0;
-    }
+    const RenderQualitySettings quality = effective();
+    result.msaaIdx = std::clamp(quality.msaaIdx, 0, 3);
+    result.postAAIdx = std::clamp(quality.postAAIdx, 0, 2);
+    result.ssrQuality = std::clamp(quality.ssrQuality, 0, 2);
+    result.screenSpaceReflections = configured.screenSpaceReflections && allowSsr();
     return result;
+}
+
+void RenderQuality::resolveViewport(ViewportSettingsState& viewport, const SceneEffectSettings& effects)
+{
+    const RenderQualitySettings& quality = settings();
+    viewport.antiAliasingIdx = quality.legacyAAIndex();
+    viewport.msaaIdx = std::clamp(quality.msaaIdx, 0, 3);
+    viewport.postAAIdx = std::clamp(quality.postAAIdx, 0, 2);
+    viewport.ssrQuality = std::clamp(quality.ssrQuality, 0, 2);
+    viewport.ssao.quality = static_cast<SsaoQuality>(std::clamp(quality.ssaoQuality, 0, 2));
+    viewport.ssao.halfResolution = quality.ssaoHalfResolution;
+    viewport.ground.ocean.quality = static_cast<OceanQuality>(std::clamp(quality.oceanQuality, 0, 2));
+
+    viewport.sunShadows = resolveEffect(viewport.shadowsOverride, effects.shadows);
+    viewport.screenSpaceReflections = resolveEffect(viewport.ssrOverride, effects.ssr);
+    viewport.ssao.enabled = resolveEffect(viewport.ssaoOverride, effects.ssao);
+    viewport.ssao.radius = effects.ssaoRadius;
+    viewport.ssao.intensity = effects.ssaoIntensity;
+    viewport.interiorSkyReflection = effects.interiorSkyReflection;
+    viewport.windshieldIcing = effects.windshieldIcing;
+    viewport.skyPortalStrength = effects.skyPortalStrength;
+    viewport.decalDepthToleranceMm = effects.decalDepthToleranceMm;
 }
 
 void RenderQuality::configureAuto(int argc, char** argv)
@@ -809,9 +857,13 @@ void RenderQuality::save()
             profileEntries.emplace_back(prefix + key, value);
         };
         if (profile.textureMaxSize != defaults.textureMaxSize) add("textureMaxSize", intText(profile.textureMaxSize));
-        if (profile.msaaIdx != defaults.msaaIdx) add("msaa", intText(profile.msaaIdx));
-        if (profile.postAAIdx != defaults.postAAIdx) add("postAA", intText(profile.postAAIdx));
-        if (profile.ssrQuality != defaults.ssrQuality) add("ssrQuality", intText(profile.ssrQuality));
+        if (profile.render.msaaIdx != defaults.render.msaaIdx) add("msaa", intText(profile.render.msaaIdx));
+        if (profile.render.postAAIdx != defaults.render.postAAIdx) add("postAA", intText(profile.render.postAAIdx));
+        if (profile.render.ssrQuality != defaults.render.ssrQuality) add("ssrQuality", intText(profile.render.ssrQuality));
+        if (profile.render.ssaoQuality != defaults.render.ssaoQuality) add("ssaoQuality", intText(profile.render.ssaoQuality));
+        if (profile.render.ssaoHalfResolution != defaults.render.ssaoHalfResolution) add("ssaoResolution", profile.render.ssaoHalfResolution ? "half" : "full");
+        if (profile.render.skyOcclusionQuality != defaults.render.skyOcclusionQuality) add("skyOcclusionQuality", intText(profile.render.skyOcclusionQuality));
+        if (profile.render.oceanQuality != defaults.render.oceanQuality) add("oceanQuality", intText(profile.render.oceanQuality));
         if (profile.skybox != defaults.skybox) add("skybox", boolText(profile.skybox));
         if (profile.ibl != defaults.ibl) add("ibl", boolText(profile.ibl));
         if (profile.lights != defaults.lights) add("lights", boolText(profile.lights));
@@ -862,7 +914,9 @@ bool RenderQuality::parseArgument(int argc, char** argv, int& i, std::string& er
 {
     const std::string arg = argv[i];
     if (arg == "--show-telemetry") { s_showRuntimeUi = true; return true; }
-    const bool shadowFlag = arg == "--shadows" || arg == "--shadow-resolution" || arg == "--shadow-cascades"
+    // Settings scopes: --shadows is the scene's switch (CommandLine.cpp, through the registry); configureAuto still
+    // reads it as a shadow pin.
+    const bool shadowFlag = arg == "--shadow-resolution" || arg == "--shadow-cascades"
         || arg == "--shadow-distance" || arg == "--shadow-filter" || arg == "--shadow-split-lambda"
         || arg == "--shadow-normal-bias" || arg == "--shadow-slope-bias" || arg == "--shadow-constant-bias";
     const bool takesValue = arg == "--quality-preset" || arg == "--auto-quality" || arg == "--quality" || arg == "--ibl-size" || arg == "--ibl-irradiance-size"
@@ -898,13 +952,11 @@ bool RenderQuality::parseArgument(int argc, char** argv, int& i, std::string& er
         else ok = false;
         s.autoQuality = before.autoQuality;
         s.copyShadows(before); // the legacy presets predate the sun shadows and leave them alone
+        s.copyEffectQuality(before); // and the AA / effect quality that moved here from the viewports
     } else if (shadowFlag) {
         // A3.2 sun shadows; the same values the registry settings accept.
         float f = 0.0f;
-        if (arg == "--shadows") {
-            ok = value == "on" || value == "off";
-            if (ok) s.shadows = value == "on";
-        } else if (arg == "--shadow-resolution") {
+        if (arg == "--shadow-resolution") {
             ok = setChecked(s.shadowResolution, u, kShadowResolutions);
         } else if (arg == "--shadow-cascades") {
             int cascades = 0;
@@ -963,13 +1015,41 @@ void RenderQuality::drawSettings(ux3d::renderer::GltfRenderLayer* layer, SceneRe
     RenderQualitySettings& s = settings();
     if (autoActive() && !qualityReached()) ImGui::TextWrapped("%s", autoStatus().c_str());
 
-    ImGui::TextDisabled("Quality presets apply to all viewports.");
+    ImGui::TextDisabled("Quality applies to every viewport. Effects are switched on in the Scene Inspector.");
     drawProfileSelector(revisions);
-    const RenderQualitySettings before = s;
+    RenderQualitySettings before = s;
     ImGui::TextWrapped("Edit saved Low / Med / High / Ultra defaults in File > Settings > Quality Presets.");
 
     // Each control switches the preset to Custom when it changes a value.
     bool custom = false;
+
+    // Settings scopes: anti-aliasing is renderer-wide (it was per viewport). Compare modes in two instances.
+    ImGui::SeparatorText("Anti-Aliasing");
+    {
+        const char* msaaModes[] = { "Off", "2x", "4x", "8x" };
+        int msaa = std::clamp(s.msaaIdx, 0, 3);
+        if (ImGui::Combo("MSAA##qualityMsaa", &msaa, msaaModes, 4)) {
+            s.msaaIdx = msaa;
+            s_pinAA = true;
+            revisions.mark(SceneChange::ViewportSettings);
+        }
+        UiProbe::item("quality.msaa", 0);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Crisp geometry edges; costs memory and fill rate.");
+        const char* postModes[] = { "None", "FXAA", "TAA" };
+        int post = std::clamp(s.postAAIdx, 0, 2);
+        if (ImGui::Combo("Post AA##qualityPostAA", &post, postModes, 3)) {
+            s.postAAIdx = post;
+            s_pinAA = true;
+            revisions.mark(SceneChange::ViewportSettings);
+        }
+        UiProbe::item("quality.post_aa", 0);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("FXAA: cheap, slightly soft.\nTAA: stable, best on shader aliasing and decals; can ghost.");
+        const RenderQualitySettings aaEffective = effective();
+        if (aaEffective.msaaIdx != s.msaaIdx || aaEffective.postAAIdx != s.postAAIdx) {
+            ImGui::TextDisabled("Auto quality: %s + %s for now", msaaModes[std::clamp(aaEffective.msaaIdx, 0, 3)],
+                                postModes[std::clamp(aaEffective.postAAIdx, 0, 2)]);
+        }
+    }
 
     ImGui::SeparatorText("Viewport");
     int gridMode = static_cast<int>(s.gridMode);
@@ -988,12 +1068,67 @@ void RenderQuality::drawSettings(ux3d::renderer::GltfRenderLayer* layer, SceneRe
         ImGui::SetTooltip("Renders the 3D view at a fraction of its window size and stretches it.\nFor weak GPUs; lowers sharpness.");
     }
 
-    // A3.2: cascaded shadow maps of the sun (Scene Inspector > Environment > Sun). Renderer-wide; each
-    // viewport keeps its own map, fitted to its view.
+    // Settings scopes: the cost of each effect. Whether it is on is the scene's choice (Scene Inspector > Shadows,
+    // Reflections & AO), which a viewport may override.
+    ImGui::SeparatorText("Effects");
+    {
+        const char* levels[] = { "Low", "Medium", "High" };
+        int ssr = std::clamp(s.ssrQuality, 0, 2);
+        if (ImGui::Combo("SSR Quality##qualitySsr", &ssr, "Low (256 samples)\0Medium (512)\0High (1024)\0")) {
+            s.ssrQuality = ssr;
+            s_pinSsr = true;
+            revisions.mark(SceneChange::ViewportSettings);
+        }
+        UiProbe::item("quality.ssr", 0);
+        int ssao = std::clamp(s.ssaoQuality, 0, 2);
+        if (ImGui::Combo("SSAO Quality##qualitySsao", &ssao, "Low (2 x 4 samples)\0Medium (3 x 6)\0High (4 x 8)\0")) {
+            s.ssaoQuality = ssao;
+            revisions.mark(SceneChange::ViewportSettings);
+        }
+        UiProbe::item("quality.ssao", 0);
+        int ssaoResolution = s.ssaoHalfResolution ? 1 : 0;
+        if (ImGui::Combo("SSAO Resolution##qualitySsaoResolution", &ssaoResolution, "Full\0Half (depth-aware upsample)\0")) {
+            s.ssaoHalfResolution = ssaoResolution == 1;
+            revisions.mark(SceneChange::ViewportSettings);
+        }
+        UiProbe::item("quality.ssao_resolution", 0);
+        int skyOcclusion = std::clamp(s.skyOcclusionQuality, 0, 2);
+        if (ImGui::Combo("Sky Occlusion##qualitySkyOcclusion", &skyOcclusion, levels, 3)) {
+            s.skyOcclusionQuality = skyOcclusion;
+            revisions.mark(SceneChange::RenderSettings);
+        }
+        UiProbe::item("quality.sky_occlusion", 0);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Sky-visibility volume: 64 / 96 / 128 cells per axis, 64 / 128 / 256 directions.");
+        int ocean = std::clamp(s.oceanQuality, 0, 2);
+        if (ImGui::Combo("Ocean Quality##qualityOcean", &ocean, levels, 3)) {
+            s.oceanQuality = ocean;
+            revisions.mark(SceneChange::ViewportSettings);
+        }
+        UiProbe::item("quality.ocean", 0);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Looping: 2 x 128^2 (32 frames, 12 MiB), 3 x 256^2 (48 frames, 101 MiB), 4 x 256^2 (64 frames, 176 MiB).\n"
+                              "Live: 2 x 128^2, 3 x 256^2, 4 x 512^2.");
+        }
+    }
+
+    // The IBL filter (formerly edited in the Scene Inspector, which now only summarises it).
+    ImGui::SeparatorText("Image-Based Lighting");
+    drawIblSettings(layer, revisions);
+    // drawIblSettings applies, re-filters and saves its own edits; the checks below must not repeat them.
+    before.iblCubeSize = s.iblCubeSize;
+    before.iblIrradianceSize = s.iblIrradianceSize;
+    before.iblLutSize = s.iblLutSize;
+    before.iblHalfFloat = s.iblHalfFloat;
+    before.iblSpecularSamples = s.iblSpecularSamples;
+    before.preset = s.preset;
+
+    // A3.2: cascaded shadow maps of the sun. Renderer-wide; each viewport keeps its own map, fitted to its view.
+    // The scene switches the shadows on (Scene Inspector > Shadows, Reflections & AO); this gate is the cost side
+    // (part of the quality presets).
     ImGui::SeparatorText("Sun Shadows");
-    bool shadowChanged = ImGui::Checkbox("Sun shadows", &s.shadows);
+    bool shadowChanged = ImGui::Checkbox("Allow sun shadows", &s.shadows);
     UiProbe::item("quality.shadows", s.shadows ? 1 : 0);
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Cascaded shadow maps for the sun. Only drawn while the sun is on.");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Cascaded shadow maps for the sun, where the scene turns them on.\nOnly drawn while the sun is on.");
     ImGui::BeginDisabled(!s.shadows);
     shadowChanged |= sizeCombo("Shadow Map Size", s.shadowResolution, kShadowResolutions, "");
     shadowChanged |= ImGui::SliderInt("Cascades", &s.shadowCascades, 2, 4);

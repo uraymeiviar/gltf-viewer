@@ -523,7 +523,7 @@ std::optional<int> Application::configure(int argc, char** argv)
         } else if (arg == "--show-invisible-materials") {
             if (!applyCliSetting(SettingScope::Viewport, "show_invisible_materials", "on", "--show-invisible-materials")) return 1;
         } else if (arg == "--decal-tolerance" && i + 1 < argc) {
-            if (!applyCliSetting(SettingScope::Viewport, "decal_tolerance_mm", argv[++i], "--decal-tolerance")) {
+            if (!applyCliSetting(SettingScope::Environment, "decal_tolerance_mm", argv[++i], "--decal-tolerance")) {
                 std::fprintf(stderr, "--decal-tolerance must be a number from 0 to 10 mm\n");
                 return 1;
             }
@@ -565,7 +565,7 @@ std::optional<int> Application::configure(int argc, char** argv)
         } else if (arg == "--ocean-wind-dir" && i + 1 < argc) {
             if (!applyCliSetting(SettingScope::Viewport, "ocean_wind_dir", argv[++i], "--ocean-wind-dir")) return 1;
         } else if (arg == "--ocean-quality" && i + 1 < argc) {
-            if (!applyCliSetting(SettingScope::Viewport, "ocean_quality", toLowerAscii(argv[++i]), "--ocean-quality")) return 1;
+            if (!applyCliSetting(SettingScope::Renderer, "ocean_quality", toLowerAscii(argv[++i]), "--ocean-quality")) return 1;
         } else if (arg == "--ocean-time" && i + 1 < argc) {
             if (!applyCliSetting(SettingScope::Viewport, "ocean_time", argv[++i], "--ocean-time")) return 1;
         } else if (arg == "--ocean-fetch" && i + 1 < argc) {
@@ -587,32 +587,40 @@ std::optional<int> Application::configure(int argc, char** argv)
         } else if (arg == "--ssr" && i + 1 < argc) {
             const std::string value = toLowerAscii(argv[++i]);
             if (value != "on" && value != "off") return 1;
-            if (!applyCliSetting(SettingScope::Viewport, "ssr", value, "--ssr")) return 1;
+            if (!applyCliSetting(SettingScope::Environment, "ssr", value, "--ssr")) return 1;
+        } else if (arg == "--shadows" && i + 1 < argc) {
+            // Settings scopes: the scene's sun shadows (renderer-wide before; the quality presets keep a gate).
+            const std::string value = toLowerAscii(argv[++i]);
+            if (value != "on" && value != "off") {
+                std::fprintf(stderr, "Invalid --shadows '%s'\n", value.c_str());
+                return 1;
+            }
+            if (!applyCliSetting(SettingScope::Environment, "shadows", value, "--shadows")) return 1;
         } else if (arg == "--ssao" && i + 1 < argc) {
             const std::string value = toLowerAscii(argv[++i]);
             if (value != "on" && value != "off") return 1;
-            if (!applyCliSetting(SettingScope::Viewport, "ssao", value, "--ssao")) return 1;
+            if (!applyCliSetting(SettingScope::Environment, "ssao", value, "--ssao")) return 1;
         } else if (arg == "--lens-flare" && i + 1 < argc) {
             // A6.7: lens effect from the bloom mips (per viewport, off by default).
             if (!applyCliSetting(SettingScope::Viewport, "lens_flare", toLowerAscii(argv[++i]), "--lens-flare")) return 1;
         } else if (arg == "--lens-flare-intensity" && i + 1 < argc) {
             if (!applyCliSetting(SettingScope::Viewport, "lens_flare_intensity", argv[++i], "--lens-flare-intensity")) return 1;
         } else if (arg == "--ssao-radius" && i + 1 < argc) {
-            if (!applyCliSetting(SettingScope::Viewport, "ssao_radius", argv[++i], "--ssao-radius")) return 1;
+            if (!applyCliSetting(SettingScope::Environment, "ssao_radius", argv[++i], "--ssao-radius")) return 1;
         } else if (arg == "--ssao-intensity" && i + 1 < argc) {
-            if (!applyCliSetting(SettingScope::Viewport, "ssao_intensity", argv[++i], "--ssao-intensity")) return 1;
+            if (!applyCliSetting(SettingScope::Environment, "ssao_intensity", argv[++i], "--ssao-intensity")) return 1;
         } else if (arg == "--ssao-quality" && i + 1 < argc) {
-            if (!applyCliSetting(SettingScope::Viewport, "ssao_quality", toLowerAscii(argv[++i]), "--ssao-quality")) return 1;
+            if (!applyCliSetting(SettingScope::Renderer, "ssao_quality", toLowerAscii(argv[++i]), "--ssao-quality")) return 1;
         } else if (arg == "--ssao-resolution" && i + 1 < argc) {
-            if (!applyCliSetting(SettingScope::Viewport, "ssao_resolution", toLowerAscii(argv[++i]), "--ssao-resolution")) return 1;
+            if (!applyCliSetting(SettingScope::Renderer, "ssao_resolution", toLowerAscii(argv[++i]), "--ssao-resolution")) return 1;
         } else if (arg == "--ssr-quality" && i + 1 < argc) {
-            if (!applyCliSetting(SettingScope::Viewport, "ssr_quality", toLowerAscii(argv[++i]), "--ssr-quality")) return 1;
+            if (!applyCliSetting(SettingScope::Renderer, "ssr_quality", toLowerAscii(argv[++i]), "--ssr-quality")) return 1;
         } else if (arg == "--interior-sky-reflection" && i + 1 < argc) {
-            if (!applyCliSetting(SettingScope::Viewport, "interior_sky_reflection", argv[++i], "--interior-sky-reflection")) return 1;
+            if (!applyCliSetting(SettingScope::Environment, "interior_sky_reflection", argv[++i], "--interior-sky-reflection")) return 1;
         } else if (arg == "--windshield-icing" && i + 1 < argc) {
-            if (!applyCliSetting(SettingScope::Viewport, "windshield_icing", argv[++i], "--windshield-icing")) return 1;
+            if (!applyCliSetting(SettingScope::Environment, "windshield_icing", argv[++i], "--windshield-icing")) return 1;
         } else if (arg == "--sky-portal-strength" && i + 1 < argc) {
-            if (!applyCliSetting(SettingScope::Viewport, "sky_portal_strength", argv[++i], "--sky-portal-strength")) return 1;
+            if (!applyCliSetting(SettingScope::Environment, "sky_portal_strength", argv[++i], "--sky-portal-strength")) return 1;
         } else if (arg == "--show-sky-portals") {
             if (!applyCliSetting(SettingScope::Viewport, "show_sky_portals", "on", "--show-sky-portals")) return 1;
         } else if (arg == "--asobo" && i + 1 < argc) {
@@ -878,7 +886,8 @@ std::optional<int> Application::configure(int argc, char** argv)
         } else if ((arg == "--aa" || arg == "--anti-aliasing") && i + 1 < argc) {
             // Unknown values are ignored, as before (the setting takes the names and 0..5).
             std::string error;
-            applySettingValue(SettingScope::Viewport, "aa", std::string(argv[++i]), &activeViewport->settings, nullptr, error);
+            // Settings scopes: the global quality's AA (it was the active viewport's).
+            applySettingValue(SettingScope::Renderer, "aa", std::string(argv[++i]), nullptr, nullptr, error);
         } else if ((arg == "--msaa" || arg == "--post-aa" || arg == "--bloom" ||
                     arg == "--bloom-intensity" || arg == "--bloom-radius" ||
                     arg == "--auto-exposure" || arg == "--exposure-compensation" ||
@@ -910,7 +919,7 @@ std::optional<int> Application::configure(int argc, char** argv)
             // A3.9: sky occlusion inside the model (scene environment).
             if (!applyCliSetting(SettingScope::Environment, "sky_occlusion", toLowerAscii(argv[++i]), "--sky-occlusion")) return 1;
         } else if (arg == "--sky-occlusion-quality" && i + 1 < argc) {
-            if (!applyCliSetting(SettingScope::Environment, "sky_occlusion_quality", toLowerAscii(argv[++i]), "--sky-occlusion-quality")) return 1;
+            if (!applyCliSetting(SettingScope::Renderer, "sky_occlusion_quality", toLowerAscii(argv[++i]), "--sky-occlusion-quality")) return 1;
         } else if (arg == "--sky-occlusion-occluders" && i + 1 < argc) {
             if (!applyCliSetting(SettingScope::Environment, "sky_occlusion_occluders", toLowerAscii(argv[++i]), "--sky-occlusion-occluders")) return 1;
         } else if (arg == "--ambient-color" && i + 1 < argc) {
@@ -1004,9 +1013,9 @@ std::optional<int> Application::configure(int argc, char** argv)
     for (int i = 1; i + 1 < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--msaa") {
-            if (!applyCliSetting(SettingScope::Viewport, "msaa", argv[++i], "--msaa")) return 1;
+            if (!applyCliSetting(SettingScope::Renderer, "msaa", argv[++i], "--msaa")) return 1;
         } else if (arg == "--post-aa") {
-            if (!applyCliSetting(SettingScope::Viewport, "post_aa", argv[++i], "--post-aa")) return 1;
+            if (!applyCliSetting(SettingScope::Renderer, "post_aa", argv[++i], "--post-aa")) return 1;
         } else if (arg == "--bloom") {
             if (!applyCliSetting(SettingScope::Environment, "bloom", toLowerAscii(argv[++i]), "--bloom")) return 1;
         } else if (arg == "--bloom-intensity") {
@@ -1035,11 +1044,9 @@ std::optional<int> Application::configure(int argc, char** argv)
     // A2.1 check: the forward depth readback requires a single-sample target. The check
     // also redraws every frame so the warm-up frame is captured (see the argument above).
     if (!s_decalPrepassCheckPath.empty()) {
-        for (auto& vp : viewports) {
-            if (vp) {
-                vp->settings.setLegacyAA(0);
-            }
-        }
+        // Settings scopes: AA is renderer-wide now (MSAA off, post AA none, as setLegacyAA(0) did per viewport).
+        ux3d::imgui::RenderQuality::settings().msaaIdx = 0;
+        ux3d::imgui::RenderQuality::settings().postAAIdx = 0;
     }
 
     // P1.5 diagnostic control: append deterministic entries covering every

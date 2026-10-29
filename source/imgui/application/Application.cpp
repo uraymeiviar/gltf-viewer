@@ -319,6 +319,8 @@ int Application::run(int argc, char** argv)
     // The agent `reset` command returns to the state the startup flags produced.
     if (activeViewport != nullptr) agentStartupViewportSettings = activeViewport->settings;
     agentStartupEnvironment = getSceneEnvironment(sceneEnvironments, gltfModel, activeScene);
+    agentStartupQuality = ux3d::imgui::RenderQuality::settings();
+    resolveAllViewportSettings();
     if (controlPipeArg) startControlPipe();
     // P0.2 startup snapshot: load/decode, renderer upload, validation and IBL
     // are measured separately. Counter state is then reset for frame sampling.

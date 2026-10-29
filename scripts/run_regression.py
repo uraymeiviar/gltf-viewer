@@ -50,7 +50,9 @@ Quick tier (equivalence only: byte-identical viewport images, identical selectio
   validate_review_fixes.py (v1.2.0 review fixes: no renderer sync while the clock plays, SSAO freed on viewport close,
     no stale sky-occlusion volume without casters, pipe time_of_day_mode = Inspector Sun Source),
   validate_agent_control.py (control pipe, shared command registry, MCP shim; CLI flags against the baseline),
-  validate_viewport_image.py (Viewport capture/save/copy, capture folder setting)
+  validate_viewport_image.py (Viewport capture/save/copy, capture folder setting),
+  validate_settings_scopes.py (global quality / scene effects / viewport overrides: legacy flags against the baseline,
+  CLI = pipe for canonical and compatibility keys, overrides, two viewports sharing quality, UI ID conflicts)
 Full tier adds:
   --with-ab (each feature against its own switch), validate_p5_1.py against the baseline, and
   validate_p8_5.py's 10,000-drawable grid and MSAA/TAA fixture copies.
@@ -148,6 +150,7 @@ serial_jobs = [
     ("texture_ktx2", ["scripts/validate_texture_ktx2.py", "--baseline-exe", str(baseline)]),
     ("agent_control", ["scripts/validate_agent_control.py", "--baseline-exe", str(baseline)]),
     ("viewport_image", ["scripts/validate_viewport_image.py"]),
+    ("settings_scopes", ["scripts/validate_settings_scopes.py", "--baseline-exe", str(baseline)]),
 ]
 if args.tier == "full":
     jobs.append(("p5_1", ["scripts/validate_p5_1.py", "--pre-exe", str(baseline)]))

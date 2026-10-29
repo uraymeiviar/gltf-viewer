@@ -346,6 +346,7 @@ json Application::legacyStateJson()
 
 json Application::agentStateJson()
 {
+    resolveAllViewportSettings();
     json st = legacyStateJson();
     st["modelLoaded"] = modelLoaded;
     st["loading"] = loadingActive;
@@ -365,13 +366,27 @@ json Application::agentStateJson()
     json list = json::array();
     for (const auto& vp : viewports) {
         if (!vp) continue;
+        const auto effective = ux3d::imgui::RenderQuality::effectiveViewport(vp->settings);
+        const bool shadowsAllowed = ux3d::imgui::RenderQuality::effective().shadows;
+        static const char* const aaNames[] = {"none", "msaa2", "msaa4", "msaa8"};
+        static const char* const postNames[] = {"none", "fxaa", "taa"};
         list.push_back({{"id", vp->id},
                         {"name", vp->name},
                         {"open", vp->isOpen},
                         {"width", vp->sceneFbo.getWidth()},
                         {"height", vp->sceneFbo.getHeight()},
                         {"renderMode", renderModeName(vp->settings.renderMode)},
-                        {"attachedCamera", vp->isAttachedToCamera ? json(vp->attachedCameraNodeName) : json(nullptr)}});
+                        {"attachedCamera", vp->isAttachedToCamera ? json(vp->attachedCameraNodeName) : json(nullptr)},
+                        // Settings scopes: this viewport's overrides of the scene's effects and what it renders with.
+                        {"overrides", {{"shadows", ux3d::imgui::effectOverrideName(vp->settings.shadowsOverride)},
+                                       {"ssr", ux3d::imgui::effectOverrideName(vp->settings.ssrOverride)},
+                                       {"ssao", ux3d::imgui::effectOverrideName(vp->settings.ssaoOverride)}}},
+                        {"effective", {{"shadows", vp->settings.sunShadows && shadowsAllowed},
+                                       {"ssr", effective.screenSpaceReflections},
+                                       {"ssao", vp->settings.ssao.enabled},
+                                       {"msaa", aaNames[std::clamp(effective.effectiveMsaaIdx(), 0, 3)]},
+                                       {"postAA", postNames[std::clamp(effective.effectivePostAAIdx(), 0, 2)]},
+                                       {"ssrQuality", effective.ssrQuality}}}});
     }
     st["viewports"] = list;
     if (activeViewport != nullptr) st["renderMode"] = renderModeName(activeViewport->settings.renderMode);
@@ -395,6 +410,9 @@ json Application::agentStateJson()
     st["sky"] = skyStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene));
     st["night"] = nightStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene));
     st["ssao"] = ssaoStateJson();
+    // Settings scopes: renderer-wide quality, the active scene's effects.
+    st["quality"] = qualityStateJson();
+    st["environment"] = {{"effects", effectsStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene))}};
     st["skyOcclusion"] = skyOcclusionStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene));
     if (activeViewport != nullptr) {
         st["ground"] = groundStateJson(*activeViewport);
@@ -958,6 +976,49 @@ json Application::timeOfDayStateJson(const ux3d::imgui::SceneEnvironmentState& e
     return out;
 }
 
+json Application::qualityStateJson() const
+{
+    using ux3d::imgui::RenderQuality;
+    static const char* const levels[] = {"low", "medium", "high"};
+    static const char* const aaNames[] = {"0", "2", "4", "8"};
+    static const char* const postNames[] = {"none", "fxaa", "taa"};
+    const auto describe = [&](const ux3d::imgui::RenderQualitySettings& q) {
+        return json{{"msaa", aaNames[std::clamp(q.msaaIdx, 0, 3)]},
+                    {"postAA", postNames[std::clamp(q.postAAIdx, 0, 2)]},
+                    {"ssrQuality", levels[std::clamp(q.ssrQuality, 0, 2)]},
+                    {"ssaoQuality", levels[std::clamp(q.ssaoQuality, 0, 2)]},
+                    {"ssaoResolution", q.ssaoHalfResolution ? "half" : "full"},
+                    {"skyOcclusionQuality", levels[std::clamp(q.skyOcclusionQuality, 0, 2)]},
+                    {"oceanQuality", levels[std::clamp(q.oceanQuality, 0, 2)]},
+                    {"renderScale", agent::floatJson(q.renderScale)},
+                    {"gridMode", q.gridMode == ux3d::imgui::GridMode::PlaneMesh ? "plane" : "ray"},
+                    {"iblCubeSize", q.iblCubeSize},
+                    {"shadowsAllowed", q.shadows},
+                    {"shadowResolution", q.shadowResolution},
+                    {"shadowCascades", q.shadowCascades},
+                    {"shadowFilter", RenderQuality::shadowFilterName(q.shadowFilter)}};
+    };
+    return {{"profile", RenderQuality::profileName(RenderQuality::selectedProfile())},
+            {"auto", RenderQuality::autoActive()},
+            {"configured", describe(RenderQuality::settings())},
+            {"effective", describe(RenderQuality::effective())},
+            {"ssrAllowed", RenderQuality::allowSsr()}};
+}
+
+json Application::effectsStateJson(const ux3d::imgui::SceneEnvironmentState& environment) const
+{
+    const auto& fx = environment.effects;
+    return {{"shadows", fx.shadows},
+            {"ssr", fx.ssr},
+            {"interiorSkyReflection", agent::floatJson(fx.interiorSkyReflection)},
+            {"ssao", fx.ssao},
+            {"ssaoRadius", agent::floatJson(fx.ssaoRadius)},
+            {"ssaoIntensity", agent::floatJson(fx.ssaoIntensity)},
+            {"windshieldIcing", agent::floatJson(fx.windshieldIcing)},
+            {"skyPortalStrength", agent::floatJson(fx.skyPortalStrength)},
+            {"decalToleranceMm", agent::floatJson(fx.decalDepthToleranceMm)}};
+}
+
 json Application::ssaoStateJson() const
 {
     static const char* const qualities[] = {"low", "medium", "high"};
@@ -968,6 +1029,7 @@ json Application::ssaoStateJson() const
         const auto& ao = vp->ambientOcclusion;
         list.push_back({{"viewport", vp->id},
                         {"enabled", settings.enabled},
+                        {"override", ux3d::imgui::effectOverrideName(vp->settings.ssaoOverride)},
                         {"active", vp->ssaoActive},
                         {"radius", agent::floatJson(settings.radius)},
                         {"intensity", agent::floatJson(settings.intensity)},
@@ -1265,23 +1327,27 @@ void Application::registerAgentSettings()
         agentRegistry.addSetting(std::move(spec));
     };
 
-    // --- Viewport: anti-aliasing ---
+    // --- Renderer-wide quality: anti-aliasing (settings scopes: formerly per viewport) ---
+    using RQ = ux3d::imgui::RenderQuality;
     {
         SettingSpec spec;
         spec.key = "aa";
-        spec.scope = V;
+        spec.scope = R;
         spec.type = SettingType::Enum;
-        spec.help = "Legacy AA preset: sets MSAA and post AA together (msaa4 = 4x + none, taa = off + TAA).";
+        spec.help = "Legacy AA preset of the global quality: sets MSAA and post AA together (msaa4 = 4x + none, taa = "
+                    "off + TAA); custom when the pair has no preset name.";
         spec.cliFlag = "--aa <none|msaa2|msaa4|msaa8|fxaa|taa>";
         spec.enumValues = {"none", "msaa2", "msaa4", "msaa8", "fxaa", "taa"};
-        spec.get = [values = spec.enumValues](void* t) {
-            const auto* s = static_cast<VS*>(t);
-            if (s->msaaIdx >= 0 || s->postAAIdx >= 0) return json("custom");
-            return json(s->antiAliasingIdx >= 0 && s->antiAliasingIdx < 6 ? values[static_cast<size_t>(s->antiAliasingIdx)] : "custom");
+        spec.defaultValue = "taa";
+        spec.get = [values = spec.enumValues](void*) {
+            const int index = RQ::settings().legacyAAIndex();
+            return json(index >= 0 && index < 6 ? values[static_cast<size_t>(index)] : "custom");
         };
-        spec.set = [values = spec.enumValues](void* t, const json& v, std::string&) {
-            const auto it = std::find(values.begin(), values.end(), v.get<std::string>());
-            static_cast<VS*>(t)->setLegacyAA(static_cast<int>(it - values.begin()));
+        spec.set = [values = spec.enumValues](void*, const json& v, std::string&) {
+            const int index = static_cast<int>(std::find(values.begin(), values.end(), v.get<std::string>()) - values.begin());
+            RQ::settings().msaaIdx = index >= 1 && index <= 3 ? index : 0;
+            RQ::settings().postAAIdx = index >= 4 ? index - 3 : 0;
+            RQ::pinAA();
             return true;
         };
         addSetting(std::move(spec));
@@ -1289,17 +1355,19 @@ void Application::registerAgentSettings()
     {
         SettingSpec spec;
         spec.key = "msaa";
-        spec.scope = V;
+        spec.scope = R;
         spec.type = SettingType::Enum;
-        spec.help = "Geometry multisampling (0 = off).";
+        spec.help = "Geometry multisampling of every viewport (0 = off).";
         spec.cliFlag = "--msaa <0|2|4|8>";
         spec.enumValues = {"0", "2", "4", "8"};
         spec.enumAliases = {{"off", "0"}, {"2x", "2"}, {"4x", "4"}, {"8x", "8"}};
-        spec.get = [values = spec.enumValues](void* t) {
-            return json(values[static_cast<size_t>(std::clamp(static_cast<VS*>(t)->effectiveMsaaIdx(), 0, 3))]);
+        spec.defaultValue = "0";
+        spec.get = [values = spec.enumValues](void*) {
+            return json(values[static_cast<size_t>(std::clamp(RQ::settings().msaaIdx, 0, 3))]);
         };
-        spec.set = [values = spec.enumValues](void* t, const json& v, std::string&) {
-            static_cast<VS*>(t)->msaaIdx = static_cast<int>(std::find(values.begin(), values.end(), v.get<std::string>()) - values.begin());
+        spec.set = [values = spec.enumValues](void*, const json& v, std::string&) {
+            RQ::settings().msaaIdx = static_cast<int>(std::find(values.begin(), values.end(), v.get<std::string>()) - values.begin());
+            RQ::pinAA();
             return true;
         };
         addSetting(std::move(spec));
@@ -1307,20 +1375,101 @@ void Application::registerAgentSettings()
     {
         SettingSpec spec;
         spec.key = "post_aa";
-        spec.scope = V;
+        spec.scope = R;
         spec.type = SettingType::Enum;
-        spec.help = "Post-process anti-aliasing.";
+        spec.help = "Post-process anti-aliasing of every viewport.";
         spec.cliFlag = "--post-aa <none|fxaa|taa>";
         spec.enumValues = {"none", "fxaa", "taa"};
-        spec.get = [values = spec.enumValues](void* t) {
-            return json(values[static_cast<size_t>(std::clamp(static_cast<VS*>(t)->effectivePostAAIdx(), 0, 2))]);
+        spec.defaultValue = "taa";
+        spec.get = [values = spec.enumValues](void*) {
+            return json(values[static_cast<size_t>(std::clamp(RQ::settings().postAAIdx, 0, 2))]);
         };
-        spec.set = [values = spec.enumValues](void* t, const json& v, std::string&) {
-            static_cast<VS*>(t)->postAAIdx = static_cast<int>(std::find(values.begin(), values.end(), v.get<std::string>()) - values.begin());
+        spec.set = [values = spec.enumValues](void*, const json& v, std::string&) {
+            RQ::settings().postAAIdx = static_cast<int>(std::find(values.begin(), values.end(), v.get<std::string>()) - values.begin());
+            RQ::pinAA();
             return true;
         };
         addSetting(std::move(spec));
     }
+    // Renderer-wide quality as an enum over an int field of RenderQualitySettings.
+    const auto qualityEnum = [&](std::string key, int ux3d::imgui::RenderQualitySettings::*member, std::vector<std::string> values,
+                                 std::string help, std::string cli, std::map<std::string, std::string> aliases,
+                                 std::function<void()> onSet) {
+        SettingSpec spec;
+        spec.key = std::move(key);
+        spec.scope = R;
+        spec.type = SettingType::Enum;
+        spec.help = std::move(help);
+        spec.cliFlag = std::move(cli);
+        spec.enumValues = values;
+        spec.enumAliases = std::move(aliases);
+        const ux3d::imgui::RenderQualitySettings defaults;
+        spec.defaultValue = values[static_cast<size_t>(std::clamp(defaults.*member, 0, static_cast<int>(values.size()) - 1))];
+        spec.get = [member, values](void*) {
+            return json(values[static_cast<size_t>(std::clamp(RQ::settings().*member, 0, static_cast<int>(values.size()) - 1))]);
+        };
+        spec.set = [member, values, onSet](void*, const json& v, std::string&) {
+            RQ::settings().*member = static_cast<int>(std::find(values.begin(), values.end(), v.get<std::string>()) - values.begin());
+            if (onSet) onSet();
+            return true;
+        };
+        addSetting(std::move(spec));
+    };
+    qualityEnum("ssr_quality", &ux3d::imgui::RenderQualitySettings::ssrQuality, {"low", "medium", "high"},
+                "SSR sample budget 256/512/1024 (every viewport).", "--ssr-quality <low|medium|high>", {}, [] { RQ::pinSsr(); });
+    qualityEnum("ssao_quality", &ux3d::imgui::RenderQualitySettings::ssaoQuality, {"low", "medium", "high"},
+                "SSAO samples per pixel: low 2 slices x 4 steps, medium 3 x 6, high 4 x 8 (per side; every viewport).",
+                "--ssao-quality <low|medium|high>", {}, nullptr);
+    {
+        SettingSpec resolution;
+        resolution.key = "ssao_resolution";
+        resolution.scope = R;
+        resolution.type = SettingType::Enum;
+        resolution.help = "SSAO resolution of every viewport: full, or half with a depth-aware upsample.";
+        resolution.cliFlag = "--ssao-resolution <full|half>";
+        resolution.enumValues = {"full", "half"};
+        resolution.defaultValue = "full";
+        resolution.get = [](void*) { return json(RQ::settings().ssaoHalfResolution ? "half" : "full"); };
+        resolution.set = [](void*, const json& v, std::string&) {
+            RQ::settings().ssaoHalfResolution = v.get<std::string>() == "half";
+            return true;
+        };
+        addSetting(std::move(resolution));
+    }
+    qualityEnum("sky_occlusion_quality", &ux3d::imgui::RenderQualitySettings::skyOcclusionQuality, {"low", "medium", "high"},
+                "Sky occlusion bake: low 64 directions x up to 64 cells per axis, medium (default) 128 x 96, high 256 x 128 "
+                "(renderer-wide).",
+                "--sky-occlusion-quality <low|medium|high>", {}, nullptr);
+    qualityEnum("ocean_quality", &ux3d::imgui::RenderQualitySettings::oceanQuality, {"low", "medium", "high"},
+                "Ocean simulation quality of every viewport: low (2 cascades of 128^2, 32 frames, 12 MiB), medium (3 x "
+                "256^2, 48 frames, 101 MiB), high (4 x 256^2, 64 frames, 176 MiB); live mode: 2 x 128^2, 3 x 256^2, "
+                "4 x 512^2; recomputes the loop.",
+                "--ocean-quality <low|medium|high>", {{"med", "medium"}, {"mid", "medium"}}, nullptr);
+
+    // --- Viewport: overrides of the scene's effects (settings scopes) ---
+    const auto overrideSetting = [&](std::string key, ux3d::imgui::EffectOverride VS::*member, std::string help, bool ssr) {
+        SettingSpec spec;
+        spec.key = std::move(key);
+        spec.scope = V;
+        spec.type = SettingType::Enum;
+        spec.help = std::move(help);
+        spec.enumValues = {"scene", "off", "on"};
+        spec.enumAliases = {{"default", "scene"}, {"auto", "scene"}, {"false", "off"}, {"true", "on"}};
+        spec.get = [member](void* t) { return json(ux3d::imgui::effectOverrideName(static_cast<VS*>(t)->*member)); };
+        spec.set = [member, ssr, values = spec.enumValues](void* t, const json& v, std::string&) {
+            static_cast<VS*>(t)->*member = static_cast<ux3d::imgui::EffectOverride>(
+                std::find(values.begin(), values.end(), v.get<std::string>()) - values.begin());
+            if (ssr) RQ::pinSsr();
+            return true;
+        };
+        addSetting(std::move(spec));
+    };
+    overrideSetting("viewport_shadows", &VS::shadowsOverride,
+                    "This viewport's sun shadows: scene (follow the scene's shadows, default), off or on.", false);
+    overrideSetting("viewport_ssr", &VS::ssrOverride,
+                    "This viewport's windshield SSR: scene (follow the scene's ssr, default), off or on.", true);
+    overrideSetting("viewport_ssao", &VS::ssaoOverride,
+                    "This viewport's SSAO: scene (follow the scene's ssao, default), off or on.", false);
 
     // --- Viewport: shading and overlays ---
     {
@@ -1584,25 +1733,6 @@ void Application::registerAgentSettings()
             addSetting(std::move(play));
         }
 
-        SettingSpec quality;
-        quality.key = "ocean_quality";
-        quality.scope = V;
-        quality.type = SettingType::Enum;
-        quality.help = "Ocean simulation quality: low (2 cascades of 128^2, 32 frames, 12 MiB), medium (3 x 256^2, 48 frames, "
-                       "101 MiB), high (4 x 256^2, 64 frames, 176 MiB); live mode: 2 x 128^2, 3 x 256^2, 4 x 512^2; "
-                       "recomputes the loop.";
-        quality.cliFlag = "--ocean-quality <low|medium|high>";
-        quality.enumValues = {"low", "medium", "high"};
-        quality.enumAliases = {{"med", "medium"}, {"mid", "medium"}};
-        quality.get = [values = quality.enumValues](void* t) {
-            return json(values[static_cast<size_t>(static_cast<VS*>(t)->ground.ocean.quality)]);
-        };
-        quality.set = [values = quality.enumValues](void* t, const json& v, std::string&) {
-            static_cast<VS*>(t)->ground.ocean.quality = static_cast<ux3d::imgui::OceanQuality>(
-                std::find(values.begin(), values.end(), v.get<std::string>()) - values.begin());
-            return true;
-        };
-        addSetting(std::move(quality));
     }
     addSetting(boolSetting<VS>("scene_bounding_box", V, &VS::showSceneBoundingBox, "Yellow AABB around the scene."));
     addSetting(boolSetting<VS>("selection_box", V, &VS::showSelectedBoundingBox, "Orange OBB around the selected node."));
@@ -1646,26 +1776,10 @@ void Application::registerAgentSettings()
         addSetting(std::move(spec));
     }
 
-    // --- Viewport: MSFS extensions ---
-    addSetting(boolSetting<VS>("ssr", V, &VS::screenSpaceReflections, "Windshield screen-space reflections.", "--ssr <on|off>"));
-    addSetting(indexEnumSetting<VS>("ssr_quality", V, &VS::ssrQuality, {"low", "medium", "high"},
-                                                  "SSR sample budget 256/512/1024.", "--ssr-quality <low|medium|high>"));
-    addSetting(floatSetting<VS>("interior_sky_reflection", V, &VS::interiorSkyReflection,
-                                              "Windshield IBL fallback inside environment occluders.",
-                                              "--interior-sky-reflection <0..1>", std::pair{0.0, 1.0}));
-    addSetting(floatSetting<VS>("windshield_icing", V, &VS::windshieldIcing,
-                                              "Windshield icing and frosted decal coverage.", "--windshield-icing <0..1>",
-                                              std::pair{0.0, 1.0}));
-    // A3.7: ASOBO_sky_portal (its on/off switch is the generic ASOBO_sky_portal key below).
-    addSetting(floatSetting<VS>("sky_portal_strength", V, &VS::skyPortalStrength,
-                                              "Scale of the sky-portal window light (added only where the IBL is occluded).",
-                                              "--sky-portal-strength <0..4>", std::pair{0.0, 4.0}));
+    // --- Viewport: MSFS extension view helpers (the effects moved to the scene, see below) ---
     addSetting(boolSetting<VS>("show_sky_portals", V, &VS::showSkyPortals,
                                "Draw every sky portal's gizmo (UI overlay, not in captures); a selected portal always shows.",
                                "--show-sky-portals"));
-    addSetting(floatSetting<VS>("decal_tolerance_mm", V, &VS::decalDepthToleranceMm,
-                                              "Decal depth tolerance along the receiver normal (mm).",
-                                              "--decal-tolerance <mm>", std::pair{0.0, 10.0}));
     // --- Viewport: lens effect (A6.7; docs/ASOBO_EXTENSIONS_PHASE_6.md) ---
     {
         SettingSpec spec;
@@ -1690,78 +1804,68 @@ void Application::registerAgentSettings()
     addSetting(floatSetting<VS>("lens_flare_intensity", V, &VS::lensFlareIntensity,
                                 "Strength of the lens effect (1 = default).", "--lens-flare-intensity <x>",
                                 std::pair{0.0, 10.0}));
-    // --- Viewport: ambient occlusion (A3.5; docs/ASOBO_EXTENSIONS_PHASE_3.md) ---
-    {
-        SettingSpec enabled;
-        enabled.key = "ssao";
-        enabled.scope = V;
-        enabled.type = SettingType::Bool;
-        enabled.help = "Screen-space ambient occlusion (GTAO) of the sky light: IBL diffuse/specular/sheen/clearcoat "
-                       "only, min() with the authored occlusion. Off by default; Auto quality never changes it.";
-        enabled.cliFlag = "--ssao <on|off>";
-        enabled.get = [](void* t) { return json(static_cast<VS*>(t)->ssao.enabled); };
-        enabled.set = [](void* t, const json& v, std::string&) {
-            static_cast<VS*>(t)->ssao.enabled = v.get<bool>();
+    // --- Scene effects (settings scopes: SceneEnvironmentState::effects; formerly per viewport, shadows renderer-wide) ---
+    using FX = ux3d::imgui::SceneEffectSettings;
+    const auto effectBool = [&](std::string key, bool FX::*member, std::string help, std::string cli, std::function<void()> onSet) {
+        SettingSpec spec;
+        spec.key = std::move(key);
+        spec.scope = E;
+        spec.type = SettingType::Bool;
+        spec.help = std::move(help);
+        spec.cliFlag = std::move(cli);
+        spec.get = [member](void* t) { return json(static_cast<ES*>(t)->effects.*member); };
+        spec.set = [member, onSet](void* t, const json& v, std::string&) {
+            static_cast<ES*>(t)->effects.*member = v.get<bool>();
+            if (onSet) onSet();
             return true;
         };
-        addSetting(std::move(enabled));
-
-        const auto ssaoFloat = [&](const char* key, float ux3d::imgui::SsaoSettings::*member, const char* help,
-                                   const char* cli, double minimum, double maximum) {
-            SettingSpec f;
-            f.key = key;
-            f.scope = V;
-            f.type = SettingType::Float;
-            f.help = help;
-            f.cliFlag = cli;
-            f.hasRange = true;
-            f.minimum = minimum;
-            f.maximum = maximum;
-            f.get = [member](void* t) { return agent::floatJson(static_cast<VS*>(t)->ssao.*member); };
-            f.set = [member](void* t, const json& v, std::string&) {
-                static_cast<VS*>(t)->ssao.*member = static_cast<float>(v.get<double>());
-                return true;
-            };
-            addSetting(std::move(f));
-        };
-        ssaoFloat("ssao_radius", &ux3d::imgui::SsaoSettings::radius,
-                  "SSAO radius in world units (metres in MSFS assets); occluders farther away do not count.",
-                  "--ssao-radius <x>", 0.01, 100.0);
-        ssaoFloat("ssao_intensity", &ux3d::imgui::SsaoSettings::intensity,
-                  "Exponent on the SSAO visibility (1 = the GTAO value, 0 = no occlusion).", "--ssao-intensity <x>",
-                  0.0, 4.0);
-
-        SettingSpec quality;
-        quality.key = "ssao_quality";
-        quality.scope = V;
-        quality.type = SettingType::Enum;
-        quality.help = "SSAO samples per pixel: low 2 slices x 4 steps, medium 3 x 6, high 4 x 8 (per side).";
-        quality.cliFlag = "--ssao-quality <low|medium|high>";
-        quality.enumValues = {"low", "medium", "high"};
-        quality.get = [values = quality.enumValues](void* t) {
-            return json(values[static_cast<size_t>(static_cast<VS*>(t)->ssao.quality)]);
-        };
-        quality.set = [values = quality.enumValues](void* t, const json& v, std::string&) {
-            static_cast<VS*>(t)->ssao.quality = static_cast<ux3d::imgui::SsaoQuality>(
-                std::find(values.begin(), values.end(), v.get<std::string>()) - values.begin());
+        addSetting(std::move(spec));
+    };
+    const auto effectFloat = [&](std::string key, float FX::*member, std::string help, std::string cli, double lo, double hi) {
+        SettingSpec spec;
+        spec.key = std::move(key);
+        spec.scope = E;
+        spec.type = SettingType::Float;
+        spec.help = std::move(help);
+        spec.cliFlag = std::move(cli);
+        spec.hasRange = true;
+        spec.minimum = lo;
+        spec.maximum = hi;
+        spec.get = [member](void* t) { return agent::floatJson(static_cast<ES*>(t)->effects.*member); };
+        spec.set = [member](void* t, const json& v, std::string&) {
+            static_cast<ES*>(t)->effects.*member = static_cast<float>(v.get<double>());
             return true;
         };
-        addSetting(std::move(quality));
+        addSetting(std::move(spec));
+    };
+    effectBool("shadows", &FX::shadows,
+               "The scene's sun shadows (cascaded shadow maps, drawn while the sun is on and the quality allows them; "
+               "a viewport may override them with viewport_shadows).",
+               "--shadows <on|off>", [] { RQ::pinShadows(); });
+    effectBool("ssr", &FX::ssr,
+               "The scene's windshield screen-space reflections (a viewport may override them with viewport_ssr).",
+               "--ssr <on|off>", [] { RQ::pinSsr(); });
+    effectFloat("interior_sky_reflection", &FX::interiorSkyReflection,
+                "Windshield IBL fallback inside environment occluders.", "--interior-sky-reflection <0..1>", 0.0, 1.0);
+    effectBool("ssao", &FX::ssao,
+               "The scene's screen-space ambient occlusion (GTAO) of the sky light: IBL diffuse/specular/sheen/clearcoat "
+               "only, min() with the authored occlusion. Off by default; a viewport may override it with viewport_ssao.",
+               "--ssao <on|off>", nullptr);
+    effectFloat("ssao_radius", &FX::ssaoRadius,
+                "SSAO radius in world units (metres in MSFS assets); occluders farther away do not count.",
+                "--ssao-radius <x>", 0.01, 100.0);
+    effectFloat("ssao_intensity", &FX::ssaoIntensity,
+                "Exponent on the SSAO visibility (1 = the GTAO value, 0 = no occlusion).", "--ssao-intensity <x>", 0.0, 4.0);
+    effectFloat("windshield_icing", &FX::windshieldIcing,
+                "Windshield icing and frosted decal coverage (the aircraft's icing state).", "--windshield-icing <0..1>",
+                0.0, 1.0);
+    // A3.7: ASOBO_sky_portal (its on/off switch is the generic ASOBO_sky_portal viewport key).
+    effectFloat("sky_portal_strength", &FX::skyPortalStrength,
+                "Scale of the sky-portal window light (added only where the IBL is occluded).",
+                "--sky-portal-strength <0..4>", 0.0, 4.0);
+    effectFloat("decal_tolerance_mm", &FX::decalDepthToleranceMm,
+                "Decal depth tolerance along the receiver normal (mm).", "--decal-tolerance <mm>", 0.0, 10.0);
 
-        SettingSpec resolution;
-        resolution.key = "ssao_resolution";
-        resolution.scope = V;
-        resolution.type = SettingType::Enum;
-        resolution.help = "SSAO resolution: full, or half with a depth-aware upsample.";
-        resolution.cliFlag = "--ssao-resolution <full|half>";
-        resolution.enumValues = {"full", "half"};
-        resolution.get = [](void* t) { return json(static_cast<VS*>(t)->ssao.halfResolution ? "half" : "full"); };
-        resolution.set = [](void* t, const json& v, std::string&) {
-            static_cast<VS*>(t)->ssao.halfResolution = v.get<std::string>() == "half";
-            return true;
-        };
-        addSetting(std::move(resolution));
-    }
     {
         SettingSpec spec;
         spec.key = "asobo";
@@ -2293,10 +2397,6 @@ void Application::registerAgentSettings()
         };
         addSetting(std::move(spec));
     }
-    addSetting(indexEnumSetting<ES>("sky_occlusion_quality", E, &ES::skyOcclusionQuality, {"low", "medium", "high"},
-                                    "Sky occlusion bake: low 64 directions x up to 64 cells per axis, medium (default) "
-                                    "128 x 96, high 256 x 128.",
-                                    "--sky-occlusion-quality <low|medium|high>"));
     addSetting(boolSetting<ES>("sky_occlusion_occluders", E, &ES::skyOcclusionOccluders,
                                "Environment occluders (ASOBO_material_environment_occluder) block the sky in the sky "
                                "occlusion bake (default on; they stay hidden in the image either way).",
@@ -2510,8 +2610,11 @@ void Application::registerAgentSettings()
             return spec;
         };
         {
-            SettingSpec spec = shadowSpec("shadows", SettingType::Bool,
-                                          "Cascaded sun shadow maps (drawn only while the sun is on).", "--shadows <on|off>");
+            // Settings scopes: the cost gate of the quality presets (settings.ini shadows=); the switch itself is the
+            // scene's shadows key.
+            SettingSpec spec = shadowSpec("shadows_allowed", SettingType::Bool,
+                                          "Whether the quality allows sun shadows (part of the quality presets; the scene "
+                                          "switches them on with shadows).", "");
             spec.defaultValue = defaults.shadows;
             spec.get = [](void*) { return json(ux3d::imgui::RenderQuality::settings().shadows); };
             spec.set = [](void*, const json& v, std::string&) {
@@ -2594,6 +2697,66 @@ void Application::registerAgentSettings()
         floatShadow("shadow_constant_bias", &RQS::shadowConstantBias, "Caster constant depth bias (glPolygonOffset units).",
                     "--shadow-constant-bias <x>", 0.0, 100.0);
     }
+
+    // --- Compatibility keys (settings scopes): every key keeps working in its former scope ---
+    // A forwarder has the canonical setting's type, range and default and reads/writes the canonical target (the
+    // active scene's environment or the global quality); set_* marks the canonical scope's revision.
+    const auto forward = [this](const std::string& key, SettingScope legacyScope, SettingScope canonicalScope) {
+        const SettingSpec* found = agentRegistry.findSetting(canonicalScope, key);
+        if (found == nullptr) return;
+        SettingSpec spec = *found;
+        spec.scope = legacyScope;
+        spec.forwardsTo = canonicalScope;
+        spec.compat = true;
+        spec.help = std::string("Compatibility key: the ") + agent::CommandRegistry::scopeName(canonicalScope) + " setting " +
+                    key + " (shared by every viewport). " + found->help;
+        spec.cliFlag.clear();
+        spec.aliases.clear();
+        const auto targetFor = [this, canonicalScope]() -> void* {
+            return canonicalScope == SettingScope::Environment
+                       ? static_cast<void*>(&getSceneEnvironment(sceneEnvironments, gltfModel, activeScene))
+                       : nullptr;
+        };
+        spec.get = [get = found->get, targetFor](void*) { return get(targetFor()); };
+        spec.set = [set = found->set, targetFor](void*, const json& v, std::string& error) { return set(targetFor(), v, error); };
+        agentRegistry.addSetting(std::move(spec));
+    };
+    for (const char* key : {"aa", "msaa", "post_aa", "ssr_quality", "ssao_quality", "ssao_resolution", "ocean_quality"}) {
+        forward(key, V, R);
+    }
+    for (const char* key : {"interior_sky_reflection", "windshield_icing", "sky_portal_strength", "decal_tolerance_mm",
+                            "ssao_radius", "ssao_intensity"}) {
+        forward(key, V, E);
+    }
+    forward("shadows", R, E);
+    forward("sky_occlusion_quality", E, R);
+    // ssr and ssao were per-viewport switches: their viewport keys set this viewport's override (true = on,
+    // false = off) and read the viewport's resolved value, so per-viewport scripts keep their meaning.
+    const auto overrideCompat = [&](const std::string& key, ux3d::imgui::EffectOverride VS::*member, bool ssr,
+                                    const std::string& viewportKey) {
+        SettingSpec spec;
+        spec.key = key;
+        spec.scope = V;
+        spec.type = SettingType::Bool;
+        spec.compat = true;
+        spec.help = "Compatibility key: sets this viewport's " + viewportKey + " override (true = on, false = off) and "
+                    "reads its resolved value; the scene's switch is the environment setting " + key + ".";
+        spec.defaultValue = key == "ssr";
+        spec.get = [this, member, key](void* t) {
+            auto* s = static_cast<VS*>(t);
+            const auto& effects = getSceneEnvironment(sceneEnvironments, gltfModel, activeScene).effects;
+            const bool scene = key == "ssr" ? effects.ssr : effects.ssao;
+            return json(ux3d::imgui::resolveEffect(s->*member, scene));
+        };
+        spec.set = [member, ssr](void* t, const json& v, std::string&) {
+            static_cast<VS*>(t)->*member = v.get<bool>() ? ux3d::imgui::EffectOverride::On : ux3d::imgui::EffectOverride::Off;
+            if (ssr) RQ::pinSsr();
+            return true;
+        };
+        agentRegistry.addSetting(std::move(spec));
+    };
+    overrideCompat("ssr", &VS::ssrOverride, true, "viewport_ssr");
+    overrideCompat("ssao", &VS::ssaoOverride, false, "viewport_ssao");
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -3342,6 +3505,8 @@ void Application::registerAgentCommands()
                 if (*frames < 0) {
                     if (!modelLoaded) return CommandReply::failure("load_failed", "failed to reload: " + path);
                     for (auto& env : sceneEnvironments) env = agentStartupEnvironment;
+                    // Settings scopes: the AA and effect quality were viewport settings, which reset restored.
+                    ux3d::imgui::RenderQuality::settings().copyEffectQuality(agentStartupQuality);
                     for (const auto& vp : viewports) {
                         if (!vp) continue;
                         vp->settings = agentStartupViewportSettings;
@@ -3392,7 +3557,10 @@ void Application::registerAgentCommands()
         void* target = scope == SettingScope::Viewport ? static_cast<void*>(&vp->settings)
                        : scope == SettingScope::Environment ? static_cast<void*>(environment)
                                                             : nullptr;
-        if (scope == SettingScope::Viewport) {
+        // Settings scopes: a compatibility key changes its canonical scope (the scene or the global quality).
+        const SettingScope affected = spec->compat && spec->forwardsTo.has_value() ? *spec->forwardsTo : scope;
+        resolveAllViewportSettings();
+        if (affected == SettingScope::Viewport) {
             vp->antiAliasing.resetHistory();
             sceneRevisions.mark(ux3d::imgui::SceneChange::ViewportSettings);
         } else {

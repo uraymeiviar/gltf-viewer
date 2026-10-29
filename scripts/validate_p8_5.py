@@ -244,7 +244,7 @@ if section("equivalence"):
 
         print("[two live viewports (viewport 2 double-sided), clicks in both]")
         lines, n = grid(range(320, 980, 40), range(260, 560, 75), "pick")
-        script = ["wait 8", "vpcreate", "wait 10", "vpsplit 2", "wait 10", "vpsetting 2 doublesided on", "wait 6"] + lines + ["shot @OUT@/split.png", "wait 2"]
+        script = ["wait 8", "vpcreate", "aamode none 2", "wait 10", "vpsplit 2", "wait 10", "vpsetting 2 doublesided on", "wait 6"] + lines + ["shot @OUT@/split.png", "wait 2"]
         cand = equivalence("split", "\n".join(script) + "\n", [FIXTURE, "--aa", "none"] + BEHIND, n)
 
         if E195.exists():

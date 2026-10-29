@@ -146,7 +146,7 @@ case("root_playback", ROOT, ["--aa", "msaa4"], ["wait 8", "animplay on", "wait 2
                                                "shot @OUT@/root_b.png", "animplay off", "wait 4"] + shots("root_stop"))
 clicks = [f"click {x} {y}\nwait 12\nsnap c{x}_{y}" for y in range(180, 700, 65) for x in range(330, 980, 65)]
 case("grid_clicks", MANY, ["--aa", "none", "--camera-distance", "14"], ["wait 10"] + clicks + shots("grid_clicks"))
-case("split_viewports", MANY, ["--aa", "none"], ["wait 8", "vpcreate", "wait 10", "vpsplit 2", "wait 10",
+case("split_viewports", MANY, ["--aa", "none"], ["wait 8", "vpcreate", "aamode none 2", "wait 10", "vpsplit 2", "wait 10",
                                                   "vpsetting 2 doublesided on", "wait 8"] + shots("split"))
 case("reload", MANY, ["--aa", "none"], ["wait 8", f"reload {ENGINE}", "wait 10", "shot @OUT@/reload_engine.png", f"reload {MANY}", "wait 10"] + shots("reload_back"))
 case("engine", ENGINE, ["--aa", "msaa4"], ["wait 10"] + shots("engine"))

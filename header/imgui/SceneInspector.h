@@ -42,6 +42,8 @@ private:
     static void renderNightSky(SceneEnvironmentState& env, SceneRevisions& revisions);
     // A3.8 viewer ambient light.
     static void renderAmbient(SceneEnvironmentState& env, SceneRevisions& revisions, float outdoorIlluminance);
+    // Settings scopes: the scene's effects (shadows, SSR, SSAO, aircraft state).
+    static void renderEffects(SceneEnvironmentState& env, ux3d::renderer::GltfRenderLayer* gltfLayer, SceneRevisions& revisions);
     // A3.9 sky occlusion inside the model (mode, quality, occluders, bake status).
     static void renderSkyOcclusion(SceneEnvironmentState& env, const SkyStatus* sky, SceneRevisions& revisions);
 };

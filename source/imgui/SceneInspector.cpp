@@ -500,14 +500,16 @@ void SceneInspector::render(SceneEnvironmentState& env,
         }
         UiProbe::item("scene.punctual.on", 0);
 
-        // IBL filter settings live with the scene environment now, but they configure the
-        // one filtered environment every viewport draws, so they apply globally. They only
-        // matter while IBL is on, so the panel is hidden when it is off.
+        // Settings scopes: the IBL filter is quality (renderer-wide) and is edited in Viewport Settings > Quality.
+        // While IBL is on, the scene shows what it gets (the probe tag stays on the heading).
         if (env.iblEnabled) {
             ImGui::SeparatorText("IBL Filter Settings");
             UiProbe::item("scene.ibl.filter", 0);
-            ImGui::TextDisabled("Applies to every viewport.");
-            RenderQuality::drawIblSettings(gltfLayer, revisions);
+            const RenderQualitySettings& quality = RenderQuality::settings();
+            ImGui::TextDisabled("Cube %u, irradiance %s, LUT %u, %u samples, %s", quality.iblCubeSize,
+                                quality.iblIrradianceSize == 0 ? "full" : std::to_string(quality.iblIrradianceSize).c_str(),
+                                quality.iblLutSize, quality.iblSpecularSamples, quality.iblHalfFloat ? "16-bit" : "32-bit");
+            ImGui::TextDisabled("Quality (all viewports): Viewport Settings > Quality.");
         }
     }
 
@@ -518,6 +520,14 @@ void SceneInspector::render(SceneEnvironmentState& env,
     if (sunTimeOpen) {
         renderSun(env, gltfLayer, revisions, sun);
         renderTimeOfDay(env, revisions);
+    }
+
+    // Settings scopes: the scene's effect switches and look parameters (formerly per viewport; the shadow switch was
+    // renderer-wide). Every viewport follows them unless its Viewport Settings override shadows, SSR or SSAO.
+    const bool effectsOpen = ImGui::CollapsingHeader("Shadows, Reflections & AO", ImGuiTreeNodeFlags_DefaultOpen);
+    UiProbe::item("scene.effects", 0);
+    if (effectsOpen) {
+        renderEffects(env, gltfLayer, revisions);
     }
 
     // A6.2 / A6.3: after the existing headers (collapsed by default), so their controls keep their places.
@@ -556,6 +566,100 @@ void SceneInspector::render(SceneEnvironmentState& env,
     }
 }
 
+void SceneInspector::renderEffects(SceneEnvironmentState& env, ux3d::renderer::GltfRenderLayer* gltfLayer,
+                                   SceneRevisions& revisions)
+{
+    SceneEffectSettings& fx = env.effects;
+    const RenderQualitySettings& quality = RenderQuality::settings();
+    ImGui::TextDisabled("Scene settings; a viewport can override shadows, SSR and SSAO.");
+
+    if (ImGui::Checkbox("Sun shadows##sceneShadows", &fx.shadows)) {
+        revisions.mark(SceneChange::RenderSettings);
+    }
+    UiProbe::item("scene.effects.shadows", 0);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Cascaded shadow maps of the sun (drawn while the sun is on).\n"
+                          "Map size, cascades, distance, filter and biases: Viewport Settings > Quality.");
+    }
+    if (fx.shadows && !quality.shadows) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("(not allowed by the quality)");
+    }
+
+    if (ImGui::Checkbox("Windshield reflections (SSR)##sceneSsr", &fx.ssr)) {
+        RenderQuality::pinSsr();
+        revisions.mark(SceneChange::RenderSettings);
+    }
+    UiProbe::item("scene.effects.ssr", 0);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Screen-space reflections on ASOBO_material_windshield_v3 glass. Sample budget: Viewport Settings > Quality.");
+    }
+    ImGui::BeginDisabled(!fx.ssr);
+    if (ImGui::SliderFloat("Interior sky reflection##sceneInteriorSky", &fx.interiorSkyReflection, 0.0f, 1.0f, "%.2f")) {
+        revisions.mark(SceneChange::RenderSettings);
+    }
+    UiProbe::item("scene.effects.interior_sky", 0);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Windshield IBL fallback inside the environment occluders (all windshields without occluders).");
+    }
+    ImGui::EndDisabled();
+
+    if (ImGui::Checkbox("Screen-space ambient occlusion (SSAO)##sceneSsao", &fx.ssao)) {
+        revisions.mark(SceneChange::RenderSettings);
+    }
+    UiProbe::item("scene.effects.ssao", 0);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("GTAO from the scene depth: darkens the sky light (IBL) in creases, corners and\n"
+                          "under nearby objects. The sun and punctual lights keep their own shadows.\n"
+                          "Combined with the authored occlusion maps as min(authored, SSAO).\n"
+                          "Samples and resolution: Viewport Settings > Quality.");
+    }
+    ImGui::BeginDisabled(!fx.ssao);
+    if (ImGui::DragFloat("AO radius##sceneSsaoRadius", &fx.ssaoRadius, 0.01f, 0.01f, 100.0f, "%.2f",
+                         ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic)) {
+        revisions.mark(SceneChange::RenderSettings);
+    }
+    UiProbe::item("scene.effects.ssao_radius", 0);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("World units (metres in MSFS assets): occluders farther away do not count.");
+    }
+    if (ImGui::SliderFloat("AO intensity##sceneSsaoIntensity", &fx.ssaoIntensity, 0.0f, 4.0f, "%.2f")) {
+        revisions.mark(SceneChange::RenderSettings);
+    }
+    UiProbe::item("scene.effects.ssao_intensity", 0);
+    ImGui::EndDisabled();
+
+    ImGui::SeparatorText("Aircraft state (MSFS)");
+    if (ImGui::SliderFloat("Icing##sceneIcing", &fx.windshieldIcing, 0.0f, 1.0f, "%.2f")) {
+        revisions.mark(SceneChange::RenderSettings);
+    }
+    UiProbe::item("scene.effects.icing", 0);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Windshield icing and frosted geometry decals (0 = clean aircraft).");
+    }
+    if (gltfLayer != nullptr && gltfLayer->hasSkyPortals()) {
+        // A3.7: shown only for files with ASOBO_sky_portal nodes.
+        if (ImGui::SliderFloat("Sky portal strength##scenePortal", &fx.skyPortalStrength, 0.0f, 4.0f, "%.2f")) {
+            revisions.mark(SceneChange::RenderSettings);
+        }
+        UiProbe::item("scene.effects.sky_portal", 0);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Window light of the sky portals, added only where the occlusion\n"
+                              "removed sky light: (1 - occlusion) x strength x portal light.");
+        }
+    }
+    if (gltfLayer != nullptr && (gltfLayer->hasGeometryDecalMaterials() || gltfLayer->hasBlendGbufferMaterials())) {
+        if (ImGui::DragFloat("Decal depth tolerance (mm)##sceneDecalTolerance", &fx.decalDepthToleranceMm, 0.05f, 0.0f, 10.0f,
+                             "%.2f", ImGuiSliderFlags_AlwaysClamp)) {
+            revisions.mark(SceneChange::RenderSettings);
+        }
+        UiProbe::item("scene.effects.decal_tolerance", 0);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Decal buffer depth tolerance along the receiver normal.");
+        }
+    }
+}
+
 void SceneInspector::renderSkyOcclusion(SceneEnvironmentState& env, const SkyStatus* sky, SceneRevisions& revisions)
 {
     int mode = env.skyOcclusion < 0 ? 0 : env.skyOcclusion != 0 ? 1 : 2;
@@ -570,11 +674,12 @@ void SceneInspector::renderSkyOcclusion(SceneEnvironmentState& env, const SkySta
                           "shadows; punctual lights, emissive, Manual ambient and the background are unchanged.\n"
                           "Auto: on with the procedural sky, off with the HDR.");
     }
-    int quality = std::clamp(env.skyOcclusionQuality, 0, 2);
-    if (ImGui::Combo("Bake Quality", &quality, "Low (64 directions, 64 cells)\0Medium (128 directions, 96 cells)\0"
-                                              "High (256 directions, 128 cells)\0")) {
-        env.skyOcclusionQuality = quality;
-        revisions.mark(SceneChange::RenderSettings);
+    // Settings scopes: the bake quality is renderer-wide (Viewport Settings > Quality); shown here for reference.
+    {
+        static const char* const names[] = { "Low (64 directions, 64 cells)", "Medium (128 directions, 96 cells)",
+                                             "High (256 directions, 128 cells)" };
+        ImGui::TextDisabled("Bake quality: %s (Viewport Settings > Quality)",
+                            names[std::clamp(RenderQuality::settings().skyOcclusionQuality, 0, 2)]);
     }
     UiProbe::item("scene.sky_occlusion.quality", 0);
     if (ImGui::Checkbox("Environment occluders block the sky", &env.skyOcclusionOccluders)) {

@@ -155,7 +155,7 @@ if section("equivalence"):
         "fox_play": (FOX, ["--aa", "none"], ["wait 8", "animplay on", "wait 40", "shot @OUT@/fox_play.png", "animplay off", "wait 2"]),
         "hier_play": (HIER, ["--aa", "msaa4"], ["wait 8", "animplay on", "wait 40", "shot @OUT@/hier_play.png", "animplay off", "wait 2"]),
         "pointer_play": (POINTER, ["--aa", "none"], ["wait 8", "animplay on", "wait 30", "shot @OUT@/pointer_play.png", "animplay off", "wait 2"]),
-        "split": (FIXTURE, ["--aa", "none"] + BEHIND, ["wait 8", "vpcreate", "wait 10", "vpsplit 2", "wait 10",
+        "split": (FIXTURE, ["--aa", "none"] + BEHIND, ["wait 8", "vpcreate", "aamode none 2", "wait 10", "vpsplit 2", "wait 10",
                                                       "vpsetting 2 doublesided on", "wait 8", "shot @OUT@/split.png", "wait 2"]),
         "clicks": (FIXTURE, ["--aa", "none"] + BEHIND, ["wait 10"] + clicks + ["shot @OUT@/clicks.png", "wait 2"]),
     }

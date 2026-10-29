@@ -16,9 +16,27 @@
 
 namespace ux3d::imgui::application {
 
+void Application::resolveAllViewportSettings()
+{
+    const auto& effects = getSceneEnvironment(sceneEnvironments, gltfModel, activeScene).effects;
+    for (auto& vp : viewports) {
+        if (!vp) continue;
+        const int msaaBefore = vp->settings.effectiveMsaaIdx();
+        const int postBefore = vp->settings.effectivePostAAIdx();
+        ux3d::imgui::RenderQuality::resolveViewport(vp->settings, effects);
+        // The global AA changed under this viewport (Quality tab, a registry key or a script): its TAA history
+        // belongs to the old mode, as when its own AA combo changed before.
+        if (vp->settings.effectiveMsaaIdx() != msaaBefore || vp->settings.effectivePostAAIdx() != postBefore) {
+            vp->antiAliasing.resetHistory();
+        }
+    }
+}
+
 void Application::drawViewports(FrameContext& frame)
 {
     auto& io = ImGui::GetIO();
+    // Settings scopes: every viewport renders from its mirrors, resolved once per frame before any of them draws.
+    resolveAllViewportSettings();
     const bool frameSceneDirty = lastFrameSceneChanges != 0;
     // -------------------------------------------------------------
     // Viewport Windows (Multi-Viewport)
@@ -1837,7 +1855,7 @@ void Application::updateSunShadows(ux3d::imgui::ViewportInstance& vp, FrameConte
     vp.sunShadowFromMoon = sun.moon;
     vp.sunShadowDirection = sun.direction;
     const ux3d::imgui::RenderQualitySettings quality = ux3d::imgui::RenderQuality::effective();
-    const bool wanted = sun.enabled && quality.shadows && shadingAllowed && gltfLayer != nullptr && commandGenerator != nullptr
+    const bool wanted = sun.enabled && quality.shadows && vp.settings.sunShadows && shadingAllowed && gltfLayer != nullptr && commandGenerator != nullptr
         && glRenderer != nullptr && shadowCasterLayer != nullptr && sunShadowCamera != nullptr && activeScene != nullptr;
     const auto disable = [&] {
         vp.sunShadowMap.release();
@@ -2006,7 +2024,12 @@ nlohmann::json Application::sunShadowStateJson() const
 {
     const ux3d::imgui::RenderQualitySettings configured = ux3d::imgui::RenderQuality::settings();
     const ux3d::imgui::RenderQualitySettings quality = ux3d::imgui::RenderQuality::effective();
-    nlohmann::json out = {{"enabled", configured.shadows},
+    // Settings scopes: enabled = the scene's switch and the quality's gate (a viewport may override the scene's).
+    auto& self = const_cast<Application&>(*this);
+    const bool sceneShadows = self.getSceneEnvironment(self.sceneEnvironments, self.gltfModel, self.activeScene).effects.shadows;
+    nlohmann::json out = {{"enabled", configured.shadows && sceneShadows},
+                          {"scene", sceneShadows},
+                          {"allowed", configured.shadows},
                           {"resolution", quality.shadowResolution},
                           {"cascadeCount", quality.shadowCascades},
                           {"maxDistance", agent::floatJson(quality.shadowDistance)},
@@ -2019,6 +2042,8 @@ nlohmann::json Application::sunShadowStateJson() const
     for (const auto& vp : viewports) {
         if (vp == nullptr) continue;
         nlohmann::json entry = {{"viewport", vp->id}, {"active", vp->sunShadowActive},
+                                {"override", ux3d::imgui::effectOverrideName(vp->settings.shadowsOverride)},
+                                {"enabled", vp->settings.sunShadows && configured.shadows},
                                 {"memoryBytes", vp->sunShadowMap.bytes()}};
         if (vp->sunShadowActive) {
             // A6.6: which light casts the shadows (the sun, or the moon at night).
@@ -2089,7 +2114,8 @@ void Application::updateSkyOcclusion(const ux3d::imgui::SceneEnvironmentState& e
         skyOcclusionModelKey = modelKey;
         skyOcclusionEmptyKey = 0;
     }
-    const auto quality = static_cast<ux3d::imgui::SkyOcclusionQuality>(std::clamp(environment.skyOcclusionQuality, 0, 2));
+    const auto quality = static_cast<ux3d::imgui::SkyOcclusionQuality>(
+        std::clamp(ux3d::imgui::RenderQuality::settings().skyOcclusionQuality, 0, 2));
     uint64_t key = modelKey;
     for (const auto change : { ux3d::imgui::SceneChange::Visibility, ux3d::imgui::SceneChange::Transform,
                                ux3d::imgui::SceneChange::Material, ux3d::imgui::SceneChange::Extension }) {
@@ -2219,7 +2245,8 @@ void Application::updateSkyOcclusion(const ux3d::imgui::SceneEnvironmentState& e
 
 nlohmann::json Application::skyOcclusionStateJson(const ux3d::imgui::SceneEnvironmentState& environment) const
 {
-    const auto quality = static_cast<ux3d::imgui::SkyOcclusionQuality>(std::clamp(environment.skyOcclusionQuality, 0, 2));
+    const auto quality = static_cast<ux3d::imgui::SkyOcclusionQuality>(
+        std::clamp(ux3d::imgui::RenderQuality::settings().skyOcclusionQuality, 0, 2));
     const ux3d::imgui::SkyOcclusionSpec spec = ux3d::imgui::skyOcclusionSpec(quality);
     const auto& stats = skyOcclusionVolume.stats();
     const auto vec3Json = [](const glm::vec3& v) {

@@ -13,6 +13,7 @@ class GltfRenderLayer;
 
 namespace ux3d::imgui {
 struct ViewportSettingsState;
+struct SceneEffectSettings;
 
 // Phase 7: settings that trade image quality for memory, startup time or fill cost.
 // They apply to every viewport. Configured targets are preserved independently of
@@ -63,6 +64,17 @@ struct RenderQualitySettings {
     float shadowSlopeBias = 2.0f;     // caster glPolygonOffset factor
     float shadowConstantBias = 1.0f;  // caster glPolygonOffset units
 
+    // Settings scopes (docs/SETTINGS_SCOPES.md): the cost side of the per-effect settings, renderer-wide since they
+    // left the viewports. Every viewport renders with these values; the scene decides whether an effect is on, a
+    // viewport may override that (Scene / Off / On). The defaults are the former per-viewport defaults.
+    int msaaIdx = 0;                  // 0 off, 1/2/3 = 2x/4x/8x
+    int postAAIdx = 2;                // 0 none, 1 FXAA, 2 TAA
+    int ssrQuality = 1;               // 0/1/2: 256/512/1024 screen-space samples
+    int ssaoQuality = 1;              // SsaoQuality: 2 x 4, 3 x 6, 4 x 8 samples per side
+    bool ssaoHalfResolution = false;  // SSAO at half resolution with a depth-aware upsample
+    int skyOcclusionQuality = 1;      // SkyOcclusionQuality: 64 / 96 / 128 cells per axis
+    int oceanQuality = 1;             // OceanQuality: cascades x resolution x loop frames
+
     bool operator==(const RenderQualitySettings&) const = default;
 
     static RenderQualitySettings fromPreset(QualityPreset preset);
@@ -75,13 +87,18 @@ struct RenderQualitySettings {
     void copyShadowTuning(const RenderQualitySettings& from);
     // Copies every shadow field.
     void copyShadows(const RenderQualitySettings& from);
+    // Copies the per-effect quality fields above (AA, SSR, SSAO, sky occlusion, ocean).
+    void copyEffectQuality(const RenderQualitySettings& from);
+    // The legacy --aa index (0 none, 1..3 MSAA, 4 FXAA, 5 TAA) of msaaIdx/postAAIdx; -1 for a combination it has no name for.
+    int legacyAAIndex() const;
 };
 
 // The four editable user profiles. Selection 0 is Auto; 1..4 address these profiles.
+// render carries the profile's AA, SSR/SSAO/sky-occlusion/ocean quality; the booleans below are cost gates (an
+// effect the profile does not allow stays off even when the scene turns it on, until the user pins it).
 struct QualityProfile {
     RenderQualitySettings render;
     uint32_t textureMaxSize = 0;
-    int msaaIdx = 0, postAAIdx = 0, ssrQuality = 0;
     bool skybox = true, ibl = true, lights = true, ssr = false, bloom = false;
 };
 
@@ -97,9 +114,22 @@ public:
     // A3.2: a user or agent edit of a shadow setting pins the shadow group for this session (Auto quality
     // then uses the configured values instead of its cheaper start).
     static void pinShadows();
+    // Settings scopes: an explicit AA edit (global quality) or SSR edit (scene switch, viewport override or SSR
+    // quality) pins that group for the session, as the per-viewport edits did before.
+    static void pinAA();
+    static void pinSsr();
+    // Whether the selected profile and Auto quality allow screen-space reflections (the scene / viewport decide
+    // whether they are on).
+    static bool allowSsr();
     static bool validShadowResolution(uint32_t value);
     static const char* shadowFilterName(ShadowFilter filter);
-    static ViewportSettingsState effectiveViewport(ViewportSettingsState& configured);
+    // The settings a viewport renders with: its resolved settings (resolveViewport) with the effective (Auto /
+    // profile adapted) AA and SSR quality and the SSR gate.
+    static ViewportSettingsState effectiveViewport(const ViewportSettingsState& configured);
+    // Settings scopes: writes the resolved values into the viewport's mirror fields (AA, SSR, SSAO, shadows, ocean
+    // quality from the global quality; effects from the scene through the viewport's overrides). The renderer
+    // reads only these mirrors, so every read site stays as it was.
+    static void resolveViewport(ViewportSettingsState& viewport, const SceneEffectSettings& effects);
     static const std::string& autoStatus();
     static int autoLevel();
     static bool wantsSample();
@@ -137,8 +167,9 @@ public:
     // Returns false when argv[i] is not a quality flag. Sets error on a bad value.
     static bool parseArgument(int argc, char** argv, int& i, std::string& error);
 
-    // Draws the Quality tab body of the Viewport Settings panel: preset, ground grid and
-    // render scale. Re-filters the environment when the preset changes the IBL fields.
+    // Draws the Quality tab body of the Viewport Settings panel: every renderer-wide quality setting (preset, AA,
+    // render scale, grid, effect quality, IBL filter, sun shadow maps). Re-filters the environment when the IBL
+    // fields change.
     static void drawSettings(ux3d::renderer::GltfRenderLayer* layer, SceneRevisions& revisions);
 
     // Draws the IBL filter size, sample count and precision controls. The Scene Inspector

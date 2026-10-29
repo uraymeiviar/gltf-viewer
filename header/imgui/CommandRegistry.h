@@ -116,6 +116,10 @@ struct SettingSpec {
     double minimum = 0.0;
     double maximum = 0.0;
     bool persisted = false;            // stored in settings.ini (pipe needs set_persist(true))
+    // Settings scopes: a compatibility key keeps a moved setting working in its former scope; it reads and writes
+    // the setting in forwardsTo (or, for the ssr / ssao viewport keys, the viewport's override).
+    bool compat = false;
+    std::optional<SettingScope> forwardsTo;
     nlohmann::json defaultValue;
     std::function<nlohmann::json(void* target)> get;
     std::function<bool(void* target, const nlohmann::json& value, std::string& error)> set;

@@ -51,7 +51,7 @@ Commands run on the render thread between frames, strictly in order. Multi-frame
 4. `capture(overlays=false)` and look at the image (`encoding="png-base64"` returns it inline; the MCP server
    always returns it as an image).
 5. `pick(x, y)` / `probe(x, y)` at a pixel of that image to ask what is there and what colour it has.
-6. `set_render_mode("roughness")`, `set_viewport_setting("ssr", false)`, `set_environment("exposure", 1)`
+6. `set_render_mode("roughness")`, `set_viewport_setting("viewport_ssr", "off")`, `set_environment("exposure", 1)`
    ... then capture again to compare.
 7. `reset` returns to the startup state.
 
@@ -98,14 +98,29 @@ Commands run on the render thread between frames, strictly in order. Multi-frame
   clock. `time_of_day` (`day`, `night`, `auto`) stays the ASOBO emissive switch; `auto` follows the sun elevation
   (`night_threshold`). `get_state` `timeOfDay` has the computed sun (true azimuth, elevations, fade), sunrise and
   sunset, and the moon (position, phase). Colour and intensity are the Manual sun's.
-- Shadows (A3.2): on by default while the sun is on, renderer-wide keys through `set_viewport_setting`:
-  `shadows`, `shadow_resolution` (1024/2048/4096), `shadow_cascades` (2-4), `shadow_distance` (scene units:
-  metres for MSFS files, centimetres for some samples), `shadow_filter` (hard/pcf/soft), `shadow_split_lambda`,
-  `shadow_normal_bias`, `shadow_slope_bias`, `shadow_constant_bias`. They are saved preferences: call
-  `set_persist(true)` first. `get_state` `sun.shadows` lists each viewport's cascades (depth range, radius,
+- Shadows (A3.2): on by default while the sun is on. The switch is the scene's: `set_environment shadows false`
+  (a viewport overrides it with `set_viewport_setting viewport_shadows scene|off|on`). The map is renderer-wide
+  quality through `set_viewport_setting`: `shadow_resolution` (1024/2048/4096), `shadow_cascades` (2-4),
+  `shadow_distance` (scene units: metres for MSFS files, centimetres for some samples), `shadow_filter`
+  (hard/pcf/soft), `shadow_split_lambda`, `shadow_normal_bias`, `shadow_slope_bias`, `shadow_constant_bias`, and the
+  presets' gate `shadows_allowed`. Those are saved preferences: call `set_persist(true)` first. `get_state` `sun.shadows` lists each viewport's cascades (depth range, radius,
   texel size) and the caster counts.
 - Debug views `shadowcascades` (red/green/blue/yellow per cascade, grey beyond) and `shadowvisibility` (1 lit,
   0 shadowed; `probe` reads the value directly).
+
+## Settings scopes
+
+- Three scopes (docs/SETTINGS_SCOPES.md): renderer-wide **quality** (`aa`, `msaa`, `post_aa`, `ssr_quality`,
+  `ssao_quality`, `ssao_resolution`, `sky_occlusion_quality`, `ocean_quality`, `grid_mode`, the
+  `shadow_*` map keys, `shadows_allowed`; set them with `set_viewport_setting`, they apply to every viewport); the
+  **scene** (`set_environment`: `shadows`, `ssr`, `interior_sky_reflection`, `ssao`, `ssao_radius`, `ssao_intensity`,
+  `windshield_icing`, `sky_portal_strength`, `decal_tolerance_mm`, besides sun, sky, exposure, bloom, ambient); the
+  **viewport** (`set_viewport_setting`: render mode, wireframe, grid, ground / ocean, extension switches, lens effect,
+  and the overrides `viewport_shadows`, `viewport_ssr`, `viewport_ssao` = `scene` (default) / `off` / `on`).
+- The former keys still work where they were: the viewport keys `msaa`, `ssr_quality`, `ssao_radius`, ... forward
+  to the quality or the scene; the viewport keys `ssr` / `ssao` set that viewport's override; the renderer key
+  `shadows` is the scene's switch. `get_state`: `quality` (configured / effective), `environment.effects`,
+  `viewports[].overrides` and `viewports[].effective`.
 
 ## Procedural sky (A6.2 / A6.3)
 
@@ -200,7 +215,7 @@ Commands run on the render thread between frames, strictly in order. Multi-frame
   reflection (no ocean SSR) and the sun with the A3.2 shadows.
 - Sea state: `ocean_wind_speed` (m/s, 0.5..40), `ocean_wind_dir` (degrees, the direction the wind comes FROM, the sun's
   azimuth convention), `ocean_fetch` (m), `ocean_choppiness` (0..2), `ocean_swell` (0..1), `ocean_quality`
-  (`low|medium|high`), `ocean_period` (loop period, s). Changing one recomputes the waves: in a looping set in the
+  (`low|medium|high`; renderer-wide, every viewport's sea), `ocean_period` (loop period, s). Changing one recomputes the waves: in a looping set in the
   background within a 3 ms GPU budget per frame (`get_state` `ground.ocean.busy` / `progress`; the old set stays until
   the new one is complete), in capture runs at once.
 - Look: `ocean_foam` (0..1; 0.5 is the whitecap coverage observed at that wind speed, about 1% at 10 m/s and 10% at
@@ -219,13 +234,14 @@ Commands run on the render thread between frames, strictly in order. Multi-frame
 
 ## Ambient occlusion (A3.5)
 
-- `set_viewport_setting ssao true` turns on screen-space ambient occlusion (GTAO) for that viewport (off by default;
-  Auto quality never changes it). It darkens only the sky light (IBL diffuse, specular, sheen, clearcoat) of OPAQUE
+- `set_environment ssao true` turns on screen-space ambient occlusion (GTAO) for the scene, i.e. every viewport
+  (off by default; Auto quality never changes it); `set_viewport_setting viewport_ssao off|on|scene` overrides it in one
+  viewport (the older `set_viewport_setting ssao true` sets that viewport's override to on). It darkens only the sky light (IBL diffuse, specular, sheen, clearcoat) of OPAQUE
   and MASK surfaces, combined with the authored occlusion maps as `min(authored, SSAO)`; the sun, punctual lights,
   emissive, BLEND / transmission surfaces, the background and the A3.6 ground plane are never changed by it.
-- Keys: `ssao_radius` (world units, metres in MSFS files; default 0.5), `ssao_intensity` (exponent, default 1,
-  0 = no occlusion), `ssao_quality` (`low` 2 x 4, `medium` 3 x 6, `high` 4 x 8 samples per side), `ssao_resolution`
-  (`full`, or `half` with a depth-aware upsample).
+- Keys: scene `ssao_radius` (world units, metres in MSFS files; default 0.5), `ssao_intensity` (exponent, default 1,
+  0 = no occlusion); renderer-wide quality `ssao_quality` (`low` 2 x 4, `medium` 3 x 6, `high` 4 x 8 samples per
+  side), `ssao_resolution` (`full`, or `half` with a depth-aware upsample).
 - Debug view `ssao` (`set_viewport_setting render_mode ssao`): the raw visibility, 1 white (open) to 0 black; `probe`
   reads it directly. `get_state` `ssao.viewports[]` reports each viewport's settings, `active` (its last render
   applied it), the AO target size, `memoryBytes` and `gpuMs` (GPU time of the AO passes).
@@ -235,8 +251,8 @@ Commands run on the render thread between frames, strictly in order. Multi-frame
 ## Sky portals (A3.7)
 
 - Files with `ASOBO_sky_portal` nodes (MSFS window lights, node +Z into the cabin, radius `source_radius` cm / 100):
-  the viewport key `ASOBO_sky_portal` switches their light (default on), `sky_portal_strength` scales it (0..4,
-  default 0.35), `show_sky_portals` draws every portal's gizmo (UI overlay, not in `capture`).
+  the viewport key `ASOBO_sky_portal` switches their light (default on), the scene key `sky_portal_strength` scales
+  it (0..4, default 0.35), the viewport key `show_sky_portals` draws every portal's gizmo (UI overlay, not in `capture`).
 - The light is added only where the IBL was occluded: (1 - occlusion) x strength x portal light; surfaces with
   occlusion 1 never change. `get_state` `skyPortals` lists the portals (position, direction, radius) and how many lit
   the active viewport (`active`, at most 8).
@@ -287,8 +303,8 @@ Commands run on the render thread between frames, strictly in order. Multi-frame
 - How much sky a point sees past the model's own geometry (a cockpit, a wheel well), baked once into a volume over
   the model and applied to the sky light (IBL diffuse, specular, sheen, clearcoat) of every surface. `set_environment`
   keys: `sky_occlusion` `auto` (default: on with the procedural sky, off with the HDR, so HDR renders are unchanged),
-  `on`, `off`; `sky_occlusion_quality` `low` (64 directions, up to 64 cells per axis), `medium` (default, 128 x 96),
-  `high` (256 x 128); `sky_occlusion_occluders` (default true: `ASOBO_material_environment_occluder` geometry, hidden
+  `on`, `off`; `sky_occlusion_quality` (renderer-wide quality) `low` (64 directions, up to 64 cells per axis),
+  `medium` (default, 128 x 96), `high` (256 x 128); `sky_occlusion_occluders` (default true: `ASOBO_material_environment_occluder` geometry, hidden
   in the image, blocks the sky; its sky portals then bring the window light). The sun (its own shadows), punctual
   lights, emissive, Manual ambient light, the background and the ground plane are unchanged (Auto ambient uses the
   hidden-sky fraction; see A3.10). Without IBL (the Low

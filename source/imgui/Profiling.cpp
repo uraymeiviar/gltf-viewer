@@ -631,6 +631,12 @@ bool writeProfileReport(const std::string& path, const ProfileReport& report)
         { "capture", captureToJson(report.capture) }
     };
 
+    if (!report.quality.is_null()) {
+        document["quality"] = report.quality;
+    }
+    if (!report.effects.is_null()) {
+        document["environment"] = {{"effects", report.effects}};
+    }
     if (!report.ssao.is_null()) {
         document["ssao"] = report.ssao;
     }
