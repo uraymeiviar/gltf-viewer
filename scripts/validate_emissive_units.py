@@ -125,7 +125,7 @@ def check_baseline(baseline):
             # A6.4c moved the highlight meter's target; pin the average meter on BOTH binaries for the parity
             # render so it isolates the emissive units (validate_night covers the meter). The probe session below
             # keeps the default meter.
-            pin = ["--exposure-metering", "average"] if source == "sky" else []
+            pin = ["--exposure-metering", "average", "--ambient", "off"] if source == "sky" else []
             now, _ = night.render(model, f"core_now_{strength}_{source}", flags + pin)
             ref, _ = night.render(model, f"core_ref_{strength}_{source}", flags + pin, exe=baseline)
             check(same(now, ref), f"core glTF strength={strength}, {source}: byte-identical to baseline")

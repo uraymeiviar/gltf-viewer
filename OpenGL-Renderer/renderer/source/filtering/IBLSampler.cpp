@@ -360,6 +360,25 @@ bool IBLSampler::filter()
     cubeMapToGGX();
     cubeMapToSheen();
 
+    // A3.10: the Lambertian filter stores E/pi. +Y is unchanged by the viewer's HDR yaw rotation.
+    // Read once per filter, retaining only the bilinear centre sample; no readback in the frame loop.
+    {
+        GLint previousCube = 0;
+        m_gl->getIntegerv(GL_TEXTURE_BINDING_CUBE_MAP, &previousCube);
+        m_gl->bindTexture(GL_TEXTURE_CUBE_MAP, lambertianTextureID);
+        const uint32_t size = lambertianSize();
+        std::vector<float> face(static_cast<size_t>(size) * size * 4);
+        m_gl->getTexImage(GL_TEXTURE_CUBE_MAP_POSITIVE_Y, 0, GL_RGBA, GL_FLOAT, face.data());
+        const uint32_t lo = (size - 1) / 2, hi = size / 2;
+        glm::vec3 radiance(0.0f);
+        for (uint32_t y : {lo, hi}) for (uint32_t x : {lo, hi}) {
+            const float* pixel = face.data() + (static_cast<size_t>(y) * size + x) * 4;
+            radiance += glm::vec3(pixel[0], pixel[1], pixel[2]) * 0.25f;
+        }
+        m_horizontalIlluminance = radiance * static_cast<float>(kPi);
+        m_gl->bindTexture(GL_TEXTURE_CUBE_MAP, static_cast<GLuint>(previousCube));
+    }
+
     // P7.1: no glFinish. The filter passes are queued in order ahead of any frame that
     // samples their outputs, and GL defers deleting the source textures until the queued
     // passes no longer use them.

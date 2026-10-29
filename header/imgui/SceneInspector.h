@@ -24,11 +24,14 @@ public:
                        ux3d::renderer::GltfRenderLayer* gltfLayer,
                        SceneRevisions& revisions,
                        ux3d::gltf::Scene* scene = nullptr,
-                       const SkyStatus* sky = nullptr);
+                       const SkyStatus* sky = nullptr,
+                       const EffectiveSun* sun = nullptr,
+                       float outdoorIlluminance = 0.0f);
 
 private:
     // A3.1: Environment -> Sun section.
-    static void renderSun(SceneEnvironmentState& env, ux3d::renderer::GltfRenderLayer* gltfLayer, SceneRevisions& revisions);
+    static void renderSun(SceneEnvironmentState& env, ux3d::renderer::GltfRenderLayer* gltfLayer, SceneRevisions& revisions,
+                          const EffectiveSun* sun);
     // A6.1: Environment -> Time of Day section (date, time, place, heading, presets, play).
     static void renderTimeOfDay(SceneEnvironmentState& env, SceneRevisions& revisions);
     // A6.2 / A6.3: Sky & Atmosphere (environment source, atmosphere parameters, refinement status).
@@ -38,7 +41,7 @@ private:
     // A6.6: Night Sky (moon, moonlight, stars, night sky glow).
     static void renderNightSky(SceneEnvironmentState& env, SceneRevisions& revisions);
     // A3.8 viewer ambient light.
-    static void renderAmbient(SceneEnvironmentState& env, SceneRevisions& revisions);
+    static void renderAmbient(SceneEnvironmentState& env, SceneRevisions& revisions, float outdoorIlluminance);
     // A3.9 sky occlusion inside the model (mode, quality, occluders, bake status).
     static void renderSkyOcclusion(SceneEnvironmentState& env, const SkyStatus* sky, SceneRevisions& revisions);
 };

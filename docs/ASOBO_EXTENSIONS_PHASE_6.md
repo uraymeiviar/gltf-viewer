@@ -4,6 +4,11 @@
 
 **Status:** In progress: A6.1-A6.7 done (A6.8 optional, later).
 
+**A3.10 update:** the historical Sun / Sun Mode / Sun Follows Time of Day controls and their precedence described
+below have been replaced by one source-specific **Sun Source** selector. HDR From HDR is locked to the panorama;
+Manual and Time of Day are the sky's choices. Clock evaluation, exposure and atmosphere units are retained. Auto
+interior ambient now uses the same Curve horizontal illuminance. See [Phase 3 A3.10](ASOBO_EXTENSIONS_PHASE_3.md).
+
 **Entry:** A3.1 and A3.2 (sun and shadows). **Goal:** a dynamic, configurable time of day emulating MSFS (user
 priority 6). The sun, sky, environment lighting, exposure and emissive day/night all follow one time-of-day
 setting, and changing it is seamless.

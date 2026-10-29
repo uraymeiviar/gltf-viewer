@@ -19,30 +19,27 @@ namespace ux3d::imgui {
 
 // A3.1: Sun & Time of Day -> Sun. Conventions in SceneEnvironmentState (SceneEnvironment.h).
 void SceneInspector::renderSun(SceneEnvironmentState& env, ux3d::renderer::GltfRenderLayer* gltfLayer,
-                               SceneRevisions& revisions)
+                               SceneRevisions& revisions, const EffectiveSun* sun)
 {
     ImGui::SeparatorText(ICON_MDI_WHITE_BALANCE_SUNNY " Sun");
-    if (ImGui::Checkbox("Sun", &env.sunEnabled)) {
+    const bool procedural = env.environmentSource == static_cast<int>(EnvironmentSource::ProceduralSky);
+    const SunSource source = effectiveSunSource(env);
+    int choice = procedural ? (source == SunSource::Clock ? 1 : 0) : static_cast<int>(source);
+    if (ImGui::Combo("Sun Source##sun_source", &choice, procedural ? "Manual\0Time of Day\0" : "Off\0From HDR\0Manual\0Time of Day\0")) {
+        selectSunSource(env, procedural ? (choice == 1 ? SunSource::Clock : SunSource::Manual) : static_cast<SunSource>(choice));
         revisions.mark(SceneChange::RenderSettings);
     }
-    UiProbe::item("scene.sun.on", 0);
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("A directional light through the same BRDF as punctual lights.\n"
-                          "While it is on, the HDR's own sun is removed from the IBL and the background\n"
-                          "(in both modes), so there is never a second sun. Toggling re-filters the IBL once.");
+    UiProbe::item("scene.sun.source", 0);
+    if (procedural) ImGui::TextDisabled("Colour and intensity come from the atmosphere.");
+    if (source == SunSource::Off) return;
+    if (sun != nullptr) {
+        float azimuth = 0.0f, elevation = 0.0f;
+        sunAnglesFromDirection(sun->direction, azimuth, elevation);
+        ImGui::TextDisabled("Effective: az %.1f, el %.1f deg", azimuth, elevation);
     }
-    if (!env.sunEnabled) {
-        return;
-    }
-
-    const char* modeNames[] = { "Manual", "From HDR" };
-    if (ImGui::Combo("Sun Mode", &env.sunMode, modeNames, 2)) {
-        revisions.mark(SceneChange::RenderSettings);
-    }
-    UiProbe::item("scene.sun.mode", 0);
 
     const ux3d::renderer::EnvironmentSun* found = gltfLayer != nullptr ? &gltfLayer->getEnvironmentSun() : nullptr;
-    if (env.sunMode == static_cast<int>(SunMode::FromHdr)) {
+    if (source == SunSource::FromHdr) {
         if (found == nullptr || !found->found) {
             ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "No sun found in the HDR: the sun is off.");
         } else {
@@ -61,44 +58,48 @@ void SceneInspector::renderSun(SceneEnvironmentState& env, ux3d::renderer::GltfR
                 env.sunElevation = elevation;
                 env.sunColor = found->color;
                 env.sunIntensity = found->illuminance * env.hdrIntensity;
-                env.sunMode = static_cast<int>(SunMode::Manual);
+                selectSunSource(env, SunSource::Manual);
                 revisions.mark(SceneChange::RenderSettings);
             }
         }
     } else {
-        if (ImGui::SliderFloat("Azimuth", &env.sunAzimuth, 0.0f, 360.0f, "%.1f deg")) {
-            revisions.mark(SceneChange::RenderSettings);
+        if (source == SunSource::Manual) {
+            if (ImGui::SliderFloat("Azimuth", &env.sunAzimuth, 0.0f, 360.0f, "%.1f deg")) {
+                revisions.mark(SceneChange::RenderSettings);
+            }
+            UiProbe::item("scene.sun.azimuth", 0);
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Around +Y, from +Z towards +X (glTF Y-up). 0 = sun towards +Z.");
+            }
+            if (ImGui::SliderFloat("Elevation", &env.sunElevation, -90.0f, 90.0f, "%.1f deg")) {
+                revisions.mark(SceneChange::RenderSettings);
+            }
+            UiProbe::item("scene.sun.elevation", 0);
         }
-        UiProbe::item("scene.sun.azimuth", 0);
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Around +Y, from +Z towards +X (glTF Y-up). 0 = sun towards +Z.");
+        if (!procedural) {
+            float colour[3] = { env.sunColor.r, env.sunColor.g, env.sunColor.b };
+            if (ImGui::ColorEdit3("Sun Colour", colour, ImGuiColorEditFlags_Float)) {
+                env.sunColor = glm::vec3(colour[0], colour[1], colour[2]);
+                revisions.mark(SceneChange::RenderSettings);
+            }
+            static float kelvin = 5778.0f;
+            if (ImGui::DragFloat("Kelvin", &kelvin, 10.0f, 1667.0f, 25000.0f, "%.0f K")) {
+                env.sunColor = kelvinToLinearRgb(kelvin);
+                revisions.mark(SceneChange::RenderSettings);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Sets the colour to a black body at this temperature (luminance 1).");
+            }
+            if (ImGui::DragFloat("Intensity", &env.sunIntensity, 0.05f, 0.0f, 100000.0f, "%.3f", ImGuiSliderFlags_Logarithmic)) {
+                revisions.mark(SceneChange::RenderSettings);
+            }
+            UiProbe::item("scene.sun.intensity", 0);
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Illuminance in the environment's units (HDR radiance x sr).\n"
+                                  "A white Lambert surface facing the sun reflects colour x intensity / pi.");
+            }
         }
-        if (ImGui::SliderFloat("Elevation", &env.sunElevation, -90.0f, 90.0f, "%.1f deg")) {
-            revisions.mark(SceneChange::RenderSettings);
-        }
-        UiProbe::item("scene.sun.elevation", 0);
-        float colour[3] = { env.sunColor.r, env.sunColor.g, env.sunColor.b };
-        if (ImGui::ColorEdit3("Sun Colour", colour, ImGuiColorEditFlags_Float)) {
-            env.sunColor = glm::vec3(colour[0], colour[1], colour[2]);
-            revisions.mark(SceneChange::RenderSettings);
-        }
-        static float kelvin = 5778.0f;
-        if (ImGui::DragFloat("Kelvin", &kelvin, 10.0f, 1667.0f, 25000.0f, "%.0f K")) {
-            env.sunColor = kelvinToLinearRgb(kelvin);
-            revisions.mark(SceneChange::RenderSettings);
-        }
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Sets the colour to a black body at this temperature (luminance 1).");
-        }
-        if (ImGui::DragFloat("Intensity", &env.sunIntensity, 0.05f, 0.0f, 100000.0f, "%.3f", ImGuiSliderFlags_Logarithmic)) {
-            revisions.mark(SceneChange::RenderSettings);
-        }
-        UiProbe::item("scene.sun.intensity", 0);
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Illuminance in the environment's units (HDR radiance x sr).\n"
-                              "A white Lambert surface facing the sun reflects colour x intensity / pi.");
-        }
-        if (found != nullptr && found->found && ImGui::SmallButton("Use HDR sun direction")) {
+        if (source == SunSource::Manual && !procedural && found != nullptr && found->found && ImGui::SmallButton("Use HDR sun direction")) {
             const glm::mat3 rotation = ux3d::renderer::CommandGenerator::environmentRotationMatrix(env.hdrRotation);
             sunAnglesFromDirection(glm::transpose(rotation) * found->direction, env.sunAzimuth, env.sunElevation);
             revisions.mark(SceneChange::RenderSettings);
@@ -119,15 +120,9 @@ void SceneInspector::renderTimeOfDay(SceneEnvironmentState& env, SceneRevisions&
 {
     TimeOfDayState& clock = env.clock;
     ImGui::SeparatorText(ICON_MDI_CLOCK_OUTLINE " Time of Day");
-    if (ImGui::Checkbox("Sun Follows Time of Day", &clock.enabled)) {
-        revisions.mark(SceneChange::RenderSettings);
-    }
-    UiProbe::item("scene.tod.enabled", 0);
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Sun source: off = the Manual sun above; on = the sun is on and follows the date, time,\n"
-                          "place and heading below. Colour and intensity stay the Manual sun's; the sun fades out\n"
-                          "between -1 and +1 degrees of elevation.");
-    }
+    if (effectiveSunSource(env) != SunSource::Clock) ImGui::TextDisabled("The clock does not move the selected sun source.");
+    if (ImGui::Checkbox("Moon & Stars Clock##clock_enabled", &clock.enabled)) revisions.mark(SceneChange::RenderSettings);
+    UiProbe::item("scene.tod.clock", 0);
 
     const TimeOfDayEvaluation tod = evaluateTimeOfDay(clock);
     bool edited = false;
@@ -231,7 +226,9 @@ void SceneInspector::render(SceneEnvironmentState& env,
                             ux3d::renderer::GltfRenderLayer* gltfLayer,
                             SceneRevisions& revisions,
                             ux3d::gltf::Scene* scene,
-                            const SkyStatus* sky)
+                            const SkyStatus* sky,
+                            const EffectiveSun* sun,
+                            float outdoorIlluminance)
 {
     if (scene != nullptr) {
         ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), ICON_MDI_IMAGE_FILTER_HDR " Scene ID: %u", scene->m_ID);
@@ -248,7 +245,9 @@ void SceneInspector::render(SceneEnvironmentState& env,
         ImGui::Separator();
     }
 
-    if (ImGui::CollapsingHeader("Environment", ImGuiTreeNodeFlags_DefaultOpen)) {
+    const bool environmentOpen = ImGui::CollapsingHeader("Environment", ImGuiTreeNodeFlags_DefaultOpen);
+    UiProbe::item("scene.environment", 0);
+    if (environmentOpen) {
         // Show background skybox toggle
         if (ImGui::Checkbox("Show Background Skybox", &env.showBackground)) {
             if (gltfLayer != nullptr) {
@@ -514,8 +513,10 @@ void SceneInspector::render(SceneEnvironmentState& env,
 
     // Sun and time of day get their own header below Environment, so the environment controls
     // keep their place in the panel.
-    if (ImGui::CollapsingHeader("Sun & Time of Day", ImGuiTreeNodeFlags_DefaultOpen)) {
-        renderSun(env, gltfLayer, revisions);
+    const bool sunTimeOpen = ImGui::CollapsingHeader("Sun & Time of Day", ImGuiTreeNodeFlags_DefaultOpen);
+    UiProbe::item("scene.sun_time", 0);
+    if (sunTimeOpen) {
+        renderSun(env, gltfLayer, revisions, sun);
         renderTimeOfDay(env, revisions);
     }
 
@@ -544,7 +545,7 @@ void SceneInspector::render(SceneEnvironmentState& env,
     const bool ambientOpen = ImGui::CollapsingHeader("Ambient Light");
     UiProbe::item("scene.ambient", 0);
     if (ambientOpen) {
-        renderAmbient(env, revisions);
+        renderAmbient(env, revisions, outdoorIlluminance);
     }
 
     // A3.9: after Ambient Light (collapsed by default), so every existing control keeps its place.
@@ -558,7 +559,7 @@ void SceneInspector::render(SceneEnvironmentState& env,
 void SceneInspector::renderSkyOcclusion(SceneEnvironmentState& env, const SkyStatus* sky, SceneRevisions& revisions)
 {
     int mode = env.skyOcclusion < 0 ? 0 : env.skyOcclusion != 0 ? 1 : 2;
-    if (ImGui::Combo("Sky Occlusion", &mode, "Auto (on with the procedural sky)\0On\0Off\0")) {
+    if (ImGui::Combo("Sky Occlusion##mode", &mode, "Auto (on with the procedural sky)\0On\0Off\0")) {
         env.skyOcclusion = mode == 0 ? -1 : mode == 1 ? 1 : 0;
         revisions.mark(SceneChange::RenderSettings);
     }
@@ -566,7 +567,7 @@ void SceneInspector::renderSkyOcclusion(SceneEnvironmentState& env, const SkySta
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip("How much sky each point sees past the model's own geometry (a cockpit, a wheel well), baked\n"
                           "into a volume over the model and applied to the sky light (IBL) only. The sun keeps its\n"
-                          "shadows; punctual lights, emissive, the ambient light and the background are unchanged.\n"
+                          "shadows; punctual lights, emissive, Manual ambient and the background are unchanged.\n"
                           "Auto: on with the procedural sky, off with the HDR.");
     }
     int quality = std::clamp(env.skyOcclusionQuality, 0, 2);
@@ -597,35 +598,54 @@ void SceneInspector::renderSkyOcclusion(SceneEnvironmentState& env, const SkySta
     }
 }
 
-void SceneInspector::renderAmbient(SceneEnvironmentState& env, SceneRevisions& revisions)
+void SceneInspector::renderAmbient(SceneEnvironmentState& env, SceneRevisions& revisions, float outdoorIlluminance)
 {
-    if (ImGui::Checkbox("Ambient Light", &env.ambientEnabled)) {
+    int enabled = env.ambient < 0 ? 0 : env.ambient != 0 ? 1 : 2;
+    if (ImGui::Combo("Ambient Light##enabled", &enabled, "Auto (sky on, HDR off)\0On\0Off\0")) {
+        env.ambient = enabled == 0 ? -1 : enabled == 1 ? 1 : 0;
         revisions.mark(SceneChange::RenderSettings);
     }
     UiProbe::item("scene.ambient.on", 0);
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip("A viewer light, not part of the glTF: a uniform radiance from every direction, with the HDR or\n"
-                          "the procedural sky. It lights surfaces like the IBL (darkened by the same occlusion and SSAO),\n"
-                          "never the background or emissive surfaces.");
+                          "the procedural sky. Manual is uniform; Auto estimates outdoor bounce where the sky is hidden.\n"
+                          "Authored occlusion and SSAO apply; the background and emissive surfaces are unchanged.");
     }
-    ImGui::BeginDisabled(!env.ambientEnabled);
-    if (ImGui::ColorEdit3("Ambient Color", &env.ambientColor.x, ImGuiColorEditFlags_Float)) {
-        env.ambientColor = (glm::max)(env.ambientColor, glm::vec3(0.0f));
+    ImGui::BeginDisabled(!effectiveAmbientEnabled(env));
+    int mode = effectiveAmbientAuto(env) ? 0 : 1;
+    if (ImGui::Combo("Intensity Mode##ambient_mode", &mode, "Auto\0Manual\0")) {
+        env.ambientMode = mode == 0 ? 1 : 0;
         revisions.mark(SceneChange::RenderSettings);
     }
-    UiProbe::item("scene.ambient.color", 0);
-    if (ImGui::SliderFloat("Ambient Intensity", &env.ambientLuminance, 0.0f, kAmbientMaxLuminance, "%.3g cd/m^2",
-                           ImGuiSliderFlags_Logarithmic)) {
-        revisions.mark(SceneChange::RenderSettings);
+    UiProbe::item("scene.ambient.mode", 0);
+    if (effectiveAmbientAuto(env)) {
+        if (ImGui::SliderFloat("Fill Fraction##ambient_fill", &env.ambientFill, 0.0f, 1.0f, "%.4f")) {
+            revisions.mark(SceneChange::RenderSettings);
+        }
+        UiProbe::item("scene.ambient.fill", 0);
+        const float luminance = env.ambientFill * outdoorIlluminance / 3.14159265358979323846f;
+        ImGui::TextDisabled("Outdoor %.4g lux; fill %.4g cd/m^2", outdoorIlluminance * kAmbientUnitLuminance,
+                            luminance * kAmbientUnitLuminance);
+        ImGui::TextDisabled("White fill where sky is hidden; uniform without a volume.");
+    } else {
+        if (ImGui::ColorEdit3("Ambient Color", &env.ambientColor.x, ImGuiColorEditFlags_Float)) {
+            env.ambientColor = (glm::max)(env.ambientColor, glm::vec3(0.0f));
+            revisions.mark(SceneChange::RenderSettings);
+        }
+        UiProbe::item("scene.ambient.color", 0);
+        if (ImGui::SliderFloat("Ambient Intensity", &env.ambientLuminance, 0.0f, kAmbientMaxLuminance, "%.3g cd/m^2",
+                               ImGuiSliderFlags_Logarithmic)) {
+            revisions.mark(SceneChange::RenderSettings);
+        }
+        UiProbe::item("scene.ambient.intensity", 0);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Luminance of the ambient light in cd/m^2 (times the colour; white = luminance 1).\n"
+                              "1 environment unit = 12,800 cd/m^2, the procedural sky's calibrated unit. An HDR panorama has no\n"
+                              "absolute scale, so the same unit is used with it: a value adds the same radiance with both sources.\n"
+                              "For scale: a dim cockpit 1-3, an office wall about 50-100, the clear zenith sky about 2,000.");
+        }
+        ImGui::TextDisabled("%.3g environment units", env.ambientLuminance / kAmbientUnitLuminance);
     }
-    UiProbe::item("scene.ambient.intensity", 0);
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Luminance of the ambient light in cd/m^2 (times the colour; white = luminance 1).\n"
-                          "1 environment unit = 12,800 cd/m^2, the procedural sky's calibrated unit. An HDR panorama has no\n"
-                          "absolute scale, so the same unit is used with it: a value adds the same radiance with both sources.\n"
-                          "For scale: a dim cockpit 1-3, an office wall about 50-100, the clear zenith sky about 2,000.");
-    }
-    ImGui::TextDisabled("%.3g environment units", env.ambientLuminance / kAmbientUnitLuminance);
     ImGui::EndDisabled();
 }
 
@@ -691,7 +711,7 @@ void SceneInspector::renderNightSky(SceneEnvironmentState& env, SceneRevisions& 
 void SceneInspector::renderSunDisk(SceneEnvironmentState& env, SceneRevisions& revisions)
 {
     SunDiskSettings& disk = env.sunDisk;
-    if (ImGui::Checkbox("Sun Disk", &disk.enabled)) {
+    if (ImGui::Checkbox("Sun Disk##enabled", &disk.enabled)) {
         revisions.mark(SceneChange::RenderSettings);
     }
     UiProbe::item("scene.sun_disk.on", 0);
@@ -717,7 +737,7 @@ void SceneInspector::renderSunDisk(SceneEnvironmentState& env, SceneRevisions& r
         ImGui::SetTooltip("Darker, redder edge (Hestroffer & Magnan power law); the disk's mean radiance is unchanged.");
     }
     ImGui::EndDisabled();
-    if (!env.sunEnabled && !env.clock.enabled && env.environmentSource != static_cast<int>(EnvironmentSource::ProceduralSky)) {
+    if (effectiveSunSource(env) == SunSource::Off) {
         ImGui::TextDisabled("Drawn while the sun is on.");
     }
 }

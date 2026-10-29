@@ -95,7 +95,7 @@ layout(std140) uniform EnvironmentBlock
     // environment units (before u_PreExposure), added to the IBL terms of pbr.frag and ground.frag while
     // u_AmbientEnabled is non-zero. Not part of the glTF; never in the IBL filter input or the background.
     vec3 u_AmbientRadiance;
-    int u_AmbientEnabled;
+    int u_AmbientEnabled; // 0 off, 1 Manual (uniform), 2 Auto (hidden-sky fill where a volume is active)
     // A3.9 sky occlusion (sky_occlusion.glsl): the sky-visibility volume of this viewport's model. Origin: xyz world
     // position of the volume's minimum corner, w cell edge; Dims: xyz cell counts, w normal offset of the lookup in
     // cells; Params: x = 1 / the open fraction (values at or above it read fully open), y = 1 while the volume is used.

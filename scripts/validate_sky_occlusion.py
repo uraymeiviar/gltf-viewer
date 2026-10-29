@@ -194,8 +194,9 @@ def check_baseline(baseline):
     check(so.get("setting") == "auto" and so.get("enabled") is False and so.get("active") is False and so.get("volume") is None,
           "HDR default: sky occlusion automatic and off, nothing baked (get_state / --profile-report skyOcclusion)")
     sky = ["--environment", "sky", "--sky-time-slicing", "off"]
-    now, data = render(None, "base_now_hellocube_sky_off", sky + ["--sky-occlusion", "off"])
-    before, _ = render(None, "base_ref_hellocube_sky", sky, exe=baseline)
+    parity = sky + ["--sky-occlusion", "off", "--ambient", "off"]
+    now, data = render(None, "base_now_hellocube_sky_off", parity)
+    before, _ = render(None, "base_ref_hellocube_sky", parity, exe=baseline)
     check(same(now, before), f"HelloCube, procedural sky, --sky-occlusion off: byte-identical to {baseline.stem}'s sky")
     _, data = render(None, "now_hellocube_sky_default", sky)
     so = (data or {}).get("skyOcclusion") or {}

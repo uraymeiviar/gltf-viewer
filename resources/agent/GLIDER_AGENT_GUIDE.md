@@ -217,9 +217,32 @@ Commands run on the render thread between frames, strictly in order. Multi-frame
 - Tuning: `capture` / `probe_region` with `ASOBO_sky_portal` false and true at the same camera; the difference is the
   portal light.
 
-## Ambient light (A3.8)
+## Sun Source and Auto ambient (A3.10)
 
-- A viewer light, not part of the glTF: `set_environment` keys `ambient` (default false), `ambient_color` (linear
+- `set_environment sun_source off|hdr|manual|clock` / `--sun-source`: HDR supports all four, procedural sky supports
+  Manual and Clock. Sky colour/intensity are atmospheric. `get_state sun.source` reports requested/effective, retained
+  HDR choice and valid options. Sky choices are stored separately; switching back restores HDR. Invalid sky choices
+  map to Manual. From HDR is locked to the panorama even with a running clock.
+- Legacy selections are applied in order: `sun on` selects stored Manual/From HDR, off selects Off; `sun_mode` updates
+  that mode and selects it if the sun was enabled or Clock (mode alone keeps an off sun off). `time_of_day_mode on`
+  selects Clock for both environments; off restores the legacy enabled/mode choice and sky Manual. Last selection
+  wins. The clock still drives emissive, moon/stars and Curve while the sun uses another source.
+  Legacy `sun` / `sun_mode` target the retained HDR choice; `sun_source` targets the current environment;
+  `time_of_day_mode` selects both. An explicit sky choice survives HDR-only legacy selections.
+- `ambient auto|on|off`: default Auto enables sky ambient and disables HDR ambient. `ambient_mode auto|manual`:
+  unspecified = Auto with sky / Manual with HDR. Legacy `ambient on` with unspecified mode selects Manual. `ambient_fill`
+  / `--ambient-fill` sets k in 0..1. Auto white radiance `L = k E_out / pi`: E_out horizontal illuminance (lux), L cd/m²;
+  divide both by 12,800 for environment units. Sky uses Curve's sun+sky+moon+glow; HDR uses its cached Lambertian +Y
+  sample times pi times HDR intensity plus effective horizontal sun (HDR absolute scale is conventional).
+- With an active A3.9 volume, Auto is weighted by hidden diffuse sky visibility; open surfaces and the open ground
+  plane get no fill. Without a volume it is uniform, because visibility is unknown. Manual keeps A3.8 exactly.
+  `ambient` state/profile includes setting/mode/modeSetting/fill, outdoorIlluminance (units), outdoorIlluminanceLux,
+  intensity (cd/m²), intensityEnvironmentUnits, radiance (zero while disabled) and interiorWeighted. All viewer-only,
+  session settings; never part of the glTF. `validate_sun_source.py`, `validate_ambient.py`, `validate_night.py`.
+
+## Manual ambient light (A3.8, retained by A3.10)
+
+- A viewer light, not part of the glTF: `set_environment` keys `ambient` (default auto; see A3.10), `ambient_color` (linear
   RGB, default white) and `ambient_intensity` (luminance in cd/m^2, 0..10000, default 3). A uniform radiance
   L = colour x intensity / 12,800 (1 environment unit = 12,800 cd/m^2 with both the HDR and the procedural sky) from
   every direction, added to the IBL terms: diffuse `c_diff x L`, specular `L x (F0 A + B)` from the BRDF LUT, also
@@ -241,7 +264,8 @@ Commands run on the render thread between frames, strictly in order. Multi-frame
   `on`, `off`; `sky_occlusion_quality` `low` (64 directions, up to 64 cells per axis), `medium` (default, 128 x 96),
   `high` (256 x 128); `sky_occlusion_occluders` (default true: `ASOBO_material_environment_occluder` geometry, hidden
   in the image, blocks the sky; its sky portals then bring the window light). The sun (its own shadows), punctual
-  lights, emissive, the A3.8 ambient light, the background and the ground plane are unchanged. Without IBL (the Low
+  lights, emissive, Manual ambient light, the background and the ground plane are unchanged (Auto ambient uses the
+  hidden-sky fraction; see A3.10). Without IBL (the Low
   quality preset) nothing is baked.
 - The bake is time-sliced (8 frames at medium / high, 4 at low) and runs after a model load and after a visibility,
   transform, material, isolation, quality or occluder change, never per frame (animation is ignored). The previous

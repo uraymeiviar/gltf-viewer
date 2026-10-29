@@ -434,12 +434,13 @@ json Application::agentStateJson()
 EffectiveSun Application::effectiveSun(const ux3d::imgui::SceneEnvironmentState& environment) const
 {
     EffectiveSun sun;
+    const auto source = ux3d::imgui::effectiveSunSource(environment);
     if (environment.environmentSource == static_cast<int>(ux3d::imgui::EnvironmentSource::ProceduralSky)) {
         // A6.2: the sun is always on; its direction is the time-of-day sun (or the Manual angles), its colour and
         // illuminance the top-of-atmosphere sun through the atmosphere towards it (reddened and dimmed near the
         // horizon), times the A6.1 fade while the clock drives it.
         float fade = 1.0f;
-        if (environment.clock.enabled) {
+        if (source == ux3d::imgui::SunSource::Clock) {
             const ux3d::imgui::TimeOfDayEvaluation tod = ux3d::imgui::evaluateTimeOfDay(environment.clock);
             sun.direction = ux3d::imgui::sunDirectionFromAngles(tod.gliderAzimuth, tod.gliderElevation);
             fade = tod.fade;
@@ -450,7 +451,7 @@ EffectiveSun Application::effectiveSun(const ux3d::imgui::SceneEnvironmentState&
         sun.enabled = 0.2126f * sun.illuminance.r + 0.7152f * sun.illuminance.g + 0.0722f * sun.illuminance.b > 0.0f;
         return sun;
     }
-    if (environment.clock.enabled) {
+    if (source == ux3d::imgui::SunSource::Clock) {
         // A6.1: the solar position through the heading; colour and intensity are the Manual sun's, faded to 0
         // across -1..+1 degrees of lighting elevation (the sun is disabled once the fade reaches 0).
         const ux3d::imgui::TimeOfDayEvaluation tod = ux3d::imgui::evaluateTimeOfDay(environment.clock);
@@ -459,8 +460,8 @@ EffectiveSun Application::effectiveSun(const ux3d::imgui::SceneEnvironmentState&
         sun.enabled = tod.fade > 0.0f;
         return sun;
     }
-    if (!environment.sunEnabled) return sun;
-    if (environment.sunMode == static_cast<int>(ux3d::imgui::SunMode::FromHdr)) {
+    if (source == ux3d::imgui::SunSource::Off) return sun;
+    if (source == ux3d::imgui::SunSource::FromHdr) {
         if (gltfLayer == nullptr || commandGenerator == nullptr) return sun;
         const ux3d::renderer::EnvironmentSun& found = gltfLayer->getEnvironmentSun();
         if (!found.found) return sun;
@@ -525,19 +526,12 @@ ExposurePlan Application::exposurePlan(const ux3d::imgui::SceneEnvironmentState&
     // The physical modes need calibrated units, i.e. the procedural sky. With the HDR, Auto is the metered auto exposure
     // of before and Curve is Manual (an HDR panorama has no time of day).
     if (!procedural || plan.mode == ExposureMode::Manual) return plan;
-    auto luminance = [](const glm::vec3& c) { return 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b; };
     // The time-of-day curve: horizontal illuminance from the sun (direct), the clear sky (A6.2 table), the moonlight
     // and the night sky glow, read by an incident meter.
-    const EffectiveSun sun = effectiveSun(environment);
     const glm::vec3 sunDirection = skySunDirection(environment);
-    float illuminance = sun.enabled ? luminance(sun.illuminance) * std::max(sun.direction.y, 0.0f) : 0.0f;
+    const float illuminance = outdoorIlluminance(environment);
     const float sky = night::clearSkyIlluminance(glm::degrees(std::asin(std::clamp(sunDirection.y, -1.0f, 1.0f)))) +
                       night::airglowIlluminance(environment.nightSky.airglow);
-    illuminance += sky;
-    const night::MoonEvaluation moon = moonEvaluation(environment);
-    if (moon.available && moon.aboveHorizon) {
-        illuminance += luminance(moon.illuminance) * std::max(environment.nightSky.moonlightScale, 0.0f) * std::max(moon.direction.y, 0.0f);
-    }
     plan.horizontalIlluminance = illuminance;
     // The meter also counts the sky in view (NightSky.h kCurveSkyWeight) and the curve's key offset.
     plan.curveEv100 = night::ev100FromIlluminance(illuminance + night::kCurveSkyWeight * sky);
@@ -680,7 +674,7 @@ bool Application::skyGroundFromPlane() const
 
 glm::vec3 Application::skySunDirection(const ux3d::imgui::SceneEnvironmentState& environment) const
 {
-    if (environment.clock.enabled) {
+    if (ux3d::imgui::effectiveSunSource(environment) == ux3d::imgui::SunSource::Clock) {
         const ux3d::imgui::TimeOfDayEvaluation tod = ux3d::imgui::evaluateTimeOfDay(environment.clock);
         return ux3d::imgui::sunDirectionFromAngles(tod.gliderAzimuth, tod.gliderElevation);
     }
@@ -977,17 +971,50 @@ json Application::ssaoStateJson() const
     return {{"viewports", list}};
 }
 
-json Application::ambientStateJson(const ux3d::imgui::SceneEnvironmentState& environment)
+float Application::outdoorIlluminance(const ux3d::imgui::SceneEnvironmentState& environment) const
+{
+    using namespace ux3d::imgui;
+    auto luminance = [](const glm::vec3& c) { return 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b; };
+    const EffectiveSun sun = effectiveSun(environment);
+    float illuminance = sun.enabled ? luminance(sun.illuminance) * std::max(sun.direction.y, 0.0f) : 0.0f;
+    if (environment.environmentSource == static_cast<int>(EnvironmentSource::ProceduralSky)) {
+        const glm::vec3 direction = skySunDirection(environment);
+        illuminance += night::clearSkyIlluminance(glm::degrees(std::asin(std::clamp(direction.y, -1.0f, 1.0f)))) +
+                       night::airglowIlluminance(environment.nightSky.airglow);
+        const night::MoonEvaluation moon = moonEvaluation(environment);
+        if (moon.available && moon.aboveHorizon) {
+            illuminance += luminance(moon.illuminance) * std::max(environment.nightSky.moonlightScale, 0.0f) *
+                           std::max(moon.direction.y, 0.0f);
+        }
+    } else if (gltfLayer != nullptr && !gltfLayer->isExternalEnvironment()) {
+        illuminance += luminance(gltfLayer->getEnvironmentHorizontalIlluminance()) * environment.hdrIntensity;
+    }
+    return std::max(illuminance, 0.0f);
+}
+
+json Application::ambientStateJson(const ux3d::imgui::SceneEnvironmentState& environment) const
 {
     auto vec3Json = [](const glm::vec3& v) {
         return json{agent::floatJson(v.x), agent::floatJson(v.y), agent::floatJson(v.z)};
     };
     // A3.8: radiance is what the shaders receive (zero while off); luminance in cd/m^2 and in environment units.
-    const glm::vec3 radiance = ux3d::imgui::ambientRadiance(environment);
-    return json{{"enabled", environment.ambientEnabled},
-                {"color", vec3Json(environment.ambientColor)},
-                {"intensity", agent::floatJson(environment.ambientLuminance)},
-                {"intensityEnvironmentUnits", agent::floatJson(environment.ambientLuminance / ux3d::imgui::kAmbientUnitLuminance)},
+    using namespace ux3d::imgui;
+    const float outdoor = outdoorIlluminance(environment);
+    const bool automatic = effectiveAmbientAuto(environment);
+    const float level = automatic ? environment.ambientFill * outdoor / 3.14159265358979323846f :
+                                   environment.ambientLuminance / kAmbientUnitLuminance;
+    const glm::vec3 radiance = ambientRadiance(environment, outdoor);
+    return json{{"enabled", effectiveAmbientEnabled(environment)},
+                {"setting", environment.ambient < 0 ? "auto" : environment.ambient != 0 ? "on" : "off"},
+                {"mode", automatic ? "auto" : "manual"},
+                {"modeSetting", environment.ambientMode < 0 ? "default" : automatic ? "auto" : "manual"},
+                {"fill", agent::floatJson(environment.ambientFill)},
+                {"outdoorIlluminance", agent::floatJson(outdoor)},
+                {"outdoorIlluminanceLux", agent::floatJson(outdoor * kAmbientUnitLuminance)},
+                {"interiorWeighted", automatic && skyOcclusionWanted && skyOcclusionVolume.ready()},
+                {"color", vec3Json(automatic ? glm::vec3(1.0f) : environment.ambientColor)},
+                {"intensity", agent::floatJson(level * kAmbientUnitLuminance)},
+                {"intensityEnvironmentUnits", agent::floatJson(level)},
                 {"unitLuminance", agent::floatJson(ux3d::imgui::kAmbientUnitLuminance)},
                 {"radiance", vec3Json(radiance)}};
 }
@@ -1001,9 +1028,15 @@ json Application::sunStateJson(const ux3d::imgui::SceneEnvironmentState& environ
     float azimuth = 0.0f, elevation = 0.0f;
     ux3d::imgui::sunAnglesFromDirection(sun.direction, azimuth, elevation);
     const bool proceduralSky = environment.environmentSource == static_cast<int>(ux3d::imgui::EnvironmentSource::ProceduralSky);
-    json out = {{"enabled", environment.sunEnabled || environment.clock.enabled || proceduralSky},
-                {"mode", proceduralSky ? "sky" : environment.clock.enabled ? "time_of_day"
-                         : environment.sunMode == static_cast<int>(ux3d::imgui::SunMode::FromHdr) ? "hdr" : "manual"},
+    const auto source = ux3d::imgui::effectiveSunSource(environment);
+    json out = {{"enabled", source != ux3d::imgui::SunSource::Off},
+                {"source", {{"requested", ux3d::imgui::sunSourceName(proceduralSky && environment.skySunSource >= 0
+                    ? static_cast<ux3d::imgui::SunSource>(environment.skySunSource) : environment.sunSource)},
+                            {"effective", ux3d::imgui::sunSourceName(source)},
+                            {"hdr", ux3d::imgui::sunSourceName(environment.sunSource)},
+                            {"options", proceduralSky ? json{"manual", "clock"} : json{"off", "hdr", "manual", "clock"}}}},
+                {"mode", proceduralSky ? "sky" : source == ux3d::imgui::SunSource::Clock ? "time_of_day"
+                         : source == ux3d::imgui::SunSource::FromHdr ? "hdr" : "manual"},
                 {"active", sun.enabled},
                 {"direction", vec3Json(sun.direction)},
                 {"azimuth", agent::floatJson(azimuth)},
@@ -1728,8 +1761,15 @@ void Application::registerAgentSettings()
             spec.help = help;
             spec.cliFlag = cli;
             spec.get = [member](void* t) { return json(static_cast<ES*>(t)->clock.*member); };
-            spec.set = [member](void* t, const json& v, std::string&) {
-                static_cast<ES*>(t)->clock.*member = v.get<bool>();
+            spec.set = [member, sunMode = std::string(key) == "time_of_day_mode"](void* t, const json& v, std::string&) {
+                auto& env = *static_cast<ES*>(t);
+                env.clock.*member = v.get<bool>();
+                if (sunMode) {
+                    env.sunSource = v.get<bool>() ? ux3d::imgui::SunSource::Clock : !env.sunEnabled
+                        ? ux3d::imgui::SunSource::Off : env.sunMode == static_cast<int>(ux3d::imgui::SunMode::FromHdr)
+                        ? ux3d::imgui::SunSource::FromHdr : ux3d::imgui::SunSource::Manual;
+                    env.skySunSource = static_cast<int>(v.get<bool>() ? ux3d::imgui::SunSource::Clock : ux3d::imgui::SunSource::Manual);
+                }
                 return true;
             };
             addSetting(std::move(spec));
@@ -1755,8 +1795,8 @@ void Application::registerAgentSettings()
             addSetting(std::move(spec));
         };
         clockBool("time_of_day_mode", &TimeOfDayState::enabled,
-                  "Sun source: off = the Manual sun (default); on = the sun follows the date, time, place and heading "
-                  "below (the sun is on, faded across -1..+1 degrees of elevation). Not the emissive day/night: see time_of_day.",
+                  "Legacy source selection for both environments: on = Clock; off restores the retained HDR enable/mode "
+                  "and sky Manual. Later source selections win. Not emissive day/night: see time_of_day.",
                   "--time-of-day-mode <on|off>");
         {
             SettingSpec spec;
@@ -1921,15 +1961,56 @@ void Application::registerAgentSettings()
     addSetting(boolSetting<ES>("ibl", E, &ES::iblEnabled, "Image-based lighting."));
     addSetting(boolSetting<ES>("punctual_lights", E, &ES::punctualLightsEnabled, "KHR_lights_punctual lights."));
     // A3.1 sun (SceneEnvironmentState: conventions there and in docs/ASOBO_EXTENSIONS_PHASE_3.md).
-    addSetting(boolSetting<ES>("sun", E, &ES::sunEnabled,
+    {
+        auto spec = boolSetting<ES>("sun", E, &ES::sunEnabled,
                                "Sun (directional light). While on, the HDR's own sun is removed from IBL and background.",
-                               "--sun <on|off>"));
+                               "--sun <on|off>");
+        spec.set = [](void* t, const json& v, std::string&) {
+            auto& env = *static_cast<ES*>(t);
+            env.sunEnabled = v.get<bool>();
+            env.sunSource = !env.sunEnabled ? ux3d::imgui::SunSource::Off
+                : env.sunMode == static_cast<int>(ux3d::imgui::SunMode::FromHdr) ? ux3d::imgui::SunSource::FromHdr
+                                                                                 : ux3d::imgui::SunSource::Manual;
+            return true;
+        };
+        addSetting(std::move(spec));
+    }
+    {
+        SettingSpec spec;
+        spec.key = "sun_source";
+        spec.scope = E;
+        spec.type = SettingType::Enum;
+        spec.enumValues = {"off", "hdr", "manual", "clock"};
+        spec.cliFlag = "--sun-source <off|hdr|manual|clock>";
+        spec.help = "Sun Source: HDR supports off/hdr/manual/clock; sky supports manual/clock. Sky keeps its own "
+                    "choice; invalid sky choices map to manual. HDR is locked to the panorama, never moved by the clock. "
+                    "Applied in order: legacy sun/sun_mode target HDR, time_of_day_mode selects both environments, "
+                    "sun_source selects the current environment (last applicable selection wins).";
+        spec.get = [](void* t) { return json(ux3d::imgui::sunSourceName(ux3d::imgui::effectiveSunSource(*static_cast<ES*>(t)))); };
+        spec.set = [](void* t, const json& v, std::string&) {
+            const std::string value = v.get<std::string>();
+            ux3d::imgui::selectSunSource(*static_cast<ES*>(t), value == "off" ? ux3d::imgui::SunSource::Off
+                : value == "hdr" ? ux3d::imgui::SunSource::FromHdr : value == "clock" ? ux3d::imgui::SunSource::Clock
+                                                                                  : ux3d::imgui::SunSource::Manual);
+            return true;
+        };
+        addSetting(std::move(spec));
+    }
     {
         SettingSpec spec = indexEnumSetting<ES>("sun_mode", E, &ES::sunMode, {"manual", "hdr"},
                                                 "Sun from the manual angles/colour/intensity, or found in the HDR (turned with "
                                                 "hdr_rotation, scaled by hdr_intensity).",
                                                 "--sun-mode <manual|hdr>");
         spec.enumAliases = {{"from_hdr", "hdr"}, {"fromhdr", "hdr"}};
+        spec.set = [](void* t, const json& v, std::string&) {
+            auto& env = *static_cast<ES*>(t);
+            env.sunMode = v.get<std::string>() == "hdr" ? 1 : 0;
+            if (env.sunEnabled || env.sunSource == ux3d::imgui::SunSource::Clock) {
+                env.sunSource = env.sunMode != 0 ? ux3d::imgui::SunSource::FromHdr : ux3d::imgui::SunSource::Manual;
+                env.sunEnabled = true;
+            }
+            return true;
+        };
         addSetting(std::move(spec));
     }
     {
@@ -1989,10 +2070,36 @@ void Application::registerAgentSettings()
                                 "Sun angular radius in degrees (widens the specular highlight; 0.27 = the real sun).",
                                 "--sun-angular-radius <deg>", std::pair{0.0, 10.0}));
     // A3.8 viewer ambient light (SceneEnvironment.h kAmbientUnitLuminance): not part of the glTF.
-    addSetting(boolSetting<ES>("ambient", E, &ES::ambientEnabled,
-                               "Viewer ambient light: a uniform radiance from every direction added to the IBL terms "
-                               "(occluded like the IBL), with either environment source. Not part of the glTF.",
-                               "--ambient <on|off>"));
+    {
+        SettingSpec spec;
+        spec.key = "ambient";
+        spec.scope = E;
+        spec.type = SettingType::Enum;
+        spec.enumValues = {"auto", "on", "off"};
+        spec.enumAliases = {{"true", "on"}, {"false", "off"}, {"1", "on"}, {"0", "off"}};
+        spec.help = "Viewer ambient: auto (default) = enabled with sky, disabled with HDR; on/off force it. "
+                    "Legacy on selects Manual when no intensity mode was specified. Never part of the glTF.";
+        spec.cliFlag = "--ambient <auto|on|off>";
+        spec.get = [](void* t) { const int a = static_cast<ES*>(t)->ambient; return json(a < 0 ? "auto" : a ? "on" : "off"); };
+        spec.set = [](void* t, const json& v, std::string&) {
+            auto& env = *static_cast<ES*>(t);
+            const std::string value = v.get<std::string>();
+            env.ambient = value == "auto" ? -1 : value == "on" ? 1 : 0;
+            if (value == "on" && env.ambientMode < 0) env.ambientMode = 0;
+            return true;
+        };
+        addSetting(std::move(spec));
+    }
+    {
+        auto spec = indexEnumSetting<ES>("ambient_mode", E, &ES::ambientMode, {"manual", "auto"},
+            "Ambient intensity: Manual uses cd/m^2; Auto uses white L = fill * outdoor horizontal illuminance / pi, "
+            "weighted by hidden sky where a visibility volume is active (uniform without a volume).",
+            "--ambient-mode <auto|manual>");
+        spec.get = [](void* t) { return json(ux3d::imgui::effectiveAmbientAuto(*static_cast<ES*>(t)) ? "auto" : "manual"); };
+        addSetting(std::move(spec));
+    }
+    addSetting(floatSetting<ES>("ambient_fill", E, &ES::ambientFill, "Auto ambient fill fraction k (0..1).",
+                                "--ambient-fill <k>", std::pair{0.0, 1.0}));
     {
         SettingSpec spec;
         spec.key = "ambient_color";
@@ -2025,7 +2132,7 @@ void Application::registerAgentSettings()
         spec.type = SettingType::Enum;
         spec.help = "Sky occlusion from the model's own geometry (a baked sky-visibility volume) for the IBL terms: auto "
                     "(default) = on with the procedural sky, off with the HDR. The sun, punctual lights, emissive, the "
-                    "ambient light and the background are unchanged.";
+                    "Manual ambient light and the background are unchanged. Auto ambient fills the hidden-sky fraction.";
         spec.cliFlag = "--sky-occlusion <auto|on|off>";
         spec.enumValues = {"auto", "on", "off"};
         spec.get = [](void* t) {

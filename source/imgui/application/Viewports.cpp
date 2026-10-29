@@ -37,7 +37,7 @@ void Application::drawViewports(FrameContext& frame)
         const auto desiredEnvPath = resolveHdrPath(activeEnvironment.currentHdrPath, rendererResourcesDir);
         // A3.1: while the sun is on (either mode) the HDR's own sun is removed from the panorama, so
         // switching the sun re-loads and re-filters the environment once (never per frame).
-        const bool wantSunRemoval = activeEnvironment.sunEnabled || activeEnvironment.clock.enabled;
+        const bool wantSunRemoval = ux3d::imgui::effectiveSunSource(activeEnvironment) != ux3d::imgui::SunSource::Off;
         const bool sunRemovalChanged = gltfLayer->getEnvironmentSunRemoval() != wantSunRemoval;
         if (gltfLayer->getEnvironmentMapPath().toString() != desiredEnvPath.toString() || sunRemovalChanged) {
             gltfLayer->setEnvironmentSunRemoval(wantSunRemoval);
@@ -937,7 +937,9 @@ void Application::drawViewports(FrameContext& frame)
                 commandGenerator->setSun(sun.enabled, sun.direction, sun.illuminance, sun.angularRadius);
             }
             // A3.8: the viewer ambient light (a scene-environment setting, both environment sources).
-            commandGenerator->setAmbient(activeEnvironment.ambientEnabled, ux3d::imgui::ambientRadiance(activeEnvironment));
+            commandGenerator->setAmbient(ux3d::imgui::effectiveAmbientEnabled(activeEnvironment),
+                ux3d::imgui::ambientRadiance(activeEnvironment, outdoorIlluminance(activeEnvironment)),
+                ux3d::imgui::effectiveAmbientAuto(activeEnvironment));
             commandGenerator->setAsoboNormalMapConvention(
                 gltfLayer->usesDirectXNormalMaps() &&
                 vp->settings.asobo.applies("ASOBO_normal_map_convention"));

@@ -140,7 +140,7 @@ void main()
 #endif
     // A3.8 viewer ambient light: the same uniform radiance as pbr.frag (Lambert and, with the environment's BRDF LUT,
     // L x (F0 A + B)); the plane has no occlusion.
-    if (u_AmbientEnabled != 0) {
+    if (u_AmbientEnabled != 0 && (u_AmbientEnabled == 1 || u_SkyOcclusionParams.y == 0.0)) {
         f_diffuse += diffuseColor * u_AmbientRadiance;
 #ifdef GROUND_ENV
         vec2 ambientAB = texture(u_GGXLUT, clamp(vec2(clampedDot(n, v), perceptualRoughness), vec2(0.0), vec2(1.0))).rg;

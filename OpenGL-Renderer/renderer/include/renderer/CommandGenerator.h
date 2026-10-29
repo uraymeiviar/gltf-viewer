@@ -116,9 +116,9 @@ public:
     void setEmissiveNightBlend(float blend) { m_emissiveNightBlend = blend; }
     // A3.8: the viewer ambient light (EnvironmentBlock u_AmbientRadiance / u_AmbientEnabled): a uniform radiance in
     // environment units added to the IBL terms; off uploads zeros (every render unchanged).
-    void setAmbient(bool enabled, const glm::vec3& radiance)
+    void setAmbient(bool enabled, const glm::vec3& radiance, bool automatic = false)
     {
-        m_ambientEnabled = enabled ? 1 : 0;
+        m_ambientEnabled = enabled ? (automatic ? 2 : 1) : 0;
         m_ambientRadiance = enabled ? radiance : glm::vec3(0.0f);
     }
     // A6.4: multiplier of the scene's linear outputs (EnvironmentBlock u_PreExposure); 1 = none.

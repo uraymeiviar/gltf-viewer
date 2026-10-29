@@ -870,6 +870,12 @@ std::optional<int> Application::configure(int argc, char** argv)
             cliClearColor = env.clearColor;
         } else if (arg == "--hdr-rotation" && i + 1 < argc) {
             if (!applyCliSetting(SettingScope::Environment, "hdr_rotation", argv[++i], "--hdr-rotation")) return 1;
+        } else if (arg == "--sun-source" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Environment, "sun_source", toLowerAscii(argv[++i]), "--sun-source")) return 1;
+        } else if (arg == "--ambient-mode" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Environment, "ambient_mode", toLowerAscii(argv[++i]), "--ambient-mode")) return 1;
+        } else if (arg == "--ambient-fill" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Environment, "ambient_fill", argv[++i], "--ambient-fill")) return 1;
         } else if (arg == "--sun" && i + 1 < argc) {
             if (!applyCliSetting(SettingScope::Environment, "sun", toLowerAscii(argv[++i]), "--sun")) return 1;
         } else if (arg == "--ambient" && i + 1 < argc) {

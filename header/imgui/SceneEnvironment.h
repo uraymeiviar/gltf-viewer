@@ -20,6 +20,21 @@ inline constexpr const char* kDefaultEnvironmentFile = "default_hdr_env4k.hdr";
 // A3.1 sun modes. Manual: azimuth, elevation, colour and intensity as set. FromHdr: the sun found in the
 // HDR panorama (IBLSampler's EnvironmentSun), turned with the HDR rotation and scaled by the HDR intensity.
 enum class SunMode : int { Manual = 0, FromHdr = 1 };
+enum class SunSource : int { Off = 0, FromHdr = 1, Manual = 2, Clock = 3 };
+
+inline const char* sunSourceName(SunSource source)
+{
+    static constexpr const char* names[] = { "off", "hdr", "manual", "clock" };
+    return names[std::clamp(static_cast<int>(source), 0, 3)];
+}
+
+struct EffectiveSun {
+    bool enabled = false;
+    glm::vec3 direction = glm::vec3(0.0f, 1.0f, 0.0f);
+    glm::vec3 illuminance = glm::vec3(0.0f);
+    bool moon = false;
+    float angularRadius = 0.0f;
+};
 
 // A3.8 viewer ambient light (docs/ASOBO_EXTENSIONS_PHASE_3.md, A3.8): a uniform radiance from every direction, added to
 // the IBL terms of pbr.frag and ground.frag. A viewer light: never read from or written into the glTF. Its intensity is
@@ -69,9 +84,8 @@ struct SceneEnvironmentState {
     bool msfsEmissiveScaleOverride = false;
     int timeOfDay = 0; // ASOBO_material_emissive day/night: 0 = Day (default), 1 = Night, 2 = Automatic (DayNightMode)
 
-    // A6.1 time of day: date, time, place and heading (TimeOfDay.h). With clock.enabled the sun is on and its
-    // direction comes from the solar position (colour and intensity stay the Manual sun's); Automatic day/night
-    // reads the same clock whether or not the sun follows it.
+    // A6.1 clock: date, time, place and heading (TimeOfDay.h). A3.10 SunSource::Clock selects its solar direction;
+    // clock.enabled independently enables moon/stars. Automatic emissive day/night always reads this clock.
     TimeOfDayState clock;
 
     // A3.1 sun: a directional light through the punctual-light BRDF path (pbr.frag), scene-level like the
@@ -88,6 +102,9 @@ struct SceneEnvironmentState {
     //    filtering and the background (IBLSampler sun removal), so there is never a second sun.
     bool sunEnabled = false;
     int sunMode = static_cast<int>(SunMode::Manual);
+    SunSource sunSource = SunSource::Off; // retained HDR choice
+    // -1 follows the HDR choice (Clock -> Clock, everything else -> Manual) until explicitly set for the sky.
+    int skySunSource = -1;
     float sunAzimuth = 135.0f;
     float sunElevation = 45.0f;
     glm::vec3 sunColor = glm::vec3(1.0f);
@@ -108,9 +125,11 @@ struct SceneEnvironmentState {
     // A6.6 moon, stars and night sky glow (procedural sky; the moon and the stars need the A6.1 clock).
     night::NightSettings nightSky;
 
-    // A3.8 viewer ambient light (see kAmbientUnitLuminance): off by default (every render unchanged). The colour is
-    // linear RGB and multiplies the luminance like the sun's colour (white (1, 1, 1) has luminance 1).
-    bool ambientEnabled = false;
+    // A3.10 ambient: default Auto enable/mode follows the source; A3.8 Manual colour/luminance are retained.
+    // Manual colour is linear RGB (white has luminance 1); Auto uses white and a fraction of outdoor illuminance.
+    int ambient = -1; // -1 automatic (sky on, HDR off), 0 off, 1 on
+    int ambientMode = -1; // -1 source default: Auto for sky, Manual for HDR; 0 Manual, 1 Auto
+    float ambientFill = 0.05f; // A3.10 sweep: largest pass 0.058, 0.05 keeps a 0.005 noon-contrast margin; fraction of outdoor horizontal illuminance
     glm::vec3 ambientColor = glm::vec3(1.0f);
     float ambientLuminance = kAmbientDefaultLuminance; // cd/m^2
 
@@ -123,6 +142,40 @@ struct SceneEnvironmentState {
 
     bool operator==(const SceneEnvironmentState&) const = default;
 };
+
+inline SunSource effectiveSunSource(const SceneEnvironmentState& environment)
+{
+    if (environment.environmentSource != static_cast<int>(EnvironmentSource::ProceduralSky)) return environment.sunSource;
+    if (environment.skySunSource >= 0) return environment.skySunSource == static_cast<int>(SunSource::Clock)
+        ? SunSource::Clock : SunSource::Manual;
+    return environment.sunSource == SunSource::Clock ? SunSource::Clock : SunSource::Manual;
+}
+
+// A3.10: selecting a sky source never overwrites the stored HDR choice. Invalid sky requests are mapped to Manual.
+inline void selectSunSource(SceneEnvironmentState& environment, SunSource source)
+{
+    if (environment.environmentSource == static_cast<int>(EnvironmentSource::ProceduralSky)) {
+        environment.skySunSource = static_cast<int>(source);
+    } else {
+        environment.sunSource = source;
+        environment.sunEnabled = source != SunSource::Off;
+        if (source == SunSource::FromHdr) environment.sunMode = static_cast<int>(SunMode::FromHdr);
+        if (source == SunSource::Manual) environment.sunMode = static_cast<int>(SunMode::Manual);
+    }
+    if (source == SunSource::Clock) environment.clock.enabled = true;
+}
+
+inline bool effectiveAmbientEnabled(const SceneEnvironmentState& environment)
+{
+    return environment.ambient < 0 ? environment.environmentSource == static_cast<int>(EnvironmentSource::ProceduralSky)
+                                   : environment.ambient != 0;
+}
+
+inline bool effectiveAmbientAuto(const SceneEnvironmentState& environment)
+{
+    return environment.ambientMode < 0 ? environment.environmentSource == static_cast<int>(EnvironmentSource::ProceduralSky)
+                                       : environment.ambientMode != 0;
+}
 
 // A3.9: whether the scene's sky occlusion is on (the automatic default follows the environment source).
 inline bool effectiveSkyOcclusion(const SceneEnvironmentState& environment)
@@ -160,9 +213,12 @@ inline ExposureMode effectiveExposureMode(const SceneEnvironmentState& environme
 }
 
 // A3.8: the ambient radiance in environment units (zero while off), before the pre-exposure.
-inline glm::vec3 ambientRadiance(const SceneEnvironmentState& environment)
+inline glm::vec3 ambientRadiance(const SceneEnvironmentState& environment, float outdoorIlluminance = 0.0f)
 {
-    if (!environment.ambientEnabled) return glm::vec3(0.0f);
+    if (!effectiveAmbientEnabled(environment)) return glm::vec3(0.0f);
+    if (effectiveAmbientAuto(environment)) {
+        return glm::vec3(std::max(environment.ambientFill, 0.0f) * std::max(outdoorIlluminance, 0.0f) / 3.14159265358979323846f);
+    }
     const float luminance = std::clamp(environment.ambientLuminance, 0.0f, kAmbientMaxLuminance);
     return (glm::max)(environment.ambientColor, glm::vec3(0.0f)) * (luminance / kAmbientUnitLuminance);
 }

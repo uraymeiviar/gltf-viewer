@@ -632,16 +632,22 @@ void main()
     // diffuse share like the IBL (the scene they refract already contains it). After the sky-portal bound above, so
     // A3.7 still adds back at most the unoccluded IBL diffuse.
     if (u_AmbientEnabled != 0) {
+        vec3 ambientRadiance = u_AmbientRadiance;
+#ifdef SKY_OCCLUSION
+        // A3.10: Auto returns missing interreflection only where the direct sky is hidden.
+        // Manual (1) is the original uniform term, byte for byte; no volume means uniform Auto too.
+        if (u_AmbientEnabled == 2) ambientRadiance *= 1.0 - skyDiffuse;
+#endif
         vec2 ambientAB = texture(u_GGXLUT, clamp(vec2(NdotV, materialInfo.perceptualRoughness), vec2(0.0), vec2(1.0))).rg;
-        f_diffuse += materialInfo.c_diff * u_AmbientRadiance;
-        f_specular += materialInfo.specularWeight * u_AmbientRadiance * (materialInfo.f0 * ambientAB.x + ambientAB.y);
+        f_diffuse += materialInfo.c_diff * ambientRadiance;
+        f_specular += materialInfo.specularWeight * ambientRadiance * (materialInfo.f0 * ambientAB.x + ambientAB.y);
 #ifdef MATERIAL_CLEARCOAT
         vec2 ambientClearcoatAB = texture(u_GGXLUT, clamp(vec2(clampedDot(materialInfo.clearcoatNormal, v),
             materialInfo.clearcoatRoughness), vec2(0.0), vec2(1.0))).rg;
-        f_clearcoat += u_AmbientRadiance * (materialInfo.clearcoatF0 * ambientClearcoatAB.x + ambientClearcoatAB.y);
+        f_clearcoat += ambientRadiance * (materialInfo.clearcoatF0 * ambientClearcoatAB.x + ambientClearcoatAB.y);
 #endif
 #ifdef MATERIAL_SHEEN
-        f_sheen += u_AmbientRadiance * materialInfo.sheenColorFactor *
+        f_sheen += ambientRadiance * materialInfo.sheenColorFactor *
             texture(u_CharlieLUT, clamp(vec2(NdotV, materialInfo.sheenRoughnessFactor), vec2(0.0), vec2(1.0))).b;
 #endif
     }

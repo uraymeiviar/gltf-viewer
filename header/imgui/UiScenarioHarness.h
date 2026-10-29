@@ -875,7 +875,9 @@ private:
             << ",\"allocations\":" << frame.decalBufferAllocations
             << ",\"resizes\":" << frame.decalBufferResizes
             << ",\"releases\":" << frame.decalBufferReleases << "}"
-            << ",\"glErrors\":" << frame.glErrors;
+            << ",\"glErrors\":" << frame.glErrors
+            << ",\"idConflict\":" << ImGui::GetCurrentContext()->DebugDrawIdConflictsId
+            << ",\"hoveredIdCount\":" << ImGui::GetCurrentContext()->HoveredIdPreviousFrameItemCount;
 
         out << ",\"windows\":{";
         bool firstWindow = true;

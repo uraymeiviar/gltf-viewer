@@ -43,8 +43,9 @@ void Application::drawPanels(FrameContext& frame)
                 auto* inspectedScene = selection.selectedScene != nullptr ? selection.selectedScene : activeScene;
                 auto& inspectedEnvironment = getSceneEnvironment(sceneEnvironments, gltfModel, inspectedScene);
                 const ux3d::imgui::SkyStatus sky = skyStatus(inspectedEnvironment);
+                const EffectiveSun sun = effectiveSun(inspectedEnvironment);
                 ux3d::imgui::SceneInspector::render(inspectedEnvironment, commandGenerator.get(), gltfLayer.get(),
-                                                    sceneRevisions, inspectedScene, &sky);
+                                                     sceneRevisions, inspectedScene, &sky, &sun, outdoorIlluminance(inspectedEnvironment));
             } else {
                 ux3d::imgui::ElementInspector::render(selection, gltfModel, sceneRevisions, &animationPlayer,
                                                       gltfLayer.get(), &viewports, commandGenerator.get());

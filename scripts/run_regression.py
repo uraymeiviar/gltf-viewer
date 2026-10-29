@@ -130,6 +130,7 @@ serial_jobs = [
     ("sun_disk", ["scripts/validate_sun_disk.py", "--baseline-exe", str(baseline)]),
     ("night", ["scripts/validate_night.py", "--baseline-exe", str(baseline)]),
     ("ambient", ["scripts/validate_ambient.py", "--baseline-exe", str(baseline)]),
+    ("sun_source", ["scripts/validate_sun_source.py", "--baseline-exe", str(baseline)]),
     ("emissive_units", ["scripts/validate_emissive_units.py", "--baseline-exe", str(baseline)]),
     ("sky_occlusion", ["scripts/validate_sky_occlusion.py", "--baseline-exe", str(baseline)]),
     ("asobo_packaged", ["scripts/validate_asobo_packaged.py"]),

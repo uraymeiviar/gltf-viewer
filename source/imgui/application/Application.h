@@ -156,13 +156,7 @@ struct WindowState {
 };
 
 // A3.1: the sun the renderer draws this frame (world space; illuminance = colour x intensity).
-struct EffectiveSun {
-    bool enabled = false;
-    glm::vec3 direction = glm::vec3(0.0f, 1.0f, 0.0f);
-    glm::vec3 illuminance = glm::vec3(0.0f);
-    bool moon = false;          // A6.6: effectiveDirectionalLight returned the moonlight
-    float angularRadius = 0.0f; // radians (effectiveDirectionalLight)
-};
+using ux3d::imgui::EffectiveSun;
 
 // A6.4: how a scene is exposed this frame (Application::exposurePlan).
 struct ExposurePlan {
@@ -395,7 +389,8 @@ private:
     float emissiveNightBlend(const ux3d::imgui::SceneEnvironmentState& environment) const;
     nlohmann::json sunStateJson(const ux3d::imgui::SceneEnvironmentState& environment) const;
     // A3.8: the viewer ambient light (get_state / --profile-report "ambient").
-    static nlohmann::json ambientStateJson(const ux3d::imgui::SceneEnvironmentState& environment);
+    float outdoorIlluminance(const ux3d::imgui::SceneEnvironmentState& environment) const;
+    nlohmann::json ambientStateJson(const ux3d::imgui::SceneEnvironmentState& environment) const;
     // A6.7: the sun disk the background draws (SunDisk.h): visible while the sun is on and the background shown.
     ux3d::imgui::SunDiskEvaluation sunDiskEvaluation(const ux3d::imgui::SceneEnvironmentState& environment) const;
     // A6.1: the computed time-of-day state (sun, moon, events, day/night) for get_state and profile reports; the

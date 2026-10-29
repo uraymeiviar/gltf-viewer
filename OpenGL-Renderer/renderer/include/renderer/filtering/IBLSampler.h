@@ -91,6 +91,8 @@ public:
     bool getSunRemoval() const { return m_sunRemoval; }
     // The sun found in the panorama of the last init (EnvironmentSun.removed says whether it was removed).
     const EnvironmentSun& getEnvironmentSun() const { return m_environmentSun; }
+    // A3.10: cached horizontal irradiance of the filtered HDR (Lambertian cube at +Y, times pi).
+    const glm::vec3& horizontalIlluminance() const { return m_horizontalIlluminance; }
 
 private:
     GLuint createCubemapTexture(bool _withMipmaps, uint32_t _size, GLint _internalFormat);
@@ -122,5 +124,6 @@ private:
     SamplingParameters m_samplingParameters;
     bool m_sunRemoval = false;
     EnvironmentSun m_environmentSun;
+    glm::vec3 m_horizontalIlluminance = glm::vec3(0.0f);
 };
 }

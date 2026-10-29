@@ -504,7 +504,7 @@ bool MaterialInspector::render(ux3d::gltf::Material* material,
 
             auto specD = sg.getSpecularFactorOrDefault();
             float specColor[3] = { static_cast<float>(specD.r), static_cast<float>(specD.g), static_cast<float>(specD.b) };
-            if (ImGui::ColorEdit3("Specular Factor", specColor)) {
+            if (ImGui::ColorEdit3("Specular Factor##specularGlossiness", specColor)) {
                 sg.setSpecularFactor(ux3d::math::dvec3(specColor[0], specColor[1], specColor[2]));
                 modified = true;
             }

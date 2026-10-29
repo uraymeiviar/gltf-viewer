@@ -2,7 +2,7 @@
 
 [Journal index](ASOBO_EXTENSIONS_JOURNAL.md) · [Extension reference](ASOBO_EXTENSIONS_REFERENCE.md) · [Validation rules](RENDERER_OPTIMIZATION_VALIDATION.md)
 
-**Status:** In progress: A3.1, A3.2, A3.4, A3.5, A3.6, A3.7, A3.8 and A3.9 done (A3.4 ahead of A3.1); A3.3 deferred.
+**Status:** In progress: A3.1, A3.2, A3.4–A3.10 implemented (A3.4 ahead of A3.1); A3.3 deferred. A3.10 validation numbers are in its task report.
 
 **Entry:** A2.2, the deferred lighting pass. **Goal:** shadows from a sun (user priority 4), and the remaining
 lighting features of user priority 5. The sun's direction is set by hand here and driven by time of day in A6.
@@ -12,6 +12,9 @@ lighting features of user priority 5. The sun's direction is set by hand here an
 - [x] **A3.1 — Sun light (R3). Owner: Claude.** A directional light with direction (azimuth and elevation, set by
   hand), color and intensity, in ~~Viewport Settings~~ Scene Inspector → *Sun & Time of Day* → *Sun* (scene-level, like
   exposure and time of day: one sun per glTF scene, shared by every viewport).
+  - **A3.10 update:** the historical Sun checkbox / Sun Mode / Sun Follows Time of Day controls below are now one
+    **Sun Source** selector. From HDR is locked to the panorama regardless of the independent clock. See A3.10 below
+    for source-specific choices and ordered legacy mappings; the original light units and BRDF are unchanged.
   - **Done 2026-10-28.** Conventions (the reference for A3.2, A3.7 and A6; code: `header/imgui/SceneEnvironment.h`,
     `IBLSampler.h` `EnvironmentSun`, `pbr.frag` after the punctual loop):
     - **Angles:** glTF world space, Y up. Azimuth in degrees around +Y, measured from +Z towards +X (0 = the sun
@@ -549,6 +552,50 @@ lighting features of user priority 5. The sun's direction is set by hand here an
     -1.28 -> -1.01), which holds the screens at about 0.306 displayed, so p95 - p5 cannot exceed about 0.29 however dark
     the bezel. No threshold, exposure or emissive value was changed.
   - **Review:** `build/review/sky_occlusion/contact_sheet.png` (`scripts/review_sky_occlusion.py`).
+
+- [x] **A3.10 — Sun Source and Auto ambient (interior fill).** Viewer settings only; never read from or written to
+  glTF, no new persistence. See the A3.10 task report for verified sweep/check results and remaining failures.
+  - **Sun Source** replaces Sun / Sun Mode / Sun Follows Time of Day. HDR: Off, From HDR, Manual, Time of Day.
+    Procedural sky: Manual (angles only), Time of Day; colour and intensity come from the atmosphere. The selector's
+    effective choice is shared by the renderer, atmosphere, disk, state reports and Inspector. The Inspector receives
+    the evaluated sun from `Application::effectiveSun`, so it does not implement another light precedence.
+  - **Switching sources:** HDR's requested choice is retained separately. Until a sky choice is explicit, Clock maps
+    to Clock, Off / From HDR / Manual map to Manual. Explicit sky choices stay with the sky; returning to HDR restores
+    its choice. An invalid `sun_source off|hdr` request under the sky is reported as requested, but resolves to Manual.
+  - **Legacy mapping, in application order:** `sun on` selects the stored manual/HDR mode, off selects Off;
+    `sun_mode manual|hdr` changes the stored mode and selects it if the HDR sun was enabled or Clock, leaving an off
+    sun off otherwise. `time_of_day_mode on` selects Clock for both environments and enables the clock; off selects the
+    previous legacy enabled/manual/HDR choice and sky Manual. The last source selection wins. In particular HDR
+    `--time-of-day-mode on --sun-mode hdr` now means From HDR, locked to the panorama; the reverse order means Clock.
+    Changing the independent date/time does not move From HDR. `sun_source clock` enables the clock; selecting another
+    source leaves its emissive/moon/stars evaluation available. The Time of Day section states when it does not move
+    the sun. CLI `--sun-source off|hdr|manual|clock`; registry `sun_source`; state `sun.source` requested/effective/HDR/options.
+    Legacy `sun` / `sun_mode` update the retained HDR choice, preserving an explicit sky choice; `sun_source` acts
+    on the current environment, whereas legacy `time_of_day_mode` selects both environments.
+  - **Ambient defaults:** `ambient auto` (default) enables it with the sky and disables it with HDR. An unspecified
+    intensity mode resolves to Auto with sky, Manual with HDR. Explicit `ambient on` without a chosen mode selects
+    legacy Manual; explicitly selected modes survive toggles/source changes. Manual uses the original uniform colour
+    and cd/m² path, including its occlusion, ground and material terms.
+  - **Auto formula:** white `L_fill = k E_out / pi`, default k = **0.05** (the largest passing sweep step is 0.058 with a 0.0002 noon-contrast margin; 0.05 keeps 0.0055;
+    0.059 fails noon contrast), E_out in lux, L in cd/m²; shader units divide L by 12,800. In
+    environment units this is simply `k E_out_units / pi`. Sky E_out is the same shared horizontal sun + clear sky +
+    moon + glow used by Curve (including moonlight scale). HDR uses filtered Lambertian cube at +Y times pi times HDR
+    intensity, plus the effective sun's horizontal illuminance. The Lambertian face centre is read once when filtering,
+    then cached (yaw leaves +Y unchanged). HDR's absolute photometric scale remains conventional.
+  - **Interior weighting:** Auto's diffuse/specular/sheen/clearcoat fill is multiplied by `1 - skyDiffuse` from A3.9.
+    Open surfaces get zero, hidden interiors get the full fill; authored AO and SSAO still apply. Without an active
+    volume Auto is uniform, because visibility is unknown (as Manual). With a volume the separate open ground plane
+    receives no Auto term. The sun, exposure thresholds, emissive scale, background and IBL input are unchanged.
+  - **Controls/telemetry:** Ambient Light enable Auto/On/Off, intensity Auto/Manual, fill fraction slider; Manual
+    retains colour and luminance controls. CLI `--ambient auto|on|off`, `--ambient-mode auto|manual`, `--ambient-fill k`
+    (0..1), registry `ambient`, `ambient_mode`, `ambient_fill`. State/profile `ambient` adds setting, effective mode,
+    modeSetting, fill, outdoorIlluminance, outdoorIlluminanceLux, interiorWeighted, resulting intensity (cd/m² and
+    environment units); radiance is zero while disabled. The new controls use unique ImGui IDs.
+  - **Validation:** `validate_sun_source.py` (serial regression list) covers all 16 legacy combinations with ambient
+    explicitly off on both binaries, source options/restoration, HDR lock, argument order, Manual ambient parity,
+    HDR defaults and CLI=pipe. `validate_ambient.py` adds closed/open-floor `probe` and `probe_region` checks against
+    albedo × k × E_out / pi within the existing 1% tolerance. `sweep_sun_source_ambient.py` uses the unmodified
+    `validate_night.py` regions and thresholds to select the largest passing fill fraction.
 
 **Exit gate:**
 - Shadow tests pass.

@@ -252,10 +252,10 @@ def check_baseline(baseline):
     # parity; validate_emissive_units covers the corrected sky default independently. A6.4c moved the highlight
     # meter's target, so the average meter is pinned on both as well (validate_night covers the meter).
     sources = (("hdr", []), ("sky", ["--environment", "sky", "--sky-time-slicing", "off",
-                                    "--msfs-emissive-scale", "0.001", "--exposure-metering", "average"]))
-    # A3.9 sky occlusion is on by default with the sky; the baseline has none (and does not know the flag), so only the
-    # current binary is told --sky-occlusion off: both sides then render without it. validate_sky_occlusion.py covers it.
-    current_only = {"hdr": [], "sky": ["--sky-occlusion", "off"]}
+                                    "--msfs-emissive-scale", "0.001", "--exposure-metering", "average",
+                                    "--ambient", "off", "--sky-occlusion", "off"]))
+    # A3.10: the pinned baseline supports A3.9; disable sky occlusion and ambient on BOTH sides to isolate off parity.
+    current_only = {"hdr": [], "sky": []} # Both binaries support A3.9; pass the identical flags above.
     for source, source_flags in sources:
         for name, flags in (("default", []), ("off_settings", off_settings)):
             now, _ = render(None, f"base_now_hellocube_{source}_{name}", source_flags + flags + current_only[source], view=False)
@@ -526,6 +526,77 @@ def check_sources():
     check(worst_expected <= SOURCE_TOLERANCE, f"HDR contribution = albedo x L: worst {worst_expected * 100:.3f}%")
 
 
+def check_auto_fill():
+    """A3.10: physical fill measured on the closed-box floor and an open floor, without changing legacy checks."""
+    import sky_occlusion_fixtures as fixtures
+    import validate_night as night
+    import validate_sky_occlusion as so
+    night.OUT = OUT
+    for label, fixture in (("closed", fixtures.occluder_box), ("open", fixtures.open_plane)):
+        model = fixture(OUT / f"auto_{label}.gltf")
+        flags = ["--environment", "sky", "--time-of-day-mode", "on", "--time-preset", "noon",
+                 "--sky-time-slicing", "off", "--ambient", "off"] + so.LOOK + so.TOP_VIEW
+        session = night.Session(model, flags)
+        try:
+            session.capture(f"auto_{label}_off", frames=24)
+            cam = session.camera()
+            x, y = [int(round(c)) for c in cam.project((0.0, 0.0, 0.0))]
+            def probes():
+                p = session.call("probe", x=x, y=y)
+                region = session.call("probe_region", x0=x-2, y0=y-2, x1=x+2, y1=y+2)
+                return p["hdr"][:3] + region["rgb"]["mean"][:3]
+            off = probes()
+            session.env("ambient_mode", "auto")
+            session.env("ambient_fill", 0.05)
+            session.env("ambient", "auto")
+            session.capture(f"auto_{label}_on", frames=12)
+            state = session.call("get_state")
+            on = probes()
+            ambient = state["ambient"]
+            expected = 0.8 * 0.05 * ambient["outdoorIlluminance"] / math.pi
+            delta = [b-a for a, b in zip(off, on)]
+            worst = max(abs(d - (expected if label == "closed" else 0.0)) / max(expected, 1e-9) for d in delta)
+            check(worst <= LAMBERT_TOLERANCE,
+                  f"Auto {label} floor, probe + region: delta {delta}, closed albedo*k*E/pi {expected:.8g}, "
+                  f"worst {worst*100:.4f}% <= 1%")
+            check(ambient["mode"] == "auto" and ambient["enabled"] and ambient["interiorWeighted"] and
+                  rel(ambient["intensityEnvironmentUnits"], 0.05 * ambient["outdoorIlluminance"] / math.pi) < 0.0001,
+                  f"Auto {label}: source default, units/formula and active visibility weighting")
+            errors = session.close()
+            check(errors == 0, f"Auto {label}: {errors} GL errors")
+        except BaseException:
+            session.process.kill()
+            session.process.wait(30)
+            raise
+
+
+def check_auto_hdr():
+    print("[Auto HDR: Lambertian +Y irradiance and uniform fallback without a volume]")
+    model = write("auto_hdr_lambert", lambert())
+    session = Session(model, grey_env() + ["--ambient-mode", "auto", "--ambient", "on", "--ambient-fill", "0.1"])
+    try:
+        session.capture("auto_hdr_uniform", frames=12)
+        state = session.call("get_state")["ambient"]
+        check(rel(state["outdoorIlluminance"], math.pi * 0.25) <= LAMBERT_TOLERANCE,
+              f"HDR E_out {state['outdoorIlluminance']:.8g} = pi * 0.25 within 1%")
+        check(state["mode"] == "auto" and not state["interiorWeighted"] and
+              rel(state["intensityEnvironmentUnits"], 0.025) <= LAMBERT_TOLERANCE,
+              f"HDR Auto without volume is uniform L=0.025: {state}")
+        session.env("sun", True)
+        session.env("sun_dir", [0, 90])
+        session.env("sun_intensity", 2)
+        session.env("hdr_intensity", 1.5)
+        session.capture("auto_hdr_with_sun", frames=12)
+        state = session.call("get_state")["ambient"]
+        expected = math.pi * 0.25 * 1.5 + 2
+        check(rel(state["outdoorIlluminance"], expected) <= LAMBERT_TOLERANCE,
+              f"HDR E_out {state['outdoorIlluminance']:.8g} = irradiance * 1.5 + sun horizontal {expected:.8g}")
+        check(session.close() == 0, "HDR Auto: zero GL errors")
+    except BaseException:
+        session.kill()
+        raise
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--baseline-exe", default=None)
@@ -541,7 +612,7 @@ def main():
     only = {s for s in args.only.split(",") if s}
     steps = (("lambert", check_lambert), ("metal", check_metal), ("occlusion", check_occlusion),
              ("emissive", check_emissive_background), ("cli", check_cli_pipe), ("sources", check_sources),
-             ("baseline", lambda: check_baseline(baseline)))
+             ("baseline", lambda: check_baseline(baseline)), ("auto", check_auto_fill), ("auto_hdr", check_auto_hdr))
     for name, step in steps:
         if not only or name in only:
             step()

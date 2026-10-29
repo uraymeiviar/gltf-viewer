@@ -139,6 +139,7 @@ public:
     void setEnvironmentSunRemoval(bool remove) { m_iblSampler.setSunRemoval(remove); }
     bool getEnvironmentSunRemoval() const { return m_iblSampler.getSunRemoval(); }
     const EnvironmentSun& getEnvironmentSun() const { return m_iblSampler.getEnvironmentSun(); }
+    const glm::vec3& getEnvironmentHorizontalIlluminance() const { return m_iblSampler.horizontalIlluminance(); }
     EnvironmentMap* getActiveEnvironmentMap() { return m_activeEnvironmentMap; }
     // A6.2 / A6.3: an environment whose cubes and LUTs another system owns and fills (the procedural sky). The HDR
     // sampler's textures are freed and the environment map path is cleared, so selecting an HDR again re-loads it
