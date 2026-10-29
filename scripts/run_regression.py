@@ -35,6 +35,8 @@ Quick tier (equivalence only: byte-identical viewport images, identical selectio
   sky, time-sliced budget and swaps; the HDR source against the baseline),
   validate_sun_disk.py (A6.7 sun disk: position/size/radiance/limb darkening, not in the IBL, mirror highlight, glare
   and lens effect, registry/CLI; the sun off against the baseline),
+  validate_background_projection.py (HDR background markers, sun disk and seams on the projected world directions at
+  several views, FoVs, aspects and AA modes; the baseline must miss; orthographic against the baseline),
   validate_night.py (A6.4-A6.6 exposure across the day, moon position/phase/moonlight/shadows, stars and sidereal
   rotation, emissive day/night blend, registry/CLI; the HDR defaults against the baseline),
   validate_ambient.py (A3.8 viewer ambient light: Lambert/metal radiance, AO/SSAO like the IBL, emissive and
@@ -132,6 +134,7 @@ serial_jobs = [
     ("time_of_day", ["scripts/validate_time_of_day.py", "--baseline-exe", str(baseline)]),
     ("sky", ["scripts/validate_sky.py", "--baseline-exe", str(baseline)]),
     ("sun_disk", ["scripts/validate_sun_disk.py", "--baseline-exe", str(baseline)]),
+    ("background_projection", ["scripts/validate_background_projection.py", "--baseline-exe", str(baseline)]),
     ("night", ["scripts/validate_night.py", "--baseline-exe", str(baseline)]),
     ("ambient", ["scripts/validate_ambient.py", "--baseline-exe", str(baseline)]),
     ("sun_source", ["scripts/validate_sun_source.py", "--baseline-exe", str(baseline)]),

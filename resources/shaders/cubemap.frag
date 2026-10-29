@@ -7,17 +7,15 @@ precision highp float;
 
 uniform samplerCube u_GGXEnvSampler;
 
-#if defined(PROCEDURAL_SKY) || defined(SUN_DISK) || defined(MOON_DISK) || defined(STARS)
 #include <camera_block.glsl>
-// cubemap.vert (from the Khronos sample viewer) projects the unit cube with w + 0.1 instead of w, so the background
-// shows the direction p at the screen position of a slightly different direction (about 7% closer to the image
-// centre). The HDR background keeps that projection (unchanged images); the procedural sky (A6.2) and the sun disk
-// (A6.7) use the direction a perspective camera really sees at this fragment, so the disk sits exactly at the sun's
-// projected position, in line with the geometry, the ground plane and the sun's highlights.
-// In view space the drawn clip position is (P00 x + P20 z, P11 y + P21 z, ., -z + 0.1); the direction t with the same
-// screen position under P is (x + 0.1 P20 / P00, y + 0.1 P21 / P11, z - 0.1) (P20 / P21: the TAA jitter).
+#if defined(PROCEDURAL_SKY) || defined(SUN_DISK) || defined(MOON_DISK) || defined(STARS)
+// The world direction this background fragment shows. With a perspective camera cubemap.vert projects the unit cube
+// exactly (no clip-w offset), so it is the interpolated cube position. The orthographic path keeps the original
+// w + 0.1 projection and its correction: in view space the drawn clip position is (P00 x + P20 z, P11 y + P21 z, .,
+// -z + 0.1); the direction t with the same screen position under P is (x + 0.1 P20 / P00, y + 0.1 P21 / P11, z - 0.1).
 vec3 trueWorldDirection(vec3 cubePosition)
 {
+    if (u_ProjectionMatrix[3][3] == 0.0) return normalize(cubePosition);
     mat3 viewRotation = mat3(u_ViewMatrix);
     vec3 v = viewRotation * cubePosition;
     v += vec3(0.1 * u_ProjectionMatrix[2][0] / u_ProjectionMatrix[0][0], 0.1 * u_ProjectionMatrix[2][1] / u_ProjectionMatrix[1][1], -0.1);
@@ -234,6 +232,11 @@ void main()
     // half-float range.
     if (u_PreExposure != 1.0) color.rgb = min(color.rgb * u_PreExposure, vec3(64000.0));
 #endif
+    // The background lies exactly on the far plane (depth 1: "no surface" for the auto-exposure highlight meter, SSAO,
+    // SSR and the ground). pos.xyww puts every vertex there, but the rasterizer's interpolation of that constant can
+    // round a 24-bit depth one step below 1 on the large, near-plane-clipped cube triangles of a perspective view.
+    // The orthographic path keeps its rasterized depth (unchanged).
+    gl_FragDepth = u_ProjectionMatrix[3][3] == 0.0 ? 1.0 : gl_FragCoord.z;
 #ifdef LINEAR_OUTPUT
     FragColor = color.rgba;
 #else

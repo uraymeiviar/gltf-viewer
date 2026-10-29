@@ -366,11 +366,21 @@ setting, and changing it is seamless.
     - **Half-float range:** the real sun's mean radiance (1.2e5..1.5e5 for E = 8..10 at 0.27 degrees) exceeds the
       RGBA16F scene target, so the drawn colour is scaled (hue kept) until its brightest channel at the centre is
       32000 (`rangeScale` in `get_state` / profile `sun.disk`); half the range stays free for blending.
-    - **True view direction:** `cubemap.vert` (from the Khronos sample viewer) projects the cube with w + 0.1, which
-      draws the background about 7% towards the image centre. The disk and the procedural sky (A6.2) now use the
-      direction the perspective camera really sees at each fragment, so the disk is at the projected sun position
-      (0.0-0.1 px measured), in line with the geometry, the ground plane, shadows and highlights; the HDR background
-      keeps the old projection (unchanged images). At the image centre both agree, so the A6.2 references hold.
+    - **True view direction:** the disk and the procedural sky (A6.2) use the direction the perspective camera really
+      sees at each fragment, so the disk is at the projected sun position (0.0-0.1 px measured), in line with the
+      geometry, the ground plane, shadows and highlights. `cubemap.vert` (from the Khronos sample viewer) first
+      projected the cube with w + 0.1, which drew the HDR background up to about 9% (direction and camera dependent)
+      towards the image centre, and the disk and sky carried a matching ray correction. Since the background-projection
+      fix (2026-10-30, maintainer-approved image change) a perspective camera projects the cube exactly (no clip-w
+      offset, `pos.xyww` at the far plane) and `trueWorldDirection` is the cube position, so the HDR background lands
+      on its world directions too; the orthographic path keeps the old projection and correction (byte-identical).
+      `cubemap.frag` also writes depth 1 for a perspective camera: the rasterized depth of the large, clipped cube
+      triangles could round one 24-bit step below 1, so background cells counted as surfaces in the A6.4b highlight
+      meter (already up to 5% of a view before, up to 32% with the exact projection, which darkened the dusk sweep).
+      `scripts/validate_background_projection.py`: panorama markers within 0.77 px (mean 0.09 px) of their projected
+      directions (500 measurements, 30 / 60 / 90 deg FoV, two aspects, AA none and TAA; the old projection misses by
+      up to 52 px), the disk within 0.2 px with the HDR and the sky, no cube seams or holes, no background cell below
+      the far plane.
     - **Reflections:** mirror-like materials and windshields show the sun through the A3.1 highlight (GGX widened by
       tan(R) / 2): it integrates to E and peaks at E / (pi tan^2 R), the disk's mean radiance (within cos^2 R), and its
       energy-equivalent size is the disk's reflection (validated on a mirror sphere). SSR misses fall back to the
