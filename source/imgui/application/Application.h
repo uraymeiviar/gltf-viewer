@@ -272,6 +272,9 @@ private:
     ux3d::filesystem::Path resolveRendererResourcesDir();
     ux3d::filesystem::Path resolveEnvironmentPath(const ux3d::filesystem::Path& rendererRes);
     ux3d::filesystem::Path resolveHdrPath(const std::string& hdrPath, const ux3d::filesystem::Path& rendererRes);
+    // C13: the one startup environment load (configure(), after the flags): the last --env/--hdr, else the
+    // default HDR, or nothing while the procedural sky provides the environment.
+    void loadStartupEnvironment(const std::vector<std::string>& hdrRequests, bool& cliHdrProvided, std::string& cliHdrPath);
     std::string resolveSampleModelPath();
     std::string jsonEscape(const std::string& text);
     void writeJsonNumber(std::ostream& out, double value);
@@ -436,7 +439,8 @@ private:
     // draws one, so the cascades also cover the shadow the model casts on it.
     void updateSunShadows(ux3d::imgui::ViewportInstance& vp, FrameContext& frame, const glm::mat4& view,
                           const glm::mat4& projection, const ux3d::imgui::SceneEnvironmentState& environment,
-                          bool shadingAllowed, int vpW, int vpH, std::optional<float> groundHeight = std::nullopt);
+                          bool shadingAllowed, int vpW, int vpH, std::optional<float> groundHeight,
+                          const ux3d::imgui::ViewportRenderKey& renderKey);
     nlohmann::json sunShadowStateJson() const;
     // A3.9: the scene's sky-visibility volume: (re)bakes it time-sliced when the model, its visibility, transforms,
     // materials, the isolation or the quality change (never per frame, animation ignored), releases it while off.
@@ -652,6 +656,9 @@ private:
     // P8.3: --disable-instancing draws every drawable separately (the P8.1 path) as an A/B reference.
     bool s_disableInstancing = false;
     bool s_disableWireframeCache = false;
+    // C1/C4: --disable-pass-cache re-renders the sun-shadow cascades and the overlay depth on every render (the
+    // reference path) instead of reusing them while their inputs are unchanged.
+    bool s_disablePassCache = false;
     // --msfs-emissive off: ASOBO assets use the clamped core emissive factor (A/B reference).
     bool s_disableMsfsEmissive = false;
     // A6.3: the procedural sky's environment (LUTs, filtered cubes, time-sliced jobs). Renderer-wide settings:

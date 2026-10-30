@@ -340,6 +340,8 @@ bool TransmissionTarget::captureDepth(Framebuffer& source)
         // Match the source's depth/stencil format, including for multisample resolves.
         glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH24_STENCIL8, m_depthWidth, m_depthHeight,
                      0, GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, nullptr);
+        // Raw GL (not the counted wrapper): charged here so per-viewport size changes show as allocations.
+        ux3d::imgui::profiling::countTextureAllocation(static_cast<uint64_t>(m_depthWidth) * static_cast<uint64_t>(m_depthHeight) * 4ull);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -389,6 +391,8 @@ bool TransmissionTarget::capture(Framebuffer& source, bool fullResolution)
         glBindTexture(GL_TEXTURE_2D, m_texture);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F,
                      width, height, 0, GL_RGBA, GL_FLOAT, nullptr);
+        // Raw GL: charged here (level 0 only; the mip chain is generated after each capture).
+        ux3d::imgui::profiling::countTextureAllocation(static_cast<uint64_t>(width) * static_cast<uint64_t>(height) * 8ull);
         m_width = width;
         m_height = height;
         m_fullResolution = fullResolution;

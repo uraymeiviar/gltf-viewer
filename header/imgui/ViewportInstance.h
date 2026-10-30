@@ -8,14 +8,17 @@
 #include "imgui/ViewportSettingsPanel.h"
 #include "imgui/SceneRevisions.h"
 #include "imgui/SunShadowMap.h"
+#include "imgui/RenderQuality.h"
 #include "renderer/CascadedShadows.h"
 #include "renderer/Camera.h"
 #include "renderer/PickingRenderLayer.h"
 #include "renderViewInput/CameraActor.h"
 #include "gltf/Node.h"
 #include <array>
+#include <optional>
 #include <string>
 #include <memory>
+#include <vector>
 
 namespace ux3d::imgui {
 class OceanSimulation;
@@ -65,6 +68,34 @@ struct ViewportRenderKey {
     bool operator==(const ViewportRenderKey&) const = default;
 };
 
+// The inputs of a cached per-viewport pass result (C1 sun-shadow cascades, C4 overlay depth): the render key of the
+// render that produced it (revisions, layer generations, unjittered view/projection, size, AA, viewport settings,
+// scene environment, ...) plus the effective render quality, which the render key does not hold.
+struct ViewportPassCacheKey {
+    ViewportRenderKey render;
+    RenderQualitySettings quality;
+    // C1: the light pass also depends on whether the view is shaded and on the ground height it cuts the cascades to.
+    bool shadingAllowed = false;
+    std::optional<float> groundHeight;
+    // C4: the overlay target's sample count.
+    int samples = 0;
+
+    bool operator==(const ViewportPassCacheKey&) const = default;
+};
+
+// GL state a skipped overlay-depth draw would have left behind (the renderer sets it per command, the grid and box
+// overlays after it inherit what they do not set themselves).
+struct OverlayDepthGlState {
+    GLint depthFunc = GL_LESS;
+    GLint blendSrcRgb = GL_ONE, blendDstRgb = GL_ZERO, blendSrcAlpha = GL_ONE, blendDstAlpha = GL_ZERO;
+    GLint blendEquationRgb = GL_FUNC_ADD, blendEquationAlpha = GL_FUNC_ADD;
+    GLint cullFaceMode = GL_BACK, frontFace = GL_CCW;
+    GLint polygonMode[2] = { GL_FILL, GL_FILL };
+    GLint activeTexture = GL_TEXTURE0;
+    GLfloat polygonOffsetFactor = 0.0f, polygonOffsetUnits = 0.0f;
+    GLboolean depthTest = GL_FALSE, cullFace = GL_FALSE, blend = GL_FALSE;
+};
+
 struct ViewportInstance {
     uint32_t id = 1;
     std::string name = "3D Viewport";
@@ -82,6 +113,16 @@ struct ViewportInstance {
     Framebuffer pickingFbo;
     Framebuffer overlayFbo; // TAA display composite; never fed back into history
     ux3d::renderer::PickingRenderLayer overlayDepthLayer;
+    // C4: a copy of the unjittered overlay depth (same size, samples and D24S8 format as overlayFbo), restored into
+    // overlayFbo instead of rebuilding and redrawing it while its inputs are unchanged. The key, the opaque drawables
+    // the pass kept and dropped (it keeps those in the main pass's culled reverse mapping) and the GL state its draw
+    // left. Cleared whenever overlayFbo is released.
+    Framebuffer overlayDepthCache;
+    bool overlayDepthCacheValid = false;
+    ViewportPassCacheKey overlayDepthCacheKey;
+    std::vector<const ux3d::renderer::Mesh*> overlayDepthKept;
+    std::vector<const ux3d::renderer::Mesh*> overlayDepthDropped;
+    OverlayDepthGlState overlayDepthGlState;
     AntiAliasing antiAliasing;
     // SSR overlays meter a normally shaded scene, so diagnostic colours never drive EV.
     Framebuffer ssrExposureFbo;
@@ -91,6 +132,12 @@ struct ViewportInstance {
     SunShadowMap sunShadowMap;
     ux3d::renderer::ShadowCascadeSetup sunShadowSetup;
     bool sunShadowActive = false;
+    // C1: the cascades in sunShadowMap are reused while their inputs are unchanged (TAA settle renders, redraws for
+    // exposure adaptation, picking or --disable-redraw-skip): the key of the render that drew them and the
+    // parameters it handed to the command generator. Cleared whenever the map is released.
+    bool sunShadowCacheValid = false;
+    ViewportPassCacheKey sunShadowCacheKey;
+    ux3d::renderer::CommandGenerator::SunShadowParameters sunShadowCacheParameters;
 
     // A3.6: the ground plane of this viewport's last render (the plane is drawn only in shaded mode). The height
     // is the resolved plane height in scene units. groundAlbedo is the plane's average albedo, the value the A6.2

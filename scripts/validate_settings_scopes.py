@@ -6,7 +6,8 @@ and use the harness no-focus behavior except explicit GLIDER_DATA_DIR persistenc
 
 baseline: exact captures for default / legacy flags (Low's removed background gate is
 compared with an explicit equivalent background-off scene).
-pipe: canonical + compatibility CLI/pipe image equality and registry ranges.
+pipe: canonical + compatibility CLI/pipe image equality and registry ranges; frame-value edits (C2) run
+no renderer sync and render like the CLI flags.
 overrides: Quality off levels, Shaded vs Shaded+post and deprecated warned no-ops.
 viewports: shared ground, height, actual single ocean allocation/time, independent grid/shading.
 ui: all layer panels and presets, conditional controls, gear/status, vendor tuning, ID conflicts;
@@ -160,7 +161,6 @@ def follow(model, name, flags, lines, timeout=300, env_extra=None):
 
 # ---------------------------------------------------------------------------------------------
 
-PRESET_TOOLBAR_CASES = {"preset_low", "preset_ultra"}
 
 
 def check_baseline(baseline, quads, ssr):
@@ -204,14 +204,12 @@ def check_baseline(baseline, quads, ssr):
     }
     for name, (model, flags) in cases.items():
         current_flags = flags + (["--clear-color", "0.12,0.12,0.14"] if name == "preset_low" else [])
-        # With an explicit preset the baseline drew its Quality combo in the viewport toolbar row
-        # (7f9ff37 Viewports.cpp:224), 4 px taller than the small buttons: its viewport is 918x792. The
-        # combo now lives in the status bar, so the current build gets the same 918x792 viewport from a
-        # 4 px shorter window; the byte comparison is then of the same 3D image at the same size.
-        window = "1600x896" if name in PRESET_TOOLBAR_CASES else None
+        # The baseline is 69cf29b or later (three settings layers): same window and flags on both sides.
+        window = None
         current = cli_capture(EXE, model, f"base_cur_{name}", current_flags, show_grid=name == "default_startup_grid",
                               window=window)
-        reference = cli_capture(baseline, model, f"base_ref_{name}", flags, show_grid=name == "default_startup_grid")
+        reference = cli_capture(baseline, model, f"base_ref_{name}", current_flags,
+                                show_grid=name == "default_startup_grid")
         check(current is not None and same(current, reference), f"{name}: {' '.join(flags) or '(no flags)'}")
         if name in {"default_cube", "default_startup_grid", "preset_ultra", "preset_low"}:
             REVIEW.mkdir(parents=True,exist_ok=True)
@@ -324,6 +322,36 @@ def check_cli_equals_pipe(ssr):
                                                     f"capture {(OUT / 'script_ssr.png').as_posix()}", "quit"])
     script = OUT / "script_ssr.png"
     check(same(cli["ssr_off"], script), "--ui-script set_environment ssr false == CLI --ssr off")
+
+
+# C2 frame values: scene environment keys the frame reads. A pipe edit redraws without a renderer sync
+# (updateGltf/updateScene) and still renders exactly what the same values give from the command line.
+FRAME_VALUE_EDITS = [("sun_dir", [100, 40], ["--sun-dir", "100,40"]), ("exposure", 0.5, ["--exposure", "0.5"]),
+                     ("bloom_intensity", 0.2, ["--bloom-intensity", "0.2"]), ("ssao_intensity", 1.5, ["--ssao-intensity", "1.5"]),
+                     ("tone_mapping", "neutral", ["--tone-mapping", "neutral"])]
+
+
+def check_frame_values():
+    print("[C2 frame values: pipe edit = CLI launch, no renderer sync]")
+    start = NO_TAA + SUN + ["--ssao", "on"]
+    cli = cli_capture(EXE, None, "cli_frame_values", start + [flag for _, _, flags in FRAME_VALUE_EDITS for flag in flags])
+    session = Session(None, start)
+    try:
+        plain = session.capture("pipe_frame_values_before")
+        syncs = session.call("get_state")["sync"]["syncs"]
+        for key, value, _ in FRAME_VALUE_EDITS:
+            session.eset(key, value)
+        edited = session.capture("pipe_frame_values")
+        after = session.call("get_state")["sync"]["syncs"]
+        check(cli is not None and plain is not None and not same(plain, cli), "the frame-value edits change the image")
+        check(edited is not None and same(edited, cli), "frame values set over the pipe render exactly like the same CLI flags")
+        check(after == syncs, f"frame-value edits run no renderer sync (syncs {syncs} -> {after})")
+        session.eset("environment", "hdr")  # SettingSpec::resync: the environment source keeps the renderer sync
+        session.capture("pipe_frame_values_resync")
+        resynced = session.call("get_state")["sync"]["syncs"]
+        check(resynced > after, f"a resync key (environment) still runs the renderer sync (syncs {after} -> {resynced})")
+    finally:
+        session.close()
 
 
 def check_overrides():
@@ -775,6 +803,7 @@ def main():
             check(False, f"baseline {baseline} exists")
     if wanted("pipe"):
         check_cli_equals_pipe(ssr)
+        check_frame_values()
     if wanted("overrides"):
         check_overrides()
     if wanted("viewports"):

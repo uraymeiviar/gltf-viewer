@@ -293,7 +293,12 @@ void Application::registerAgentEnvironmentSettings()
     }
     addSetting(floatSetting<ES>("exposure_compensation", E, &ES::exposureCompensationEV,
                                               "Auto-exposure compensation in EV.", "--exposure-compensation <ev>"));
-    addSetting(boolSetting<ES>("background", E, &ES::showBackground, "Skybox background (off: clear colour).", "--clear-color disables it"));
+    {
+        SettingSpec spec = boolSetting<ES>("background", E, &ES::showBackground, "Skybox background (off: clear colour).",
+                                           "--clear-color disables it");
+        spec.resync = true; // C2: as the Inspector's Background (the layer's cube map, the environment load gate)
+        addSetting(std::move(spec));
+    }
     {
         SettingSpec spec;
         spec.key = "clear_color";
@@ -539,6 +544,7 @@ void Application::registerAgentEnvironmentSettings()
                                                 "--environment <hdr|sky>");
         spec.aliases = {"environment_source"};
         spec.enumAliases = {{"procedural", "sky"}, {"panorama", "hdr"}};
+        spec.resync = true; // C2: the source swaps the layer's environment (as the Inspector's Environment Source)
         addSetting(std::move(spec));
     }
     addSetting(floatSetting<ES>("sky_mie", E, &ES::skyMieDensity,

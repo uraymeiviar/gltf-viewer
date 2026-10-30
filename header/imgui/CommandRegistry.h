@@ -123,6 +123,11 @@ struct SettingSpec {
     // Optional: an app setting that is saved only on request. A pipe set changes this run only; while the client has
     // set_persist(true) the registry calls onPersist after a successful set so the setting commits that value.
     std::function<void()> onPersist;
+    // C2: a scene environment (Environment scope) value is a frame value: the frame reads it (drawViewports,
+    // resolveViewport, the sky / ocean / sky-occlusion keys), so a set marks SceneChange::Environment (redraw, TAA reset)
+    // without updateGltf/updateScene. resync keeps the RenderSettings mark (the renderer sync) for a key that changes
+    // what the renderer's model data is built against.
+    bool resync = false;
     nlohmann::json defaultValue;
     std::function<nlohmann::json(void* target)> get;
     std::function<bool(void* target, const nlohmann::json& value, std::string& error)> set;

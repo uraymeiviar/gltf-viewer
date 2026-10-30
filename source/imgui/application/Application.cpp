@@ -283,23 +283,9 @@ int Application::run(int argc, char** argv)
     viewports.push_back(std::make_unique<ux3d::imgui::ViewportInstance>(1, "3D Viewport", gladGL.get()));
     activeViewport = viewports[0].get();
 
-    auto envPath = resolveEnvironmentPath(rendererResourcesDir);
-    scenarioEnvironmentPath = envPath.toString().c_str();
-    auto& startupProfile = ux3d::imgui::profiling::startupProfile();
-    if ((ux3d::imgui::RenderQuality::allowIbl() || ux3d::imgui::RenderQuality::allowSkybox(true)) &&
-        ux3d::imgui::StdFileSystem::instance().isFile(envPath)) {
-        const auto environmentInitStart = ux3d::imgui::profiling::Clock::now();
-        gltfLayer->setEnvironmentMap(envPath);
-        startupProfile.environmentInitMs += ux3d::imgui::profiling::elapsedMs(environmentInitStart);
-        const auto environmentFilterStart = ux3d::imgui::profiling::Clock::now();
-        if (gltfLayer->filterEnvironmentMap()) {
-            startupProfile.environmentFilterMs += ux3d::imgui::profiling::elapsedMs(environmentFilterStart);
-            startupProfile.environmentLoads++;
-            scenarioEnvironmentLoaded = true;
-            commandGenerator->setIBLEnabled(true);
-            logMessage(std::string("Loaded default environment map: ") + ux3d::imgui::kDefaultEnvironmentFile);
-        }
-    }
+    // C13: the startup environment (the default HDR, an --env/--hdr file, or none for the procedural sky) is
+    // loaded once by configure(), after the flags that choose it are parsed (loadStartupEnvironment).
+    scenarioEnvironmentPath = resolveEnvironmentPath(rendererResourcesDir).toString().c_str();
 
     commandGenerator->setToneMapping(ux3d::renderer::ToneMappingsEnum::ACES_HILL);
     commandGenerator->setExposure(1.0f);

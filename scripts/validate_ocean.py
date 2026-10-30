@@ -151,15 +151,14 @@ def check_baseline(baseline):
     if baseline is None or not baseline.exists():
         check(False, f"baseline binary present ({baseline})")
         return
-    # The baseline's Plane hid the grid unless "grid on ground" was set. The grid is now an independent
-    # viewport overlay drawn at the scene ground height and shown by default (docs/SETTINGS_SCOPES.md,
-    # Viewport), so a plane case compares the current build with the grid hidden (--hide-grid) to the
-    # baseline: the same 3D image. A separate check proves the default now draws the grid on the plane.
+    # The grid is an independent viewport overlay drawn at the scene ground height and shown by default
+    # (docs/SETTINGS_SCOPES.md, Viewport). Plane cases render both builds with the grid hidden (--hide-grid;
+    # baseline 69cf29b or later) so they compare the 3D image; a separate check proves the default draws the grid.
     def grid_free(flags):
         return list(flags) + (["--hide-grid"] if "plane" in flags else [])
     for name, flags in (("hellocube_grid", []), ("hellocube_plane", ["--ground", "plane"]),
                         ("hellocube_plane_sun", ["--ground", "plane", "--sun", "on", "--sun-dir", "40,35"])):
-        a, _, _ = render(None, f"base_{name}", flags, exe=baseline)
+        a, _, _ = render(None, f"base_{name}", grid_free(flags), exe=baseline)
         b, _, _ = render(None, f"cur_{name}", grid_free(flags))
         suffix = " (current with --hide-grid)" if "plane" in flags else ""
         check(same(a, b), f"HelloCube {' '.join(flags) or '(default grid)'}: byte-identical to {baseline.stem}{suffix}")
@@ -169,7 +168,7 @@ def check_baseline(baseline):
                   "HelloCube --ground plane: the viewport grid overlay is drawn on the plane by default")
     entry = view("exterior_fuselage_nose")
     for name, flags in (("grid", []), ("plane_sun", ["--ground", "plane", "--sun", "on", "--sun-dir", "40,35"])):
-        a = render_view(baseline, entry, f"base_e195_{name}", flags, folder=OUT)
+        a = render_view(baseline, entry, f"base_e195_{name}", grid_free(flags), folder=OUT)
         b = render_view(EXE, entry, f"cur_e195_{name}", grid_free(flags), folder=OUT)
         check(a is not None and same(a, b), f"E195 exterior_fuselage_nose {' '.join(flags) or '(default)'}: "
                                             f"byte-identical to {baseline.stem}"

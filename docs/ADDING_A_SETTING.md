@@ -44,8 +44,13 @@ the flag needs its own parser branch. Decide the scope first ([SETTINGS_SCOPES.m
    ```
 3. CLI: branch with `SettingScope::Environment` (`CommandLine.cpp:675`). `applyCliSetting` records it in `cliEnvironmentSettings`, which
    is replayed onto every scene after the model load (`CommandLine.cpp` ~1201); nothing more to do.
-4. UI: `SceneInspector.cpp` (`renderSunDisk`, `:818`), then `revisions.mark(SceneChange::RenderSettings);`. The registry path marks
-   `RenderSettings` and resets TAA on all viewports. Add `UiProbe::item("scene.sun_disk.scale", 0)` for scripted UI checks.
+4. UI: `SceneInspector.cpp` (`renderSunDisk`, `:818`), then `revisions.mark(SceneChange::Environment);`. The registry path marks
+   `Environment` and resets TAA on all viewports. Add `UiProbe::item("scene.sun_disk.scale", 0)` for scripted UI checks.
+   A scene value is a frame value: the frame reads it (`drawViewports`, `resolveViewport`, the sky / ocean / sky-occlusion keys),
+   so it redraws without `updateGltf`/`updateScene` ([Phase 9](RENDERER_OPTIMIZATION_PHASE_9.md) C2). Only a value that
+   changes what the renderer's model data is built against marks `RenderSettings` (UI) and sets `spec.resync = true`
+   (registry), as the environment source, the background and an HDR file load do; `validate_settings_scopes.py` (pipe group) checks that
+   frame-value edits run no renderer sync and render like the CLI flags.
 5. `get_state`: hand-written blocks in `CommandsState.cpp` (`sun.disk`, `:292`); add the field if it explains a rendered result.
    Not persisted: the environment resets on a model open (effects survive).
 6. Test: the area validator (`validate_sun_disk.py`: `session.env(...)`, refused values, CLI equals pipe). A new area gets a

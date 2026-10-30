@@ -19,8 +19,55 @@
 #include <ImGuizmo.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <unordered_set>
 
 namespace ux3d::imgui::application {
+
+namespace {
+// C4: the GL state the overlay-depth draw leaves (the renderer sets these per command; the grid and box overlays
+// drawn after it inherit the ones they do not set), captured when the pass runs and restored when it is skipped.
+ux3d::imgui::OverlayDepthGlState captureOverlayDepthGlState()
+{
+    ux3d::imgui::OverlayDepthGlState state;
+    glGetIntegerv(GL_DEPTH_FUNC, &state.depthFunc);
+    glGetIntegerv(GL_BLEND_SRC_RGB, &state.blendSrcRgb);
+    glGetIntegerv(GL_BLEND_DST_RGB, &state.blendDstRgb);
+    glGetIntegerv(GL_BLEND_SRC_ALPHA, &state.blendSrcAlpha);
+    glGetIntegerv(GL_BLEND_DST_ALPHA, &state.blendDstAlpha);
+    glGetIntegerv(GL_BLEND_EQUATION_RGB, &state.blendEquationRgb);
+    glGetIntegerv(GL_BLEND_EQUATION_ALPHA, &state.blendEquationAlpha);
+    glGetIntegerv(GL_CULL_FACE_MODE, &state.cullFaceMode);
+    glGetIntegerv(GL_FRONT_FACE, &state.frontFace);
+    glGetIntegerv(GL_POLYGON_MODE, state.polygonMode);
+    glGetIntegerv(GL_ACTIVE_TEXTURE, &state.activeTexture);
+    glGetFloatv(GL_POLYGON_OFFSET_FACTOR, &state.polygonOffsetFactor);
+    glGetFloatv(GL_POLYGON_OFFSET_UNITS, &state.polygonOffsetUnits);
+    state.depthTest = glIsEnabled(GL_DEPTH_TEST);
+    state.cullFace = glIsEnabled(GL_CULL_FACE);
+    state.blend = glIsEnabled(GL_BLEND);
+    return state;
+}
+
+void restoreOverlayDepthGlState(const ux3d::imgui::OverlayDepthGlState& state)
+{
+    glDepthFunc(static_cast<GLenum>(state.depthFunc));
+    glBlendFuncSeparate(static_cast<GLenum>(state.blendSrcRgb), static_cast<GLenum>(state.blendDstRgb),
+                        static_cast<GLenum>(state.blendSrcAlpha), static_cast<GLenum>(state.blendDstAlpha));
+    glBlendEquationSeparate(static_cast<GLenum>(state.blendEquationRgb), static_cast<GLenum>(state.blendEquationAlpha));
+    glCullFace(static_cast<GLenum>(state.cullFaceMode));
+    glFrontFace(static_cast<GLenum>(state.frontFace));
+    glPolygonMode(GL_FRONT_AND_BACK, static_cast<GLenum>(state.polygonMode[0]));
+    glActiveTexture(static_cast<GLenum>(state.activeTexture));
+    glPolygonOffset(state.polygonOffsetFactor, state.polygonOffsetUnits);
+    if (state.depthTest) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
+    if (state.cullFace) glEnable(GL_CULL_FACE); else glDisable(GL_CULL_FACE);
+    if (state.blend) glEnable(GL_BLEND); else glDisable(GL_BLEND);
+    // The renderer's resetState leaves these after every draw (CommandExecutor::resetState).
+    glDepthMask(GL_TRUE);
+    glDisable(GL_POLYGON_OFFSET_FILL);
+    glDisable(GL_COLOR_LOGIC_OP);
+}
+} // namespace
 
 void Application::resolveAllViewportSettings()
 {
@@ -94,6 +141,8 @@ void Application::drawViewports(FrameContext& frame)
             scenarioEnvironmentLoaded = false;
             if (ux3d::imgui::StdFileSystem::instance().isFile(desiredEnvPath)) {
                 gltfLayer->setEnvironmentMap(desiredEnvPath);
+                if (ux3d::imgui::profiling::countingEnabled())
+                    ++ux3d::imgui::profiling::frameCounters().environmentReloads;
                 if (gltfLayer->filterEnvironmentMap()) {
                     scenarioEnvironmentLoaded = true;
                     sceneRevisions.mark(ux3d::imgui::SceneChange::RenderSettings);
@@ -169,9 +218,12 @@ void Application::drawViewports(FrameContext& frame)
         if (!vp->isOpen) {
             vp->antiAliasing.releaseTargets();
             vp->overlayFbo = ux3d::imgui::Framebuffer();
+            vp->overlayDepthCache = ux3d::imgui::Framebuffer();
+            vp->overlayDepthCacheValid = false;
             vp->hasCachedImage = false;
             vp->sunShadowMap.release();
             vp->sunShadowActive = false;
+            vp->sunShadowCacheValid = false;
             vp->ambientOcclusion.release();
             vp->ssaoActive = false;
             vp->ocean.reset();
@@ -191,9 +243,12 @@ void Application::drawViewports(FrameContext& frame)
         if (!vp->isOpen) {
             vp->antiAliasing.releaseTargets();
             vp->overlayFbo = ux3d::imgui::Framebuffer();
+            vp->overlayDepthCache = ux3d::imgui::Framebuffer();
+            vp->overlayDepthCacheValid = false;
             vp->hasCachedImage = false;
             vp->sunShadowMap.release();
             vp->sunShadowActive = false;
+            vp->sunShadowCacheValid = false;
             vp->ambientOcclusion.release();
             vp->ssaoActive = false;
             vp->ocean.reset();
@@ -592,7 +647,7 @@ void Application::drawViewports(FrameContext& frame)
             {
                 const auto shadowStart = ux3d::imgui::profiling::Clock::now();
                 updateSunShadows(*vp, frame, view, proj, activeEnvironment, !isWireframeMode, vpW, vpH,
-                                 groundSurface ? std::optional<float>(groundHeight) : std::nullopt);
+                                 groundSurface ? std::optional<float>(groundHeight) : std::nullopt, renderKey);
                 if (vp->sunShadowActive) frame.markStage("shadow.render", shadowStart);
             }
 
@@ -1177,7 +1232,12 @@ void Application::drawViewports(FrameContext& frame)
             // A6.4b: capture runs snap the physically based Auto to its meter on every frame (no adaptation history, so
             // the CLI and the pipe end in the same image).
             if (postParams.physicalExposure && s_deterministicExposure) postParams.snapExposure = true;
-            vp->antiAliasing.renderPostProcess(hdrTexture, vp->overlayFbo.getFbo(), vpW, vpH, postParams);
+            {
+                // Exposure metering (with its readbacks), bloom, lens flare and tone mapping.
+                const auto postProcessStart = ux3d::imgui::profiling::Clock::now();
+                vp->antiAliasing.renderPostProcess(hdrTexture, vp->overlayFbo.getFbo(), vpW, vpH, postParams);
+                frame.markStage("post.process", postProcessStart);
+            }
             vp->displayedExposureEv = postParams.autoExposure ? vp->antiAliasing.getAdaptedExposureEv() : postParams.exposureEv;
             if (postParams.autoExposure && postParams.physicalExposure && vp->antiAliasing.hasAdaptedExposure()) {
                 // A6.4b: the next render's pre-exposure: 2^round(adapted EV), a power of two (exact in floating point,
@@ -1214,35 +1274,125 @@ void Application::drawViewports(FrameContext& frame)
                 vp->settings.showGrid || hasSceneBbox ||
                 hasSelectedBbox || drawWireframe;
 
+            const auto overlayDepthStart = ux3d::imgui::profiling::Clock::now();
             if (hasOverlays) {
                 // The ground plane is in the scene depth, so overlays (the grid on the ground at the plane's own
                 // height, boxes) test against the opaque model only, rebuilt with the unjittered camera.
                 if (isTaa || groundSurface) {
                     vp->overlayFbo.bind();
                     glDepthMask(GL_TRUE);
-                    glClear(GL_DEPTH_BUFFER_BIT);
                     // Rebuild opaque depth with the unjittered camera. Reusing jittered
                     // scene depth would still make grid/box occlusion flicker at edges.
                     if (!isWireframeMode) {
-                        auto [depthScene, depthMapping] = gltfLayer->createScene(activeScene);
-                        for (auto it = depthScene.drawables.begin(); it != depthScene.drawables.end();) {
-                            auto [mesh, material] = *it;
-                            if (!material || !material->renderPass ||
-                                material->renderPass->getId() != ux3d::renderer::RenderPassType::Opaque ||
-                                !currentReverseMapping.contains(mesh)) {
-                                it = depthScene.drawables.erase(it);
-                            } else ++it;
+                        // C4: the unjittered depth depends only on the render key's data (model, pose, visibility,
+                        // materials, unjittered camera, size, settings), the quality, the overlay target and the
+                        // opaque drawables the main pass kept (its culled reverse mapping). While all of them are
+                        // unchanged (TAA settle renders), the previous result is copied back instead of rebuilt;
+                        // the boxes and wire lines drawn after it write depth, so it is restored on every render.
+                        ux3d::imgui::ViewportPassCacheKey depthKey;
+                        depthKey.render = renderKey;
+                        depthKey.render.environment.oceanSimulation.reset(); // the key must not keep the ocean alive
+                        depthKey.quality = ux3d::imgui::RenderQuality::effective();
+                        depthKey.samples = vp->overlayFbo.getSamples();
+                        // A copy writes every pixel; the rebuild clears and draws inside an enabled scissor only.
+                        const bool scissor = glIsEnabled(GL_SCISSOR_TEST) == GL_TRUE;
+                        const bool cacheUsable = !s_disablePassCache && !scissor && vp->overlayFbo.isValid();
+                        bool reuse = cacheUsable && vp->overlayDepthCacheValid && depthKey == vp->overlayDepthCacheKey &&
+                                     vp->overlayDepthCache.isValid() && vp->overlayDepthCache.getWidth() == vpW &&
+                                     vp->overlayDepthCache.getHeight() == vpH &&
+                                     vp->overlayDepthCache.getSamples() == vp->overlayFbo.getSamples();
+                        // The main pass culls with the jittered projection, so meshes at the frustum edge enter and
+                        // leave its reverse mapping between settle renders. Opaque depth is drawn with LEQUAL and
+                        // full depth writes (OpaquePass), so the buffer is the per-sample minimum over the drawn
+                        // fragments and does not depend on draw order: the cache may hold a subset of today's
+                        // drawables and the missing ones are drawn on top of the copy. A kept mesh that left the
+                        // mapping cannot be taken out of the copy, so that rebuilds it.
+                        std::unordered_set<const ux3d::renderer::Mesh*> extras;
+                        if (reuse) {
+                            for (const auto* mesh : vp->overlayDepthKept) {
+                                if (!currentReverseMapping.contains(const_cast<ux3d::renderer::Mesh*>(mesh))) { reuse = false; break; }
+                            }
                         }
-                        auto& depthLayer = vp->overlayDepthLayer;
-                        depthLayer.pickingOnly = true;
-                        depthLayer.prePass = [&] { vp->overlayFbo.bind(); };
-                        depthLayer.postPass = [] {};
-                        depthScene = depthLayer.applyLayer(std::move(depthScene));
-                        commandGenerator->update(depthScene);
-                        glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
-                        glRenderer->setGpuFrameContext(frame.number, vp->id, "overlay-depth");
-                        glRenderer->draw({commandGenerator.get()});
-                        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+                        if (reuse) {
+                            for (const auto* mesh : vp->overlayDepthDropped) {
+                                if (currentReverseMapping.contains(const_cast<ux3d::renderer::Mesh*>(mesh))) extras.insert(mesh);
+                            }
+                        }
+                        if (reuse) {
+                            glBindFramebuffer(GL_READ_FRAMEBUFFER, vp->overlayDepthCache.getFbo());
+                            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, vp->overlayFbo.getFbo());
+                            glBlitFramebuffer(0, 0, vpW, vpH, 0, 0, vpW, vpH, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+                            if (!extras.empty()) {
+                                auto [depthScene, depthMapping] = gltfLayer->createScene(activeScene);
+                                if (ux3d::imgui::profiling::countingEnabled())
+                                    ++ux3d::imgui::profiling::frameCounters().overlayDepthSceneBuilds;
+                                for (auto it = depthScene.drawables.begin(); it != depthScene.drawables.end();) {
+                                    if (!extras.contains(std::get<0>(*it))) {
+                                        it = depthScene.drawables.erase(it);
+                                    } else ++it;
+                                }
+                                auto& depthLayer = vp->overlayDepthLayer;
+                                depthLayer.pickingOnly = true;
+                                depthLayer.prePass = [&] { vp->overlayFbo.bind(); };
+                                depthLayer.postPass = [] {};
+                                depthScene = depthLayer.applyLayer(std::move(depthScene));
+                                commandGenerator->update(depthScene);
+                                glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+                                glRenderer->setGpuFrameContext(frame.number, vp->id, "overlay-depth");
+                                glRenderer->draw({commandGenerator.get()});
+                                glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+                            } else {
+                                vp->overlayFbo.bind();
+                            }
+                            restoreOverlayDepthGlState(vp->overlayDepthGlState);
+                            if (ux3d::imgui::profiling::countingEnabled())
+                                ++ux3d::imgui::profiling::frameCounters().overlayDepthCacheHits;
+                        } else {
+                            vp->overlayDepthCacheValid = false;
+                            glClear(GL_DEPTH_BUFFER_BIT);
+                            auto [depthScene, depthMapping] = gltfLayer->createScene(activeScene);
+                            if (ux3d::imgui::profiling::countingEnabled())
+                                ++ux3d::imgui::profiling::frameCounters().overlayDepthSceneBuilds;
+                            vp->overlayDepthKept.clear();
+                            vp->overlayDepthDropped.clear();
+                            for (auto it = depthScene.drawables.begin(); it != depthScene.drawables.end();) {
+                                auto [mesh, material] = *it;
+                                const bool opaque = material && material->renderPass &&
+                                                    material->renderPass->getId() == ux3d::renderer::RenderPassType::Opaque;
+                                const bool culledIn = opaque && currentReverseMapping.contains(mesh);
+                                if (opaque) (culledIn ? vp->overlayDepthKept : vp->overlayDepthDropped).push_back(mesh);
+                                if (!culledIn) {
+                                    it = depthScene.drawables.erase(it);
+                                } else ++it;
+                            }
+                            auto& depthLayer = vp->overlayDepthLayer;
+                            depthLayer.pickingOnly = true;
+                            depthLayer.prePass = [&] { vp->overlayFbo.bind(); };
+                            depthLayer.postPass = [] {};
+                            depthScene = depthLayer.applyLayer(std::move(depthScene));
+                            commandGenerator->update(depthScene);
+                            glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+                            glRenderer->setGpuFrameContext(frame.number, vp->id, "overlay-depth");
+                            glRenderer->draw({commandGenerator.get()});
+                            glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+                            if (cacheUsable && glIsEnabled(GL_SCISSOR_TEST) == GL_FALSE) {
+                                vp->overlayDepthGlState = captureOverlayDepthGlState();
+                                GLint boundTexture = 0;
+                                glGetIntegerv(GL_TEXTURE_BINDING_2D, &boundTexture);
+                                vp->overlayDepthCache.resize(vpW, vpH, vp->overlayFbo.getSamples(), false);
+                                glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(boundTexture));
+                                if (vp->overlayDepthCache.isValid() &&
+                                    vp->overlayDepthCache.getSamples() == vp->overlayFbo.getSamples()) {
+                                    glBindFramebuffer(GL_READ_FRAMEBUFFER, vp->overlayFbo.getFbo());
+                                    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, vp->overlayDepthCache.getFbo());
+                                    glBlitFramebuffer(0, 0, vpW, vpH, 0, 0, vpW, vpH, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+                                    vp->overlayDepthCacheKey = std::move(depthKey);
+                                    vp->overlayDepthCacheValid = true;
+                                }
+                            }
+                        }
+                    } else {
+                        glClear(GL_DEPTH_BUFFER_BIT);
                     }
                 } else {
                     glDisable(GL_SCISSOR_TEST);
@@ -1251,6 +1401,7 @@ void Application::drawViewports(FrameContext& frame)
                     glBlitFramebuffer(0, 0, vpW, vpH, 0, 0, vpW, vpH, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
                 }
                 vp->overlayFbo.bind();
+                frame.markStage("overlay.depth", overlayDepthStart);
             }
 
             if (drawWireframe) {

@@ -817,6 +817,12 @@ void Application::registerAgentCommands()
         if (affected == SettingScope::Viewport) {
             vp->antiAliasing.resetHistory();
             sceneRevisions.mark(ux3d::imgui::SceneChange::ViewportSettings);
+        } else if (affected == SettingScope::Environment && !spec->resync) {
+            // C2: a frame value (SettingSpec::resync): redraw every viewport without a renderer sync.
+            sceneRevisions.mark(ux3d::imgui::SceneChange::Environment);
+            for (const auto& other : viewports) {
+                if (other) other->antiAliasing.resetHistory();
+            }
         } else {
             sceneRevisions.mark(ux3d::imgui::SceneChange::RenderSettings);
             for (const auto& other : viewports) {

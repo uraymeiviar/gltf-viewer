@@ -85,6 +85,7 @@ scene ground, viewport postEffects and vendor tuning while retaining old diagnos
 - `--wireframe-blend <normal|additive|invert|xor>`: blend mode for wireframe lines drawn into the LDR overlay target (default normal).
 
 - `--disable-wireframe-cache`: same-binary A/B reference; copy wireframe materials per drawable on every redraw instead of reusing per-viewport variants. `wireframeMaterialCopies` in profile frame counters reports actual copies.
+- `--disable-pass-cache`: same-binary A/B reference; redraw every viewport's sun shadow cascades and its unjittered overlay depth on every render instead of reusing them while the viewport's render key, the effective quality and (overlay depth) the main pass's opaque drawables are unchanged (TAA settle renders; [Phase 9](RENDERER_OPTIMIZATION_PHASE_9.md)). Profile frame counters: `shadowSceneBuilds` / `shadowCacheHits` (caster scene builds and reused cascade sets) and `overlayDepthSceneBuilds` / `overlayDepthCacheHits` (overlay-depth scene builds, including the few edge drawables drawn over a reused copy, and reuses); stages `overlay.depth` and `post.process`; `environmentReloads` counts HDR loads in `drawViewports` (startup loads are `startup.environmentLoads`).
 
 ## Capture & diagnostics
 
@@ -245,6 +246,7 @@ Short forms of flags whose longer documentation lives in the phase documents (`R
 - `--select-image <name|#id|uri-substring>`, `--select-texture <name|id>`: select that image / texture on startup (the image also matches a part of its uri).
 - `--rename-node <old=new>`, `--rename-mesh <old=new>`, `--rename-material <old=new>`: after loading, rename the first element whose name is exactly `old` in memory (prints `Renamed ...`); an element that is not found is left alone.
 - `--hdr <file>` is an alias of `--env <file>`; `--anti-aliasing <mode>` is an alias of `--aa`.
+- Startup environment ([Phase 9](RENDERER_OPTIMIZATION_PHASE_9.md) C13): the environment is decoded and filtered once, after all flags are read: the last `--env`/`--hdr` file that loads, else the default HDR, filtered with the sun removal the first frame wants (`--sun on` no longer filters twice). With `--environment sky` (and the IBL or the background allowed) no HDR is decoded at startup; `drawViewports` loads it when the HDR source is selected. `startup.environmentLoads` in `--profile-report` counts the startup loads (1 by default and with `--env`, 0 with the sky).
 - `--sampler-selfcheck-case`, `--vao-selfcheck-case`, `--cull-winding-selfcheck-case`, `--depth-selfcheck-case`, `--blend-selfcheck-case <name>`: run only one case of the matching `--*-selfcheck <report.txt>` (default `all`; e.g. sampler: `fallback`, `unit`, `production-draw`, `boundary`, `lifecycle`; VAO: `steady-state`, `scaling`, `indexing`, `attributes`, `shader-variants`, `invalidation`, `lifecycle`, `boundary`; depth and blend: `transitions`, `correctness`, `boundary`, `integration`). `--blend-selfcheck <report.txt>` is the blending-state-cache self-check of the same family. `--sampler-dump-pattern <image.png>` makes the sampler self-check write its representative patterned frame there.
 
 ## Test hooks & environment variables

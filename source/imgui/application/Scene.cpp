@@ -649,6 +649,69 @@ ux3d::filesystem::Path Application::resolveHdrPath(const std::string& hdrPath,
     return ux3d::imgui::StdFileSystem::instance().toPath(hdrPath.c_str());
 }
 
+void Application::loadStartupEnvironment(const std::vector<std::string>& hdrRequests, bool& cliHdrProvided,
+                                         std::string& cliHdrPath)
+{
+    using ux3d::imgui::RenderQuality;
+    auto& startupProfile = ux3d::imgui::profiling::startupProfile();
+    auto& fs = ux3d::imgui::StdFileSystem::instance();
+    auto& environment = getSceneEnvironment(sceneEnvironments, gltfModel, activeScene);
+    // The first frame's drawViewports keeps the environment it finds when the path and the A3.1 sun removal are the
+    // ones it wants; it only looks while the IBL or the background is allowed. Filter with that sun removal now so
+    // the first frame does not decode and filter the same file again.
+    const bool firstFrameChecks = RenderQuality::allowIbl() || RenderQuality::allowSkybox(environment.showBackground);
+    if (firstFrameChecks) {
+        gltfLayer->setEnvironmentSunRemoval(ux3d::imgui::effectiveSunSource(environment) != ux3d::imgui::SunSource::Off);
+    }
+    // While the procedural sky is the source (and drawn), the first frame attaches the sky's environment in place of
+    // any HDR: the HDR is left for drawViewports to load when the HDR source is chosen.
+    const bool skyReplacesHdr =
+        environment.environmentSource == static_cast<int>(ux3d::imgui::EnvironmentSource::ProceduralSky) && firstFrameChecks;
+    const bool allowed = RenderQuality::allowIbl() || RenderQuality::allowSkybox(true);
+
+    const auto load = [&](const ux3d::filesystem::Path& path) {
+        scenarioEnvironmentPath = path.toString().c_str();
+        scenarioEnvironmentLoaded = false;
+        const auto environmentInitStart = ux3d::imgui::profiling::Clock::now();
+        gltfLayer->setEnvironmentMap(path);
+        startupProfile.environmentInitMs += ux3d::imgui::profiling::elapsedMs(environmentInitStart);
+        const auto environmentFilterStart = ux3d::imgui::profiling::Clock::now();
+        if (!gltfLayer->filterEnvironmentMap()) return false;
+        startupProfile.environmentFilterMs += ux3d::imgui::profiling::elapsedMs(environmentFilterStart);
+        startupProfile.environmentLoads++;
+        scenarioEnvironmentLoaded = true;
+        commandGenerator->setIBLEnabled(true);
+        return true;
+    };
+
+    // --env/--hdr: the last file that loads (as when each flag loaded in turn); it replaces the default HDR.
+    for (auto it = hdrRequests.rbegin(); it != hdrRequests.rend(); ++it) {
+        const auto path = fs.toPath(it->c_str());
+        if (skyReplacesHdr) {
+            if (!fs.isFile(path)) continue;
+        } else if (!load(path)) {
+            continue;
+        } else {
+            logMessage("Loaded environment map: " + *it);
+        }
+        cliHdrProvided = true;
+        cliHdrPath = *it;
+        environment.currentHdrPath = *it;
+        break;
+    }
+    if (cliHdrProvided && !skyReplacesHdr) return;
+
+    const auto envPath = resolveEnvironmentPath(rendererResourcesDir);
+    if (!allowed || !fs.isFile(envPath)) return;
+    if (skyReplacesHdr) {
+        // The IBL switch the default HDR's load turned on; the sky's environment is attached on the first frame.
+        commandGenerator->setIBLEnabled(true);
+        logMessage("Procedural sky: the HDR environment map is loaded when it is selected");
+        return;
+    }
+    if (load(envPath)) logMessage(std::string("Loaded default environment map: ") + ux3d::imgui::kDefaultEnvironmentFile);
+}
+
 std::string Application::resolveSampleModelPath()
 {
     auto& fs = ux3d::imgui::StdFileSystem::instance();

@@ -38,7 +38,7 @@ void renderSceneGround(SceneEnvironmentState& env, SceneRevisions& revisions) {
                 ImGui::BeginDisabled(unavailable);
                 if (ImGui::Selectable(groundNames[i], static_cast<int>(ground.mode) == i)) {
                     ground.mode = static_cast<GroundMode>(i);
-                    revisions.mark(SceneChange::RenderSettings);
+                    revisions.mark(SceneChange::Environment);
                 }
                 ImGui::EndDisabled();
                 if (unavailable && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
@@ -52,11 +52,11 @@ void renderSceneGround(SceneEnvironmentState& env, SceneRevisions& revisions) {
             int heightMode = static_cast<int>(ground.heightMode);
             if (probed("scene.ground.height", [&] { return ImGui::Combo("Height", &heightMode, heightNames, IM_ARRAYSIZE(heightNames)); })) {
                 ground.heightMode = static_cast<GroundHeightMode>(heightMode);
-                revisions.mark(SceneChange::RenderSettings);
+                revisions.mark(SceneChange::Environment);
             }
             if (ground.heightMode == GroundHeightMode::Custom) {
                 if (probed("scene.ground.custom_height", [&] { return ImGui::DragFloat("Height (scene units)", &ground.customHeight, 0.01f, -1.0e6f, 1.0e6f, "%.3f"); })) {
-                    revisions.mark(SceneChange::RenderSettings);
+                    revisions.mark(SceneChange::Environment);
                 }
             }
         }
@@ -78,41 +78,41 @@ void renderSceneGround(SceneEnvironmentState& env, SceneRevisions& revisions) {
                 });
             }
             if (probed("scene.ocean.wind_speed", [&] { return ImGui::SliderFloat("Wind speed (m/s)##oceanWindSpeed", &ocean.windSpeed, 0.5f, 40.0f, "%.1f"); })) {
-                revisions.mark(SceneChange::RenderSettings);
+                revisions.mark(SceneChange::Environment);
             }
             if (probed("scene.ocean.wind_dir", [&] { return ImGui::SliderFloat("Wind from (deg)##oceanWindDirection", &ocean.windDirection, 0.0f, 360.0f, "%.0f"); })) {
-                revisions.mark(SceneChange::RenderSettings);
+                revisions.mark(SceneChange::Environment);
             }
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("The direction the wind comes from, around +Y from +Z towards +X (the sun's azimuth). The waves travel the other way.");
             }
             if (probed("scene.ocean.choppiness", [&] { return ImGui::SliderFloat("Choppiness##oceanChoppiness", &ocean.choppiness, 0.0f, 2.0f, "%.2f"); })) {
-                revisions.mark(SceneChange::RenderSettings);
+                revisions.mark(SceneChange::Environment);
             }
             if (probed("scene.ocean.swell", [&] { return ImGui::SliderFloat("Swell##oceanSwell", &ocean.swell, 0.0f, 1.0f, "%.2f"); })) {
-                revisions.mark(SceneChange::RenderSettings);
+                revisions.mark(SceneChange::Environment);
             }
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("Narrows the directional spread of the waves (long, parallel swell).");
             }
             if (probed("scene.ocean.foam", [&] { return ImGui::SliderFloat("Foam amount##oceanFoam", &ocean.foam, 0.0f, 1.0f, "%.2f"); })) {
-                revisions.mark(SceneChange::RenderSettings);
+                revisions.mark(SceneChange::Environment);
             }
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("Whitecaps. 0.5 is the coverage observed at this wind speed (about 1%% at 10 m/s, 10%% at 20 m/s); 1 is four times that.");
             }
             if (probed("scene.ocean.color", [&] { return ImGui::ColorEdit3("Water colour##oceanColor", &ocean.color.x, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR); })) {
-                revisions.mark(SceneChange::RenderSettings);
+                revisions.mark(SceneChange::Environment);
             }
             ImGui::BeginDisabled(ocean.live);
             if (probed("scene.ocean.period", [&] { return ImGui::DragFloat("Loop period (s)##oceanPeriod", &ocean.period, 0.5f, 5.0f, 120.0f, "%.1f"); })) {
                 ocean.period = std::clamp(ocean.period, 5.0f, 120.0f);
-                revisions.mark(SceneChange::RenderSettings);
+                revisions.mark(SceneChange::Environment);
             }
             ImGui::EndDisabled();
             if (probed("scene.ocean.fetch", [&] { return ImGui::DragFloat("Fetch (m)##oceanFetch", &ocean.fetch, 100.0f, 1000.0f, 1.0e7f, "%.0f", ImGuiSliderFlags_Logarithmic); })) {
                 ocean.fetch = std::clamp(ocean.fetch, 1000.0f, 1.0e7f);
-                revisions.mark(SceneChange::RenderSettings);
+                revisions.mark(SceneChange::Environment);
             }
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("Distance the wind has blown over. Beyond full development (about 22000 x U^2 / g) it changes nothing.");
@@ -121,7 +121,7 @@ void renderSceneGround(SceneEnvironmentState& env, SceneRevisions& revisions) {
             ImGui::SameLine();
             if (probed("scene.ocean.reset", [&] { return ImGui::Button("Reset ocean##oceanReset"); })) {
                 ocean = OceanSettings();
-                revisions.mark(SceneChange::RenderSettings);
+                revisions.mark(SceneChange::Environment);
             }
             if (ocean.time >= 0.0f) {
                 ImGui::TextDisabled("Time pinned at %.2f s (--ocean-time).", ocean.time);
@@ -147,33 +147,33 @@ void renderSceneGround(SceneEnvironmentState& env, SceneRevisions& revisions) {
                 for (size_t i = 0; i < groundPresets().size(); ++i) {
                     if (ImGui::Selectable(groundPresets()[i].label.data(), static_cast<size_t>(preset) == i)) {
                         ground.applyPreset(static_cast<GroundPreset>(i));
-                        revisions.mark(SceneChange::RenderSettings);
+                        revisions.mark(SceneChange::Environment);
                     }
                 }
                 ImGui::EndCombo();
             }
             if (probed("scene.ground.albedo", [&] { return ImGui::ColorEdit3("Albedo", &ground.albedo.x, ImGuiColorEditFlags_Float); })) {
                 ground.preset = GroundPreset::Custom;
-                revisions.mark(SceneChange::RenderSettings);
+                revisions.mark(SceneChange::Environment);
             }
             if (probed("scene.ground.roughness", [&] { return ImGui::SliderFloat("Roughness", &ground.roughness, 0.0f, 1.0f, "%.2f"); })) {
                 ground.preset = GroundPreset::Custom;
-                revisions.mark(SceneChange::RenderSettings);
+                revisions.mark(SceneChange::Environment);
             }
             if (probed("scene.ground.detail", [&] { return ImGui::SliderFloat("Detail", &ground.detail, 0.0f, 1.0f, "%.2f"); })) {
                 ground.preset = GroundPreset::Custom;
-                revisions.mark(SceneChange::RenderSettings);
+                revisions.mark(SceneChange::Environment);
             }
             if (probed("scene.ground.detail_size", [&] { return ImGui::DragFloat("Detail size", &ground.detailScale, 0.01f, 0.0001f, 1.0e6f, "%.3f", ImGuiSliderFlags_Logarithmic); })) {
                 ground.preset = GroundPreset::Custom;
-                revisions.mark(SceneChange::RenderSettings);
+                revisions.mark(SceneChange::Environment);
             }
             if (probed("scene.ground.joints", [&] { return ImGui::DragFloat("Joint spacing", &ground.jointSpacing, 0.05f, 0.0f, 1.0e6f, ground.jointSpacing > 0.0f ? "%.2f" : "None"); })) {
                 ground.preset = GroundPreset::Custom;
-                revisions.mark(SceneChange::RenderSettings);
+                revisions.mark(SceneChange::Environment);
             }
             if (probed("scene.ground.haze", [&] { return ImGui::DragFloat("Haze distance", &ground.haze, 1.0f, 0.0f, 1.0e9f, ground.haze > 0.0f ? "%.0f" : "Auto", ImGuiSliderFlags_Logarithmic); })) {
-                revisions.mark(SceneChange::RenderSettings);
+                revisions.mark(SceneChange::Environment);
             }
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("Distance at which the plane has faded 98%% into the horizon colour. 0 = automatic (0.9 x far plane).");
@@ -196,7 +196,7 @@ void SceneInspector::renderSun(SceneEnvironmentState& env, ux3d::renderer::GltfR
     int choice = procedural ? (source == SunSource::Clock ? 1 : 0) : static_cast<int>(source);
     if (ImGui::Combo("Sun Source##sun_source", &choice, procedural ? "Manual\0Time of Day\0" : "Off\0From HDR\0Manual\0Time of Day\0")) {
         selectSunSource(env, procedural ? (choice == 1 ? SunSource::Clock : SunSource::Manual) : static_cast<SunSource>(choice));
-        revisions.mark(SceneChange::RenderSettings);
+        revisions.mark(SceneChange::Environment);
     }
     UiProbe::item("scene.sun.source", 0);
     if (procedural) ImGui::TextDisabled("Colour and intensity come from the atmosphere.");
@@ -228,20 +228,20 @@ void SceneInspector::renderSun(SceneEnvironmentState& env, ux3d::renderer::GltfR
                 env.sunColor = found->color;
                 env.sunIntensity = found->illuminance * env.hdrIntensity;
                 selectSunSource(env, SunSource::Manual);
-                revisions.mark(SceneChange::RenderSettings);
+                revisions.mark(SceneChange::Environment);
             }
         }
     } else {
         if (source == SunSource::Manual) {
             if (ImGui::SliderFloat("Azimuth", &env.sunAzimuth, 0.0f, 360.0f, "%.1f deg")) {
-                revisions.mark(SceneChange::RenderSettings);
+                revisions.mark(SceneChange::Environment);
             }
             UiProbe::item("scene.sun.azimuth", 0);
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("Around +Y, from +Z towards +X (glTF Y-up). 0 = sun towards +Z.");
             }
             if (ImGui::SliderFloat("Elevation", &env.sunElevation, -90.0f, 90.0f, "%.1f deg")) {
-                revisions.mark(SceneChange::RenderSettings);
+                revisions.mark(SceneChange::Environment);
             }
             UiProbe::item("scene.sun.elevation", 0);
         }
@@ -249,18 +249,18 @@ void SceneInspector::renderSun(SceneEnvironmentState& env, ux3d::renderer::GltfR
             float colour[3] = { env.sunColor.r, env.sunColor.g, env.sunColor.b };
             if (ImGui::ColorEdit3("Sun Colour", colour, ImGuiColorEditFlags_Float)) {
                 env.sunColor = glm::vec3(colour[0], colour[1], colour[2]);
-                revisions.mark(SceneChange::RenderSettings);
+                revisions.mark(SceneChange::Environment);
             }
             static float kelvin = 5778.0f;
             if (ImGui::DragFloat("Kelvin", &kelvin, 10.0f, 1667.0f, 25000.0f, "%.0f K")) {
                 env.sunColor = kelvinToLinearRgb(kelvin);
-                revisions.mark(SceneChange::RenderSettings);
+                revisions.mark(SceneChange::Environment);
             }
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("Sets the colour to a black body at this temperature (luminance 1).");
             }
             if (ImGui::DragFloat("Intensity", &env.sunIntensity, 0.05f, 0.0f, 100000.0f, "%.3f", ImGuiSliderFlags_Logarithmic)) {
-                revisions.mark(SceneChange::RenderSettings);
+                revisions.mark(SceneChange::Environment);
             }
             UiProbe::item("scene.sun.intensity", 0);
             if (ImGui::IsItemHovered()) {
@@ -271,11 +271,11 @@ void SceneInspector::renderSun(SceneEnvironmentState& env, ux3d::renderer::GltfR
         if (source == SunSource::Manual && !procedural && found != nullptr && found->found && ImGui::SmallButton("Use HDR sun direction")) {
             const glm::mat3 rotation = ux3d::renderer::CommandGenerator::environmentRotationMatrix(env.hdrRotation);
             sunAnglesFromDirection(glm::transpose(rotation) * found->direction, env.sunAzimuth, env.sunElevation);
-            revisions.mark(SceneChange::RenderSettings);
+            revisions.mark(SceneChange::Environment);
         }
     }
     if (ImGui::SliderFloat("Angular Radius", &env.sunAngularRadius, 0.0f, 5.0f, "%.2f deg")) {
-        revisions.mark(SceneChange::RenderSettings);
+        revisions.mark(SceneChange::Environment);
     }
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip("Widens the specular highlight to the sun's disk (0.27 deg = the real sun).");
@@ -290,7 +290,7 @@ void SceneInspector::renderTimeOfDay(SceneEnvironmentState& env, SceneRevisions&
     TimeOfDayState& clock = env.clock;
     ImGui::SeparatorText(ICON_MDI_CLOCK_OUTLINE " Time of Day");
     if (effectiveSunSource(env) != SunSource::Clock) ImGui::TextDisabled("The clock does not move the selected sun source.");
-    if (ImGui::Checkbox("Moon & Stars Clock##clock_enabled", &clock.enabled)) revisions.mark(SceneChange::RenderSettings);
+    if (ImGui::Checkbox("Moon & Stars Clock##clock_enabled", &clock.enabled)) revisions.mark(SceneChange::Environment);
     UiProbe::item("scene.tod.clock", 0);
 
     const TimeOfDayEvaluation tod = evaluateTimeOfDay(clock);
@@ -386,7 +386,7 @@ void SceneInspector::renderTimeOfDay(SceneEnvironmentState& env, SceneRevisions&
                         tod.moon.horizontal.apparentElevation, tod.moon.illuminatedFraction * 100.0);
     if (edited) {
         normalizeClock(clock);
-        revisions.mark(SceneChange::RenderSettings);
+        revisions.mark(SceneChange::Environment);
     }
 }
 
@@ -422,6 +422,7 @@ void SceneInspector::render(SceneEnvironmentState& env,
             if (gltfLayer != nullptr) {
                 gltfLayer->enableCubeMap(env.showBackground);
             }
+            // The background switches the layer's cube map and gates the environment load: renderer sync (C2).
             revisions.mark(SceneChange::RenderSettings);
         }
 
@@ -431,7 +432,7 @@ void SceneInspector::render(SceneEnvironmentState& env,
             float clr[4] = { env.clearColor.r, env.clearColor.g, env.clearColor.b, env.clearColor.a };
             if (ImGui::ColorEdit4("Clear Color", clr)) {
                 env.clearColor = glm::vec4(clr[0], clr[1], clr[2], clr[3]);
-                revisions.mark(SceneChange::RenderSettings);
+                revisions.mark(SceneChange::Environment);
             }
         }
 
@@ -461,7 +462,7 @@ void SceneInspector::render(SceneEnvironmentState& env,
             if (commandGenerator != nullptr) {
                 commandGenerator->setEnvironmentMapBlurNormalized(env.hdrBlur);
             }
-            revisions.mark(SceneChange::RenderSettings);
+            revisions.mark(SceneChange::Environment);
         }
 
         // HDR Intensity
@@ -469,7 +470,7 @@ void SceneInspector::render(SceneEnvironmentState& env,
             if (commandGenerator != nullptr) {
                 commandGenerator->setEnvironmentMapIntensity(env.hdrIntensity);
             }
-            revisions.mark(SceneChange::RenderSettings);
+            revisions.mark(SceneChange::Environment);
         }
 
         // HDR Rotation
@@ -477,7 +478,7 @@ void SceneInspector::render(SceneEnvironmentState& env,
             if (commandGenerator != nullptr) {
                 commandGenerator->setEnvironmentMapRotation(env.hdrRotation);
             }
-            revisions.mark(SceneChange::RenderSettings);
+            revisions.mark(SceneChange::Environment);
         }
 
         ImGui::Separator();
@@ -501,7 +502,7 @@ void SceneInspector::render(SceneEnvironmentState& env,
                     commandGenerator->setToneMapping(ux3d::renderer::ToneMappingsEnum::ACES_NARKOWICZ);
                 }
             }
-            revisions.mark(SceneChange::RenderSettings);
+            revisions.mark(SceneChange::Environment);
         }
 
         // Exposure mode (Manual / Auto / Time-of-day curve, A6.4) and controls. An unset mode shows the source's
@@ -512,7 +513,7 @@ void SceneInspector::render(SceneEnvironmentState& env,
         if (ImGui::Combo("Exposure Mode", &exposureModeIdx, exposureModeNames, 3)) {
             env.exposureMode = exposureModeIdx;
             env.autoExposureStartFromManual = exposureModeIdx == static_cast<int>(ExposureMode::Auto);
-            revisions.mark(SceneChange::RenderSettings);
+            revisions.mark(SceneChange::Environment);
         }
         UiProbe::item("scene.exposure.mode", 0);
         if (ImGui::IsItemHovered()) {
@@ -525,12 +526,12 @@ void SceneInspector::render(SceneEnvironmentState& env,
                                       effectiveMode != ExposureMode::Manual;
         if (physicalExposure) {
             if (ImGui::SliderFloat("EV Compensation", &env.exposureCompensationEV, -4.0f, 4.0f, "%+.2f EV")) {
-                revisions.mark(SceneChange::RenderSettings);
+                revisions.mark(SceneChange::Environment);
             }
             UiProbe::item("scene.exposure.compensation", 0);
             if (ImGui::SliderFloat("Darkest Scene (EV100)", &env.exposureMinEV100, -20.0f, 10.0f, "%.1f")) {
                 env.exposureMaxEV100 = (std::max)(env.exposureMaxEV100, env.exposureMinEV100);
-                revisions.mark(SceneChange::RenderSettings);
+                revisions.mark(SceneChange::Environment);
             }
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("Scenes darker than this are not exposed further (-12: a starlit night, about 0.001 lux).\n"
@@ -538,22 +539,22 @@ void SceneInspector::render(SceneEnvironmentState& env,
             }
             if (ImGui::SliderFloat("Brightest Scene (EV100)", &env.exposureMaxEV100, 0.0f, 25.0f, "%.1f")) {
                 env.exposureMinEV100 = (std::min)(env.exposureMinEV100, env.exposureMaxEV100);
-                revisions.mark(SceneChange::RenderSettings);
+                revisions.mark(SceneChange::Environment);
             }
             if (effectiveMode == ExposureMode::Auto) {
                 // A6.4b: the physically based speeds are the scene brightness going up (light adaptation) / down.
                 if (ImGui::SliderFloat("Adapt to Brighter", &env.autoExposureSpeedUp, 0.2f, 20.0f, "%.1f /s")) {
-                    revisions.mark(SceneChange::RenderSettings);
+                    revisions.mark(SceneChange::Environment);
                 }
                 if (ImGui::SliderFloat("Adapt to Darker", &env.autoExposureSpeedDown, 0.2f, 20.0f, "%.1f /s")) {
-                    revisions.mark(SceneChange::RenderSettings);
+                    revisions.mark(SceneChange::Environment);
                 }
                 // A6.4b metering (NightSky.h), after the existing controls.
                 const char* meteringNames[] = { "Average", "Average + highlights" };
                 int metering = std::clamp(env.exposureMetering, 0, 1);
                 if (ImGui::Combo("Metering", &metering, meteringNames, 2)) {
                     env.exposureMetering = metering;
-                    revisions.mark(SceneChange::RenderSettings);
+                    revisions.mark(SceneChange::Environment);
                 }
                 UiProbe::item("scene.exposure.metering", 0);
                 if (ImGui::IsItemHovered()) {
@@ -570,29 +571,29 @@ void SceneInspector::render(SceneEnvironmentState& env,
                 if (commandGenerator != nullptr) {
                     commandGenerator->setExposure(linearExposure);
                 }
-                revisions.mark(SceneChange::RenderSettings);
+                revisions.mark(SceneChange::Environment);
             }
         } else {
             if (ImGui::SliderFloat("EV Compensation", &env.exposureCompensationEV, -4.0f, 4.0f, "%+.2f EV")) {
-                revisions.mark(SceneChange::RenderSettings);
+                revisions.mark(SceneChange::Environment);
             }
             if (ImGui::SliderFloat("Min Exposure (EV)", &env.autoExposureMinEV, -10.0f, 0.0f, "%.2f EV")) {
                 if (env.autoExposureMinEV > env.autoExposureMaxEV) {
                     env.autoExposureMaxEV = env.autoExposureMinEV;
                 }
-                revisions.mark(SceneChange::RenderSettings);
+                revisions.mark(SceneChange::Environment);
             }
             if (ImGui::SliderFloat("Max Exposure (EV)", &env.autoExposureMaxEV, 0.0f, 10.0f, "%.2f EV")) {
                 if (env.autoExposureMaxEV < env.autoExposureMinEV) {
                     env.autoExposureMinEV = env.autoExposureMaxEV;
                 }
-                revisions.mark(SceneChange::RenderSettings);
+                revisions.mark(SceneChange::Environment);
             }
             if (ImGui::SliderFloat("Adapt Speed Up", &env.autoExposureSpeedUp, 0.2f, 20.0f, "%.1f /s")) {
-                revisions.mark(SceneChange::RenderSettings);
+                revisions.mark(SceneChange::Environment);
             }
             if (ImGui::SliderFloat("Adapt Speed Down", &env.autoExposureSpeedDown, 0.2f, 20.0f, "%.1f /s")) {
-                revisions.mark(SceneChange::RenderSettings);
+                revisions.mark(SceneChange::Environment);
             }
         }
 
@@ -601,11 +602,11 @@ void SceneInspector::render(SceneEnvironmentState& env,
         // Physically based bloom (Jimenez 2014)
         { // Bloom appearance stays editable while the Quality level is off.
             if (ImGui::SliderFloat("Bloom Intensity", &env.bloomIntensity, 0.0f, 0.5f, "%.3f")) {
-                revisions.mark(SceneChange::RenderSettings);
+                revisions.mark(SceneChange::Environment);
             }
             UiProbe::item("scene.bloom.intensity", 0);
             if (ImGui::SliderFloat("Bloom Radius", &env.bloomRadius, 0.25f, 3.0f, "%.2f")) {
-                revisions.mark(SceneChange::RenderSettings);
+                revisions.mark(SceneChange::Environment);
             }
             UiProbe::item("scene.bloom.radius", 0);
         }
@@ -617,7 +618,7 @@ void SceneInspector::render(SceneEnvironmentState& env,
         if (ImGui::DragFloat("MSFS Emissive: 1 unit = x", &emissiveScale, 0.0001f, 0.0f, 10.0f, "%.8f", ImGuiSliderFlags_Logarithmic)) {
             env.msfsEmissiveScale = emissiveScale;
             env.msfsEmissiveScaleOverride = true;
-            revisions.mark(SceneChange::RenderSettings);
+            revisions.mark(SceneChange::Environment);
         }
         UiProbe::item("scene.msfs.emissive.scale", 0);
         if (ImGui::IsItemHovered()) {
@@ -629,7 +630,7 @@ void SceneInspector::render(SceneEnvironmentState& env,
         if (ImGui::BeginPopupContextItem("msfs_emissive_scale_default")) {
             if (ImGui::MenuItem("Use source default", nullptr, !env.msfsEmissiveScaleOverride)) {
                 env.msfsEmissiveScaleOverride = false;
-                revisions.mark(SceneChange::RenderSettings);
+                revisions.mark(SceneChange::Environment);
             }
             UiProbe::item("scene.msfs.emissive.default", 0);
             ImGui::EndPopup();
@@ -637,7 +638,7 @@ void SceneInspector::render(SceneEnvironmentState& env,
 
         const char* timeOfDayNames[] = { "Day", "Night", "Automatic" };
         if (ImGui::Combo("Emissive Day/Night", &env.timeOfDay, timeOfDayNames, 3)) {
-            revisions.mark(SceneChange::RenderSettings);
+            revisions.mark(SceneChange::Environment);
         }
         UiProbe::item("scene.time_of_day", 0);
         if (ImGui::IsItemHovered()) {
@@ -720,19 +721,19 @@ void SceneInspector::renderEffects(SceneEnvironmentState& env, ux3d::renderer::G
     SceneEffectSettings& fx = env.effects;
     if (ImGui::DragFloat("AO radius##sceneSsaoRadius", &fx.ssaoRadius, 0.01f, 0.01f, 100.0f, "%.2f",
                          ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic)) {
-        revisions.mark(SceneChange::RenderSettings);
+        revisions.mark(SceneChange::Environment);
     }
     UiProbe::item("scene.effects.ssao_radius", 0);
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip("World units (metres in MSFS assets): occluders farther away do not count.");
     }
     if (ImGui::SliderFloat("AO intensity##sceneSsaoIntensity", &fx.ssaoIntensity, 0.0f, 4.0f, "%.2f")) {
-        revisions.mark(SceneChange::RenderSettings);
+        revisions.mark(SceneChange::Environment);
     }
     UiProbe::item("scene.effects.ssao_intensity", 0);
     ImGui::SeparatorText("Aircraft state (MSFS)");
     if (ImGui::SliderFloat("Icing##sceneIcing", &fx.windshieldIcing, 0.0f, 1.0f, "%.2f")) {
-        revisions.mark(SceneChange::RenderSettings);
+        revisions.mark(SceneChange::Environment);
     }
     UiProbe::item("scene.effects.icing", 0);
     if (ImGui::IsItemHovered()) {
@@ -745,7 +746,7 @@ void SceneInspector::renderSkyOcclusion(SceneEnvironmentState& env, const SkySta
 {
     ImGui::TextDisabled("Mode and bake quality: File > Settings > Quality.");
     if (ImGui::Checkbox("Environment occluders block the sky", &env.skyOcclusionOccluders)) {
-        revisions.mark(SceneChange::RenderSettings);
+        revisions.mark(SceneChange::Environment);
     }
     UiProbe::item("scene.sky_occlusion.occluders", 0);
     if (ImGui::IsItemHovered()) {
@@ -770,7 +771,7 @@ void SceneInspector::renderAmbient(SceneEnvironmentState& env, SceneRevisions& r
     int enabled = env.ambient < 0 ? 0 : env.ambient != 0 ? 1 : 2;
     if (ImGui::Combo("Ambient Light##enabled", &enabled, "Auto (sky on, HDR off)\0On\0Off\0")) {
         env.ambient = enabled == 0 ? -1 : enabled == 1 ? 1 : 0;
-        revisions.mark(SceneChange::RenderSettings);
+        revisions.mark(SceneChange::Environment);
     }
     UiProbe::item("scene.ambient.on", 0);
     if (ImGui::IsItemHovered()) {
@@ -782,12 +783,12 @@ void SceneInspector::renderAmbient(SceneEnvironmentState& env, SceneRevisions& r
     int mode = effectiveAmbientAuto(env) ? 0 : 1;
     if (ImGui::Combo("Intensity Mode##ambient_mode", &mode, "Auto\0Manual\0")) {
         env.ambientMode = mode == 0 ? 1 : 0;
-        revisions.mark(SceneChange::RenderSettings);
+        revisions.mark(SceneChange::Environment);
     }
     UiProbe::item("scene.ambient.mode", 0);
     if (effectiveAmbientAuto(env)) {
         if (ImGui::SliderFloat("Fill Fraction##ambient_fill", &env.ambientFill, 0.0f, 1.0f, "%.4f")) {
-            revisions.mark(SceneChange::RenderSettings);
+            revisions.mark(SceneChange::Environment);
         }
         UiProbe::item("scene.ambient.fill", 0);
         const float luminance = env.ambientFill * outdoorIlluminance / 3.14159265358979323846f;
@@ -797,12 +798,12 @@ void SceneInspector::renderAmbient(SceneEnvironmentState& env, SceneRevisions& r
     } else {
         if (ImGui::ColorEdit3("Ambient Color", &env.ambientColor.x, ImGuiColorEditFlags_Float)) {
             env.ambientColor = (glm::max)(env.ambientColor, glm::vec3(0.0f));
-            revisions.mark(SceneChange::RenderSettings);
+            revisions.mark(SceneChange::Environment);
         }
         UiProbe::item("scene.ambient.color", 0);
         if (ImGui::SliderFloat("Ambient Intensity", &env.ambientLuminance, 0.0f, kAmbientMaxLuminance, "%.3g cd/m^2",
                                ImGuiSliderFlags_Logarithmic)) {
-            revisions.mark(SceneChange::RenderSettings);
+            revisions.mark(SceneChange::Environment);
         }
         UiProbe::item("scene.ambient.intensity", 0);
         if (ImGui::IsItemHovered()) {
@@ -825,7 +826,7 @@ void SceneInspector::renderNightSky(SceneEnvironmentState& env, SceneRevisions& 
         ImGui::TextDisabled("The moon and the stars follow the Time of Day clock (switch it on).");
     }
     if (ImGui::Checkbox("Moon", &n.moonEnabled)) {
-        revisions.mark(SceneChange::RenderSettings);
+        revisions.mark(SceneChange::Environment);
     }
     UiProbe::item("scene.night.moon", 0);
     if (ImGui::IsItemHovered()) {
@@ -834,12 +835,12 @@ void SceneInspector::renderNightSky(SceneEnvironmentState& env, SceneRevisions& 
     }
     ImGui::BeginDisabled(!n.moonEnabled);
     if (ImGui::SliderFloat("Moonlight", &n.moonlightScale, 0.0f, 100.0f, "%.2f x", ImGuiSliderFlags_Logarithmic)) {
-        revisions.mark(SceneChange::RenderSettings);
+        revisions.mark(SceneChange::Environment);
     }
     UiProbe::item("scene.night.moonlight", 0);
     ImGui::EndDisabled();
     if (ImGui::Checkbox("Stars", &n.starsEnabled)) {
-        revisions.mark(SceneChange::RenderSettings);
+        revisions.mark(SceneChange::Environment);
     }
     UiProbe::item("scene.night.stars", 0);
     if (ImGui::IsItemHovered()) {
@@ -848,16 +849,16 @@ void SceneInspector::renderNightSky(SceneEnvironmentState& env, SceneRevisions& 
     }
     ImGui::BeginDisabled(!n.starsEnabled);
     if (ImGui::SliderFloat("Star Density", &n.starDensity, 0.0f, 10.0f, "%.2f x", ImGuiSliderFlags_Logarithmic)) {
-        revisions.mark(SceneChange::RenderSettings);
+        revisions.mark(SceneChange::Environment);
     }
     UiProbe::item("scene.night.star_density", 0);
     ImGui::EndDisabled();
     if (ImGui::SliderFloat("Night Glow", &n.airglow, 0.0f, 100.0f, "%.2f x", ImGuiSliderFlags_Logarithmic)) {
-        revisions.mark(SceneChange::RenderSettings);
+        revisions.mark(SceneChange::Environment);
     }
     UiProbe::item("scene.night.airglow", 0);
     if (ImGui::SliderFloat("Night Vision", &n.nightVision, 0.0f, 1.0f, "%.2f")) {
-        revisions.mark(SceneChange::RenderSettings);
+        revisions.mark(SceneChange::Environment);
     }
     UiProbe::item("scene.night.vision", 0);
     if (ImGui::IsItemHovered()) {
@@ -879,7 +880,7 @@ void SceneInspector::renderSunDisk(SceneEnvironmentState& env, SceneRevisions& r
 {
     SunDiskSettings& disk = env.sunDisk;
     if (ImGui::Checkbox("Sun Disk##enabled", &disk.enabled)) {
-        revisions.mark(SceneChange::RenderSettings);
+        revisions.mark(SceneChange::Environment);
     }
     UiProbe::item("scene.sun_disk.on", 0);
     if (ImGui::IsItemHovered()) {
@@ -889,7 +890,7 @@ void SceneInspector::renderSunDisk(SceneEnvironmentState& env, SceneRevisions& r
     }
     ImGui::BeginDisabled(!disk.enabled);
     if (ImGui::SliderFloat("Disk Size", &disk.scale, 0.0f, sundisk::kMaxScale, "%.2f x", ImGuiSliderFlags_Logarithmic)) {
-        revisions.mark(SceneChange::RenderSettings);
+        revisions.mark(SceneChange::Environment);
     }
     UiProbe::item("scene.sun_disk.scale", 0);
     if (ImGui::IsItemHovered()) {
@@ -897,7 +898,7 @@ void SceneInspector::renderSunDisk(SceneEnvironmentState& env, SceneRevisions& r
                           "illuminance, so a larger disk is dimmer; the specular highlight is not scaled.");
     }
     if (ImGui::Checkbox("Limb Darkening", &disk.limbDarkening)) {
-        revisions.mark(SceneChange::RenderSettings);
+        revisions.mark(SceneChange::Environment);
     }
     UiProbe::item("scene.sun_disk.limb", 0);
     if (ImGui::IsItemHovered()) {
@@ -911,7 +912,7 @@ void SceneInspector::renderSunDisk(SceneEnvironmentState& env, SceneRevisions& r
 
 void SceneInspector::renderSky(SceneEnvironmentState& env, const SkyStatus* sky, SceneRevisions& revisions)
 {
-    if (ImGui::Checkbox("Atmospheric Refraction##sky", &env.clock.refraction)) revisions.mark(SceneChange::RenderSettings);
+    if (ImGui::Checkbox("Atmospheric Refraction##sky", &env.clock.refraction)) revisions.mark(SceneChange::Environment);
     UiProbe::item("scene.sky.refraction", 0);
 
     const char* sourceNames[] = { "HDR panorama", "Procedural sky" };
@@ -957,7 +958,7 @@ void SceneInspector::renderSky(SceneEnvironmentState& env, const SkyStatus* sky,
     }
 
     if (ImGui::SliderFloat("Mie Density", &env.skyMieDensity, 0.0f, 10.0f, "%.2f x", ImGuiSliderFlags_Logarithmic)) {
-        revisions.mark(SceneChange::RenderSettings);
+        revisions.mark(SceneChange::Environment);
     }
     UiProbe::item("scene.sky.mie", 0);
     if (ImGui::IsItemHovered()) {
@@ -965,7 +966,7 @@ void SceneInspector::renderSky(SceneEnvironmentState& env, const SkyStatus* sky,
                           "around the sun.");
     }
     if (ImGui::Checkbox("Ozone", &env.skyOzone)) {
-        revisions.mark(SceneChange::RenderSettings);
+        revisions.mark(SceneChange::Environment);
     }
     UiProbe::item("scene.sky.ozone", 0);
     if (ImGui::IsItemHovered()) {
@@ -974,12 +975,12 @@ void SceneInspector::renderSky(SceneEnvironmentState& env, const SkyStatus* sky,
     bool overrideAlbedo = env.skyGroundAlbedo >= 0.0f;
     if (ImGui::Checkbox("Override Ground Albedo", &overrideAlbedo)) {
         env.skyGroundAlbedo = overrideAlbedo ? (sky != nullptr ? sky->groundAlbedo.g : sky::kNeutralGroundAlbedo) : -1.0f;
-        revisions.mark(SceneChange::RenderSettings);
+        revisions.mark(SceneChange::Environment);
     }
     UiProbe::item("scene.sky.ground_albedo", 0);
     if (overrideAlbedo) {
         if (ImGui::SliderFloat("Ground Albedo", &env.skyGroundAlbedo, 0.0f, 1.0f, "%.2f")) {
-            revisions.mark(SceneChange::RenderSettings);
+            revisions.mark(SceneChange::Environment);
         }
     } else if (sky != nullptr) {
         ImGui::TextDisabled("Ground albedo %.2f %.2f %.2f (%s)", sky->groundAlbedo.r, sky->groundAlbedo.g, sky->groundAlbedo.b,

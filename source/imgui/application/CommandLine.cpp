@@ -68,7 +68,6 @@ std::optional<int> Application::configure(int argc, char** argv)
     // Runtime-safe viewport and environment flags apply through the agent setting registry
     // (CommandsSettings*.cpp), so the CLI, scripts and the control pipe share one code path.
     registerAgentCommands();
-    auto& startupProfile = ux3d::imgui::profiling::startupProfile();
     modelToLoad = resolveSampleModelPath();
     std::string reloadModelArg;
     bool withoutTextures = false;
@@ -143,6 +142,7 @@ std::optional<int> Application::configure(int argc, char** argv)
     glm::vec4 cliClearColor(1.0f);
     bool cliHdrProvided = false;
     std::string cliHdrPath;
+    std::vector<std::string> cliHdrRequests; // --env/--hdr in order (C13)
     // The other environment flags are recorded in cliEnvironmentSettings (applyCliSetting).
     bool cliExposureProvided = false;
     bool cliAutoExposureProvided = false;
@@ -377,6 +377,8 @@ std::optional<int> Application::configure(int argc, char** argv)
             setAsoboParamArgs.push_back(std::move(edit));
         } else if (arg == "--disable-wireframe-cache") {
             s_disableWireframeCache = true;
+        } else if (arg == "--disable-pass-cache") {
+            s_disablePassCache = true;
         } else if (arg == "--msfs-emissive" && i + 1 < argc) {
             const bool off = toLowerAscii(argv[++i]) == "off";
             if (!applyCliSetting(SettingScope::Renderer, "msfs_emissive", off ? "off" : "on", "--msfs-emissive")) return 1;
@@ -598,24 +600,8 @@ std::optional<int> Application::configure(int argc, char** argv)
         } else if (arg == "--selfcheck-force-failure") {
             selfCheckForceFailure = true;
         } else if ((arg == "--env" || arg == "--hdr") && i + 1 < argc) {
-            std::string customHdr = argv[++i];
-            auto path = ux3d::imgui::StdFileSystem::instance().toPath(customHdr.c_str());
-            scenarioEnvironmentPath = path.toString().c_str();
-            scenarioEnvironmentLoaded = false;
-            const auto environmentInitStart = ux3d::imgui::profiling::Clock::now();
-            gltfLayer->setEnvironmentMap(path);
-            startupProfile.environmentInitMs += ux3d::imgui::profiling::elapsedMs(environmentInitStart);
-            const auto environmentFilterStart = ux3d::imgui::profiling::Clock::now();
-            if (gltfLayer->filterEnvironmentMap()) {
-                startupProfile.environmentFilterMs += ux3d::imgui::profiling::elapsedMs(environmentFilterStart);
-                startupProfile.environmentLoads++;
-                scenarioEnvironmentLoaded = true;
-                cliHdrProvided = true;
-                cliHdrPath = customHdr;
-                getSceneEnvironment(sceneEnvironments, gltfModel, activeScene).currentHdrPath = customHdr;
-                commandGenerator->setIBLEnabled(true);
-                logMessage("Loaded environment map: " + customHdr);
-            }
+            // C13: recorded here, loaded once after the arguments (loadStartupEnvironment); the last one wins.
+            cliHdrRequests.emplace_back(argv[++i]);
         } else if ((arg == "--aa" || arg == "--anti-aliasing") && i + 1 < argc) {
             // Unknown values are ignored, as before (the setting takes the names and 0..5).
             std::string error;
@@ -767,6 +753,9 @@ std::optional<int> Application::configure(int argc, char** argv)
             if (!applyCliSetting(SettingScope::Environment, "time_of_day", toLowerAscii(argv[++i]), "--time-of-day")) return 1;
         }
     }
+
+    // C13: the one startup environment load, now that every flag that chooses it is known.
+    loadStartupEnvironment(cliHdrRequests, cliHdrProvided, cliHdrPath);
 
     ux3d::imgui::profiling::setCountingEnabled(s_profilingEnabled);
 

@@ -42,7 +42,8 @@ bool Application::viewportNeedsDecalBuffer(const ux3d::imgui::ViewportInstance& 
 
 void Application::updateSunShadows(ux3d::imgui::ViewportInstance& vp, FrameContext& frame, const glm::mat4& view,
                                    const glm::mat4& projection, const ux3d::imgui::SceneEnvironmentState& environment,
-                                   bool shadingAllowed, int vpW, int vpH, std::optional<float> groundHeight)
+                                   bool shadingAllowed, int vpW, int vpH, std::optional<float> groundHeight,
+                                   const ux3d::imgui::ViewportRenderKey& renderKey)
 {
     ux3d::renderer::CommandGenerator::SunShadowParameters parameters; // disabled
     // A6.6: the shadowed directional light: the sun, or the moon at night (one at a time).
@@ -56,6 +57,7 @@ void Application::updateSunShadows(ux3d::imgui::ViewportInstance& vp, FrameConte
         vp.sunShadowMap.release();
         vp.sunShadowSetup = ux3d::renderer::ShadowCascadeSetup();
         vp.sunShadowActive = false;
+        vp.sunShadowCacheValid = false;
         if (commandGenerator != nullptr) commandGenerator->setSunShadow(parameters);
     };
     if (!wanted) {
@@ -63,11 +65,35 @@ void Application::updateSunShadows(ux3d::imgui::ViewportInstance& vp, FrameConte
         return;
     }
 
+    // C1: the maps hold what this function drew for the previous render. Everything they are drawn from is in the
+    // render key (model and scene generations, pose, every scene revision, the unjittered view and projection, the
+    // viewport settings with the ASOBO switches, the scene environment that gives the sun) or listed beside it
+    // (effective quality: resolution, cascades, distance, split, biases, filter; shaded view; ground height). The
+    // cascades are fitted to the unjittered camera and the casters are drawn with a fixed dither frame, so TAA
+    // settle renders, which keep the key, would redraw identical maps: reuse them and only hand the cascades to the
+    // command generator again.
+    ux3d::imgui::ViewportPassCacheKey cacheKey;
+    cacheKey.render = renderKey;
+    cacheKey.render.environment.oceanSimulation.reset(); // the key must not keep the ocean alive
+    cacheKey.quality = quality;
+    cacheKey.shadingAllowed = shadingAllowed;
+    cacheKey.groundHeight = groundHeight;
+    if (!s_disablePassCache && vp.sunShadowCacheValid && vp.sunShadowActive && vp.sunShadowMap.texture() != 0 &&
+        vp.sunShadowCacheParameters.texture == vp.sunShadowMap.texture() && cacheKey == vp.sunShadowCacheKey) {
+        commandGenerator->setSunShadow(vp.sunShadowCacheParameters);
+        vp.sceneFbo.bind();
+        glViewport(0, 0, vpW, vpH);
+        if (ux3d::imgui::profiling::countingEnabled()) ++ux3d::imgui::profiling::frameCounters().shadowCacheHits;
+        return;
+    }
+    vp.sunShadowCacheValid = false;
+
     // The viewport's unculled scene: the casters, and (with the receivers) the extent the cascades are cut to.
     gltfLayer->frustumCulling = false;
     gltfLayer->asoboOptions = vp.settings.asobo;
     gltfLayer->materialExtensionOptions = vp.settings.materialExtensions;
     auto [casterScene, casterMapping] = gltfLayer->createScene(activeScene);
+    if (ux3d::imgui::profiling::countingEnabled()) ++ux3d::imgui::profiling::frameCounters().shadowSceneBuilds;
 
     // Cascades fitted to this viewport's (unjittered) frustum, cut to the scene's extent.
     ux3d::renderer::ShadowCascadeInput input;
@@ -213,6 +239,9 @@ void Application::updateSunShadows(ux3d::imgui::ViewportInstance& vp, FrameConte
     commandGenerator->setSunShadow(parameters);
     vp.sunShadowSetup = setup;
     vp.sunShadowActive = true;
+    vp.sunShadowCacheParameters = parameters;
+    vp.sunShadowCacheKey = std::move(cacheKey);
+    vp.sunShadowCacheValid = true;
 }
 
 nlohmann::json Application::sunShadowStateJson() const

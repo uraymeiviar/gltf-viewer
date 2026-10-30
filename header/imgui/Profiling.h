@@ -81,6 +81,14 @@ struct FrameCounters {
     uint64_t applyAnimationCalls = 0;
     uint64_t cacheRebuilds = 0;
     uint64_t sceneBuilds = 0;
+    // Scene builds outside the main pass (not in sceneBuilds): the sun-shadow caster scene and the TAA/ground
+    // overlay-depth scene, plus the renders those passes skipped because their cached result was still valid.
+    uint64_t shadowSceneBuilds = 0;
+    uint64_t overlayDepthSceneBuilds = 0;
+    uint64_t shadowCacheHits = 0;
+    uint64_t overlayDepthCacheHits = 0;
+    // Environment (HDR) loads after startup: the first frames' lazy load for a changed path or sun removal.
+    uint64_t environmentReloads = 0;
     uint64_t wireframeMaterialCopies = 0;
     uint64_t sceneDrawables = 0;
     uint64_t sceneNodesVisited = 0;
