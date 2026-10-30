@@ -2,7 +2,9 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -46,7 +48,15 @@ public:
 private:
     static uint64_t entryHash(std::string_view name, int value);
 
-    std::unordered_map<std::string, int> m_defines;
+    // C5 (round 11): heterogeneous lookup, so define/undefine/isDefined of an existing name never builds a
+    // std::string. The hash is std::hash<std::string_view>, which the standard requires to equal
+    // std::hash<std::string> for the same characters, so buckets and iteration order (toLines, hash) are unchanged.
+    struct NameHash {
+        using is_transparent = void;
+        size_t operator()(std::string_view name) const noexcept { return std::hash<std::string_view>{}(name); }
+    };
+
+    std::unordered_map<std::string, int, NameHash, std::equal_to<>> m_defines;
     uint64_t m_contentHash = 0;
 };
 }

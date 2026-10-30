@@ -5,6 +5,8 @@
 
 #include "GltfRenderLayerInternal.h"
 
+#include <atomic>
+
 namespace {
 
 // The primitive's local POSITION box, or false when it cannot bound what the vertex
@@ -288,6 +290,13 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
     bool containsTransmissiveMaterial = false;
     m_gltfScene = gltfScene;
     m_lastSceneStats = SceneProfileStats();
+    // C5 (round 11): the policy below depends only on the material, this call's options and the traversal, so a
+    // material shared by several primitives is configured on its first surviving primitive only. The scene flags it
+    // raises (windshieldSsr, asoboGlassCopy, containsTransmissiveMaterial) are only ever set to true, so the first
+    // primitive already sets them for all.
+    // The serial is process-wide, so two layers can never hand out the same one.
+    static std::atomic<uint64_t> s_sceneBuildSerial{0};
+    const uint64_t sceneBuildSerial = ++s_sceneBuildSerial;
     const bool cull = frustumCulling && m_activeCamera != nullptr;
     const math::mat4x4 clipFromWorld = cull ? m_activeCamera->getProjectionMatrix() * m_activeCamera->getViewMatrix() : math::mat4x4(1.0f);
 
@@ -330,6 +339,11 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
         }
     }
     const bool skyPortalsActive = !scene.skyPortals.empty();
+    // A1.4: MSFS sorts transparent decals, glass and windshield by the mesh's bounding
+    // box centre, not the node pivot. Skinned, morphed and quantized primitives cannot
+    // be bounded statically, so they keep the pivot as the fallback. (C5: loop-invariant, evaluated once.)
+    const bool drawOrderActive = m_assetDrawOrderDeclared
+        && asoboOptions.applies("ASOBO_material_draw_order");
     for (const SceneTraversal::Primitive& entry : traversal.primitives) {
         if (cull) {
             if (!entry.bounded) {
@@ -339,12 +353,17 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
                 continue;
             }
         }
-        // A1.4: MSFS sorts transparent decals, glass and windshield by the mesh's bounding
-        // box centre, not the node pivot. Skinned, morphed and quantized primitives cannot
-        // be bounded statically, so they keep the pivot as the fallback.
-        const bool drawOrderActive = m_assetDrawOrderDeclared
-            && asoboOptions.applies("ASOBO_material_draw_order");
-        if (entry.material != nullptr) {
+        if (entry.material != nullptr && entry.material->scenePolicyMark == sceneBuildSerial) {
+            if (drawOrderActive && entry.material->drawOrderClass != DrawOrderClass::None) {
+                if (entry.bounded) {
+                    const math::vec3 localCenter = (entry.lo + entry.hi) * 0.5f;
+                    entry.mesh->setBoundingCenter(math::vec3(entry.mesh->getTransform() * math::vec4(localCenter, 1.0f)));
+                } else {
+                    entry.mesh->setBoundingCenter(entry.mesh->getPosition());
+                }
+            }
+        } else if (entry.material != nullptr) {
+            entry.material->scenePolicyMark = sceneBuildSerial;
             // Restore the authored pass on each viewport before applying display policy.
             // Shared materials are configured and consumed sequentially, like ASOBO.
             if (entry.material->defines.isDefined("MATERIAL_TRANSMISSION")) {
@@ -450,6 +469,10 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
         }
         mesh->defines.define("DEBUG", static_cast<int>(RenderMode::None));
         mesh->polygonMode = gl::PolygonMode::Fill;
+        if (material->sceneSettingsMark == sceneBuildSerial) {
+            continue; // C5: this material's settings are already applied in this call
+        }
+        material->sceneSettingsMark = sceneBuildSerial;
         material->fragmentShader = "pbr.frag";
         material->renderSettings = renderSettings;
         if (!materialExtensionOptions.disabled.empty()) {
@@ -482,6 +505,7 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
     }
 
     m_lastSceneStats.drawables = static_cast<uint64_t>(scene.drawables.size());
-    return { scene, reverseMapping };
+    // C5 (round 11): moved, not copied (the list cells and the map nodes are handed over, not re-allocated).
+    return { std::move(scene), std::move(reverseMapping) };
 }
 

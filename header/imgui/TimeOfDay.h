@@ -10,6 +10,8 @@
 #include "imgui/SolarPosition.h"
 
 #include <array>
+#include <bit>
+#include <cstdint>
 #include <string>
 
 namespace ux3d::imgui {
@@ -238,7 +240,7 @@ inline solar::SunDay timeOfDaySunDay(const TimeOfDayState& state, double& window
     return solar::sunDay(windowStart, state.latitude, state.longitude);
 }
 
-inline TimeOfDayEvaluation evaluateTimeOfDay(const TimeOfDayState& state)
+inline TimeOfDayEvaluation evaluateTimeOfDayUncached(const TimeOfDayState& state)
 {
     TimeOfDayEvaluation out;
     TimeOfDayState clock = state;
@@ -261,6 +263,46 @@ inline TimeOfDayEvaluation evaluateTimeOfDay(const TimeOfDayState& state)
     out.moon = solar::moonState(out.julianDayUt, state.latitude, state.longitude);
     out.moonGliderAzimuth = static_cast<float>(gliderAzimuthFromBearing(out.moon.horizontal.azimuth, state.heading));
     return out;
+}
+
+// C7 (round 11): the sun, the moon, the exposure plan and the night blend each evaluate the same clock several times
+// per frame (with a preset that is a sun-event search of ~0.1 ms per call). The evaluation is pure, so a cache keyed
+// on the exact bits of every state field returns bit-identical results. Per thread, 4 entries, round-robin.
+inline TimeOfDayEvaluation evaluateTimeOfDay(const TimeOfDayState& state)
+{
+    // A new TimeOfDayState field must join the key; the size check catches most additions.
+    static_assert(sizeof(TimeOfDayState) == 64, "TimeOfDayState changed: extend evaluateTimeOfDay's cache key");
+    using Key = std::array<uint64_t, 14>;
+    const Key key = {state.enabled ? 1u : 0u,
+                     static_cast<uint64_t>(static_cast<uint32_t>(state.year)),
+                     static_cast<uint64_t>(static_cast<uint32_t>(state.month)),
+                     static_cast<uint64_t>(static_cast<uint32_t>(state.day)),
+                     std::bit_cast<uint64_t>(state.hours),
+                     std::bit_cast<uint32_t>(state.utcOffsetHours),
+                     std::bit_cast<uint32_t>(state.latitude),
+                     std::bit_cast<uint32_t>(state.longitude),
+                     std::bit_cast<uint32_t>(state.heading),
+                     static_cast<uint64_t>(static_cast<uint32_t>(state.preset)),
+                     state.refraction ? 1u : 0u,
+                     std::bit_cast<uint32_t>(state.nightThreshold),
+                     state.playing ? 1u : 0u,
+                     std::bit_cast<uint32_t>(state.timeScale)};
+    struct Entry {
+        Key key{};
+        TimeOfDayEvaluation value;
+        bool valid = false;
+    };
+    thread_local std::array<Entry, 4> cache{};
+    thread_local size_t next = 0;
+    for (const Entry& entry : cache) {
+        if (entry.valid && entry.key == key) return entry.value;
+    }
+    Entry& slot = cache[next];
+    next = (next + 1) % cache.size();
+    slot.value = evaluateTimeOfDayUncached(state);
+    slot.key = key;
+    slot.valid = true;
+    return slot.value;
 }
 
 inline bool parseDate(const std::string& text, int& year, int& month, int& day, std::string& error)

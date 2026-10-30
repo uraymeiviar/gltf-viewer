@@ -2,7 +2,7 @@
 
 [Journal index](RENDERER_OPTIMIZATION_JOURNAL.md) · [Reference audit](RENDERER_OPTIMIZATION_REFERENCE.md) · [Validation rules](RENDERER_OPTIMIZATION_VALIDATION.md)
 
-**Status:** Complete, uncommitted ([§12.68](#section-12-68)). Profile stages and counters were added first ([§12.63](#section-12-63)). C4 overlay-depth reuse PASS ([§12.64](#section-12-64)). C1 shadow-cascade reuse PASS ([§12.65](#section-12-65)). C13 single startup environment load PASS ([§12.66](#section-12-66)). C2 frame-value settings without a renderer sync PASS ([§12.67](#section-12-67)). Round 10 (uncommitted, against `1db382b`): C6 per-viewport transmission copy PASS ([§12.69](#section-12-69)) and C3 asynchronous exposure meter PASS ([§12.70](#section-12-70)); exit notes [§12.71](#section-12-71).
+**Status:** Complete, uncommitted ([§12.68](#section-12-68)). Profile stages and counters were added first ([§12.63](#section-12-63)). C4 overlay-depth reuse PASS ([§12.64](#section-12-64)). C1 shadow-cascade reuse PASS ([§12.65](#section-12-65)). C13 single startup environment load PASS ([§12.66](#section-12-66)). C2 frame-value settings without a renderer sync PASS ([§12.67](#section-12-67)). Round 10 (uncommitted, against `1db382b`): C6 per-viewport transmission copy PASS ([§12.69](#section-12-69)) and C3 asynchronous exposure meter PASS ([§12.70](#section-12-70)); exit notes [§12.71](#section-12-71). Round 11 (uncommitted, against `41df669`): C5 scene-build allocations and per-material policy PASS ([§12.72](#section-12-72)), C7 exact-input atmosphere and clock caches PASS ([§12.73](#section-12-73)); C9 was measured and left out; exit notes [§12.74](#section-12-74).
 
 **Scope:** The candidates come from the 2026-10-30 audit of the three-viewport E195 use case (C1, C2, C4, C6, C13); round 10 adds C3. Every image stays byte-identical to `69cf29b` (round 10: to `1db382b`). Each cache has a same-binary A/B switch, `--disable-pass-cache`; the C3 meter has `--exposure-readback sync`.
 
@@ -322,3 +322,92 @@ nvidia-smi before/after each run ranged 4–100 % (inference VM); the baseline a
 - **Left out.**
   - C6 does not share one full-resolution copy between equally sized viewports, because each viewport must keep its own copy while the others render.
   - C3 still issues the meter draw and the depth copy on every metered render. It reads back only asynchronously.
+
+<a id="section-12-72"></a>
+
+### 12.72 Round 11 — C5 scene-build allocations and per-material policy (2026-10-31)
+
+**Change.**
+
+- `GltfRenderLayer::createScene` (`GltfRenderLayerTraversal.cpp`) returns `{ std::move(scene), std::move(reverseMapping) }`. Before, the tuple was copy-constructed from the two locals: every drawable's list cell and every reverse-map node was allocated twice and the originals freed.
+- `Defines` (`Defines.h`, `Defines.cpp`) uses heterogeneous lookup: `NameHash` (`is_transparent`, `std::hash<std::string_view>`) with `std::equal_to<>`. `define` of an existing name, `undefine` and `isDefined` no longer build a `std::string`; only a newly inserted name allocates. Names longer than the SSO limit (`ASOBO_MATERIAL_WINDSHIELD_LEGACY`, `ASOBO_GLASS_REFLECTION`, ...) allocated on every call before. This also makes the per-drawable `DEBUG` / `RAW_SSR_OVERLAY` / `SKY_OCCLUSION` defines in `Viewports.cpp` and the `CommandGenerator` lookups cheaper.
+- The per-viewport material policy in `createScene` (transmission pass restore, the ASOBO glass / windshield / anisotropy / SSS / sky-portal defines and uniforms, draw-order flags) and the render-settings half (`fragmentShader`, `renderSettings`, `LINEAR_OUTPUT`) run once per material per call instead of once per primitive. `Material::scenePolicyMark` / `sceneSettingsMark` hold the serial of the last call that applied each half. The serial is a process-wide atomic, one per `createScene` call.
+- `drawOrderActive` (a viewport option lookup) is evaluated once per call instead of per primitive.
+
+**Rules.**
+
+- The policy depends only on the material, the call's options (`asoboOptions`, `materialExtensionOptions`, render settings) and the traversal (`skyPortalsActive`, the interior volume). A repeat within one call wrote the same values again. Every call takes a new serial, so nothing carries over between viewports, passes or option changes.
+- The scene flags the policy raises (`windshieldSsr`, `asoboGlassCopy`, `containsTransmissiveMaterial`) are only ever set to true; the material's first surviving primitive sets them.
+- The per-primitive half stays per primitive: culling, the draw-order bounding centre, the mesh defines and `polygonMode`.
+- `std::hash<std::string_view>` equals `std::hash<std::string>` for the same characters (the standard requires it). Buckets and the iteration order of `toLines()` / `hash()`, i.e. the shader source and the program keys, are unchanged.
+
+**Measurement.** E195, three TAA viewports, steady frames (`build/measure/impl3_bench.py`), interleaved against `41df669`. Medians per frame (three viewports), ms. GPU 4–100 % busy (nvidia-smi before/after in `build/measure/impl3/*_summary.json`).
+
+| | `41df669` | C5 build |
+|---|---|---|
+| `scene.create`, sky, move + `Defines` only (pair 1 / 2) | 2.70 / 2.82 | 1.76 / 1.92 |
+| `scene.create`, sky, with the per-material policy | 2.86 | 1.08 |
+| `scene.create`, HDR, with the per-material policy | 2.61 | 0.99 |
+| `scene.build`, sky / HDR | 5.55 / 5.12 | 3.59 / 3.35 |
+
+**Equivalence.**
+
+- `--dump-frame` of the default view, the E195 default view and the E195 cockpit with the sky (manual and Auto exposure): 0 differing pixels (`build/measure/impl3_dumps.py`). The images were viewed.
+- **Suites, PASS against `41df669`:** `settings_scopes`, `p4_exit_gate`, `p8_1`, `p8_3`, `p8_5`, `p8_followup`, `review_fixes`, `viewport_image`, `asobo_common`, `asobo_draworder`, `asobo_anisotropy`, `asobo_sss`, `asobo_sky_portal`, `asobo_fresnel_ghost`, `asobo_decal_modes` and the ten self-checks.
+
+<a id="section-12-73"></a>
+
+### 12.73 Round 11 — C7 exact-input atmosphere and clock caches (2026-10-31)
+
+**Change.**
+
+- `atmosphereTransmittance` (`SkyAtmosphere.h`; a 512-step double quadrature, 8 µs per call) is now a cache in front of `atmosphereTransmittanceUncached`.
+  - The key is the exact bits of every input the integral reads: `mieDensity`, `ozone` and the direction's three floats.
+  - `groundAlbedo` and `airglow` are not read by the integral and are not in the key, so viewports with different ground albedo share entries.
+  - 8 entries per thread, round-robin replacement.
+- `evaluateTimeOfDay` (`TimeOfDay.h`) is a cache in front of `evaluateTimeOfDayUncached`.
+  - A call costs 0.9 µs with Custom hours and 0.11–0.14 ms with a preset, which searches the sun events.
+  - The key is the bits of all 14 `TimeOfDayState` fields; 4 entries per thread.
+  - A `static_assert` on `sizeof(TimeOfDayState)` fails the build when a field is added, until it joins the key.
+- Every caller is unchanged and now hits the cache: `effectiveSun`, `moonEvaluation` / `evaluateMoon`, `effectiveDirectionalLight`, `exposurePlan` / `outdoorIlluminance`, the sun disk, the star extinction, the ambient light, `emissiveNightBlend`, the Scene Inspector and `get_state`. With an unchanged sun and clock, a steady frame evaluates no integral and no ephemeris (about 27 integrals per frame with three viewports before).
+
+**Rules.**
+
+- Both functions are pure. A hit returns the value the uncached function returned for bit-identical inputs.
+- There is no tolerance, the quadrature is unchanged, and `-0.0` / `+0.0` are different keys.
+- Thread-local storage needs no locking.
+- A microbenchmark of 5,000 transmittances and 3,000 clock evaluations over random, repeating inputs (hits and misses mixed) found 0 bitwise differences from the uncached functions. A hit costs about 0.01 µs.
+
+**Measurement.** E195, three TAA viewports, interleaved against the C5 build, ms per frame (pair 1 / 2). "CPU w/o GPU waits" is `cpuFrameMs` minus `draw.submit` and `post.process`, which carry the shared GPU's waits.
+
+| | C5 build | C5 + C7 |
+|---|---|---|
+| sky: `scene.build` − `scene.create` | 2.45 / 2.42 | 2.41 / 2.37 |
+| sky: CPU w/o GPU waits | 6.54 / 6.47 | 6.19 / 5.89 |
+| clock with the `morning` preset: `scene.build` | 3.57 / 3.42 | 3.26 / 3.21 |
+
+The gain is small: about 0.2–0.4 ms per frame with the sky, more with a preset clock, as estimated from the call count.
+
+**Equivalence.**
+
+- The `--dump-frame` set of [§12.72](#section-12-72): 0 differing pixels.
+- **Suites, PASS against `41df669`:** `sky`, `time_of_day`, `sun`, `sun_source`, `ambient`, `sun_disk`, `night`, `settings_scopes` and `p4_exit_gate`.
+
+<a id="section-12-74"></a>
+
+### 12.74 Round 11 Exit Notes (2026-10-31)
+
+**Overall.** Final build against `41df669`, interleaved, two pairs per arm (pair 1 / 2), GPU 4–20 % busy, ms per frame.
+
+| Arm | `scene.create` | `scene.build` | CPU w/o GPU waits | `cpuFrameMs` |
+|---|---|---|---|---|
+| sky | 2.50 / 2.62 → 1.05 / 0.94 | 5.02 / 5.17 → 3.51 / 3.30 | 8.27 / 8.87 → 6.71 / 6.03 | 16.4 / 17.6 → 15.7 / 14.4 |
+| HDR | 2.60 / 2.46 → 0.93 / 0.90 | 5.05 / 4.97 → 3.28 / 3.21 | 8.40 / 7.93 → 6.09 / 5.78 | 14.4 / 13.3 → 11.8 / 11.4 |
+| sky, clock `morning` | 2.54 / 2.47 → 0.88 / 0.79 | 5.15 / 5.08 → 3.27 / 3.13 | 8.74 / 8.55 → 5.94 / 5.49 | 17.3 / 16.7 → 14.4 / 13.5 |
+
+- **C9 left out.** `mergeInstances`' bucket map and scratch vectors were kept as members (bucket lists cleared, not freed; unused buckets evicted with the command cache). This was implemented, measured against the same build without it, and reverted:
+  - E195 ×3, `commands.generate`: 1.79 / 1.57 → 1.83 / 1.64 ms (sky), 1.08 / 1.50 → 1.34 / 1.30 ms (HDR).
+  - 1,600-drawable instancing grid, three viewports (`build/measure/impl3_c9grid.py`): 0.37 / 0.50 → 0.45 / 0.48 ms.
+  - No gain above noise.
+- **GPU-timing flake.** `sky`'s time-sliced check ("38 swaps of complete reduced-size jobs", needs 40) failed once with the GPU 100 % busy. It passed on the rerun (42 swaps), and the same suite passed on the C7 build.
+- Nothing else was reverted. Every image is byte-identical to `41df669`, and no check was changed.

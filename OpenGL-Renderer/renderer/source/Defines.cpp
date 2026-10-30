@@ -23,8 +23,9 @@ uint64_t Defines::entryHash(std::string_view name, int value)
 
 void Defines::define(std::string_view name, int value)
 {
-    auto [it, inserted] = m_defines.try_emplace(std::string(name), value);
-    if (inserted) {
+    auto it = m_defines.find(name);
+    if (it == m_defines.end()) {
+        m_defines.emplace(std::string(name), value);
         m_contentHash ^= entryHash(name, value);
         return;
     }
@@ -46,7 +47,7 @@ void Defines::defineIf(bool condition, std::string_view name, int value)
 
 void Defines::undefine(std::string_view name)
 {
-    auto it = m_defines.find(std::string(name));
+    auto it = m_defines.find(name);
     if (it == m_defines.end()) {
         return;
     }
@@ -93,5 +94,5 @@ void Defines::defineAllOf(const Defines& rhs)
 
 bool Defines::isDefined(const std::string_view name) const
 {
-    return m_defines.find(std::string(name)) != m_defines.end();
+    return m_defines.find(name) != m_defines.end();
 }

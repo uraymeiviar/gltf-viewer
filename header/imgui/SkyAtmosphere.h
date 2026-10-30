@@ -5,7 +5,10 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <array>
+#include <bit>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 
 namespace ux3d::imgui {
@@ -74,8 +77,9 @@ inline glm::dvec3 atmosphereExtinction(const AtmosphereParameters& p, double hei
 }
 
 // Transmittance from the observer to the top of the atmosphere towards `direction` (world, unit, +Y up); zero when the
-// ray hits the ground. Midpoint quadrature in double precision (512 steps).
-inline glm::vec3 atmosphereTransmittance(const AtmosphereParameters& p, const glm::vec3& direction)
+// ray hits the ground. Midpoint quadrature in double precision (512 steps). atmosphereTransmittance below is the same
+// value through a small exact-input cache.
+inline glm::vec3 atmosphereTransmittanceUncached(const AtmosphereParameters& p, const glm::vec3& direction)
 {
     const double bottom = sky::kBottomRadiusKm, top = sky::kTopRadiusKm;
     const double h0 = sky::kObserverAltitudeKm;
@@ -97,6 +101,33 @@ inline glm::vec3 atmosphereTransmittance(const AtmosphereParameters& p, const gl
         opticalDepth += atmosphereExtinction(p, h) * dt;
     }
     return glm::vec3(glm::exp(-opticalDepth));
+}
+
+// C7 (round 11): the sun, the moon, the exposure plan, the sun disk and the star extinction ask for the same few
+// transmittances many times per frame (about 27 with three viewports, 8 us each). The function is pure, so a cache
+// keyed on the exact bits of every input it reads (mieDensity, ozone, the direction; not groundAlbedo or airglow)
+// returns bit-identical results. Per thread, 8 entries, round-robin replacement; nothing is tolerance-matched.
+inline glm::vec3 atmosphereTransmittance(const AtmosphereParameters& p, const glm::vec3& direction)
+{
+    struct Entry {
+        std::array<uint32_t, 5> key{};
+        glm::vec3 value{0.0f};
+        bool valid = false;
+    };
+    thread_local std::array<Entry, 8> cache{};
+    thread_local size_t next = 0;
+    const std::array<uint32_t, 5> key = {std::bit_cast<uint32_t>(p.mieDensity), p.ozone ? 1u : 0u,
+                                         std::bit_cast<uint32_t>(direction.x), std::bit_cast<uint32_t>(direction.y),
+                                         std::bit_cast<uint32_t>(direction.z)};
+    for (const Entry& entry : cache) {
+        if (entry.valid && entry.key == key) return entry.value;
+    }
+    Entry& slot = cache[next];
+    next = (next + 1) % cache.size();
+    slot.value = atmosphereTransmittanceUncached(p, direction);
+    slot.key = key;
+    slot.valid = true;
+    return slot.value;
 }
 
 // A3.1 sun in procedural-sky mode: the top-of-atmosphere sun (white, kSolarIlluminance) through the atmosphere towards

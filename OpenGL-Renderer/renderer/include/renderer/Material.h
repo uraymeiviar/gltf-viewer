@@ -96,6 +96,12 @@ public:
     // A2.2: the viewport applies ASOBO_material_geometry_decal, so decal-class draws get their
     // depth bias. Set per viewport next to drawOrderActive; off renders the file as without ASOBO.
     bool decalBiasActive = false;
+    // C5 (round 11): GltfRenderLayer::createScene applies the per-viewport material policy (ASOBO defines and
+    // uniforms, draw order, render settings) once per material per call, not once per primitive. The marks hold
+    // the serial of the createScene call that last applied each half; copies carry them, which is harmless
+    // because only the layer's own materials are visited and every call takes a new serial.
+    uint64_t scenePolicyMark = 0;
+    uint64_t sceneSettingsMark = 0;
     // A3.2: a constant plus slope-scaled depth bias (glPolygonOffset(depthBiasSlope, depthBiasUnits)) for
     // this material's draws. Only the sun shadow caster copies set it.
     bool depthBiasEnabled = false;
