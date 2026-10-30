@@ -25,7 +25,8 @@ It uses C++20, Dear ImGui Docking, GLFW and OpenGL 4.6 (fallbacks 4.5, 4.3, 4.1)
 - [Build and test](docs/BUILD_AND_TEST.md): read before configuring/building, selecting regression checks, updating embedded assets, changing dependencies or publishing releases.
 - [Settings scopes](docs/SETTINGS_SCOPES.md): read for renderer quality, scene effects, viewport overrides, compatibility keys and persistence ownership.
 - [Live script control](docs/LIVE_SCRIPT_CONTROL.md): read for command files and scripted UI checks on a running instance.
-- [Agent control plan and implementation](docs/AGENT_CONTROL_PLAN.md): read for named-pipe/MCP control, shared commands, probes or registering a setting (§7.2).
+- [Agent control plan and implementation](docs/AGENT_CONTROL_PLAN.md): read for named-pipe/MCP control, shared commands or probes.
+- [Adding a setting](docs/ADDING_A_SETTING.md): read before adding or changing any setting, CLI flag or registry key; per-scope checklists and what the registry generates.
 - [Quality presets and telemetry](docs/QUALITY_PRESETS_AND_TELEMETRY.md): read for editable profiles, Auto selection and Statistics telemetry.
 - [Loading and adaptive quality](docs/LOADING_AND_ADAPTIVE_QUALITY.md): read for loading progress, memory protection and quality adaptation.
 - [Texture-free loading](docs/LOADING_SPEED_AND_TEXTURE_FREE_OPEN.md): read for import performance and opening without textures.

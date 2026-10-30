@@ -350,31 +350,10 @@ environment `exposure`, `tone_mapping`, `hdr_rotation`, `hdr_intensity`, `hdr_bl
 
 ### 7.2 Registering a setting
 
-A setting is registered once, in the area function `registerAgentSettings()` calls (`registerAgentViewportSettings`,
-`registerAgentEnvironmentSettings`, `registerAgentQualitySettings`, ... in `CommandsSettings*.cpp`); the CLI flag,
-`set_*`/`get_*`, `list_settings`, the scripts and the guide table all read the same entry:
-
-```cpp
-// A field of ViewportSettingsState (scope Viewport) or SceneEnvironmentState (scope Environment):
-addSetting(floatSetting<VS>("sun_elevation", V, &VS::sunElevation, "Sun elevation in degrees.",
-                            "--sun-elevation <deg>", std::pair{-90.0, 90.0}));
-addSetting(boolSetting<ES>("shadows", E, &ES::shadowsEnabled, "Sun shadows.", "--shadows <on|off>"));
-addSetting(indexEnumSetting<VS>("ao_quality", V, &VS::aoQuality, {"low", "medium", "high"}, "AO samples."));
-// Anything else: a SettingSpec with get/set lambdas (see "render_mode", "wireframe_color", "grid_mode").
-```
-
-and, for a CLI flag, one line in `configure()`:
-
-```cpp
-} else if (arg == "--sun-elevation" && i + 1 < argc) {
-    if (!applyCliSetting(SettingScope::Viewport, "sun_elevation", argv[++i], "--sun-elevation")) return 1;
-```
-
-The default is read from a default-constructed struct, range and enum checks come from the entry, text values
-(CLI, scripts) are parsed with `std::stof` exactly as the CLI always has, and the setter only writes state:
-`set_viewport_setting` marks `ViewportSettings` and resets that viewport's TAA history, `set_environment` marks
-`RenderSettings`. Mark `persisted = true` for a value stored in `settings.ini`; the pipe then requires
-`set_persist(true)`.
+A setting is registered once as a `SettingSpec` in the area function `registerAgentSettings()` calls
+(`CommandsSettings*.cpp`); `set_*`/`get_*`, `list_settings`, `describe` and the generated settings table of `--agent-guide` read that
+entry, but the CLI flag, the UI, `get_state` and any persistence are manual. The per-scope checklists, code skeletons and validators are in
+[ADDING_A_SETTING.md](ADDING_A_SETTING.md).
 
 ### 7.3 Deviations from this plan (and why)
 
