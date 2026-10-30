@@ -542,4 +542,40 @@ void Application::releaseDecalBuffer()
     }
 }
 
+ux3d::imgui::TransmissionTarget& Application::viewportTransmissionTarget(ux3d::imgui::ViewportInstance& viewport)
+{
+    // C6: a viewport keeps its own target, so its storage changes only when this viewport's size changes. A closed
+    // viewport's target is adopted first. Nothing is allocated here: the blit callback creates the colour copy on the
+    // first full-resolution capture and the SSR depth on the first depth capture.
+    if (!viewport.transmissionTarget) {
+        if (!transmissionSpares.empty()) {
+            viewport.transmissionTarget = std::move(transmissionSpares.back());
+            transmissionSpares.pop_back();
+        } else {
+            viewport.transmissionTarget = std::make_unique<ux3d::imgui::TransmissionTarget>();
+        }
+    }
+    return *viewport.transmissionTarget;
+}
+
+void Application::pruneTransmissionSpares()
+{
+    // Keep only the spares a sampler still points at: the shared transmission texture (whose size materials read
+    // when they are built) and the SSR depth. The next capture re-points both.
+    const GLuint colour = gltfLayer != nullptr && gltfLayer->getResourceManager().getFramebufferTexture() != nullptr
+                              ? gltfLayer->getResourceManager().getFramebufferTexture()->handle : 0;
+    const GLuint depth = commandGenerator != nullptr ? commandGenerator->getSsrDepth() : 0;
+    std::erase_if(transmissionSpares, [colour, depth](const std::unique_ptr<ux3d::imgui::TransmissionTarget>& target) {
+        return target == nullptr || ((target->getTexture() == 0 || target->getTexture() != colour)
+                                     && (target->getDepthTexture() == 0 || target->getDepthTexture() != depth));
+    });
+}
+
+void Application::releaseViewportTransmission(ux3d::imgui::ViewportInstance& viewport)
+{
+    if (!viewport.transmissionTarget) return;
+    transmissionSpares.push_back(std::move(viewport.transmissionTarget));
+    pruneTransmissionSpares();
+}
+
 } // namespace ux3d::imgui::application

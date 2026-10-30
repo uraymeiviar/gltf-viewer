@@ -2,9 +2,9 @@
 
 [Journal index](RENDERER_OPTIMIZATION_JOURNAL.md) · [Reference audit](RENDERER_OPTIMIZATION_REFERENCE.md) · [Validation rules](RENDERER_OPTIMIZATION_VALIDATION.md)
 
-**Status:** Complete, uncommitted ([§12.68](#section-12-68)). Profile stages and counters were added first ([§12.63](#section-12-63)). C4 overlay-depth reuse PASS ([§12.64](#section-12-64)). C1 shadow-cascade reuse PASS ([§12.65](#section-12-65)). C13 single startup environment load PASS ([§12.66](#section-12-66)). C2 frame-value settings without a renderer sync PASS ([§12.67](#section-12-67)). C6 (TransmissionTarget reallocations) was measured only and not changed.
+**Status:** Complete, uncommitted ([§12.68](#section-12-68)). Profile stages and counters were added first ([§12.63](#section-12-63)). C4 overlay-depth reuse PASS ([§12.64](#section-12-64)). C1 shadow-cascade reuse PASS ([§12.65](#section-12-65)). C13 single startup environment load PASS ([§12.66](#section-12-66)). C2 frame-value settings without a renderer sync PASS ([§12.67](#section-12-67)). Round 10 (uncommitted, against `1db382b`): C6 per-viewport transmission copy PASS ([§12.69](#section-12-69)) and C3 asynchronous exposure meter PASS ([§12.70](#section-12-70)); exit notes [§12.71](#section-12-71).
 
-**Scope:** The candidates come from the 2026-10-30 audit of the three-viewport E195 use case (C1, C2, C4, C6, C13). Every image stays byte-identical to `69cf29b`. Each cache has a same-binary A/B switch, `--disable-pass-cache`.
+**Scope:** The candidates come from the 2026-10-30 audit of the three-viewport E195 use case (C1, C2, C4, C6, C13); round 10 adds C3. Every image stays byte-identical to `69cf29b` (round 10: to `1db382b`). Each cache has a same-binary A/B switch, `--disable-pass-cache`; the C3 meter has `--exposure-readback sync`.
 
 **Machine note:** The GPU was shared with an inference VM during every run (nvidia-smi showed 15–100 % utilisation before and after each launch). GPU times are therefore context only. Gains are shown with CPU stages, counters and interleaved baseline/new pairs.
 
@@ -28,7 +28,7 @@ New frame counters:
 
 `TransmissionTarget::captureDepth` and `capture` now report their reallocations through `countTextureAllocation`.
 
-**C6 measurement (not fixed).** Three-viewport E195, procedural sky, TAA in each viewport, steady frames: `textureAllocations` = 3 per frame and `textureAllocationBytes` = 8,549,760 per frame. Each viewport's transmission copy is reallocated on every frame.
+**C6 measurement (not fixed).** Three-viewport E195, procedural sky, TAA in each viewport, steady frames: `textureAllocations` = 3 per frame and `textureAllocationBytes` = 8,549,760 per frame. Each viewport's transmission copy is reallocated on every frame. Fixed in round 10 ([§12.69](#section-12-69)).
 
 <a id="section-12-64"></a>
 
@@ -182,6 +182,143 @@ In the Inspector, the HDR file load and the Environment Source combo keep the sy
   With identical flags on both binaries, all six images are byte-identical to `69cf29b` (`build/measure/impl_presets.py`, `build/measure/impl_ocean.py`). The checks were left unchanged.
 - **GPU-timing flake.** `sky`'s GPU-timing check ("play then stop … max extra GPU 4.41 ms") failed once on the shared GPU and passed on the rerun.
 - **Left out.**
-  - C6: the per-frame TransmissionTarget reallocation (8.5 MB per frame) was measured only.
+  - C6: the per-frame TransmissionTarget reallocation (8.5 MB per frame) was measured only; fixed in round 10 ([§12.69](#section-12-69)).
   - C4 multi-entry caching: not needed, because edge meshes are drawn over a subset copy.
   - The Renderer-scope keys and the glTF Extensions vendor tuning (`decal_tolerance_mm`, `interior_sky_reflection`) were not reclassified for C2.
+
+<a id="section-12-69"></a>
+
+### 12.69 Round 10 — C6 per-viewport transmission copy (2026-10-31)
+
+**Change.**
+
+- `ViewportInstance::transmissionTarget` (`ViewportInstance.h`) gives each viewport its own full-resolution behind-scene copy (ASOBO glass) and SSR depth. Both are sized to that viewport only.
+- The fixed 1024×1024 KHR transmission copy stays shared in `Application::transmissionTarget`.
+- `Viewports.cpp` sets `transmissionCapture` to the rendering viewport's target around the main draw.
+- The TransmissiveBlit callback (`Application.cpp`) works as follows:
+  - It copies the full-resolution glass copy and the SSR depth into that target.
+  - It copies the KHR copy into the shared one.
+  - Before copying, it points the resource manager's framebuffer texture at the target it copies into. The passes after the blit therefore sample this render's copy, exactly as before.
+- Previously, viewports of different sizes re-specified one shared texture on every render. With three E195 viewports that was 3 allocations and 8.5 MB per frame.
+
+**Lifetime and invalidation.**
+
+- A viewport's target is allocated lazily. The colour copy is created on the first full-resolution capture, and the depth on the first depth capture. Scenes without ASOBO glass or SSR allocate nothing extra.
+- Storage changes only when that viewport's size changes (`TransmissionTarget::create/captureDepth` keep their existing size checks).
+- Materials hold the `gl::Texture*` and read its handle at bind time. Material builds query the current texture's level-0 size (`u_TransmissionFramebufferSize`), so the callback re-points the texture on every capture, as the shared target did.
+- On viewport close, `releaseViewportTransmission` moves the target to `transmissionSpares`. `pruneTransmissionSpares` frees the spares whose colour texture is not the current framebuffer texture and whose depth is not `CommandGenerator::getSsrDepth()`.
+  - A sampler can therefore never hold a deleted handle.
+  - A new viewport adopts a spare first.
+- Shutdown clears the capture pointer and the spares, then destroys the shared target.
+
+**Measurement.** E195, three TAA viewports (272×976, 550×976 and 273×976), procedural sky, steady frames, `build/measure/impl2_c6.py`. The runs were interleaved pairs against `1db382b`.
+
+| | 1db382b (pair 1 / 2) | Current (pair 1 / 2) |
+|---|---|---|
+| `textureAllocations` per frame | 3 / 3 (8,549,760 B) | 0 / 0 |
+| CPU frame (median) | 44.06 / 44.52 ms | 23.73 / 23.33 ms |
+| `draw.submit` (median) | 26.6 / 27.2 ms | 6.27 / 6.08 ms |
+| TransmissiveBlit GPU (context only) | 6.78 / 6.39 ms | 0.54 / 0.45 ms |
+
+The GPU was shared, so GPU times are context only. An earlier pair at lower contention showed the same shape: CPU 20.5 → 17.5 ms, `draw.submit` 10.2 → 5.9 ms.
+
+**Memory cost.**
+
+- The per-viewport RGBA16F copies with mips are 2.83 + 5.73 + 2.84 MB in this case. The shared 1024² copy is 11.2 MB.
+- `1db382b` held one texture of whichever viewport rendered last.
+- Net cost is about +20 MB with three glass viewports.
+- Each viewport that captures SSR depth also holds its own depth texture (w·h·4 B).
+
+**Equivalence.** All checks were run against `1db382b`:
+
+- **Whole-window shots, 0 differing pixels** (`build/measure/impl2_shots.py`):
+  - three viewports with sky and with the HDR;
+  - the cockpit view;
+  - resize, close and reopen of a viewport;
+  - MSAA, a debug-view mix, and ASOBO extensions off.
+- **`--dump-frame`, 0 differing pixels** (`impl2_dumps.py`): the default view, the E195 default view and the E195 cockpit with the sky, with manual and with Auto exposure. The images were viewed.
+- **Suites, PASS:** `review_fixes`, `viewport_image`, `settings_scopes`, `agent_control`, `aa-target-selfcheck`, `p8_1`, `p8_3`, `p8_5`, `p8_followup`, `asobo_common`, `asobo_fresnel_ghost`, `sky`, `time_of_day`, `sun`, `sun_source`, `ambient`, `background_projection` and `night`.
+
+<a id="section-12-70"></a>
+
+### 12.70 Round 10 — C3 asynchronous exposure meter (2026-10-31)
+
+**Change.**
+
+- `AntiAliasing::updateAutoExposure` (`AntiAliasingBloom.cpp`) still draws the 64×64 RG32F meter (R luma, G peak) every metered render.
+- Interactively, it no longer reads the meter back with a synchronous `glReadPixels`. Instead, `issueMeterReadback` writes it into a pixel-buffer ring (3 slots), followed by a `glFenceSync`.
+- The highlight meter's depth is copied as well:
+  - The scene depth (D24S8) is blitted into a D24S8 texture.
+  - A full-screen pass (`s_meterDepthFS`) writes it into an R32F target, which is read into a second buffer.
+  - A depth `glReadPixels` into a buffer still stalled on the driver, for both `GL_FLOAT` and `GL_UNSIGNED_INT_24_8`.
+- `consumeMeterReadbacks` works as follows:
+  - It polls the oldest slot's fence with a zero timeout.
+  - When the fence is ready, it maps the buffers and evaluates the target with that render's own parameters (`MeterReadback::params`).
+- `evaluateMeter` / `adaptExposure` are the previous math, moved unchanged. The exposure adapts towards the newest available target, which is typically 1 frame old and at most 2 or 3.
+- The synchronous path is unchanged and is used in these cases:
+  - **Capture runs:** `--fixed-frame-time`, `--dump-frame`, `--capture-viewport`, `--capture-first-frame` and `--ui-script` snap Auto to the meter every frame, so pipe and CLI images stay byte-identical.
+  - Snaps, and the first metered render of a viewport.
+  - `--exposure-readback sync`.
+- `--exposure-readback async` forces the asynchronous path. The default `auto` picks it only outside capture runs.
+
+**Idle loop and invalidation.**
+
+- `isExposureAdapting()` also reports a pending meter drain. When the exposure stops moving, the viewport keeps rendering until the readback of a render issued after it settled has been consumed (at most `kMeterDrainRenders` = 8 renders). A still image is therefore metered too.
+- The drain is armed once per change of the meter's input. `HdrPostProcessParams::meterInputChanged` is set when the viewport's render key changed (camera, scene, environment, size or settings).
+  - Renders that only follow the exposure or settle TAA do not re-arm it, so the TAA jitter's meter noise cannot keep a still viewport rendering.
+  - An exposure-compensation edit changes the key, so the meter re-reads and adaptation resumes. The new `sky` check caught that this was missing.
+- Pending readbacks are dropped when:
+  - the path falls back to synchronous;
+  - the meter targets are released or resized;
+  - the viewport is closed (`Viewports.cpp`).
+
+**Counters and state.**
+
+- Profile frame counters: `exposureSyncReadbacks`, `exposureAsyncReadbacks` (issued) and `exposureAsyncResults` (consumed).
+- `get_state` `night.exposure.viewports[].meterReadback` is `"async"` or `"sync"`.
+
+**Measurement.** E195, three TAA viewports, procedural sky, Auto exposure (highlight meter), every frame rendered. Runs were interactive (`--ui-script-follow`, no capture snap) and interleaved, `build/measure/impl2_c3.py`. Each cell gives `post.process` median, then CPU frame median, both in ms.
+
+| Pair | 1db382b | Current, `--exposure-readback sync` | Current (async) |
+|---|---|---|---|
+| 1 | 1.65 · 21.0 | 8.29 · 23.9 | 0.81 · 15.4 |
+| 2 | 5.97 · 44.3 | 8.00 · 24.5 | 0.79 · 15.3 |
+| 3 | 5.14 · 39.4 | 7.80 · 23.6 | 0.79 · 15.6 |
+| final build | 1.62 · 21.2 | 7.84 · 23.3 | 0.77 · 15.5 |
+
+nvidia-smi before/after each run ranged 4–100 % (inference VM); the baseline arm's spread follows that contention.
+
+- Counters per frame: sync 3 / async 0 with `sync`, and async 3 issued / 3 consumed by default.
+- The same-binary sync arm is the fair reference. Its `post.process` includes the readback wait that `1db382b` partly spent elsewhere (C6's blit stall, before this round).
+- The Curve exposure, which has no meter, costs 0.18–0.24 ms.
+
+**Exposure equivalence.** The interactive sessions were settled and polled with `get_state` (`build/measure/impl2_converge.py`). The values are EV per viewport.
+
+| Scene | sync | async |
+|---|---|---|
+| sky, 3 viewports | 0.00804 / −0.13604 / 0.00777 | 0.00803 / −0.13602 / 0.00773 |
+| sky, cockpit in viewport 1 | 2.22218 / −0.13604 / 0.00764 | 2.22135 / −0.13600 / 0.00773 |
+| HDR, Auto | −0.28738 / −0.45268 / −0.28744 | −0.28727 / −0.45253 / −0.28734 |
+
+- Both arms settle at the same wall time, without reversals.
+- The cockpit viewport's 0.0008 EV difference is within the TAA meter noise. Synchronous repeats alone range over 2.2155–2.2222.
+
+**Checks.**
+
+- **New:** `validate_sky.py` check `exposure` (`check_async_exposure`).
+  - It runs a sky session with `--aa none` and Auto exposure, once with `--exposure-readback sync` and once with the default.
+  - Both must settle on the same EV within `EXPOSURE_ASYNC_TOLERANCE` = 2e-3, before and after `exposure_compensation` 1.5 over the pipe. Result: −0.42526 = −0.42526.
+  - `get_state` must report the readback each session used.
+  - Both sessions must show zero GL errors.
+- **Byte identity:** capture runs keep the synchronous path. All shots and dumps of [§12.69](#section-12-69) show 0 differing pixels on the final build.
+- **Suites, PASS against `1db382b`:** the list in §12.69, rerun on the final build for `sky`, `night`, `agent_control`, `settings_scopes`, `review_fixes` and `asobo_common`.
+
+<a id="section-12-71"></a>
+
+### 12.71 Round 10 Exit Notes (2026-10-31)
+
+- Nothing was reverted. Every image is byte-identical to `1db382b`, and no check was loosened.
+- The interactive Auto exposure now lags its meter by 1–2 frames, typically 1. Capture runs are unchanged.
+- **Left out.**
+  - C6 does not share one full-resolution copy between equally sized viewports, because each viewport must keep its own copy while the others render.
+  - C3 still issues the meter draw and the depth copy on every metered render. It reads back only asynchronously.

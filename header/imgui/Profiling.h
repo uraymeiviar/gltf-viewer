@@ -89,6 +89,11 @@ struct FrameCounters {
     uint64_t overlayDepthCacheHits = 0;
     // Environment (HDR) loads after startup: the first frames' lazy load for a changed path or sun removal.
     uint64_t environmentReloads = 0;
+    // C3: Auto exposure meter readbacks: synchronous (glReadPixels waits for the GPU: capture runs, snaps, the first
+    // meter), asynchronous ones issued into a pixel buffer, and asynchronous results read after their fence signalled.
+    uint64_t exposureSyncReadbacks = 0;
+    uint64_t exposureAsyncReadbacks = 0;
+    uint64_t exposureAsyncResults = 0;
     uint64_t wireframeMaterialCopies = 0;
     uint64_t sceneDrawables = 0;
     uint64_t sceneNodesVisited = 0;

@@ -242,18 +242,26 @@ int Application::run(int argc, char** argv)
     // must exist before any model loads: materials attach it only when they are built.
     // The TransmissiveBlit pass copies transmissionSource. For ASOBO glass this is
     // the floating point behind target; the callback restores the forward target.
+    // C6: the full-resolution (ASOBO glass) copy and the SSR depth go to the rendering viewport's own target
+    // (transmissionCapture); the fixed-size KHR copy stays in the shared target. The callback points the sampler
+    // texture at the target it copies into, so the passes after the blit sample this render's copy.
     transmissionTarget.create();
     gltfLayer->getResourceManager().createFramebufferTexture(transmissionTarget.getTexture());
     gltfLayer->getResourceManager().setBlitFramebufferFunction(
         [this] {
             if (transmissionSource != nullptr) {
+                const bool fullResolution = transmissionDestination != nullptr;
+                ux3d::imgui::TransmissionTarget& own = transmissionCapture != nullptr ? *transmissionCapture : transmissionTarget;
+                if (fullResolution) own.create(); // first full-resolution copy of this viewport
+                ux3d::imgui::TransmissionTarget& colour = fullResolution ? own : transmissionTarget;
+                gltfLayer->getResourceManager().createFramebufferTexture(colour.getTexture());
                 if (ssrCaptureDepth) {
-                    const bool depthValid = ssrUseDecalDepth || transmissionTarget.captureDepth(*transmissionSource);
+                    const bool depthValid = ssrUseDecalDepth || own.captureDepth(*transmissionSource);
                     commandGenerator->setSsrDepth(depthValid ? (ssrUseDecalDepth ? decalBuffer.getDepthTexture()
-                                                                                           : transmissionTarget.getDepthTexture()) : 0, ssrUseDecalDepth);
+                                                                                           : own.getDepthTexture()) : 0, ssrUseDecalDepth);
                     if (!depthValid) commandGenerator->setSsrOptions(false, 1, ssrInteriorSky);
                 }
-                const bool copied = transmissionTarget.capture(*transmissionSource, transmissionDestination != nullptr);
+                const bool copied = colour.capture(*transmissionSource, fullResolution);
                 commandGenerator->setAsoboGlassCopyValid(copied && transmissionDestination != nullptr);
                 if (transmissionDestination != nullptr) transmissionDestination->bind();
                 else transmissionSource->bind();
@@ -450,6 +458,8 @@ int Application::run(int argc, char** argv)
     if (gltfLayer != nullptr) {
         gltfLayer.reset();
     }
+    transmissionCapture = nullptr;
+    transmissionSpares.clear();
     transmissionTarget.destroy();
     glassCopyFbo = ux3d::imgui::Framebuffer();
 

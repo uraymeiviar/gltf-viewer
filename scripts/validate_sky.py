@@ -28,7 +28,11 @@ Checks:
     (incompleteSwaps 0); once time stops the cubes refine to the configured size;
   * ground albedo (A3.6 plane, override), ozone and Mie respond; registry keys listed, CLI = pipe (byte-identical),
     invalid values refused;
-  * time of day + sky + shadows + ground plane together: finite probes, zero GL errors.
+  * time of day + sky + shadows + ground plane together: finite probes, zero GL errors;
+  * C3 asynchronous exposure meter: interactive sessions (no capture flags) of the sky's Auto exposure with the
+    asynchronous meter readback (the default) and with --exposure-readback sync settle on the same EV within
+    EXPOSURE_ASYNC_TOLERANCE, before and after an exposure-compensation change (the adaptation then runs over frames),
+    and get_state reports which readback ran.
 
 Run: python scripts/validate_sky.py [--baseline-exe build/baselines/<sha>.exe] [--only a,b] [--regenerate-references]
 """
@@ -37,6 +41,7 @@ import argparse
 import json
 import math
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -57,6 +62,8 @@ SUN_TOLERANCE = 0.005            # relative, sun transmittance per channel
 IRRADIANCE_TOLERANCE = 0.10      # relative, Lambert sphere diffuse IBL against the reference cosine mean
 CONVERGED_TOLERANCE = 1.0e-4     # relative, converged time-sliced cubes against a full synchronous filter
 BUDGET_MS = 4.0                  # stated per-frame limit of the time-sliced work (SkyEnvironment::kStatedBudgetMs)
+# EV: both meters stop adapting within 1e-3 EV of the same target (a still image without TAA meters the same in both).
+EXPOSURE_ASYNC_TOLERANCE = 2.0e-3
 
 SUN_AZIMUTH = 0.0
 # (label, sun elevation): the two suns of the reference.
@@ -525,11 +532,57 @@ def check_together():
     check(ok and finite, f"{Path(model).name}: dusk, procedural sky, shadows, ground plane: image and sun finite, zero GL errors")
 
 
+def settled_exposure(pipe, limit_s=60.0):
+    """Polls get_state until the viewport stopped adapting (three polls in a row); returns (EV, readback) or None."""
+    deadline, quiet = time.time() + limit_s, 0
+    while time.time() < deadline:
+        viewport = pipe.call("get_state")["night"]["exposure"]["viewports"][0]
+        quiet = quiet + 1 if not viewport["adapting"] else 0
+        if quiet >= 3:
+            return viewport["exposureEv"], viewport["meterReadback"]
+        time.sleep(0.3)
+    return None
+
+
+def check_async_exposure(model):
+    """C3: the interactive meter (asynchronous readback, typically 1-2 frames old) settles where the synchronous one does."""
+    results = {}
+    for mode in ("sync", "auto"):
+        args = [str(EXE), str(model), "--isolated", "--window-size", "1280x720", "--vsync", "off", "--aa", "none",
+                "--environment", "sky", "--hide-grid", "--exposure-mode", "auto", "--exposure-readback", mode, "--control-pipe"]
+        process, pipe = start_pipe_session(args)
+        try:
+            first = settled_exposure(pipe)
+            pipe.call("set_environment", key="exposure_compensation", value=1.5)
+            second = settled_exposure(pipe)
+            errors = pipe.call("get_state")["glErrors"]
+            pipe.call("quit")
+            results[mode] = (first, second, errors)
+        finally:
+            pipe.close()
+            try:
+                process.wait(60)
+            except Exception:  # noqa: BLE001
+                process.kill()
+    sync, live = results.get("sync"), results.get("auto")
+    if sync is None or live is None or None in sync[:2] or None in live[:2]:
+        check(False, f"exposure: a session did not settle ({results})")
+        return
+    check(sync[0][1] == "sync" and live[0][1] == "async" and live[1][1] == "async",
+          f"exposure: readback sync with --exposure-readback sync, async interactively ({sync[0][1]}, {live[0][1]})")
+    for index, label in ((0, "settled"), (1, "after +1.5 EV compensation")):
+        difference = abs(sync[index][0] - live[index][0])
+        check(difference <= EXPOSURE_ASYNC_TOLERANCE,
+              f"exposure {label}: async EV {live[index][0]:.5f} = sync EV {sync[index][0]:.5f} (|d| {difference:.5f} <= {EXPOSURE_ASYNC_TOLERANCE})")
+    check(sync[2] == 0 and live[2] == 0, f"exposure sessions: GL errors {sync[2]} / {live[2]}")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--baseline-exe", default=None)
     parser.add_argument("--regenerate-references", action="store_true", help="print the reference values (numpy, slow) and exit")
-    parser.add_argument("--only", default=None, help="comma-separated: baseline,reference,behaviour,sun,ibl,budget,params,registry,together")
+    parser.add_argument("--only", default=None,
+                        help="comma-separated: baseline,reference,behaviour,sun,ibl,budget,params,registry,together,exposure")
     args = parser.parse_args()
     if args.regenerate_references:
         regenerate_references()
@@ -581,6 +634,8 @@ def main():
         check_registry(sphere)
     if want("together"):
         check_together()
+    if want("exposure"):
+        check_async_exposure(sphere)
     for name, log in gl_logs:
         if not gl_errors_zero(log):
             check(False, f"{name}: GL errors in the log")

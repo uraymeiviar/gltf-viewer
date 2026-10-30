@@ -158,6 +158,8 @@ json Application::nightStateJson(const ux3d::imgui::SceneEnvironmentState& envir
                       {"exposureEv", agent::floatJson(vp->displayedExposureEv)},
                       {"meteredLuminance", agent::floatJson(vp->antiAliasing.getMeteredLuminance())},
                       {"adapting", vp->antiAliasing.isExposureAdapting()},
+                      // C3: how the last metered render read the meter ("async" interactively, "sync" in captures).
+                      {"meterReadback", vp->antiAliasing.lastMeterAsync() ? "async" : "sync"},
                       // TAA history brought to a changed pre-exposure (last pass's factor, and how many passes needed one).
                       {"taaHistoryScale", agent::floatJson(vp->antiAliasing.getLastHistoryScale())},
                       {"taaHistoryRescales", vp->antiAliasing.getHistoryRescales()}};

@@ -347,6 +347,11 @@ private:
     // viewport applies ASOBO_material_geometry_decal.
     bool viewportNeedsDecalBuffer(const ux3d::imgui::ViewportInstance& viewport) const;
     void releaseDecalBuffer();
+    // C6: gives the viewport its own transmission target (adopting a spare first; storage is allocated on use).
+    ux3d::imgui::TransmissionTarget& viewportTransmissionTarget(ux3d::imgui::ViewportInstance& viewport);
+    // C6: releases a closed viewport's transmission target (kept as the spare while the sampler still points at it).
+    void releaseViewportTransmission(ux3d::imgui::ViewportInstance& viewport);
+    void pruneTransmissionSpares();
     bool writeDecalPrepassCheck(const std::string& path, ux3d::imgui::ViewportInstance& viewport);
     int drainGLErrors(const char* where);
 
@@ -487,7 +492,14 @@ private:
     ux3d::imgui::AnimationPlayer animationPlayer;
     ux3d::filesystem::Path rendererResourcesDir{ux3d::imgui::StdFileSystem::instance()};
     std::unique_ptr<ux3d::renderer::GltfRenderLayer> gltfLayer;
+    // The shared 1024x1024 copy (KHR transmission; the texture materials see before the first capture).
     ux3d::imgui::TransmissionTarget transmissionTarget;
+    // C6: closed viewports' targets that the transmission sampler texture or the SSR depth sampler still point at
+    // (materials query the current texture's size when they are built, and samplers bind those handles, so they stay
+    // alive until the next capture re-points them). A viewport that needs a target adopts one of these first.
+    std::vector<std::unique_ptr<ux3d::imgui::TransmissionTarget>> transmissionSpares;
+    // C6: the rendering viewport's own target (full-resolution copy and SSR depth); null outside a main draw.
+    ux3d::imgui::TransmissionTarget* transmissionCapture = nullptr;
     ux3d::imgui::Framebuffer* transmissionSource = nullptr;
     ux3d::imgui::Framebuffer* transmissionDestination = nullptr;
     ux3d::imgui::Framebuffer glassCopyFbo;
@@ -659,6 +671,9 @@ private:
     // C1/C4: --disable-pass-cache re-renders the sun-shadow cascades and the overlay depth on every render (the
     // reference path) instead of reusing them while their inputs are unchanged.
     bool s_disablePassCache = false;
+    // C3: --exposure-readback: 0 auto (asynchronous Auto exposure meter readback interactively, synchronous in capture
+    // runs), 1 sync (the pre-C3 path everywhere, the A/B reference), 2 async (also in capture runs; snaps stay synchronous).
+    int s_exposureReadback = 0;
     // --msfs-emissive off: ASOBO assets use the clamped core emissive factor (A/B reference).
     bool s_disableMsfsEmissive = false;
     // A6.3: the procedural sky's environment (LUTs, filtered cubes, time-sliced jobs). Renderer-wide settings:

@@ -266,6 +266,8 @@ setting, and changing it is seamless.
     - **Determinism:** capture runs (`--fixed-frame-time`, `--dump-frame`, `--capture-viewport`, `--capture-first-frame`,
       `--ui-script`) snap the sky's Auto to its meter every frame and set the pre-exposure from the last frame only, so
       pipe and CLI give byte-identical images (validate_sky's pipe = CLI and validate_night's Auto pipe = CLI pass).
+      Since optimization round 10 (C3) interactive sessions read the meter back asynchronously (1-2 frames late) and
+      capture runs keep the synchronous readback; validate_sky's `exposure` check compares the settled EVs.
     - **A6.4c (target 0.8 -> 1.05):** A3.9 (sky occlusion) darkens the sunlit-cockpit interior, so the sunlit white
       `$DRM_UI_SCREEN` surface, not the panel, limits the noon exposure and the panel median fell to 0.035 (< 0.04) with
       screen-to-bezel contrast 0.285-0.291 (< 0.3). Raising the target to 1.05 (+0.39 EV at noon: -1.01 -> -0.62) passes

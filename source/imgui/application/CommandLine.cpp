@@ -379,6 +379,13 @@ std::optional<int> Application::configure(int argc, char** argv)
             s_disableWireframeCache = true;
         } else if (arg == "--disable-pass-cache") {
             s_disablePassCache = true;
+        } else if (arg == "--exposure-readback" && i + 1 < argc) {
+            const std::string mode = toLowerAscii(argv[++i]);
+            if (mode != "auto" && mode != "sync" && mode != "async") {
+                std::fprintf(stderr, "Invalid --exposure-readback '%s' (expected auto, sync or async)\n", mode.c_str());
+                return 1;
+            }
+            s_exposureReadback = mode == "sync" ? 1 : mode == "async" ? 2 : 0;
         } else if (arg == "--msfs-emissive" && i + 1 < argc) {
             const bool off = toLowerAscii(argv[++i]) == "off";
             if (!applyCliSetting(SettingScope::Renderer, "msfs_emissive", off ? "off" : "on", "--msfs-emissive")) return 1;

@@ -6,6 +6,7 @@
 #include <glm/glm.hpp>
 #include <cstdint>
 #include <cstddef>
+#include <vector>
 #include "imgui/SelfCheckResult.h"
 
 namespace ux3d::imgui {
@@ -61,6 +62,14 @@ struct HdrPostProcessParams {
     // A6.6: largest weight of the per-pixel scotopic (rod vision) shift; 0 = off (the image is unchanged). Only with
     // calibrated units (the procedural sky's physical exposure).
     float nightVision = 0.0f;
+    // C3: read the meter back asynchronously (pixel buffer + fence; the result is used once the GPU has finished it,
+    // typically 1-2 frames later) instead of waiting for the GPU with glReadPixels. Interactive rendering only:
+    // capture runs keep the synchronous meter, and snaps (snapExposure, a reset, the first meter) always read
+    // synchronously so the snapped exposure is the current frame's.
+    bool asyncMeterReadback = false;
+    // C3: this render's input differs from the previous render's (its render key changed: camera, scene, environment,
+    // size, settings); the asynchronous meter then reads the readback of the render where it settles.
+    bool meterInputChanged = true;
 };
 
 class AntiAliasing {
@@ -149,7 +158,16 @@ public:
     bool hasAdaptedExposure() const { return m_exposureValid; }
     // Restart auto-exposure (model load, camera jump); independent of the TAA history.
     void resetExposure();
-    bool isExposureAdapting() const { return m_exposureAdapting; }
+    // C3: true while the meter still wants renders: the adapted EV is away from the target (as before), or, with the
+    // asynchronous meter, the readback of the render where the adaptation settled has not been read yet (at most
+    // kMeterDrainRenders more renders), so a still image is metered too. One drain per change of the meter's input
+    // (HdrPostProcessParams::meterInputChanged): renders that only follow the exposure or settle TAA do not re-arm it,
+    // so the TAA jitter's meter noise cannot keep a still viewport rendering.
+    bool isExposureAdapting() const { return m_exposureAdapting || meterDraining(); }
+    // C3: whether the last metered render read the meter back asynchronously (get_state reports it).
+    bool lastMeterAsync() const { return m_lastMeterAsync; }
+    // C3: drops pending asynchronous meter readbacks (viewport closed); the pixel buffers stay for reuse.
+    void dropMeterReadbacks();
 
     static SelfCheckResult runTargetAllocationSelfCheck(bool forceFailure = false);
 
@@ -168,6 +186,21 @@ private:
     void ensureMeterBuffers();
     void releaseMeterTargets();
     float updateAutoExposure(GLuint inputHdrTexture, int width, int height, const HdrPostProcessParams& params);
+    // The meter's result (the target EV and its limits); the CPU half of the meter, shared by both readback paths.
+    struct MeterTarget {
+        float targetEv = 0.0f;
+        float minEv = 0.0f;
+        float maxEv = 0.0f;
+    };
+    MeterTarget evaluateMeter(const std::vector<float>& pixels, std::vector<float>& peaks, float surfaceFraction,
+                              const HdrPostProcessParams& params);
+    float adaptExposure(const MeterTarget& target, bool snap, const HdrPostProcessParams& params);
+    static float meterPeaks(const std::vector<float>& cells, const std::vector<float>& depth, std::vector<float>& peaks);
+    void issueMeterReadback(GLuint inputHdrTexture, const HdrPostProcessParams& params, int width, int height);
+    bool ensureMeterDepthCopy();
+    void releaseMeterDepthCopy();
+    bool consumeMeterReadbacks();
+    void releaseMeterReadbacks();
 
     // Quad VAO & VBO
     GLuint m_quadVao = 0;
@@ -252,6 +285,42 @@ private:
     bool m_exposureValid = false;
     bool m_exposureAdapting = false;
     bool m_snapExposureNext = false;
+    // C3: asynchronous meter readbacks, a ring of pixel buffers (RG32F meter, optional D24S8 meter depth as float) with
+    // a fence each. A slot keeps the parameters of the render it metered (pre-exposure, limits, meter mode).
+    static constexpr int kMeterReadbackSlots = 3;
+    struct MeterReadback {
+        GLuint colourBuffer = 0;
+        GLuint depthBuffer = 0;
+        GLsync fence = nullptr;
+        bool pending = false;
+        bool hasDepth = false;
+        uint64_t serial = 0;
+        HdrPostProcessParams params;
+    };
+    MeterReadback m_meterReadbacks[kMeterReadbackSlots];
+    uint64_t m_meterSerial = 0;
+    MeterTarget m_lastMeterTarget;
+    bool m_lastMeterTargetValid = false;
+    // The serial of the readback issued by the render where the asynchronous adaptation settled (0 = none), the
+    // newest serial read back, the renders since that settle render, and whether the next settle drains.
+    static constexpr int kMeterDrainRenders = 8;
+    bool m_meterDrainArmed = true;
+    bool m_lastMeterAsync = false;
+    // The asynchronous highlight meter's depth: a 64x64 depth texture (blit target) and its values in R32F.
+    GLuint m_meterDepthCopyTexture = 0;
+    GLuint m_meterDepthCopyFbo = 0;
+    GLuint m_meterDepthValueTexture = 0;
+    GLuint m_meterDepthValueFbo = 0;
+    GLuint m_meterDepthProgram = 0;
+    GLint m_meterDepthTexLoc = -1;
+    bool m_meterDepthCopyTried = false;
+    uint64_t m_meterSettleSerial = 0;
+    uint64_t m_meterConsumedSerial = 0;
+    int m_meterDrainRenders = 0;
+    bool meterDraining() const
+    {
+        return m_meterSettleSerial != 0 && m_meterConsumedSerial < m_meterSettleSerial && m_meterDrainRenders < kMeterDrainRenders;
+    }
 
     GLuint m_taaFbo[2] = { 0, 0 };
     GLuint m_taaTexture[2] = { 0, 0 };

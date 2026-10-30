@@ -202,6 +202,7 @@ public:
         m_ssrDepth->handle = texture;
         m_ssrDepthFloat.write(floatingDepth ? 1 : 0);
     }
+    GLuint getSsrDepth() const { return m_ssrDepth->handle; }
     // Ray start-phase noise frame: advances while TAA accumulates, 0 otherwise.
     void setSsrFrame(float frame) { m_ssrFrame.write(frame); }
     void setDecalDepthTolerance(float metres);

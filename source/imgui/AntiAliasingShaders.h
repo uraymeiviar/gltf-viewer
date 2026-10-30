@@ -516,6 +516,19 @@ void main() {
 }
 )";
 
+// C3: the asynchronous highlight meter reads the scene depth at the meter cells as a colour value (a depth readback
+// would wait for the GPU). texelFetch of the D24S8 copy gives the same normalised depth as the synchronous float read.
+static const char* s_meterDepthFS = R"(
+#version 410 core
+out vec4 FragColor;
+
+uniform sampler2D u_Depth;
+
+void main() {
+    FragColor = vec4(texelFetch(u_Depth, ivec2(gl_FragCoord.xy), 0).r, 0.0, 0.0, 1.0);
+}
+)";
+
 static GLuint compileShader(GLenum type, const char* source)
 {
     GLuint shader = glCreateShader(type);

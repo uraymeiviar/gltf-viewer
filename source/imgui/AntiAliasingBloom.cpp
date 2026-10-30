@@ -204,6 +204,7 @@ GLuint AntiAliasing::renderBloom(GLuint inputHdrTexture, int width, int height, 
 
 void AntiAliasing::releaseMeterTargets()
 {
+    releaseMeterReadbacks();
     if (m_meterDepthRbo != 0) {
         glDeleteRenderbuffers(1, &m_meterDepthRbo);
         m_meterDepthRbo = 0;
@@ -245,12 +246,213 @@ void AntiAliasing::ensureMeterBuffers()
     glBindTexture(GL_TEXTURE_2D, 0);
 }
 
+bool AntiAliasing::ensureMeterDepthCopy()
+{
+    // C3: the asynchronous highlight meter's depth copy (compiled and allocated on first use).
+    if (m_meterDepthValueFbo != 0) return true;
+    if (m_meterDepthCopyTried) return false;
+    m_meterDepthCopyTried = true;
+    m_meterDepthProgram = linkProgram(s_quadVS, s_meterDepthFS);
+    if (m_meterDepthProgram == 0) return false;
+    m_meterDepthTexLoc = glGetUniformLocation(m_meterDepthProgram, "u_Depth");
+    GLint previousTexture = 0;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &previousTexture);
+    glGenTextures(1, &m_meterDepthCopyTexture);
+    glBindTexture(GL_TEXTURE_2D, m_meterDepthCopyTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH24_STENCIL8, kMeterSize, kMeterSize, 0, GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_NONE);
+    glGenTextures(1, &m_meterDepthValueTexture);
+    glBindTexture(GL_TEXTURE_2D, m_meterDepthValueTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, kMeterSize, kMeterSize, 0, GL_RED, GL_FLOAT, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(previousTexture));
+    glGenFramebuffers(1, &m_meterDepthCopyFbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, m_meterDepthCopyFbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, m_meterDepthCopyTexture, 0);
+    glDrawBuffer(GL_NONE);
+    glReadBuffer(GL_NONE);
+    bool complete = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+    glGenFramebuffers(1, &m_meterDepthValueFbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, m_meterDepthValueFbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_meterDepthValueTexture, 0);
+    complete = complete && glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+    glBindFramebuffer(GL_FRAMEBUFFER, m_meterFbo);
+    if (!complete) {
+        releaseMeterDepthCopy();
+        m_meterDepthCopyTried = true; // not retried every frame; the meter then counts every cell (as without depth)
+        return false;
+    }
+    return true;
+}
+
+void AntiAliasing::releaseMeterDepthCopy()
+{
+    if (m_meterDepthCopyFbo != 0) glDeleteFramebuffers(1, &m_meterDepthCopyFbo);
+    if (m_meterDepthValueFbo != 0) glDeleteFramebuffers(1, &m_meterDepthValueFbo);
+    if (m_meterDepthCopyTexture != 0) glDeleteTextures(1, &m_meterDepthCopyTexture);
+    if (m_meterDepthValueTexture != 0) glDeleteTextures(1, &m_meterDepthValueTexture);
+    if (m_meterDepthProgram != 0) glDeleteProgram(m_meterDepthProgram);
+    m_meterDepthCopyFbo = m_meterDepthValueFbo = m_meterDepthCopyTexture = m_meterDepthValueTexture = 0;
+    m_meterDepthProgram = 0;
+    m_meterDepthTexLoc = -1;
+    m_meterDepthCopyTried = false;
+}
+
+void AntiAliasing::releaseMeterReadbacks()
+{
+    releaseMeterDepthCopy();
+    for (MeterReadback& slot : m_meterReadbacks) {
+        if (slot.fence != nullptr) glDeleteSync(slot.fence);
+        if (slot.colourBuffer != 0) glDeleteBuffers(1, &slot.colourBuffer);
+        if (slot.depthBuffer != 0) glDeleteBuffers(1, &slot.depthBuffer);
+        slot = MeterReadback{};
+    }
+    m_meterSettleSerial = 0;
+    m_meterDrainRenders = 0;
+}
+
+void AntiAliasing::dropMeterReadbacks()
+{
+    for (MeterReadback& slot : m_meterReadbacks) {
+        if (slot.fence != nullptr) glDeleteSync(slot.fence);
+        slot.fence = nullptr;
+        slot.pending = false;
+    }
+    m_meterSettleSerial = 0;
+    m_meterDrainRenders = 0;
+}
+
+void AntiAliasing::issueMeterReadback(GLuint inputHdrTexture, const HdrPostProcessParams& params, int width, int height)
+{
+    // C3: the same reads as the synchronous meter (the RG32F meter, and for the highlight meter the scene depth at
+    // the meter cells), into pixel buffers; a fence marks when the GPU has written them.
+    MeterReadback* slot = nullptr;
+    for (MeterReadback& candidate : m_meterReadbacks) {
+        if (!candidate.pending) {
+            slot = &candidate;
+            break;
+        }
+    }
+    if (slot == nullptr) return; // every slot still waits for the GPU: this render is not metered
+    constexpr GLsizeiptr kColourBytes = static_cast<GLsizeiptr>(kMeterSize * kMeterSize * 2 * sizeof(float));
+    constexpr GLsizeiptr kDepthBytes = static_cast<GLsizeiptr>(kMeterSize * kMeterSize * sizeof(float));
+    if (slot->colourBuffer == 0) {
+        glGenBuffers(1, &slot->colourBuffer);
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, slot->colourBuffer);
+        glBufferData(GL_PIXEL_PACK_BUFFER, kColourBytes, nullptr, GL_STREAM_READ);
+    }
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, slot->colourBuffer);
+    glReadPixels(0, 0, kMeterSize, kMeterSize, GL_RG, GL_FLOAT, nullptr);
+    slot->hasDepth = false;
+    if (params.physicalExposure && params.highlightMetering && params.sceneDepthFbo != 0 && ensureMeterDepthCopy()) {
+        // A depth readback (even into a pixel buffer, in the renderbuffer format itself) makes the driver wait for the
+        // GPU. So the scene depth goes to a 64x64 depth texture (the same nearest blit as the synchronous meter) and a
+        // pass writes it into an R32F target, which reads back like the meter itself.
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_meterDepthCopyFbo);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, params.sceneDepthFbo);
+        glBlitFramebuffer(0, 0, width, height, 0, 0, kMeterSize, kMeterSize, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+        glBindFramebuffer(GL_FRAMEBUFFER, m_meterDepthValueFbo);
+        glViewport(0, 0, kMeterSize, kMeterSize);
+        glUseProgram(m_meterDepthProgram);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, m_meterDepthCopyTexture);
+        glUniform1i(m_meterDepthTexLoc, 0);
+        glBindVertexArray(m_quadVao);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+        glBindVertexArray(0);
+        ux3d::imgui::profiling::countAppDrawCall();
+        if (slot->depthBuffer == 0) {
+            glGenBuffers(1, &slot->depthBuffer);
+            glBindBuffer(GL_PIXEL_PACK_BUFFER, slot->depthBuffer);
+            glBufferData(GL_PIXEL_PACK_BUFFER, kDepthBytes, nullptr, GL_STREAM_READ);
+        }
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, slot->depthBuffer);
+        glReadPixels(0, 0, kMeterSize, kMeterSize, GL_RED, GL_FLOAT, nullptr);
+        slot->hasDepth = true;
+        // The state the synchronous meter leaves: its target, program and input bound.
+        glBindFramebuffer(GL_FRAMEBUFFER, m_meterFbo);
+        glUseProgram(m_meterProgram);
+        glBindTexture(GL_TEXTURE_2D, inputHdrTexture);
+    }
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+    slot->fence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+    if (slot->fence == nullptr) return;
+    slot->pending = true;
+    slot->serial = ++m_meterSerial;
+    slot->params = params;
+    if (ux3d::imgui::profiling::g_countingEnabled) ++ux3d::imgui::profiling::frameCounters().exposureAsyncReadbacks;
+}
+
+bool AntiAliasing::consumeMeterReadbacks()
+{
+    // C3: reads finished readbacks oldest first (never waits); the newest one sets the target.
+    bool consumed = false;
+    for (;;) {
+        MeterReadback* oldest = nullptr;
+        for (MeterReadback& slot : m_meterReadbacks) {
+            if (slot.pending && (oldest == nullptr || slot.serial < oldest->serial)) oldest = &slot;
+        }
+        if (oldest == nullptr) break;
+        const GLenum status = glClientWaitSync(oldest->fence, GL_SYNC_FLUSH_COMMANDS_BIT, 0);
+        if (status == GL_TIMEOUT_EXPIRED) break;
+        glDeleteSync(oldest->fence);
+        oldest->fence = nullptr;
+        oldest->pending = false;
+        if (status == GL_WAIT_FAILED) continue;
+
+        std::vector<float> pixels(kMeterSize * kMeterSize, 0.0f);
+        std::vector<float> cells;
+        std::vector<float> depth;
+        const bool highlight = oldest->params.physicalExposure && oldest->params.highlightMetering;
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, oldest->colourBuffer);
+        const auto* rg = static_cast<const float*>(glMapBufferRange(
+            GL_PIXEL_PACK_BUFFER, 0, static_cast<GLsizeiptr>(kMeterSize * kMeterSize * 2 * sizeof(float)), GL_MAP_READ_BIT));
+        bool ok = rg != nullptr;
+        if (ok) {
+            if (highlight) cells.assign(kMeterSize * kMeterSize, 0.0f);
+            for (size_t i = 0; i < pixels.size(); ++i) {
+                pixels[i] = rg[2 * i];
+                if (highlight) cells[i] = rg[2 * i + 1];
+            }
+            ok = glUnmapBuffer(GL_PIXEL_PACK_BUFFER) == GL_TRUE;
+        }
+        if (ok && highlight && oldest->hasDepth) {
+            glBindBuffer(GL_PIXEL_PACK_BUFFER, oldest->depthBuffer);
+            const auto* d = static_cast<const float*>(glMapBufferRange(
+                GL_PIXEL_PACK_BUFFER, 0, static_cast<GLsizeiptr>(kMeterSize * kMeterSize * sizeof(float)), GL_MAP_READ_BIT));
+            ok = d != nullptr;
+            if (ok) {
+                depth.assign(d, d + kMeterSize * kMeterSize);
+                ok = glUnmapBuffer(GL_PIXEL_PACK_BUFFER) == GL_TRUE;
+            }
+        }
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+        if (!ok) continue; // a lost buffer: wait for the next result
+
+        std::vector<float> peaks;
+        float surfaceFraction = 1.0f;
+        if (highlight) surfaceFraction = meterPeaks(cells, depth, peaks);
+        const MeterTarget target = evaluateMeter(pixels, peaks, surfaceFraction, oldest->params);
+        m_meterConsumedSerial = oldest->serial;
+        m_lastMeterTarget = target;
+        m_lastMeterTargetValid = true;
+        consumed = true;
+        if (ux3d::imgui::profiling::g_countingEnabled) ++ux3d::imgui::profiling::frameCounters().exposureAsyncResults;
+    }
+    return consumed;
+}
+
 float AntiAliasing::updateAutoExposure(GLuint inputHdrTexture, int width, int height, const HdrPostProcessParams& params)
 {
     if (!params.autoExposure || params.rawPassThrough || !m_meterProgram) {
         m_exposureValid = false;
         m_exposureAdapting = false;
         m_adaptedEv = params.exposureEv;
+        m_lastMeterTargetValid = false;
+        dropMeterReadbacks();
         return params.exposureEv;
     }
 
@@ -275,6 +477,40 @@ float AntiAliasing::updateAutoExposure(GLuint inputHdrTexture, int width, int he
     glDrawArrays(GL_TRIANGLES, 0, 6);
     glBindVertexArray(0);
     ux3d::imgui::profiling::countAppDrawCall();
+
+    const bool snap = params.snapExposure || m_snapExposureNext || (!m_exposureValid && !params.startFromManualEv);
+    if (params.asyncMeterReadback && !snap && m_exposureValid && m_lastMeterTargetValid) {
+        // C3: interactive rendering adapts towards the newest finished meter (typically 1-2 frames old) and never
+        // waits for the GPU. The adaptation still runs on every render with this render's time step.
+        if (!meterDraining()) {
+            m_meterSettleSerial = 0; // the previous settle (if any) has been read or given up: start over
+            m_meterDrainRenders = 0;
+        }
+        m_lastMeterAsync = true;
+        if (params.meterInputChanged) m_meterDrainArmed = true;
+        consumeMeterReadbacks();
+        issueMeterReadback(inputHdrTexture, params, width, height);
+        const float ev = adaptExposure(m_lastMeterTarget, false, params);
+        // Settled (within the same 1e-3 EV as the synchronous meter): render on until this render's own meter has been
+        // read (bounded), so a still image ends on the exposure of its final frame, as the synchronous meter did.
+        if (m_exposureAdapting) {
+            m_meterSettleSerial = 0;
+            m_meterDrainRenders = 0;
+        } else if (m_meterSettleSerial == 0) {
+            if (m_meterDrainArmed) {
+                m_meterSettleSerial = m_meterSerial;
+                m_meterDrainArmed = false;
+            }
+        } else {
+            ++m_meterDrainRenders;
+        }
+        return ev;
+    }
+    // Synchronous meter: capture runs, snaps and the first meter (the exposure is set from this frame's image).
+    // Readbacks still in flight belong to frames before it.
+    dropMeterReadbacks();
+    m_lastMeterAsync = false;
+    if (ux3d::imgui::profiling::g_countingEnabled) ++ux3d::imgui::profiling::frameCounters().exposureSyncReadbacks;
 
     std::vector<float> pixels(kMeterSize * kMeterSize, 0.0f);
     glReadPixels(0, 0, kMeterSize, kMeterSize, GL_RED, GL_FLOAT, pixels.data());
@@ -310,17 +546,31 @@ float AntiAliasing::updateAutoExposure(GLuint inputHdrTexture, int width, int he
             }
             glBindFramebuffer(GL_FRAMEBUFFER, m_meterFbo);
         }
-        peaks.reserve(cells.size());
-        size_t surfaces = 0;
-        for (size_t i = 0; i < cells.size(); ++i) {
-            // Sky cells count as black: they still make up their share of the image area.
-            const bool surface = depth.empty() || depth[i] < 1.0f;
-            peaks.push_back(surface ? cells[i] : 0.0f);
-            surfaces += surface ? 1 : 0;
-        }
-        surfaceFraction = static_cast<float>(surfaces) / static_cast<float>(cells.size());
+        surfaceFraction = meterPeaks(cells, depth, peaks);
     }
+    const MeterTarget target = evaluateMeter(pixels, peaks, surfaceFraction, params);
+    m_lastMeterTarget = target;
+    m_lastMeterTargetValid = true;
+    m_meterDrainArmed = true;
+    return adaptExposure(target, snap, params);
+}
 
+float AntiAliasing::meterPeaks(const std::vector<float>& cells, const std::vector<float>& depth, std::vector<float>& peaks)
+{
+    peaks.reserve(cells.size());
+    size_t surfaces = 0;
+    for (size_t i = 0; i < cells.size(); ++i) {
+        // Sky cells count as black: they still make up their share of the image area.
+        const bool surface = depth.empty() || depth[i] < 1.0f;
+        peaks.push_back(surface ? cells[i] : 0.0f);
+        surfaces += surface ? 1 : 0;
+    }
+    return static_cast<float>(surfaces) / static_cast<float>(cells.size());
+}
+
+AntiAliasing::MeterTarget AntiAliasing::evaluateMeter(const std::vector<float>& pixels, std::vector<float>& peaks,
+                                                      float surfaceFraction, const HdrPostProcessParams& params)
+{
     struct Sample {
         float logLuma;
         float weight;
@@ -400,8 +650,14 @@ float AntiAliasing::updateAutoExposure(GLuint inputHdrTexture, int width, int he
         m_meteredLuminance = std::max(avgLuma, 1e-4f);
         targetEv = std::clamp(params.exposureCompensationEv - std::log2(std::max(avgLuma, 1e-4f) / 0.18f), minEv, maxEv);
     }
+    return MeterTarget{ targetEv, minEv, maxEv };
+}
 
-    const bool snap = params.snapExposure || m_snapExposureNext || (!m_exposureValid && !params.startFromManualEv);
+float AntiAliasing::adaptExposure(const MeterTarget& target, bool snap, const HdrPostProcessParams& params)
+{
+    const float targetEv = target.targetEv;
+    const float minEv = target.minEv;
+    const float maxEv = target.maxEv;
     m_snapExposureNext = false;
     if (snap) {
         m_adaptedEv = targetEv;

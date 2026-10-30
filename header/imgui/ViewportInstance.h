@@ -112,6 +112,11 @@ struct ViewportInstance {
     Framebuffer sceneFbo;
     Framebuffer pickingFbo;
     Framebuffer overlayFbo; // TAA display composite; never fed back into history
+    // C6: this viewport's full-resolution behind-scene copy (ASOBO glass) and SSR depth, both sized to this viewport,
+    // so viewports of different sizes no longer re-specify one shared texture on every render. The fixed 1024x1024 KHR
+    // copy stays shared (Application::transmissionTarget). Created on first use; released with the viewport's other
+    // targets (Application::releaseViewportTransmission).
+    std::unique_ptr<TransmissionTarget> transmissionTarget;
     ux3d::renderer::PickingRenderLayer overlayDepthLayer;
     // C4: a copy of the unjittered overlay depth (same size, samples and D24S8 format as overlayFbo), restored into
     // overlayFbo instead of rebuilding and redrawing it while its inputs are unchanged. The key, the opaque drawables

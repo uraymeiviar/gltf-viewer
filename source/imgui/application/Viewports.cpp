@@ -228,6 +228,8 @@ void Application::drawViewports(FrameContext& frame)
             vp->ssaoActive = false;
             vp->ocean.reset();
             vp->oceanActive = false;
+            releaseViewportTransmission(*vp);
+            vp->antiAliasing.dropMeterReadbacks();
             continue;
         }
 
@@ -253,6 +255,8 @@ void Application::drawViewports(FrameContext& frame)
             vp->ssaoActive = false;
             vp->ocean.reset();
             vp->oceanActive = false;
+            releaseViewportTransmission(*vp);
+            vp->antiAliasing.dropMeterReadbacks();
             ImGui::End();
             continue;
         }
@@ -1043,6 +1047,7 @@ void Application::drawViewports(FrameContext& frame)
             const bool floatCopy = scene.asoboGlassCopy && vp->sceneFbo.isValid() && vp->sceneFbo.isLinearFloat();
             transmissionDestination = floatCopy ? &vp->sceneFbo : nullptr;
             transmissionSource = &vp->sceneFbo;
+            transmissionCapture = &viewportTransmissionTarget(*vp);
             GLuint exposureHdrTexture = 0;
             if (ssrDebugOverlay && exposure.mode == ux3d::imgui::ExposureMode::Auto) {
                 // Meter the same radiance as Shaded, including windshield reflections.
@@ -1089,6 +1094,7 @@ void Application::drawViewports(FrameContext& frame)
             glRenderer->draw({commandGenerator.get()});
             transmissionSource = nullptr;
             transmissionDestination = nullptr;
+            transmissionCapture = nullptr;
             vp->lastExecutedPasses = glRenderer->getLastExecutedPasses();
             ++vp->renderCount;
             frame.markStage("draw.submit", drawSubmissionStart);
@@ -1232,6 +1238,11 @@ void Application::drawViewports(FrameContext& frame)
             // A6.4b: capture runs snap the physically based Auto to its meter on every frame (no adaptation history, so
             // the CLI and the pipe end in the same image).
             if (postParams.physicalExposure && s_deterministicExposure) postParams.snapExposure = true;
+            // C3: interactively the meter is read back asynchronously (the adaptation uses a result 1-2 frames old);
+            // capture runs read it synchronously, so their images do not depend on GPU timing. Snaps always read
+            // synchronously (AntiAliasing::updateAutoExposure). --exposure-readback sync|async overrides the choice.
+            postParams.asyncMeterReadback = s_exposureReadback == 2 || (s_exposureReadback == 0 && !s_deterministicExposure);
+            postParams.meterInputChanged = !keyUnchanged;
             {
                 // Exposure metering (with its readbacks), bloom, lens flare and tone mapping.
                 const auto postProcessStart = ux3d::imgui::profiling::Clock::now();
