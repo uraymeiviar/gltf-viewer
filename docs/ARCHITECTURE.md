@@ -46,7 +46,18 @@ gltf-viewer/
 │   │   ├── main.cpp              # Thin main/WinMain entry points
 │   │   ├── application/          # Application orchestration, split by responsibility
 │   │   │   ├── Application.h/.cpp # Private application state, startup, loop & shutdown
-│   │   │   ├── CommandLine.cpp   # CLI parsing, self-check dispatch & startup overrides
+│   │   │   ├── CommandLine.cpp   # CLI parsing (Application::configure), self-check dispatch & startup overrides
+│   │   │   ├── CommandLineHelpers.cpp # Argument parsers, node lookup by name/#index, --asobo-report
+│   │   │   ├── Commands.cpp      # Agent channel core: shared actions, script/pipe dispatch, control pipe, --agent-guide
+│   │   │   ├── CommandsInternal.h # Private: includes and file-local helpers shared by Commands*.cpp
+│   │   │   ├── CommandsHandlers.cpp # registerAgentCommands: every registry command
+│   │   │   ├── CommandsSettings.cpp # registerAgentSettings (calls the areas in order), scene effects, compatibility keys
+│   │   │   ├── CommandsSettingsQuality.cpp # Renderer-wide quality keys (AA, effect quality, IBL, scale, A3.2 shadows)
+│   │   │   ├── CommandsSettingsViewport.cpp # Per-viewport keys (overrides, shading, A3.6 ground / A6.8 ocean, lens)
+│   │   │   ├── CommandsSettingsEnvironment.cpp # Scene environment keys (HDR, exposure, sun, sky, time of day, night)
+│   │   │   ├── CommandsState.cpp # get_state / profile JSON: session, quality, effects, SSAO, ambient, sun
+│   │   │   ├── CommandsProbe.cpp # probe / probe_region readback
+│   │   │   ├── EnvironmentState.cpp # Effective sun, moon, exposure plan, night state, procedural sky, time-of-day clock
 │   │   │   ├── Frame.cpp         # Frame orchestration, keyboard input & idle tracking
 │   │   │   ├── Scene.cpp         # Model loading, resource resolution & scene synchronization
 │   │   │   ├── Settings.cpp      # Window state, recent files & settings paths
@@ -54,9 +65,28 @@ gltf-viewer/
 │   │   │   ├── Menus.cpp         # Dock layout, menus & viewport creation
 │   │   │   ├── Panels.cpp        # Hierarchy, resources, inspector & auxiliary panels
 │   │   │   ├── Console.cpp       # Log storage/layout, logger UI & logger self-check
-│   │   │   ├── Viewports.cpp     # Viewport rendering, overlays & mouse picking
-│   │   │   ├── Diagnostics.cpp   # Captures, profiling/scenario reports & UI test hooks
+│   │   │   ├── Ocean.cpp         # A6.8 ocean ground: clock, material values of the draw, get_state object
+│   │   │   ├── Viewports.cpp     # drawViewports: viewport windows, scene render, overlays, compass & mouse picking
+│   │   │   ├── ViewportToolbar.cpp # Viewport toolbar strip (projection, grid, bbox, turntable, variants, camera, shading)
+│   │   │   ├── ViewportEffects.cpp # A2.1 decal buffer, A3.2 sun shadow cascades, A3.9 sky-occlusion volume (+ state JSON)
+│   │   │   ├── Diagnostics.cpp   # Self-check reports, decal prepass check, capture/hash helpers, report naming, GPU report
+│   │   │   ├── DiagnosticsFrame.cpp # finishFrame (dumps, captures, profile/benchmark reports, agent pump) & scenario report
+│   │   │   ├── DiagnosticsPicking.cpp # Camera JSON, node screen rectangles (--report-node), pick at pixel
 │   │   │   └── ViewportImage.cpp # Viewport menu capture / save / copy (PNG file, clipboard)
+│   │   ├── AntiAliasing.cpp      # Per-viewport AA: targets, TAA jitter/history, FXAA/TAA passes
+│   │   ├── AntiAliasingBloom.cpp # Bloom, A6.7 lens flare, auto-exposure meter, tone-mapping composite
+│   │   ├── AntiAliasingSelfCheck.cpp # AA render-target allocation self-check
+│   │   ├── AntiAliasingShaders.h # Private: quad + GLSL sources of the post passes, compile/link helpers
+│   │   ├── AmbientOcclusion.cpp  # A3.5 GTAO pass (class in header/imgui/AmbientOcclusion.h)
+│   │   ├── ElementInspector.cpp  # ElementInspector::render (node, mesh, texture, accessor, ... views)
+│   │   ├── ElementInspectorImages.h/.cpp # Image preview cache, header details, normal-map detection, preview widget
+│   │   ├── SceneHierarchyPanel.cpp # Hierarchy panel state, label/visibility/search cache, row model
+│   │   ├── SceneHierarchyInternal.h # Private: row/cache types and shared panel state of SceneHierarchy*.cpp
+│   │   ├── SceneHierarchyRender.cpp # Hierarchy UI: eye buttons, rows, SceneHierarchyPanel::render
+│   │   ├── SceneHierarchySelfCheck.cpp # Hierarchy cache-invalidation self-check
+│   │   ├── SkyEnvironment.cpp    # A6.2/A6.3 procedural sky LUTs & time-sliced IBL (class in header/imgui/SkyEnvironment.h)
+│   │   ├── SkyOcclusion.cpp      # A3.9 sky-visibility volume bake (class in header/imgui/SkyOcclusion.h)
+│   │   ├── UiScenarioHarness.cpp # Scripted UI scenario harness (class in header/imgui/UiScenarioHarness.h)
 │   │   ├── EmbeddedResources.cpp # Generated at build time (not committed): C++ byte array of the compressed VFS
 │   │   ├── EmbeddedVFS.cpp       # VFS decompression & path indexing
 │   │   ├── GltfExtensionSettings.cpp # Global glTF extension switches, vendor groups, persistence, Settings tab
@@ -82,6 +112,10 @@ gltf-viewer/
 │
 ├── OpenGL-Renderer/         # Core PBR rendering engine (UX3D)
 │   ├── renderer/            # GltfRenderLayer, CommandGenerator, IBLSampler, ShaderCache
+│   │   └── source/gltf/     # GltfRenderLayer.cpp (construction, sync entry points, environment, cameras, lights),
+│   │                        # GltfRenderLayerMaterials.cpp (material mapping), GltfRenderLayerMeshes.cpp (meshes,
+│   │                        # MikkTSpace tangents), GltfRenderLayerNodes.cpp (transform hierarchy, skins, animations),
+│   │                        # GltfRenderLayerTraversal.cpp (traversal, culling, renderer scene), GltfRenderLayerInternal.h
 │   └── Tools/               # gltf parser, filesystem, core utilities
 │
 ├── legacy/                  # Archived Qt editor code & obsolete Qt assets (reference only)

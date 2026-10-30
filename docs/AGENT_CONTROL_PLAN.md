@@ -321,7 +321,7 @@ capture via `stbi_write_png`) already does most of the work behind each command.
 | Part | Where |
 |---|---|
 | Command and setting registry (names, JSON-schema arguments, help, kind, timeouts, text form, legacy aliases) | `header/imgui/CommandRegistry.h`, `source/imgui/CommandRegistry.cpp` |
-| Commands, settings, readback probes, pipe pump, `--agent-guide` | `source/imgui/application/Commands.cpp` |
+| Commands, settings, readback probes, pipe pump, `--agent-guide` | `source/imgui/application/Commands*.cpp` (registry core and pipe pump in `Commands.cpp`, handlers in `CommandsHandlers.cpp`, probes in `CommandsProbe.cpp`, state JSON in `CommandsState.cpp`, settings in `CommandsSettings*.cpp`) |
 | Named-pipe listener (`\\.\pipe\glider-<pid>`, current-user DACL, `PIPE_REJECT_REMOTE_CLIENTS`, first-instance flag, one client, busy reply for a second client, clean shutdown, `glfwPostEmptyEvent` wake) | `header/imgui/ControlPipe.h`, `source/imgui/ControlPipe.cpp` |
 | `--ui-script` / `--ui-script-follow`: every live command runs through the registry | `header/imgui/UiScenarioHarness.h` (`UiScenarioFrame::runCommand`) |
 | CLI flags through the registry | `source/imgui/application/CommandLine.cpp` (`applyCliSetting`, `selectNodeAction`, `isolateNodeAction`, `frameNodeAction`, `setMaterialParamAction`) |
@@ -350,7 +350,8 @@ environment `exposure`, `tone_mapping`, `hdr_rotation`, `hdr_intensity`, `hdr_bl
 
 ### 7.2 Registering a setting
 
-A setting is registered once in `Application::registerAgentSettings()` (`Commands.cpp`); the CLI flag,
+A setting is registered once, in the area function `registerAgentSettings()` calls (`registerAgentViewportSettings`,
+`registerAgentEnvironmentSettings`, `registerAgentQualitySettings`, ... in `CommandsSettings*.cpp`); the CLI flag,
 `set_*`/`get_*`, `list_settings`, the scripts and the guide table all read the same entry:
 
 ```cpp

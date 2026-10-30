@@ -335,6 +335,8 @@ private:
     void showViewportMenuFor(ux3d::imgui::ViewportInstance* vp);
     void drawMenus(FrameContext& frame);
     void drawViewports(FrameContext& frame);
+    // The toolbar strip at the top of a viewport window (ViewportToolbar.cpp).
+    void drawViewportToolbar(ux3d::imgui::ViewportInstance* vp);
     void drawPanels(FrameContext& frame);
     void drawLogger();
     void finishFrame(FrameContext& frame, int displayW, int displayH);
@@ -345,10 +347,17 @@ private:
     bool writeDecalPrepassCheck(const std::string& path, ux3d::imgui::ViewportInstance& viewport);
     int drainGLErrors(const char* where);
 
-    // Agent control channel (Commands.cpp, docs/AGENT_CONTROL_PLAN.md). One registry serves
+    // Agent control channel (Commands*.cpp, docs/AGENT_CONTROL_PLAN.md). One registry serves
     // the CLI, --ui-script / --ui-script-follow and the control pipe.
     void registerAgentCommands();
     void registerAgentSettings();
+    // registerAgentSettings by area, called in this order (CommandsSettings*.cpp).
+    void registerAgentQualitySettings();
+    void registerAgentViewportSettings();
+    void registerAgentSceneEffectSettings();
+    void registerAgentEnvironmentSettings();
+    void registerAgentRendererSettings();
+    void registerAgentCompatibilitySettings();
     // Per frame, in finishFrame: advance the running multi-frame job, then run queued pipe
     // requests. The UI script runs after it in the same frame.
     void pumpAgentCommands();

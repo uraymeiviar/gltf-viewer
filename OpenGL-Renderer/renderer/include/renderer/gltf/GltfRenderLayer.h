@@ -184,6 +184,13 @@ public:
 private:
     GltfResourceManager m_resourceManager;
 
+    // Constructor parts: the mappings' create / update / destroy callbacks by resource kind (textures, buffers and
+    // samplers; materials; meshes; transform hierarchy, skins and animations).
+    void initResourceMappings();
+    void initMaterialMapping(gl::GL* gl);
+    void initMeshMapping();
+    void initNodeMappings(gl::GL* gl);
+
     void updateMaterials(const core::LinkedList<gltf::Material>& gltfMaterials);
     void updateMeshes(const core::Vector<gltf::Node*>& rootNodes);
     void updateSkins(const core::Vector<gltf::Node*>& rootNodes);
