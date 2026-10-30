@@ -37,16 +37,14 @@ Run: python scripts/validate_sun.py [--baseline-exe build/baselines/<sha>.exe]
 import argparse
 import json
 import math
-import os
 import struct
 import base64
 import sys
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import harness_process as subprocess  # noqa: E402
-import glider_ctl  # noqa: E402
+from glider_harness import gl_errors_zero, start_pipe_session  # noqa: E402
 from validate_asobo_common import EXE, REPO, check, finish, same, views, render_view  # noqa: E402
 from validate_asobo_sss import sphere as uv_sphere, document as sss_document, write_hdr  # noqa: E402
 from validate_asobo_anisotropy import document as aniso_document  # noqa: E402
@@ -240,11 +238,6 @@ def render(model, name, flags=(), exe=EXE, frame=24, view=True):
     return (png if png.exists() else None), data
 
 
-def gl_errors_zero(log):
-    lines = [line for line in log.splitlines() if line.startswith("GL automation errors")]
-    return lines == ["GL automation errors: 0"] and "GL error 0x" not in log
-
-
 def load(png):
     import numpy as np
     from PIL import Image
@@ -289,23 +282,7 @@ def fit_light(samples, floor=0.08):
 class Session:
     def __init__(self, model, flags=()):
         args = [str(EXE), str(model)] + COMMON + VIEW + list(flags) + ["--control-pipe"]
-        self.process = subprocess.Popen(args, cwd=REPO, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                        stderr=subprocess.DEVNULL)
-        deadline = time.time() + 120
-        while not os.path.exists(glider_ctl.pipe_name(self.process.pid)):
-            if self.process.poll() is not None or time.time() > deadline:
-                raise RuntimeError(f"Glider did not open its pipe (exit {self.process.poll()})")
-            time.sleep(0.1)
-        # The pipe can exist a moment before it accepts a client.
-        while True:
-            try:
-                self.pipe = glider_ctl.GliderPipe(self.process.pid)
-                break
-            except glider_ctl.GliderError:
-                if self.process.poll() is not None or time.time() > deadline:
-                    self.process.kill()
-                    raise
-                time.sleep(0.2)
+        self.process, self.pipe = start_pipe_session(args)
 
     def call(self, cmd, **args):
         return self.pipe.call(cmd, **args)

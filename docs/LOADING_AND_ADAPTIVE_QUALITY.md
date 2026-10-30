@@ -157,7 +157,6 @@ Use the configured Release executable directly. Do not copy or rename it or the 
 ```powershell
 & C:\ProgramData\anaconda3\python.exe scripts/make_heavy_fixture.py
 & C:\ProgramData\anaconda3\python.exe scripts/validate_loading.py --measure --cabin --wings
-& C:\ProgramData\anaconda3\python.exe scripts/validate_hdr.py
 & C:\ProgramData\anaconda3\python.exe scripts/validate_asobo_glass.py
 & C:\ProgramData\anaconda3\python.exe scripts/validate_asobo_decal.py
 & C:\ProgramData\anaconda3\python.exe scripts/validate_settings_storage.py

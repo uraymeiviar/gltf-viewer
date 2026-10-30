@@ -314,7 +314,7 @@ lighting features of user priority 5. The sun's direction is set by hand here an
     barrier: the lowest nose-tyre pixel 1.2 cm above the plane; grid on ground at Y = 1; TAA frames 64 / 96 differ
     by at most 3 levels on the ground and 1 at the horizon, far-field high-frequency std 0.34 level, a 0.03 degree
     turn changes the far field by 0.007 level; zero GL errors. `validate_shadows.py`, `validate_sun.py` and
-    `validate_agent_control.py`, `validate_p8_1.py --only equivalence`, `validate_p8_3.py` and `validate_p7.py` (ray and plane-mesh grid) pass (validate_shadows' "sun on, --shadows off = baseline" cases compare against the
+    `validate_agent_control.py`, `validate_p8_1.py --only equivalence`, `validate_p8_3.py` and `validate_p7.py` (retired, see git history) (ray and plane-mesh grid) pass (validate_shadows' "sun on, --shadows off = baseline" cases compare against the
     A3.1 commit 7a21913; against the A3.2 baseline cf24b01 they cannot hold, shadows being on there).
   - **Review:** `build/review/ground/contact_sheet.png` (`scripts/review_ground.py`): E195 (without its stairs and
     barrier) and DA62 SDK airframe on concrete and on grass with the sun at az 45 el 40 and az 250 el 22, a low camera

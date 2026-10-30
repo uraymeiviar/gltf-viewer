@@ -165,7 +165,7 @@ P6.1 PASS. Rollback boundary: `StdFileSystem::readRange`, the GLB range branch a
   `peakWorkingSetAfterDecode`/`AfterUpload`. `physicalMemoryBytes`/`processPeakWorkingSetBytes` live in
   `IdleWait.cpp` with the other Win32 calls.
 
-#### 3. Validation (`python scripts/validate_p6_2.py`; outputs in `build/p6.2/`)
+#### 3. Validation (`python scripts/validate_p6_2.py` (retired, see git history); outputs in `build/p6.2/`)
 
 | Check | Result |
 |---|---|

@@ -175,7 +175,7 @@ Changes were implemented strictly within `header/imgui/AntiAliasing.h`, `source/
   - Added `--aa-target-selfcheck <output>` CLI flag handling.
   - Wired `uiFrame.setAaMode` for interactive UI script scenarios.
   - Added target release on viewport closure in the viewport render loop (`!vp->isOpen`).
-- `scripts/validate_p3_1.py`:
+- `scripts/validate_p3_1.py` (retired, see git history):
   - New automated validation suite running all positive self-checks, forced failures, unwritable path checks, dynamic UI scenarios, and bit-exact pixel image comparisons.
 
 #### 6. Review Gate Status
@@ -391,7 +391,7 @@ suite was repeated, and no commit or push was performed during review.
 
 #### 3. Verification & Validation Evidence
 
-Automated validation is implemented in `scripts/validate_p3_2.py`:
+Automated validation is implemented in `scripts/validate_p3_2.py` (retired, see git history):
 - **Tested Candidate Executable**: `build/bin/Release/Glider.exe`
 - **Candidate SHA-256**: `0B3A1EC9A627A2EAC5231F4DA7266F76D601F61F94FE7DB5550227AE263C0701`
 - **Validation Scope**: Under the narrow validation budget, the amended focused checks (`--only boundary`, `--only lifecycle`, `--only production-draw`) were newly run and verified against this binary. Baseline startup image comparison (all 6 modes 0 diffs bit-for-bit exact match), multi-viewport isolation, and steady-state profiling counters were reused from the verified baseline runs.
@@ -568,7 +568,7 @@ No blocking findings remain. No commit or push was performed during review.
      - Unwritable report destination: returned exit code 2.
 
 2. **Focused Command Executions**:
-   - `python scripts/validate_p3_3.py --only hdr-rotation`: PASS (exit code 0)
+   - `python scripts/validate_p3_3.py (retired, see git history) --only hdr-rotation`: PASS (exit code 0)
    - `python scripts/validate_p3_3.py --only scaling`: PASS (exit code 0, 0 unrelated entries scanned)
    - `python scripts/validate_p3_3.py --only shader-variants`: PASS (exit code 0)
    - `python scripts/validate_p3_3.py --only invalidation`: PASS (exit code 0)
@@ -712,7 +712,7 @@ no commit or push was performed.
      - `--selfcheck-force-failure`: returned exit code 1 with valid FAIL report.
      - Unwritable report destination (`Z:/nonexistent/...`): returned exit code 2.
 
-2. **Automated Validation Runner (`scripts/validate_p3_4_1.py`)**:
+2. **Automated Validation Runner (`scripts/validate_p3_4_1.py` (retired, see git history))**:
    - `python scripts/validate_p3_4_1.py`: **ALL CHECKS PASSED** (exit code 0).
    - Focused runner cases verified individually:
      - `--only transitions`: PASS (exit code 0)
@@ -868,7 +868,7 @@ remain. No commit or push was performed during review.
      - `--selfcheck-force-failure`: returned exit code 1 with valid `Result: FAIL` report.
      - Unwritable report destination (`Z:/nonexistent/...`): returned exit code 2.
 
-2. **Automated Validation Runner (`scripts/validate_p3_4.py`)**:
+2. **Automated Validation Runner (`scripts/validate_p3_4.py` (retired, see git history))**:
    - `python scripts/validate_p3_4.py`: **ALL CHECKS PASSED** (exit code 0).
    - Focused runner cases verified individually:
      - `--only transitions`: PASS (exit code 0)
@@ -1030,7 +1030,7 @@ No blocking findings remain. Overall P3.4 stays open. No commit or push performe
      - `--selfcheck-force-failure`: returned exit code 1 with valid `Result: FAIL` report.
      - Unwritable report destination (`Z:/nonexistent/...`): returned exit code 2.
 
-2. **Automated Validation Runner (`scripts/validate_p3_4_4.py`)**:
+2. **Automated Validation Runner (`scripts/validate_p3_4_4.py` (retired, see git history))**:
    - `python scripts/validate_p3_4_4.py`: **ALL CHECKS PASSED** (exit code 0).
    - Focused runner cases verified individually:
      - `--only transitions`: PASS (exit code 0)
@@ -1239,7 +1239,7 @@ The archived `build/p3.4.5/baseline/Glider.exe` has incomplete build provenance.
 Final repair validation (2026-10-23):
 
 - Release build: PASS. Existing GL macro redefinition warnings remain.
-- `validate_p3_4_5.py --only integration`: PASS, 24 assertions including six transmission ownership checks; zero failures and no GL errors in these checks.
+- `validate_p3_4_5.py (retired, see git history) --only integration`: PASS, 24 assertions including six transmission ownership checks; zero failures and no GL errors in these checks.
 - `validate_p3_4_5.py --only lifecycle`: PASS. Both focused runs together took approximately six seconds. Fresh rendering confirmed for A/B/A switching, resize, close/reopen, and reload.
 - Viewed `build/p3.4.5/candidate/lifecycle_first.png` and `lifecycle_second.png`: geometry, environment, and bounding overlay visible in both. The differently configured viewport images are smoke checks, not a pixel-equivalence claim.
 - Final executable SHA-256: `2A57417CDDAC71DE11DD5679C614256F739F4A6DE689A5A1996ACA3CC795ACCF`. Scenario hash and binary hash recorded in `build/p3.4.5/candidate/lifecycle_manifest.json`.

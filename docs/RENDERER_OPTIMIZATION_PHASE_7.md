@@ -38,7 +38,7 @@ If no quality budget is agreed, retain the existing defaults and mark the experi
 
 Common setup for every record below. Base: `abdbad7` plus the uncommitted Phase 6 tree. The baseline binary was built from that tree and is saved as `build/p7/Glider_base.exe`.
 
-The harness is `python scripts/validate_p7.py --baseline build/p7/Glider_base.exe`, with outputs in `build/p7/`. It generates two fixtures:
+The harness is `python scripts/validate_p7.py (retired, see git history) --baseline build/p7/Glider_base.exe`, with outputs in `build/p7/`. It generates two fixtures:
 - A sphere grid: rows of metal, white dielectric and sheen spheres, each row with roughness 0 to 1.
 - A synthetic HDR with a 1° sun at 2×10⁵, beyond half-float range.
 

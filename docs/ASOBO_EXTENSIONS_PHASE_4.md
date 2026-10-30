@@ -150,7 +150,7 @@ emissive glow.
   - Applied before TAA and FXAA; the order is tested.
   - **Tests:** energy and threshold on a fixture of emissive patches; stable under TAA.
   - **Result:** physically based bloom (Jimenez 13-tap downsample, tent upsample, five-level average) in linear HDR
-    with the MSFS emissive scale (`docs/HDR_PIPELINE.md`, `scripts/validate_hdr.py`). Deviations from the plan: it
+    with the MSFS emissive scale (`docs/HDR_PIPELINE.md`, `scripts/validate_hdr.py` (retired, see git history)). Deviations from the plan: it
     is a scene setting on by default for every file (Scene Inspector → Environment, `--bloom`), not ASOBO-only, and
     it runs after TAA on the resolved HDR image (TAA history stays bloom-free), before tone mapping and FXAA.
 - [x] **A4.4 — `ASOBO_material_fresnel_fade` and `ASOBO_material_ghost_effect` (R2). Owner: GPT Astra.**

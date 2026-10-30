@@ -22,6 +22,7 @@ import hashlib
 import json
 import statistics
 import harness_process as subprocess
+from glider_harness import viewport_sha
 import sys
 from pathlib import Path
 
@@ -78,18 +79,6 @@ def check(condition, label):
 
 def sha(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
-
-
-def viewport_sha(path):
-    """Hash of a window screenshot's viewport area only. The default dock layout (Menus.cpp) gives the left
-    panels 22% of the width and the Inspector 26% of the rest, so the viewports span about 22-79.7%; the panels
-    are left out so that UI changes there do not fail render-equivalence checks."""
-    from PIL import Image
-    image = Image.open(path).convert("RGB")
-    width, height = image.size
-    # The menu bar (top) and the status bar (bottom, where hover tooltips also appear) are left out too.
-    box = (int(width * 0.22) + 6, 30, int(width * (1 - 0.78 * 0.26)) - 6, height - 40)
-    return hashlib.sha256(image.crop(box).tobytes()).hexdigest()
 
 
 for path, size in ((MANY, "40"), (HUGE, "100")):

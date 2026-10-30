@@ -34,13 +34,12 @@ Run: python scripts/validate_sun_disk.py [--baseline-exe build/baselines/<sha>.e
 import argparse
 import json
 import math
-import os
 import sys
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import harness_process as subprocess  # noqa: E402
+from glider_harness import gl_errors_zero, start_pipe_session  # noqa: E402
 import glider_ctl  # noqa: E402
 from validate_asobo_common import EXE, REPO, check, finish, same, views, render_view  # noqa: E402
 from validate_sun import lambert, mirror, Camera  # noqa: E402
@@ -76,11 +75,6 @@ def luminance(rgb):
 
 def rel(a, b):
     return abs(a - b) / max(abs(b), 1e-9)
-
-
-def gl_errors_zero(log):
-    lines = [line for line in log.splitlines() if line.startswith("GL automation errors")]
-    return lines == ["GL automation errors: 0"] and "GL error 0x" not in log
 
 
 def write(name, doc):
@@ -128,22 +122,7 @@ def load(png):
 class Session:
     def __init__(self, model, flags=(), common=None):
         args = [str(EXE), str(model)] + list(COMMON if common is None else common) + list(flags) + ["--control-pipe"]
-        self.process = subprocess.Popen(args, cwd=REPO, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                        stderr=subprocess.DEVNULL)
-        deadline = time.time() + 120
-        while not os.path.exists(glider_ctl.pipe_name(self.process.pid)):
-            if self.process.poll() is not None or time.time() > deadline:
-                raise RuntimeError(f"Glider did not open its pipe (exit {self.process.poll()})")
-            time.sleep(0.1)
-        while True:
-            try:
-                self.pipe = glider_ctl.GliderPipe(self.process.pid)
-                break
-            except glider_ctl.GliderError:
-                if self.process.poll() is not None or time.time() > deadline:
-                    self.process.kill()
-                    raise
-                time.sleep(0.2)
+        self.process, self.pipe = start_pipe_session(args)
 
     def call(self, cmd, **args):
         return self.pipe.call(cmd, **args)

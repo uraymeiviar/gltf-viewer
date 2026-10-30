@@ -6,6 +6,20 @@ Usage:
   python scripts/run_regression.py --tier full      # adds each feature's A/B switch and validate_p5_1.py
   python scripts/run_regression.py --baseline build/baselines/23f61c6.exe --extra=--show-invisible-materials
   python scripts/run_regression.py --extra=--asobo --extra=off   # uncommitted work that changes ASOBO rendering
+  python scripts/run_regression.py --only sun,sky                 # a subset of the tier (suite names as printed)
+  python scripts/run_regression.py --no-cache                     # start every baseline launch (cold timing)
+
+Baseline render cache: scripts/harness_process.py stores what each baseline launch wrote (captures,
+reports, UI-script shots, stdout/stderr) under build/regression_cache/, keyed by the baseline's SHA-256,
+the exact arguments, the content of every input file (models and the files they name, HDRs, UI
+scripts), render-relevant environment variables and the machine's display drivers/DPI. A warm run
+replays those instead of starting the baseline; the current build always renders. Stale entries (exe
+gone or changed) are pruned at the start of each run. Shared helpers for harnesses are in
+scripts/glider_harness.py.
+
+At the end the run prints each suite's wall time and Glider launches (current build, baseline,
+baseline served from the cache, baseline started, repeated argument sets), slowest first, and writes
+build/regression/summary.json; each suite's launches are in build/regression/<suite>.launches.jsonl.
 
 Save a baseline right after each commit with scripts/save_baseline.py. Without
 --baseline, the run uses build/baselines/<HEAD short sha>.exe, so it answers "did my
@@ -18,7 +32,9 @@ Quick tier (equivalence only: byte-identical viewport images, identical selectio
                        wireframe and alpha masks
   validate_p8_followup.py --only traversal: three TAA viewports sharing one scene traversal
   validate_p4_exit_gate.py  every UI producer of a scene revision
-  the four built-in self-checks
+  the built-in self-checks (last): revision, blend, aa-target, cache-invalidation, compute, sampler, vao,
+  polygon-mode, cull-winding and depth; all but cache-invalidation and compute also run with
+  --selfcheck-force-failure, which must exit 1 with a report (the contracts of the retired P3.x/P4.1 scripts)
   then, one at a time: validate_asobo_model.py, validate_asobo_normal.py, validate_asobo_common.py,
   validate_asobo_support.py, validate_asobo_draworder.py, validate_asobo_packaged.py,
   validate_asobo_uv_options.py
@@ -67,9 +83,12 @@ script.
 """
 
 import argparse
+import json
+import os
 import harness_process as subprocess
 import sys
 import time
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -77,7 +96,12 @@ REPO = Path(__file__).resolve().parents[1]
 EXE = REPO / "build" / "bin" / "Release" / "Glider.exe"
 OUT = REPO / "build" / "regression"
 SELFCHECKS = ("revision-selfcheck", "blend-selfcheck", "aa-target-selfcheck", "cache-invalidation-selfcheck",
-              "compute-selfcheck")
+              "compute-selfcheck", "sampler-selfcheck", "vao-selfcheck", "polygon-mode-selfcheck",
+              "cull-winding-selfcheck", "depth-selfcheck")
+# Self-checks whose forced failure (--selfcheck-force-failure) must exit 1 with a report; they carry the
+# contracts of the retired P3.x / P4.1 scripts (validate_p3_*.py, validate_p4_1.py, see git history).
+FORCED_FAILURE = {"revision-selfcheck", "blend-selfcheck", "aa-target-selfcheck", "sampler-selfcheck", "vao-selfcheck",
+                  "polygon-mode-selfcheck", "cull-winding-selfcheck", "depth-selfcheck"}
 FIXTURES = (("build/p8/fixtures/many_1600.gltf", "40", "none"), ("build/p8/fixtures/many_10000.gltf", "100", "none"),
             ("build/p8/fixtures/many_leaf.gltf", "40", "leaf"), ("build/p8/fixtures/many_root.gltf", "40", "root"))
 
@@ -86,7 +110,12 @@ parser.add_argument("--tier", choices=["quick", "full"], default="quick")
 parser.add_argument("--baseline", help="reference binary (default: build/baselines/<HEAD short sha>.exe)")
 parser.add_argument("--jobs", type=int, default=3, help="harnesses run at the same time")
 parser.add_argument("--extra", action="append", default=[], help="extra Glider argument passed to both binaries")
+parser.add_argument("--no-cache", action="store_true",
+                    help="start every baseline launch (GLIDER_RENDER_CACHE=0); the cache is neither read nor written")
+parser.add_argument("--only", help="comma-separated suite names to run (default: the whole tier)")
 args = parser.parse_args()
+if args.no_cache:
+    os.environ[subprocess.CACHE_SWITCH] = "0"
 
 if args.baseline:
     baseline = Path(args.baseline).resolve()
@@ -154,15 +183,33 @@ serial_jobs = [
 ]
 if args.tier == "full":
     jobs.append(("p5_1", ["scripts/validate_p5_1.py", "--pre-exe", str(baseline)]))
+selfchecks = list(SELFCHECKS)
+if args.only:
+    wanted = {name.strip() for name in args.only.split(",") if name.strip()}
+    known = {name for name, _ in jobs + serial_jobs} | set(SELFCHECKS)
+    if wanted - known:
+        sys.exit(f"unknown suite(s): {', '.join(sorted(wanted - known))}")
+    jobs = [job for job in jobs if job[0] in wanted]
+    serial_jobs = [job for job in serial_jobs if job[0] in wanted]
+    selfchecks = [check for check in SELFCHECKS if check in wanted]
 
 OUT.mkdir(parents=True, exist_ok=True)
+
+
+def launch_log(name):
+    """build/regression/<suite>.launches.jsonl, emptied; harness_process appends one line per Glider launch."""
+    path = OUT / f"{name}.launches.jsonl"
+    path.unlink(missing_ok=True)
+    return path
 
 
 def run_job(job):
     name, command = job
     log = OUT / f"{name}.txt"
     start = time.time()
-    result = subprocess.run([sys.executable] + command, cwd=REPO, capture_output=True, text=True)
+    env = dict(os.environ)
+    env[subprocess.LAUNCH_LOG] = str(launch_log(name))
+    result = subprocess.run([sys.executable] + command, cwd=REPO, capture_output=True, text=True, env=env)
     log.write_text(result.stdout + result.stderr, encoding="utf-8")
     passed = result.returncode == 0 and "RESULT: PASS" in result.stdout
     fails = [line.strip() for line in result.stdout.splitlines() if line.strip().startswith("FAIL")]
@@ -172,23 +219,82 @@ def run_job(job):
 def run_selfcheck(check):
     log = OUT / f"{check}.txt"
     start = time.time()
-    result = subprocess.run([str(EXE), "--isolated", f"--{check}", str(log)], cwd=REPO, capture_output=True, text=True)
-    return check, result.returncode == 0, time.time() - start, [] if result.returncode == 0 else [f"exit {result.returncode}"], log
+    os.environ[subprocess.LAUNCH_LOG] = str(launch_log(check))
+    fails = []
+    try:
+        result = subprocess.run([str(EXE), "--isolated", f"--{check}", str(log)], cwd=REPO, capture_output=True, text=True)
+        if result.returncode != 0:
+            fails.append(f"exit {result.returncode}")
+        if check in FORCED_FAILURE:
+            forced = OUT / f"{check}.forced.txt"
+            forced.unlink(missing_ok=True)
+            result = subprocess.run([str(EXE), "--isolated", f"--{check}", str(forced), "--selfcheck-force-failure"],
+                                    cwd=REPO, capture_output=True, text=True)
+            if result.returncode != 1 or not forced.is_file() or forced.stat().st_size == 0:
+                fails.append(f"forced failure: exit {result.returncode} (expected 1 and a report)")
+    finally:
+        os.environ.pop(subprocess.LAUNCH_LOG, None)
+    return check, not fails, time.time() - start, fails, log
 
 
-print(f"[regression: {args.tier} tier, candidate {EXE.relative_to(REPO)} vs baseline {baseline.name}, {args.jobs} jobs]")
+def launch_summary(name):
+    """One suite's Glider launches: current build, baseline (served from the cache / started), repeated argument sets."""
+    records = []
+    try:
+        for line in (OUT / f"{name}.launches.jsonl").read_text(encoding="utf-8").splitlines():
+            try:
+                records.append(json.loads(line))
+            except ValueError:
+                pass
+    except OSError:
+        pass
+    baseline = [r for r in records if r.get("role") == "baseline"]
+    hits = sum(1 for r in baseline if r.get("cache") == "hit")
+    repeats = Counter((r.get("exe"), tuple(r.get("argv", ()))) for r in records)
+    return {
+        "current": sum(1 for r in records if r.get("role") == "current"),
+        "baseline": len(baseline),
+        "baseline_hits": hits,
+        "baseline_started": len(baseline) - hits,
+        "other": sum(1 for r in records if r.get("role") not in ("current", "baseline")),
+        "repeated": sum(count - 1 for count in repeats.values() if count > 1),
+        "uncacheable": dict(Counter(str(r.get("cache"))[5:] for r in baseline if str(r.get("cache", "")).startswith("off"))),
+    }
+
+
+cache_state = "off (--no-cache)" if args.no_cache else "on"
+if not args.no_cache:
+    kept, removed = subprocess.prune_cache()
+    cache_state += f", {kept} entries" + (f", {removed} stale removed" if removed else "")
+print(f"[regression: {args.tier} tier, candidate {EXE.relative_to(REPO)} vs baseline {baseline.name}, {args.jobs} jobs, "
+      f"baseline render cache {cache_state}]")
 start = time.time()
 with ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
     results = list(pool.map(run_job, jobs))
 results += [run_job(job) for job in serial_jobs]
-results += [run_selfcheck(check) for check in SELFCHECKS]
+results += [run_selfcheck(check) for check in selfchecks]
 
 failed = False
+summary = []
 for name, passed, seconds, fails, log in results:
     print(f"  {'PASS' if passed else 'FAIL'} {name:28s} {seconds:6.1f} s  ({log.relative_to(REPO)})")
     for line in fails[:8]:
         print(f"         {line}")
     failed |= not passed
+    summary.append({"suite": name, "passed": passed, "seconds": round(seconds, 1), **launch_summary(name)})
+
+# Wall time and Glider launches per suite, slowest first (baseline: served from the cache / started).
+print("-" * 60)
+print(f"  {'suite':28s} {'time':>8s} {'current':>8s} {'baseline':>9s} {'hit':>5s} {'started':>8s} {'repeat':>7s}")
+for row in sorted(summary, key=lambda row: -row["seconds"]):
+    print(f"  {row['suite']:28s} {row['seconds']:6.1f} s {row['current']:8d} {row['baseline']:9d} "
+          f"{row['baseline_hits']:5d} {row['baseline_started']:8d} {row['repeated']:7d}")
+totals = {key: sum(row[key] for row in summary) for key in ("current", "baseline", "baseline_hits", "baseline_started")}
+print(f"  {'total':28s} {time.time() - start:6.0f} s {totals['current']:8d} {totals['baseline']:9d} "
+      f"{totals['baseline_hits']:5d} {totals['baseline_started']:8d}")
+(OUT / "summary.json").write_text(json.dumps({"tier": args.tier, "baseline": baseline.name, "cache": cache_state,
+                                              "seconds": round(time.time() - start, 1), "suites": summary}, indent=1),
+                                  encoding="utf-8")
 print("=" * 60)
 print(f"RESULT: {'FAIL' if failed else 'PASS'} ({time.time() - start:.0f} s)")
 sys.exit(1 if failed else 0)

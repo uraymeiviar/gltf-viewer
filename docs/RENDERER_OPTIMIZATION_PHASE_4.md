@@ -104,7 +104,7 @@ include the Validation panel, Inspector child/mesh/material/skin/joint links, mo
 `--select-material/-image/-texture`, and viewport selection. Their OBB, gizmo and inspector already work
 without a renderer rebuild, which is direct evidence for P4.2.
 
-#### 3. Validation (`python scripts/validate_p4_1.py`; outputs in `build/p4.1/`)
+#### 3. Validation (`python scripts/validate_p4_1.py` (retired, see git history); outputs in `build/p4.1/`)
 
 Environment: Windows 11, NVIDIA GeForce RTX 5080, OpenGL 4.1.0 NVIDIA 616.92, Release, `--isolated`,
 1280×800 window, vsync off for comparisons. Baseline: `build/p4.1/baseline/Glider.exe`, SHA-256
@@ -179,7 +179,7 @@ Everything else in the suite is unchanged and still passes on the P4.2 binary.
 - Extension (same day, §6 below): `ViewCamera` is also excluded, so a focus via hierarchy click or
   viewport double-click no longer rebuilds either.
 
-#### 3. Validation (`python scripts/validate_p4_2.py`; outputs in `build/p4.2/`)
+#### 3. Validation (`python scripts/validate_p4_2.py` (retired, see git history); outputs in `build/p4.2/`)
 
 Method: every scenario runs the same UI script on the accepted Phase 3 binary (`2A57417C…`, which
 rebuilt on every selection) and on the candidate (`04590C6E…`). Each snapshot must report identical
@@ -305,7 +305,7 @@ P4.3a (playback ticks) and P4.3b (duplicate sync after load).
   `baseColorFactor` and `emissiveFactor` through `KHR_animation_pointer`, plus a node rotation.
 - Self-check: 85 assertions (+2 for the AnimationTime/AnimationSet mask, +6 for noteSynced semantics).
 
-#### 3. Validation (`python scripts/validate_p4_3.py`; outputs in `build/p4.3/`)
+#### 3. Validation (`python scripts/validate_p4_3.py` (retired, see git history); outputs in `build/p4.3/`)
 
 P4.3a uses the same binary twice, once normally and once with `--force-full-sync`, both with
 `--fixed-frame-time 0.05`. The Phase 3 binary cannot be compared mid-playback because playback there
@@ -389,7 +389,7 @@ and its generator, `scripts/validate_p4_3.py`, and the P4.1/P4.2 script updates.
 - Counters: profile frames gain `boundsComputations`/`boundsCacheHits`, and UI snapshots gain cumulative
   `boundsComputed`/`boundsHits`.
 
-#### 3. Validation (`python scripts/validate_p4_4.py`; outputs in `build/p4.4/`)
+#### 3. Validation (`python scripts/validate_p4_4.py` (retired, see git history); outputs in `build/p4.4/`)
 
 Every scenario runs the same UI script on the pre-change HEAD binary (P4.3, `26509DD4…`, copied to
 `build/p4.4/head/`) and on the candidate (`499726C7…`). Both use
@@ -472,7 +472,7 @@ Tracing who reads what:
   viewports render only the active tab, so earlier "two-viewport" checks never rendered both in one
   frame.
 
-#### 3. Validation (`python scripts/validate_p4_5.py`; outputs in `build/p4.5/`)
+#### 3. Validation (`python scripts/validate_p4_5.py` (retired, see git history); outputs in `build/p4.5/`)
 
 Reference: the pre-P4.5 binary (P4.4 plus `vpsplit`, `E7D7CB06…`). Candidate: `E1E51341…`. Both use
 `--fixed-frame-time 0.05` and two viewports split side by side. Every snapshot must match the reference
@@ -622,7 +622,7 @@ pre-P4.6 binary (`A3CF709E…`) took a median `commands.generate` of 15.1–17.1
   `truncate()`, which left 10 stale trailing bytes (`\n}\n#endif\n`). They were detected by the compiler,
   verified and trimmed. Later patches write through a temporary file and an atomic replace.
 
-#### 3. Validation (`python scripts/validate_p4_6.py`; outputs in `build/p4.6/`)
+#### 3. Validation (`python scripts/validate_p4_6.py` (retired, see git history); outputs in `build/p4.6/`)
 
 | Check | Result |
 |---|---|
@@ -687,7 +687,7 @@ binary is `4E6CBF74…`.
 |---|---|
 | `validate_p4_6.py` equivalence (debug modes, picking, wireframe overlay, split viewports, Fox and morph toggles, reloads) | 36/36. Screenshots byte-identical to pre and to uncached. Steady frames: 276, 552, 552 and 52 command-cache hits with **0 misses**. Uncached runs never hit. |
 | `validate_p4_6.py` picking (1,600 drawables, 36 clicks) | 39/39; 25 distinct nodes, identical to pre |
-| `validate_p4_7.py` equivalence (hierarchy, leaf/root grids, morph/skin toggles, Fox, pointer) | 61/61, identical to pre and to no-reuse |
+| `validate_p4_7.py` (retired, see git history) equivalence (hierarchy, leaf/root grids, morph/skin toggles, Fox, pointer) | 61/61, identical to pre and to no-reuse |
 | `validate_p4_exit_gate.py` (all producers, all-shortcuts-off reference) | 93/93 |
 | `--revision-selfcheck` | 85/85 |
 | Timing, 1,600 drawables, 5 alternating pairs vs pre | `commands.generate` 1.67–1.77 → 1.15–1.29 ms (median −30.3%, 5/5, noise 5.7%). CPU frame 14.2–14.8 → 13.9–14.6 ms (+1.8%, within noise). |

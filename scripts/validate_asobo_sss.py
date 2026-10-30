@@ -42,6 +42,7 @@ import sys
 from pathlib import Path
 
 import harness_process as subprocess
+from glider_harness import gl_errors_zero
 from validate_asobo_common import EXE, PLAIN_FIXTURE, REPO, check, finish, same
 from validate_asobo_common import render as common_render
 
@@ -223,11 +224,6 @@ def render(exe, model, name, flags=(), frame=24):
     result = run([exe, model, *COMMON, *VIEW, *flags, "--capture-viewport", png, "--capture-frame", str(frame),
                   "--profile-report", report, "--exit-after-profile"])
     return (png if png.exists() else None), result.stdout + result.stderr
-
-
-def gl_errors_zero(log):
-    lines = [line for line in log.splitlines() if line.startswith("GL automation errors")]
-    return lines == ["GL automation errors: 0"] and "GL error 0x" not in log
 
 
 def pixels(png):

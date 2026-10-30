@@ -28,7 +28,7 @@ def main():
     harness_process.run = guarded_run
     results = {}
     for name in ("validate_msfs2020_materials", "validate_asobo_primitive_ranges", "validate_asobo_glass", "validate_asobo_decal",
-                 "validate_hdr", "validate_asobo_support", "validate_asobo_emissive"):
+                 "validate_asobo_support", "validate_asobo_emissive"):
         print("START", name, flush=True)
         code = 0
         with (OUT / ("m2020_"+name+".log")).open("w", encoding="utf-8") as log:

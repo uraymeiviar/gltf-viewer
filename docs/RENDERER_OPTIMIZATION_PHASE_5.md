@@ -160,7 +160,7 @@ the four counters and `scripts/validate_p5_1.py`.
   allocated, so the scenario report's `pickingWidth`/`pickingHeight` read 0.
 - `PickingRenderLayer`: a public `pickingOnly` flag. When set, the returned scene holds only the picking drawables.
 
-#### 3. Validation (`python scripts/validate_p5_2.py`; outputs in `build/p5.2/`)
+#### 3. Validation (`python scripts/validate_p5_2.py` (retired, see git history); outputs in `build/p5.2/`)
 
 All runs at 1280×800 with `--fixed-frame-time 0.05`. In the default layout the viewport image is 734×696 at
 (284, 70). The outer 4-pixel columns belong to the dock splitters' hover zone, so they cannot be clicked
@@ -263,7 +263,7 @@ returns to P5.1.
   - `--disable-redraw-skip` restores the old schedule. Snapshot `revisions` gain `sceneRenders`/`sceneSkips`.
 - `validate_p4_exit_gate.py`: the reference now also passes `--always-pick --disable-redraw-skip`.
 
-#### 3. Validation (`python scripts/validate_p5_3.py`; outputs in `build/p5.3/`)
+#### 3. Validation (`python scripts/validate_p5_3.py` (retired, see git history); outputs in `build/p5.3/`)
 
 | Check | Result |
 |---|---|
@@ -466,7 +466,7 @@ hang is a separate follow-up.
   skybox is drawn last. The grid is a two-sided plane, so it now disables face culling. With the fix, that
   screenshot is byte-identical to pre again, and the whole suite matches pre.
 
-#### 3. Validation (`python scripts/validate_p5_5.py`; outputs in `build/p5.5/`)
+#### 3. Validation (`python scripts/validate_p5_5.py` (retired, see git history); outputs in `build/p5.5/`)
 
 | Check | Result |
 |---|---|
