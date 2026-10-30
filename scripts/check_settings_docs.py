@@ -11,7 +11,8 @@ Runs `Glider.exe --isolated --agent-guide <file>` (no window, no GL context) and
 A key or flag that CLI_REFERENCE.md lacks but another docs/*.md file or the agent guide (hand-written text or the
 generated settings table) mentions is reported as a note; one that appears in no doc text except the generated table is a gap. Usage:
 
-  python scripts/check_settings_docs.py [--exe path] [--strict]
+  python scripts/check_settings_docs.py --static [--strict]  # no executable launch
+  python scripts/check_settings_docs.py [--exe path] [--strict]  # generated runtime registry
 
 Exit code 0 unless a real gap exists (undocumented flag, undocumented key, or a declared flag without a parser);
 --strict also fails on keys and flags that CLI_REFERENCE.md lacks but another doc or the agent guide has.
@@ -35,6 +36,43 @@ PARSER_FILES = sorted((ROOT / "source" / "imgui" / "application").glob("CommandL
 FLAG_LITERAL = re.compile(r'"(--[a-z0-9][a-z0-9-]*[a-z0-9])"')  # whole-literal flags; prefix tests like "--ibl-" are skipped
 FLAG_IN_TEXT = re.compile(r"--[a-z0-9][a-z0-9-]*")
 ROW_SPLIT = re.compile(r"(?<!\\)\|")
+REGISTRY_FILES = sorted((ROOT / "source" / "imgui" / "application").glob("CommandsSettings*.cpp"))
+
+
+def static_settings():
+    """Source-only inventory, including literal helper calls and generated vendor switches.
+
+    This does not execute C++ or replace the runtime registry check. It checks documentation
+    for every statically declared key and every flag declared in the registry sources.
+    Dynamic key loops are included explicitly from their initializer lists.
+    """
+    rows = []
+    helper = re.compile(r'\b(?:boolSetting|floatSetting|indexEnumSetting|qualityEnum|qualityBool|mapSize|level|'
+                        r'effectFloat|floatShadow|shadowSpec|groundFloat|oceanFloat|clockBool|clockFloat|clockInt|'
+                        r'overrideSetting)(?:<[^>\n]+>)?\s*\(\s*"([A-Za-z_][A-Za-z0-9_]*)"')
+    for path in REGISTRY_FILES:
+        source = path.read_text(encoding="utf-8-sig")
+        # Compatibility forwarding loops use existing canonical keys, harmless to include here too.
+        keys = set(re.findall(r'\b\w+\.key\s*=\s*"([A-Za-z_][A-Za-z0-9_]*)"', source))
+        keys.update(helper.findall(source))
+        for values in re.findall(r'for\s*\(const\s+(?:std::string|char\s*\*)\s+key\s*:\s*\{([^}]+)\}', source):
+            keys.update(re.findall(r'"([A-Za-z_][A-Za-z0-9_]*)"', values))
+        declared = " ".join(sorted(set(FLAG_IN_TEXT.findall(source))))
+        rows.extend((key, path.name, "", "Static source declaration") for key in sorted(keys))
+        # Separate row covers flags passed through helper parameters and ternary cliFlag expressions.
+        rows.append(("", path.name, declared, "Static registry flag declarations"))
+    support = ROOT / "OpenGL-Renderer" / "Tools" / "tools" / "gltf" / "source" / "extensions" / "AsoboSupport.cpp"
+    groups = (ROOT / "source" / "imgui" / "GltfExtensionSettings.cpp").read_text(encoding="utf-8-sig")
+    rows.extend((key, "renderer", "", "Generated vendor master switch")
+                for key in re.findall(r'\.masterKey\s*=\s*"([A-Za-z_][A-Za-z0-9_]*)"', groups))
+    for path in [support]:
+        source = path.read_text(encoding="utf-8-sig")
+        # The runtime group table includes Rendered/Partial entries whose viewportSwitch is true (default).
+        for line in source.splitlines():
+            entry = re.search(r'\{"(ASOBO_[A-Za-z0-9_]+)", Support::(?:Rendered|Partial),', line)
+            if entry and not re.search(r',\s*false\s*\}', line):
+                rows.append((entry[1], "renderer", "", "Generated ASOBO switch"))
+    return rows
 
 
 def run_guide(exe: Path) -> str:
@@ -86,17 +124,20 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--exe", type=Path, default=DEFAULT_EXE)
     parser.add_argument("--strict", action="store_true", help="also fail on keys documented only in the generated table")
+    parser.add_argument("--static", action="store_true", help="check C++ source declarations without launching Glider")
     args = parser.parse_args()
-    if not args.exe.exists():
+    if not args.static and not args.exe.exists():
         sys.exit(f"{args.exe} not found (build first)")
 
-    guide = run_guide(args.exe)
+    guide = "" if args.static else run_guide(args.exe)
     cli_doc = CLI_DOC.read_text(encoding="utf-8")
     hand_guide = AGENT_GUIDE_SRC.read_text(encoding="utf-8")
     other_docs = "\n".join(p.read_text(encoding="utf-8", errors="replace")
                            for p in sorted((ROOT / "docs").glob("*.md")) if p != CLI_DOC)
 
-    settings = parse_settings(guide)
+    settings = static_settings() if args.static else parse_settings(guide)
+    if args.static:
+        print("STATIC source check: Glider was not launched; runtime registry generation remains a separate check.")
     canonical = [row for row in settings if not row[3].startswith("Compatibility key")]
     parsed = flags_in_parsers()
     failures = 0
@@ -105,6 +146,8 @@ def main() -> int:
     seen = set()
     table_only, undocumented = [], []
     for key, scope, _cli, _help in canonical:
+        if not key:
+            continue
         if key in seen:
             continue
         seen.add(key)
@@ -114,7 +157,8 @@ def main() -> int:
             table_only.append((key, scope))
         else:
             undocumented.append((key, scope))
-    print(f"registry: {len(seen)} canonical keys ({len(settings)} rows incl. compatibility keys)")
+    label = "source-discovered" if args.static else "canonical"
+    print(f"registry: {len(seen)} {label} keys ({len(settings)} rows incl. compatibility keys)")
     print(f"  in CLI_REFERENCE.md: {len(seen) - len(table_only) - len(undocumented)}")
     if table_only:
         print(f"  not in CLI_REFERENCE.md, but in another doc or the hand-written guide ({len(table_only)}):")

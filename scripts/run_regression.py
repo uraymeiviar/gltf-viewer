@@ -67,13 +67,15 @@ Quick tier (equivalence only: byte-identical viewport images, identical selectio
     no stale sky-occlusion volume without casters, pipe time_of_day_mode = Inspector Sun Source),
   validate_agent_control.py (control pipe, shared command registry, MCP shim; CLI flags against the baseline),
   validate_viewport_image.py (Viewport capture/save/copy, capture folder setting),
-  validate_settings_scopes.py (global quality / scene effects / viewport overrides: legacy flags against the baseline,
-  CLI = pipe for canonical and compatibility keys, overrides, two viewports sharing quality, UI ID conflicts)
+  validate_settings_scopes.py (Quality levels / scene appearance and shared ground / viewport Shaded and overlays:
+  legacy flags against the baseline, CLI = pipe, migration/restart, shared ocean, UI ID conflicts)
 Full tier adds:
   --with-ab (each feature against its own switch), validate_p5_1.py against the baseline, and
   validate_p8_5.py's 10,000-drawable grid and MSAA/TAA fixture copies.
-Window screenshots are compared on their viewport area only, so changes to the side panels do not
-fail render checks; the panels are covered by validate_p4_exit_gate.py.
+Window screenshots (p8_1, p8_3, p8_5, p5_1) are compared byte for byte on the viewports' 3D image only
+(glider_harness.viewport_sha: below the menu bar, viewport tabs and viewport toolbar, between the side
+panels, above the status bar), so changes to the toolbar or the panels do not fail render checks; the
+toolbar and panels are covered by validate_p4_exit_gate.py.
 Benchmarks never run here: they back timing claims (each harness's --bench).
 
 Harnesses run in parallel (--jobs). Captures are deterministic under --fixed-frame-time, but

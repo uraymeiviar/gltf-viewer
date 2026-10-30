@@ -220,8 +220,7 @@ nlohmann::json Application::sunShadowStateJson() const
     const ux3d::imgui::RenderQualitySettings configured = ux3d::imgui::RenderQuality::settings();
     const ux3d::imgui::RenderQualitySettings quality = ux3d::imgui::RenderQuality::effective();
     // Settings scopes: enabled = the scene's switch and the quality's gate (a viewport may override the scene's).
-    auto& self = const_cast<Application&>(*this);
-    const bool sceneShadows = self.getSceneEnvironment(self.sceneEnvironments, self.gltfModel, self.activeScene).effects.shadows;
+    const bool sceneShadows = configured.shadows;
     nlohmann::json out = {{"enabled", configured.shadows && sceneShadows},
                           {"scene", sceneShadows},
                           {"allowed", configured.shadows},

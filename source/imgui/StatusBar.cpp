@@ -10,6 +10,7 @@
 #include "imgui/Theme.h"
 #include "imgui/AntiAliasing.h"
 #include "imgui/RenderQuality.h"
+#include "imgui/SearchPathsPanel.h"
 #include "renderer/gltf/GltfRenderLayer.h"
 #include <imgui.h>
 #include <cstdio>
@@ -93,7 +94,7 @@ void StatusBar::render(ux3d::gltf::Gltf& gltfModel,
         float validBadgeWidth = ImGui::CalcTextSize(valText).x + ImGui::GetStyle().FramePadding.x * 2.0f + 6.0f;
         float rightGroupWidth = logPillWidth + ImGui::GetStyle().ItemSpacing.x + validBadgeWidth + 4.0f;
         const bool telemetry = !RenderQuality::legacyCaptureUi();
-        const float telemetryWidth = telemetry && mainViewport->WorkSize.x > 1100 ? 270.0f : telemetry ? 85.0f : 0.0f;
+        const float telemetryWidth = telemetry && mainViewport->WorkSize.x > 1100 ? 385.0f : telemetry ? 200.0f : 0.0f;
         rightGroupWidth += telemetryWidth;
 
         // -------------------------------------------------------------
@@ -279,6 +280,12 @@ void StatusBar::render(ux3d::gltf::Gltf& gltfModel,
             ImGui::GetWindowDrawList()->AddText(ImVec2(fpsPos.x, fpsPos.y + (ImGui::GetFrameHeight() - fpsSize.y) * 0.5f),
                                                 ImGui::GetColorU32(ImGuiCol_Text), fpsLabel);
             UiProbe::item("status.fps", 0);
+            ImGui::SameLine();
+            RenderQuality::drawProfileSelector(revisions, "status.quality");
+            if (ImGui::BeginPopupContextItem("status_quality_settings")) {
+                if (ImGui::MenuItem("Quality settings...")) requestSettingsWindow(SettingsTab::Quality);
+                ImGui::EndPopup();
+            }
             ImGui::SameLine(rightStart+telemetryWidth);
         }
 

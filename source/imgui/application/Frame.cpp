@@ -317,6 +317,7 @@ void Application::processInput(float deltaTime)
             if (ImGui::IsKeyPressed(ImGuiKey_1)) {
                 activeViewport->settings.renderMode = ux3d::renderer::RenderMode::None;
                 activeViewport->settings.renderModeIdx = 0;
+                activeViewport->settings.postEffects = true;
                 sceneRevisions.mark(ux3d::imgui::SceneChange::ViewportSettings);
             } else if (ImGui::IsKeyPressed(ImGuiKey_2)) {
                 activeViewport->settings.renderMode = ux3d::renderer::RenderMode::Wireframe;

@@ -4,6 +4,35 @@ Complete reference moved from AGENTS.md §4.2. Related flags retain their descri
 
 `Glider.exe` supports several CLI flags useful for testing and headless image verification:
 
+
+## Three-layer settings (2026-10-30)
+
+Quality owns effect enablement and budgets, Scene owns appearance / ground, Viewport owns camera / overlays /
+render mode. See [settings scopes](SETTINGS_SCOPES.md) for the complete compatibility table and settings.ini migration.
+`reflections` and `ssao_level` accept off / low / mid / high. `shadow_map` accepts off / 1024 / 2048 / 4096;
+`ibl_cube` off / 256 / 512 / 1024; `texture_max_size` 0 or a power of two 64..32768. Set these renderer keys with
+`set_viewport_setting` (renderer fallback). `ssr`, `ssao`, `shadows`, `shadows_allowed`, `bloom`, `ibl`,
+`punctual_lights`, `sky_occlusion`, `ocean_mode`, `ocean_play`, `lens_flare`, `lens_flare_intensity` now address
+Quality. The old environment / viewport names forward where applicable. Scene keeps `ssao_radius`,
+`ssao_intensity`, `bloom_intensity`, `bloom_radius`, `windshield_icing`, ground and ocean appearance.
+
+`--render-mode shaded_post` (also `--debug-view shaded_post`) is the default Shaded + post effects;
+`--render-mode shaded` omits post AA, bloom, lens effects, SSR and SSAO, retaining shadows and tone mapping.
+`viewport_shadows`, `viewport_ssr`, `viewport_ssao` still accept scene / off / on but warn and do nothing.
+`--ssr off`, `--ssao off`, `--shadows off`, `--bloom off` change global Quality for this run.
+`--shadow-resolution off` and `--ibl-size off` are accepted alongside the existing sizes.
+`--ground grid` aliases scene ground off; `--ground plane|ocean` and appearance flags affect all views.
+`--ground-grid` and `--hide-grid` now control the same per-viewport overlay (later flags win), drawn at the scene
+surface height. Ocean simulation mode / play are global Quality; time / period remain scene values.
+
+`--interior-sky-reflection` / `interior_sky_reflection` and `--decal-tolerance` / `decal_tolerance_mm` are ASOBO
+app tuning in `[GltfExtensions]`, saved only by UI or a requested pipe commit. Sky portals are implicit at default
+strength 0.35 with either source; disable ASOBO_sky_portal to remove them. `--sky-portal-strength` /
+`sky_portal_strength` remains a hidden effective compatibility override. Lens intensity stays Quality (default 1).
+CLI / script Quality overrides stay session-only through unrelated saves. `get_state` exposes the new levels,
+scene ground, viewport postEffects and vendor tuning while retaining old diagnostic fields.
+
+
 ## Loading, selection & camera
 
 - `[model.gltf / model.glb]`: Path to glTF or GLB file to open on startup (defaults to embedded `HelloCube.glb`).
@@ -28,7 +57,7 @@ Complete reference moved from AGENTS.md §4.2. Related flags retain their descri
 
 - `--aa <none|msaa2|msaa4|msaa8|fxaa|taa>`: Legacy AA preset of the renderer-wide quality, setting both MSAA and Post AA (e.g. msaa4 = 4x + None, taa = Off + TAA, none = Off + None). Registry `aa` (renderer; also a compatibility viewport key).
 
-- `--msaa <0|2|4|8>` and `--post-aa <none|fxaa|taa>`: Renderer-wide geometry and post AA (every viewport; settings scopes), applied after `--aa` regardless of argument order. Default MSAA Off + TAA; a new viewport uses the global AA. Viewport Settings → Quality → Anti-Aliasing; registry `msaa`, `post_aa` (renderer).
+- `--msaa <0|2|4|8>` and `--post-aa <none|fxaa|taa>`: Renderer-wide geometry and post AA (every viewport; settings scopes), applied after `--aa` regardless of argument order. Default MSAA Off + TAA; a new viewport uses the global AA. File → Settings → Quality → Current Settings → Anti-Aliasing; registry `msaa`, `post_aa` (renderer).
 
 - `--debug-view <name>`: Selects a viewport Render Mode at startup, using the View menu's names with spaces,
   underscores and hyphens ignored (`occlusion`, `roughness`, `shadingnormal`, `geometrybitangent`,
@@ -82,10 +111,10 @@ Complete reference moved from AGENTS.md §4.2. Related flags retain their descri
   `--shadow-filter <hard|pcf|soft>`, `--shadow-split-lambda <0..1>`, `--shadow-normal-bias <texels>`,
   `--shadow-slope-bias <x>`, `--shadow-constant-bias <x>`: A3.2 cascaded shadow maps of the sun (drawn only while
   the sun is on; default on, 2048 x 3 cascades, 200 m, PCF, lambda 0.75, biases 1 / 2 / 1). `--shadows` / `shadows`
-  switch the scene's shadows (environment; Scene Inspector → Shadows, Reflections & AO; a viewport overrides them with
-  `viewport_shadows`; not saved). The rest is renderer-wide quality (File → Settings → Quality → Current Settings → Sun Shadows, with
-  the presets' "Allow sun shadows" gate, registry `shadows_allowed`, `[RenderQuality] shadows=`; the quality fields
-  are part of the four presets in `[QualityProfiles]`, all of them in `[RenderQuality]`; Auto starts at 1024 x 2 and
+  set the Quality shadow-map level for this run. Map budget and tuning are global (File → Settings → Quality →
+  Current Settings → Sun Shadows); `shadows_allowed` is the old compatibility enable key, stored as
+  `[RenderQuality] shadows=`. All map fields and tuning are carried by `[QualityProfiles]` and saved current
+  overrides in `[RenderQuality]`. Auto starts at 1024 x 2 and
   steps up to the configured values); registry keys `shadow_resolution`, `shadow_cascades`, `shadow_distance`,
   `shadow_filter`, `shadow_split_lambda`, `shadow_normal_bias`, `shadow_slope_bias`, `shadow_constant_bias`,
   `shadows_allowed` (saved preferences: `set_persist(true)` over the pipe). Each viewport keeps its own map, fitted to its frustum (size² x cascades x
@@ -180,21 +209,21 @@ Complete reference moved from AGENTS.md §4.2. Related flags retain their descri
 
 ## MSFS / ASOBO & scene effects
 
-- `--decal-tolerance <mm>`: Scene decal depth tolerance along the receiver normal, 0–10 mm (default 1.2 mm); applies only to the decal buffer. Scene Inspector → Shadows, Reflections & AO (shown for files with decals); registry `decal_tolerance_mm` (environment).
+- `--decal-tolerance <mm>`: Scene decal depth tolerance along the receiver normal, 0–10 mm (default 1.2 mm); applies only to the decal buffer. Scene Inspector → Ambient Occlusion & Aircraft (appearance); Quality for effect levels (shown for files with decals); registry `decal_tolerance_mm` (environment).
 
 - `--ssr <on|off>`: the scene's windshield-v3 screen-space reflections (default on; registry `ssr`, environment). A viewport overrides it with `viewport_ssr scene|off|on`; the viewport key `ssr` sets that override.
 
 - `--ssr-quality <low|medium|high>`: renderer-wide 256/512/1024 screen-space sample budgets, maximum pixel stride 2/1/1, with five refinement steps (default medium). File → Settings → Quality → Current Settings → Effects.
 
-- `--interior-sky-reflection <0..1>`: the scene's windshield IBL fallback strength inside the combined environment-occluder bounds; without occluders it applies to every windshield (default 0.5). SSR and this strength are in Scene Inspector → Shadows, Reflections & AO.
+- `--interior-sky-reflection <0..1>`: the scene's windshield IBL fallback strength inside the combined environment-occluder bounds; without occluders it applies to every windshield (default 0.5). SSR and this strength are in Scene Inspector → Ambient Occlusion & Aircraft (appearance); Quality for effect levels.
 
-- `--windshield-icing <0..1>`: the scene's icing state (0.0 = clean [default], 1.0 = fully iced): windshield icing coverage and the coverage of `frosted` geometry decals. Scene Inspector → Shadows, Reflections & AO → Aircraft state.
+- `--windshield-icing <0..1>`: the scene's icing state (0.0 = clean [default], 1.0 = fully iced): windshield icing coverage and the coverage of `frosted` geometry decals. Scene Inspector → Ambient Occlusion & Aircraft (appearance); Quality for effect levels → Aircraft state.
 
-- `--sky-portal-strength <0..4>` and `--show-sky-portals`: A3.7 `ASOBO_sky_portal` window light (default 0.35, added as (1 - occlusion) x strength to OPAQUE/MASK materials of files with portals) and the portal gizmos (UI overlay; a selected portal node always shows its own). The strength is a scene setting (Scene Inspector → Shadows, Reflections & AO), the gizmos a viewport helper. `--asobo-disable ASOBO_sky_portal` switches the light off (File → Settings → glTF Extensions, app setting). The gizmo switch is in Viewport Settings (glTF Extensions block, shown for files with portals). See `docs/ASOBO_EXTENSIONS_PHASE_3.md`, A3.7.
+- `--sky-portal-strength <0..4>` and `--show-sky-portals`: A3.7 `ASOBO_sky_portal` window light (default 0.35, added as (1 - occlusion) x strength to OPAQUE/MASK materials of files with portals) and the portal gizmos (UI overlay; a selected portal node always shows its own). The strength is a scene setting (Scene Inspector → Ambient Occlusion & Aircraft (appearance); Quality for effect levels), the gizmos a viewport helper. `--asobo-disable ASOBO_sky_portal` switches the light off (File → Settings → glTF Extensions, app setting). The gizmo switch is in Viewport Settings (glTF Extensions block, shown for files with portals). See `docs/ASOBO_EXTENSIONS_PHASE_3.md`, A3.7.
 
-- `--ssao <on|off>`: the scene's screen-space ambient occlusion of the sky light (A3.5, default off; Auto quality never changes it; a viewport overrides it with `viewport_ssao`). GTAO from the A2.1 depth/normal prepass (the decal buffer when decals are active, otherwise the viewport's own prepass target), computed before the opaque pass with a depth-aware 5 x 5 denoise (and a depth-aware upsample at half resolution); `pbr.frag` multiplies only the IBL diffuse (multi-bounce) and, through Lagarde's specular occlusion, the IBL specular, sheen and clearcoat of OPAQUE/MASK surfaces, as `min(authored occlusion, SSAO)`; the sun, punctual lights, emissive, BLEND/transmission, the background and the ground plane are unchanged. `--ssao-radius <x>` (world units, default 0.5), `--ssao-intensity <0..4>` (exponent, default 1), `--ssao-quality <low|medium|high>` (2 x 4, 3 x 6, 4 x 8 samples per side), `--ssao-resolution <full|half>`; debug view `ssao` (raw visibility). Scene Inspector → Shadows, Reflections & AO (on, radius, intensity: scene) and File → Settings → Quality (quality, resolution: renderer-wide); registry keys `ssao`, `ssao_radius`, `ssao_intensity` (environment), `ssao_quality`, `ssao_resolution` (renderer); `get_state` / `--profile-report` carry an `ssao` object (per viewport: active, target size, memory, GPU time). Fragment shaders only (`#version 410`): works on every 4.1+ context. See `docs/ASOBO_EXTENSIONS_PHASE_3.md` A3.5.
+- `--ssao <on|off>`: the scene's screen-space ambient occlusion of the sky light (A3.5, default off; Auto quality never changes it; a viewport overrides it with `viewport_ssao`). GTAO from the A2.1 depth/normal prepass (the decal buffer when decals are active, otherwise the viewport's own prepass target), computed before the opaque pass with a depth-aware 5 x 5 denoise (and a depth-aware upsample at half resolution); `pbr.frag` multiplies only the IBL diffuse (multi-bounce) and, through Lagarde's specular occlusion, the IBL specular, sheen and clearcoat of OPAQUE/MASK surfaces, as `min(authored occlusion, SSAO)`; the sun, punctual lights, emissive, BLEND/transmission, the background and the ground plane are unchanged. `--ssao-radius <x>` (world units, default 0.5), `--ssao-intensity <0..4>` (exponent, default 1), `--ssao-quality <low|medium|high>` (2 x 4, 3 x 6, 4 x 8 samples per side), `--ssao-resolution <full|half>`; debug view `ssao` (raw visibility). Scene Inspector → Ambient Occlusion & Aircraft (appearance); Quality for effect levels (on, radius, intensity: scene) and File → Settings → Quality (quality, resolution: renderer-wide); registry keys `ssao`, `ssao_radius`, `ssao_intensity` (environment), `ssao_quality`, `ssao_resolution` (renderer); `get_state` / `--profile-report` carry an `ssao` object (per viewport: active, target size, memory, GPU time). Fragment shaders only (`#version 410`): works on every 4.1+ context. See `docs/ASOBO_EXTENSIONS_PHASE_3.md` A3.5.
 
-- `--sky-occlusion <auto|on|off>`, `--sky-occlusion-quality <low|medium|high>`, `--sky-occlusion-occluders <on|off>` (A3.9, scene environment; Scene Inspector → Sky Occlusion, after Ambient Light; the bake quality is renderer-wide, File → Settings → Quality → Current Settings → Effects): sky occlusion inside the model. A sky-visibility volume over the model's bounds (cubic cells, at most 64 / 96 / 128 per axis plus 2 padding cells; per cell the visible fraction `a` and mean visible direction `m` of 64 / 128 / 256 Fibonacci directions, RGBA16F, `a = -1` inside solids) is baked from orthographic depth maps of the casters (`ShadowCasterLayer` rules without `noCastShadow`, plus `ASOBO_material_environment_occluder` primitives unless `--sky-occlusion-occluders off`; glass/BLEND/decals/invisible do not block) and applied in `pbr.frag` (`sky_occlusion.glsl`, define `SKY_OCCLUSION` per viewport) to the IBL terms only: diffuse by the cosine-weighted visibility (L1 and visibility-cone readings blended), specular/sheen/clearcoat by a lobe-cone visibility, as a product with authored AO / decal AO / SSAO; A3.7 portals add back `(1 - occlusion × visibility)`. The sun, punctual lights, emissive, the A3.8 ambient light, the background and the ground plane are unchanged. Default `auto`: on with the procedural sky, off with the HDR (HDR renders byte-identical). The bake is time-sliced (4 / 8 / 8 frames), rebakes on model, visibility, transform, material, extension, isolation, quality or occluder changes (never per frame, animation ignored), keeps the previous complete volume until the new one is done, and is skipped without IBL (Low preset). Debug view `skyvisibility`; registry keys `sky_occlusion`, `sky_occlusion_quality`, `sky_occlusion_occluders`; `get_state` / `--profile-report` carry a `skyOcclusion` object (volume dims/cell/memory, bake frames/CPU/GPU ms; `upToDate`, `noCasters`: a key with nothing to bake, e.g. an isolated glass part, has no volume and is not re-traversed per frame; `sceneBuilds`). Validation: `scripts/validate_sky_occlusion.py`; review: `scripts/review_sky_occlusion.py`. See `docs/ASOBO_EXTENSIONS_PHASE_3.md` A3.9.
+- `--sky-occlusion <auto|on|off>`, `--sky-occlusion-quality <low|medium|high>`, `--sky-occlusion-occluders <on|off>` (A3.9, scene environment; Quality for mode / bake quality; Scene Inspector → Sky Occlusion for occluder geometry, File → Settings → Quality → Current Settings → Effects): sky occlusion inside the model. A sky-visibility volume over the model's bounds (cubic cells, at most 64 / 96 / 128 per axis plus 2 padding cells; per cell the visible fraction `a` and mean visible direction `m` of 64 / 128 / 256 Fibonacci directions, RGBA16F, `a = -1` inside solids) is baked from orthographic depth maps of the casters (`ShadowCasterLayer` rules without `noCastShadow`, plus `ASOBO_material_environment_occluder` primitives unless `--sky-occlusion-occluders off`; glass/BLEND/decals/invisible do not block) and applied in `pbr.frag` (`sky_occlusion.glsl`, define `SKY_OCCLUSION` per viewport) to the IBL terms only: diffuse by the cosine-weighted visibility (L1 and visibility-cone readings blended), specular/sheen/clearcoat by a lobe-cone visibility, as a product with authored AO / decal AO / SSAO; A3.7 portals add back `(1 - occlusion × visibility)`. The sun, punctual lights, emissive, the A3.8 ambient light, the background and the ground plane are unchanged. Default `auto`: on with the procedural sky, off with the HDR (HDR renders byte-identical). The bake is time-sliced (4 / 8 / 8 frames), rebakes on model, visibility, transform, material, extension, isolation, quality or occluder changes (never per frame, animation ignored), keeps the previous complete volume until the new one is done, and is skipped without IBL (Low preset). Debug view `skyvisibility`; registry keys `sky_occlusion`, `sky_occlusion_quality`, `sky_occlusion_occluders`; `get_state` / `--profile-report` carry a `skyOcclusion` object (volume dims/cell/memory, bake frames/CPU/GPU ms; `upToDate`, `noCasters`: a key with nothing to bake, e.g. an isolated glass part, has no volume and is not re-traversed per frame; `sceneBuilds`). Validation: `scripts/validate_sky_occlusion.py`; review: `scripts/review_sky_occlusion.py`. See `docs/ASOBO_EXTENSIONS_PHASE_3.md` A3.9.
 
 - `--show-invisible-materials`: Also draw materials marked invisible by `ASOBO_material_invisible` and environment occluders (`ASOBO_material_environment_occluder`); both are hidden by default. An app setting for every viewport; this run only.
 
@@ -233,3 +262,7 @@ Example test command:
 cmd /c "build\bin\Release\Glider.exe --dump-frame frame.jpg --exit-after-dump"
 ```
 *(Note: Because `Glider.exe` is a Win32 subsystem executable, wrap in `cmd /c` when invoking from PowerShell to wait for process exit synchronously).*
+
+The culling debug switches `force_double_sided` / `--force-double-sided` and `invert_winding` / `--invert-winding`
+remain per-viewport: disable back-face culling or invert front / back winding. They are session-only and are
+available in Viewport Settings > Render Modes.

@@ -30,7 +30,7 @@ struct ShadingModeInfo {
 };
 
 constexpr ShadingModeInfo s_shadingModes[] = {
-    {"Default Shaded", ux3d::renderer::RenderMode::None, "Ctrl+Alt+1", false},
+    {"Shaded + post effects", ux3d::renderer::RenderMode::None, "Ctrl+Alt+1", false},
     {"Wireframe", ux3d::renderer::RenderMode::Wireframe, "Ctrl+Alt+2", false},
     {"", ux3d::renderer::RenderMode::None, nullptr, true},
     {"Texture Coordinates 0", ux3d::renderer::RenderMode::TexCoord_0, nullptr, false},
@@ -179,7 +179,7 @@ std::optional<ux3d::renderer::RenderMode> Application::getRenderModeFromName(con
     if (wanted.empty()) {
         return std::nullopt;
     }
-    if (wanted == "default" || wanted == "shaded" || wanted == "none") {
+    if (wanted == "default" || wanted == "shaded" || wanted == "none" || wanted == "shadedpost" || wanted == "shaded+posteffects") {
         return ux3d::renderer::RenderMode::None;
     }
     for (const ShadingModeInfo& info : s_shadingModes) {
@@ -583,6 +583,13 @@ void Application::drawViewportMenuBody()
 
 void Application::drawShadingMenu(ux3d::imgui::ViewportInstance& viewport)
 {
+    if (ImGui::MenuItem("Shaded", nullptr, !viewport.settings.postEffects && viewport.settings.renderMode == ux3d::renderer::RenderMode::None)) {
+        viewport.settings.renderMode = ux3d::renderer::RenderMode::None;
+        viewport.settings.renderModeIdx = 38;
+        viewport.settings.postEffects = false;
+        viewport.antiAliasing.resetHistory();
+        sceneRevisions.mark(ux3d::imgui::SceneChange::ViewportSettings);
+    }
     const bool showDecalPrepassViews = decalBuffer.isValid() && viewportNeedsDecalBuffer(viewport);
     for (const auto& item : s_shadingModes) {
         // A2.1: the decal prepass modes are shown only while the buffer is active.
@@ -594,8 +601,9 @@ void Application::drawShadingMenu(ux3d::imgui::ViewportInstance& viewport)
         if (item.isSeparator) {
             ImGui::Separator();
         } else {
-            bool isSelected = (viewport.settings.renderMode == item.mode);
+            bool isSelected = (viewport.settings.renderMode == item.mode) && (item.mode != ux3d::renderer::RenderMode::None || viewport.settings.postEffects);
             if (ImGui::MenuItem(item.label, item.shortcut, isSelected)) {
+                viewport.settings.postEffects = true;
                 viewport.settings.renderMode = item.mode;
                 viewport.settings.renderModeIdx = getIndexFromRenderMode(item.mode);
                 sceneRevisions.mark(ux3d::imgui::SceneChange::ViewportSettings);

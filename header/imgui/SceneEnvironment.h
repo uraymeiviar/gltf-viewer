@@ -7,6 +7,8 @@
 #include <glm/glm.hpp>
 #include <string>
 
+#include "imgui/GroundSettings.h"
+#include <memory>
 #include "imgui/NightSky.h"
 #include "imgui/SettingsScopes.h"
 #include "imgui/SkyAtmosphere.h"
@@ -46,7 +48,13 @@ inline constexpr float kAmbientUnitLuminance = 12800.0f;     // cd/m^2 per envir
 inline constexpr float kAmbientDefaultLuminance = 3.0f;      // cd/m^2 when switched on
 inline constexpr float kAmbientMaxLuminance = 10000.0f;      // cd/m^2
 
+class OceanSimulation;
 struct SceneEnvironmentState {
+    GroundSettings ground; // one surface and one ocean simulation for this glTF scene
+    std::shared_ptr<OceanSimulation> oceanSimulation;
+    double oceanClock = 0.0;
+    uint64_t oceanUpdateFrame = ~uint64_t(0);
+
     bool showBackground = true;
     glm::vec4 clearColor = glm::vec4(0.12f, 0.12f, 0.14f, 1.0f);
     float hdrBlur = 0.0f;
@@ -74,12 +82,12 @@ struct SceneEnvironmentState {
     // of the average and the highlight meter, Average the average meter only (the A6.4 behaviour).
     int exposureMetering = static_cast<int>(night::ExposureMetering::Highlight);
 
-    bool bloomEnabled = true;
+    bool bloomEnabled = true; // resolved Quality mirror; appearance is below
     float bloomIntensity = 0.04f;
     float bloomRadius = 1.0f;
 
-    bool iblEnabled = true;
-    bool punctualLightsEnabled = true;
+    bool iblEnabled = true; // resolved Quality mirror
+    bool punctualLightsEnabled = true; // resolved Quality mirror
 
     float msfsEmissiveScale = 0.001f; // HDR default, or an explicit override for either source
     bool msfsEmissiveScaleOverride = false;

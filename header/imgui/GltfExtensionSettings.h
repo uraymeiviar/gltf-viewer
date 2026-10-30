@@ -9,6 +9,7 @@
 
 #include <cstdint>
 #include <set>
+#include <map>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -68,6 +69,11 @@ public:
     void setEnabled(const std::string& key, bool enabled, bool persist);
     // Copies the effective state of one key into the saved set and saves.
     void commit(const std::string& key);
+    float tuning(const std::string& key) const;
+    void setTuning(const std::string& key, float value, bool persist);
+    const std::map<std::string, float>& tuningSnapshot() const { return m_tuning; }
+    void restoreTuning(const std::map<std::string, float>& values);
+
     // Everything applied again, in both sets.
     void resetToDefaults();
     // Back to the saved set (this run's overrides dropped).
@@ -77,7 +83,7 @@ public:
     std::set<std::string> snapshot() const { return m_effective; }
     void restore(const std::set<std::string>& effective);
 
-    // settings.ini [GltfExtensions]: one key per switched-off name (value 0), nothing else.
+    // settings.ini [GltfExtensions]: switched-off names (0) plus non-default vendor numeric tuning.
     void load();
     void save();
 
@@ -91,6 +97,8 @@ private:
 
     std::set<std::string> m_effective;
     std::set<std::string> m_saved;
+    std::map<std::string, float> m_tuning{{"interior_sky_reflection", 0.5f}, {"decal_tolerance_mm", 1.2f}};
+    std::map<std::string, float> m_savedTuning = m_tuning;
     uint64_t m_revision = 0;
 };
 

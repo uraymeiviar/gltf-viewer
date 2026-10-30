@@ -27,30 +27,29 @@ enum class WireframeBlendMode : int {
 
 struct ViewportSettingsState {
     ux3d::renderer::RenderMode renderMode = ux3d::renderer::RenderMode::None;
-    int renderModeIdx = 0; // 0 = None / Shaded
+    int renderModeIdx = 0; // 0 = Shaded + post; 38 = Shaded; historic debug indices preserved
+    bool postEffects = true; // Shaded + post effects (default); Shaded keeps shadows and tone mapping
     bool showGrid = true;
-    GroundSettings ground; // A3.6: grid (default) or a ground plane (its ocean quality is a resolved mirror, below)
+    GroundSettings ground; // resolved scene surface plus global ocean Quality mirrors
     bool forceDoubleSided = false; // Disable backface culling globally
     ux3d::renderer::AsoboOptions asobo; // MSFS (ASOBO) extensions this viewport applies (A0.4)
     ux3d::renderer::MaterialExtensionOptions materialExtensions;
     bool showSkyPortals = false; // A3.7: draw every portal's gizmo (a selected portal node always shows its own)
-    // A6.7 lens effect from the bloom mips (AntiAliasing::renderLensFlare): 0 off (default), 1 ghosts + halo,
-    // 2 anamorphic streak, 3 both. Runs inside the bloom chain, so bloom off removes it. A property of this view's
-    // camera lens, so it stays per viewport.
+    // Resolved Quality lens settings (0 off, 1 ghosts+halo, 2 streak, 3 ghosts+streak).
     int lensFlare = 0;
     float lensFlareIntensity = 1.0f;
     bool invertWinding = false;    // Invert front/back face winding order (CW vs CCW)
 
-    // Settings scopes (docs/SETTINGS_SCOPES.md): this viewport's overrides of the scene's effects.
+    // Deprecated no-op compatibility fields. The renderer does not resolve through these.
     EffectOverride shadowsOverride = EffectOverride::Scene;
     EffectOverride ssrOverride = EffectOverride::Scene;
     EffectOverride ssaoOverride = EffectOverride::Scene;
 
     // ---- Resolved mirrors ----
     // Written every frame by RenderQuality::resolveViewport from the global quality (AA, SSR / SSAO / ocean quality)
-    // and the scene's effects through the overrides above. The renderer, the reports and get_state read them; nothing
+    // and scene appearance. Shaded omits post effects. The renderer, the reports and get_state read them; nothing
     // edits them directly (the UI and the registry edit the global quality, the scene or the overrides).
-    bool sunShadows = true;        // scene shadows through shadowsOverride (the quality may still disallow them)
+    bool sunShadows = true;        // Quality shadow-map enablement
     bool screenSpaceReflections = true;
     int ssrQuality = 1; // Low/Medium/High: 256/512/1024 pixel-step budgets
     float interiorSkyReflection = 0.5f;

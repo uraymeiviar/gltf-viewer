@@ -24,7 +24,17 @@ namespace ux3d::imgui::application {
 
 void Application::resolveAllViewportSettings()
 {
-    const auto& effects = getSceneEnvironment(sceneEnvironments, gltfModel, activeScene).effects;
+    auto& environment = getSceneEnvironment(sceneEnvironments, gltfModel, activeScene);
+    const auto& q = ux3d::imgui::RenderQuality::settings();
+    environment.skyOcclusion = q.skyOcclusion;
+    environment.iblEnabled = q.iblEnabled;
+    environment.punctualLightsEnabled = q.lightsEnabled;
+    environment.bloomEnabled = q.bloomEnabled;
+    environment.ground.ocean.quality = static_cast<ux3d::imgui::OceanQuality>(std::clamp(q.oceanQuality,0,2));
+    environment.ground.ocean.live = q.oceanLive;
+    environment.ground.ocean.play = q.oceanPlay;
+    if (environment.ground.mode != ux3d::imgui::GroundMode::Ocean) environment.oceanSimulation.reset();
+    const auto& effects = environment.effects;
     // The glTF extension switches are an app setting: every viewport mirrors the one global set. A change of the set
     // (Settings tab, registry, script, reset) redraws every viewport and drops its TAA history.
     auto& extensions = ux3d::imgui::GltfExtensionSettings::instance();
@@ -36,7 +46,10 @@ void Application::resolveAllViewportSettings()
     }
     for (auto& vp : viewports) {
         if (!vp) continue;
+        vp->oceanClock = environment.oceanClock;
+        vp->ocean = environment.oceanSimulation;
         vp->settings.asobo = asobo;
+        vp->settings.ground = environment.ground;
         if (extensionsChanged) vp->antiAliasing.resetHistory();
         const int msaaBefore = vp->settings.effectiveMsaaIdx();
         const int postBefore = vp->settings.effectivePostAAIdx();
@@ -219,12 +232,6 @@ void Application::drawViewports(FrameContext& frame)
 
         // P7.5: the scene renders at renderScale of the panel size and the image is
         // stretched to the panel. Picking maps mouse positions through the same scale.
-        if (!ux3d::imgui::RenderQuality::legacyCaptureUi()) {
-            ImGui::SameLine();
-            ux3d::imgui::RenderQuality::drawProfileSelector(sceneRevisions);
-            viewportPos = ImGui::GetCursorScreenPos();
-            viewportSize = ImGui::GetContentRegionAvail();
-        }
         if (gltfModel.imagesOmitted()) {
             ImGui::TextDisabled("Opened without textures - material values only");
             viewportPos = ImGui::GetCursorScreenPos();
@@ -351,7 +358,7 @@ void Application::drawViewports(FrameContext& frame)
         glm::mat4 jitteredProj = jitterMat * proj;
         glm::mat4 viewProj = proj * view; // Overlays always use the stable camera.
 
-        // A6.8: this viewport's ocean simulation, brought up to date (the first set and capture runs at once, later
+        // A6.8: the shared scene ocean simulation, brought up to date (the first set and capture runs at once, later
         // changes spread over frames within kOceanBudgetMs of GPU time); released while the ground is not the ocean.
         // Without OpenGL 4.3 the ocean is refused once with a warning and the viewport keeps the grid.
         bool oceanReady = false;
@@ -364,15 +371,18 @@ void Application::drawViewports(FrameContext& frame)
         }
         if (vp->settings.ground.mode == ux3d::imgui::GroundMode::Ocean) {
             constexpr double kOceanBudgetMs = 3.0;
-            if (vp->ocean == nullptr) vp->ocean = std::make_shared<ux3d::imgui::OceanSimulation>();
-            vp->ocean->update(vp->settings.ground.ocean, s_deterministicExposure, kOceanBudgetMs);
+            if (!activeEnvironment.oceanSimulation) activeEnvironment.oceanSimulation = std::make_shared<ux3d::imgui::OceanSimulation>();
+            vp->ocean = activeEnvironment.oceanSimulation;
+            if (activeEnvironment.oceanUpdateFrame != frameCount) {
+                activeEnvironment.oceanUpdateFrame = frameCount;
+                vp->ocean->update(vp->settings.ground.ocean, s_deterministicExposure, kOceanBudgetMs);
+                if (vp->ocean->ready() && vp->ocean->live()) vp->ocean->stepLive(oceanTimeFor(*vp));
+            }
             oceanReady = vp->ocean->ready();
         } else if (vp->ocean != nullptr) {
             vp->ocean.reset();
         }
         const double oceanTime = oceanReady ? oceanTimeFor(*vp) : 0.0;
-        // Live mode: the per-frame FFT at this time (the clock moves it; a pinned time stays one step).
-        if (oceanReady && vp->ocean->live()) vp->ocean->stepLive(oceanTime);
         if (vp.get() == activeViewport) {
             auto& status = ux3d::imgui::oceanUiStatus();
             status = ux3d::imgui::OceanUiStatus();
@@ -1133,7 +1143,7 @@ void Application::drawViewports(FrameContext& frame)
             postParams.clearColor = glm::vec3(activeEnvironment.clearColor.r,
                                               activeEnvironment.clearColor.g,
                                               activeEnvironment.clearColor.b);
-            postParams.bloomEnabled = ux3d::imgui::RenderQuality::allowBloom(activeEnvironment.bloomEnabled) && !ssrDebugOverlay;
+            postParams.bloomEnabled = vp->settings.postEffects && ux3d::imgui::RenderQuality::allowBloom(true) && !ssrDebugOverlay;
             postParams.bloomIntensity = activeEnvironment.bloomIntensity;
             postParams.bloomRadius = activeEnvironment.bloomRadius;
             postParams.lensFlare = vp->settings.lensFlare;
@@ -1201,7 +1211,7 @@ void Application::drawViewports(FrameContext& frame)
                 vp->settings.showSelectedBoundingBox && selection.type == ux3d::imgui::SelectionType::Node &&
                 selection.selectedNode != nullptr;
             const bool hasOverlays =
-                (vp->settings.showGrid && (!groundSurface || vp->settings.ground.showGrid)) || hasSceneBbox ||
+                vp->settings.showGrid || hasSceneBbox ||
                 hasSelectedBbox || drawWireframe;
 
             if (hasOverlays) {
@@ -1308,11 +1318,11 @@ void Application::drawViewports(FrameContext& frame)
         // 2. Render ground grid
         const auto overlayStart = ux3d::imgui::profiling::Clock::now();
         // A3.6: with a ground plane the grid is an option drawn on the plane (at its height).
-        if (redrawScene && vp->settings.showGrid && (!vp->groundPlaneActive || vp->settings.ground.showGrid)) {
+        if (redrawScene && vp->settings.showGrid) {
             gridRenderer.draw(view, proj,
                               ux3d::math::vec3(cameraEye.x, cameraEye.y, cameraEye.z), cameraZoom,
                               ux3d::imgui::RenderQuality::effective().gridMode == ux3d::imgui::GridMode::PlaneMesh,
-                              vp->groundPlaneActive ? vp->groundPlaneHeight : 0.0f);
+                              (vp->groundPlaneActive || vp->oceanActive) ? vp->groundPlaneHeight : 0.0f);
             ux3d::imgui::profiling::countOverlayDraw();
         }
 

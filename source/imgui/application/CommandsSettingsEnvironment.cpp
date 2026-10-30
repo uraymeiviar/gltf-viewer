@@ -269,7 +269,7 @@ void Application::registerAgentEnvironmentSettings()
         };
         addSetting(std::move(spec));
     }
-    addSetting(boolSetting<ES>("bloom", E, &ES::bloomEnabled, "Physically based bloom.", "--bloom <on|off>"));
+
     addSetting(floatSetting<ES>("bloom_intensity", E, &ES::bloomIntensity, "Bloom intensity.", "--bloom-intensity <x>"));
     addSetting(floatSetting<ES>("bloom_radius", E, &ES::bloomRadius, "Bloom radius.", "--bloom-radius <x>"));
     {
@@ -311,8 +311,8 @@ void Application::registerAgentEnvironmentSettings()
         };
         addSetting(std::move(spec));
     }
-    addSetting(boolSetting<ES>("ibl", E, &ES::iblEnabled, "Image-based lighting."));
-    addSetting(boolSetting<ES>("punctual_lights", E, &ES::punctualLightsEnabled, "KHR_lights_punctual lights."));
+
+
     // A3.1 sun (SceneEnvironmentState: conventions there and in docs/ASOBO_EXTENSIONS_PHASE_3.md).
     {
         auto spec = boolSetting<ES>("sun", E, &ES::sunEnabled,
@@ -478,27 +478,6 @@ void Application::registerAgentEnvironmentSettings()
                                 "HDR has no absolute scale, so the same unit is used for it).",
                                 "--ambient-intensity <cd/m^2>", std::pair{0.0, static_cast<double>(ux3d::imgui::kAmbientMaxLuminance)}));
     // A3.9 sky occlusion inside the model (SkyOcclusion.h): scene-level, like the environment it occludes.
-    {
-        SettingSpec spec;
-        spec.key = "sky_occlusion";
-        spec.scope = E;
-        spec.type = SettingType::Enum;
-        spec.help = "Sky occlusion from the model's own geometry (a baked sky-visibility volume) for the IBL terms: auto "
-                    "(default) = on with the procedural sky, off with the HDR. The sun, punctual lights, emissive, the "
-                    "Manual ambient light and the background are unchanged. Auto ambient fills the hidden-sky fraction.";
-        spec.cliFlag = "--sky-occlusion <auto|on|off>";
-        spec.enumValues = {"auto", "on", "off"};
-        spec.get = [](void* t) {
-            const int value = static_cast<ES*>(t)->skyOcclusion;
-            return json(value < 0 ? "auto" : value != 0 ? "on" : "off");
-        };
-        spec.set = [](void* t, const json& v, std::string&) {
-            const std::string value = v.get<std::string>();
-            static_cast<ES*>(t)->skyOcclusion = value == "auto" ? -1 : value == "on" ? 1 : 0;
-            return true;
-        };
-        addSetting(std::move(spec));
-    }
     addSetting(boolSetting<ES>("sky_occlusion_occluders", E, &ES::skyOcclusionOccluders,
                                "Environment occluders (ASOBO_material_environment_occluder) block the sky in the sky "
                                "occlusion bake (default on; they stay hidden in the image either way).",

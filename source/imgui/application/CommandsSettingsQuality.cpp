@@ -21,6 +21,7 @@ void Application::registerAgentQualitySettings()
             ES defaults;
             spec.defaultValue = spec.get(&defaults);
         }
+        if (!spec.onPersist) spec.onPersist = [] { ux3d::imgui::RenderQuality::save(); };
         agentRegistry.addSetting(std::move(spec));
     };
 
@@ -88,6 +89,90 @@ void Application::registerAgentQualitySettings()
         };
         addSetting(std::move(spec));
     }
+    using QS = ux3d::imgui::RenderQualitySettings;
+    const auto qualityBool = [&](const char* key, bool QS::*member, const char* cli, std::function<void()> pin = {}) {
+        SettingSpec spec;
+        spec.key = key; spec.scope = R; spec.type = SettingType::Bool;
+        spec.help = "Quality effect enablement, shared by all viewports; the corresponding level retains its sample budget.";
+        spec.cliFlag = cli; spec.defaultValue = QS{}.*member;
+        spec.get = [member](void*) { return json(RQ::settings().*member); };
+        spec.set = [member, pin](void*, const json& v, std::string&) {
+            RQ::settings().*member = v.get<bool>(); if (pin) pin(); return true;
+        };
+        spec.onPersist = [] { RQ::save(); };
+        addSetting(std::move(spec));
+    };
+    qualityBool("shadows", &QS::shadows, "--shadows <on|off>", [] { RQ::pinShadows(); });
+    qualityBool("ssr", &QS::ssrEnabled, "--ssr <on|off>", [] { RQ::pinSsr(); });
+    qualityBool("ssao", &QS::ssaoEnabled, "--ssao <on|off>");
+    qualityBool("bloom", &QS::bloomEnabled, "--bloom <on|off>", [] { RQ::pinBloom(); });
+    qualityBool("ibl", &QS::iblEnabled, "", [] { RQ::pinIbl(); });
+    qualityBool("punctual_lights", &QS::lightsEnabled, "");
+    qualityBool("ocean_play", &QS::oceanPlay, "--ocean-play <on|off>");
+    {
+        SettingSpec spec;
+        spec.key = "ocean_mode"; spec.scope = R; spec.type = SettingType::Enum;
+        spec.help = "Quality ocean simulation mode: precomputed loop or live FFT.";
+        spec.cliFlag = "--ocean-mode <loop|live>"; spec.enumValues = {"loop", "live"};
+        spec.enumAliases = {{"looping", "loop"}, {"precomputed", "loop"}}; spec.defaultValue = "loop";
+        spec.get = [](void*) { return json(RQ::settings().oceanLive ? "live" : "loop"); };
+        spec.set = [](void*, const json& v, std::string&) { RQ::settings().oceanLive = v == "live"; return true; };
+        spec.onPersist = [] { RQ::save(); }; addSetting(std::move(spec));
+    }
+    {
+        SettingSpec spec;
+        spec.key = "sky_occlusion"; spec.scope = R; spec.type = SettingType::Enum;
+        spec.help = "Quality sky occlusion: auto with procedural sky, on with either source, or off.";
+        spec.cliFlag = "--sky-occlusion <auto|on|off>"; spec.enumValues = {"auto", "off", "on"}; spec.defaultValue = "auto";
+        spec.get = [](void*) { int v = RQ::settings().skyOcclusion; return json(v < 0 ? "auto" : v ? "on" : "off"); };
+        spec.set = [](void*, const json& v, std::string&) { RQ::settings().skyOcclusion = v == "auto" ? -1 : v == "on" ? 1 : 0; return true; };
+        spec.onPersist = [] { RQ::save(); }; addSetting(std::move(spec));
+    }
+    const auto mapSize = [&](const char* key, bool QS::*enabled, uint32_t QS::*size, std::vector<std::string> values) {
+        SettingSpec spec;
+        spec.key = key; spec.scope = R; spec.type = SettingType::Enum;
+        spec.help = "Quality map level: off or a size in texels. Off retains the previous allocation budget.";
+        spec.enumValues = values; spec.enumAliases = {{"0", "off"}};
+        spec.defaultValue = std::to_string(QS{}.*size);
+        spec.get = [enabled,size](void*) { const auto& q = RQ::settings(); return json(q.*enabled ? std::to_string(q.*size) : "off"); };
+        spec.set = [enabled,size](void*, const json& v, std::string&) {
+            auto& q = RQ::settings(); q.*enabled = v != "off";
+            if (v != "off") q.*size = static_cast<uint32_t>(std::stoul(v.get<std::string>()));
+            if (size == &QS::iblCubeSize) RQ::pinIbl(); else RQ::pinShadows(); return true;
+        };
+        spec.onPersist = [] { RQ::save(); }; addSetting(std::move(spec));
+    };
+    mapSize("shadow_map", &QS::shadows, &QS::shadowResolution, {"off","1024","2048","4096"});
+    mapSize("ibl_cube", &QS::iblEnabled, &QS::iblCubeSize, {"off","256","512","1024"});
+    {
+        SettingSpec spec;
+        spec.key = "texture_max_size"; spec.scope = R; spec.type = SettingType::Int;
+        spec.help = "Quality texture cap: 0 unlimited, or a power of two 64..32768. Re-decodes retained sources.";
+        spec.hasRange = true; spec.minimum = 0; spec.maximum = 32768; spec.defaultValue = 0;
+        spec.get = [](void*) { return json(RQ::settings().textureMaxSize); };
+        spec.set = [](void*, const json& v, std::string& error) {
+            const auto n = v.get<uint32_t>();
+            if (n && (n < 64 || (n & (n - 1)))) { error = "texture cap must be 0 or a power of two 64..32768"; return false; }
+            RQ::settings().textureMaxSize = n; return true;
+        };
+        spec.onPersist = [] { RQ::save(); }; addSetting(std::move(spec));
+    }
+    const auto level = [&](const char* key, bool QS::*enabled, int QS::*budget, std::function<void()> pin) {
+        SettingSpec spec;
+        spec.key = key; spec.scope = R; spec.type = SettingType::Enum;
+        spec.help = "Quality level: off / low / mid / high. Off retains the last sample budget for compatibility.";
+        spec.enumValues = {"off", "low", "mid", "high"}; spec.enumAliases = {{"medium", "mid"}};
+        auto get = [enabled, budget](const QS& q) { static const char* names[] = {"low", "mid", "high"}; return json(q.*enabled ? names[std::clamp(q.*budget,0,2)] : "off"); };
+        spec.defaultValue = get(QS{}); spec.get = [get](void*) { return get(RQ::settings()); };
+        spec.set = [enabled, budget, pin](void*, const json& v, std::string&) {
+            auto& q = RQ::settings(); q.*enabled = v != "off";
+            if (v != "off") q.*budget = v == "low" ? 0 : v == "mid" ? 1 : 2;
+            if (pin) pin(); return true;
+        };
+        spec.onPersist = [] { RQ::save(); }; addSetting(std::move(spec));
+    };
+    level("reflections", &QS::ssrEnabled, &QS::ssrQuality, [] { RQ::pinSsr(); });
+    level("ssao_level", &QS::ssaoEnabled, &QS::ssaoQuality, {});
     // Renderer-wide quality as an enum over an int field of RenderQualitySettings.
     const auto qualityEnum = [&](std::string key, int ux3d::imgui::RenderQualitySettings::*member, std::vector<std::string> values,
                                  std::string help, std::string cli, std::map<std::string, std::string> aliases,
@@ -112,6 +197,18 @@ void Application::registerAgentQualitySettings()
         };
         addSetting(std::move(spec));
     };
+    qualityEnum("lens_flare", &QS::lensFlare, {"off", "ghosts", "streak", "both"},
+                "Quality lens effect: off, ghosts + halo, anamorphic streak, ghosts + streak; intensity is also Quality.",
+                "--lens-flare <off|on|ghosts|streak|both>", {{"on", "both"}, {"none", "off"}, {"starburst", "ghosts"}, {"anamorphic", "streak"}}, nullptr);
+    {
+        SettingSpec spec;
+        spec.key = "lens_flare_intensity"; spec.scope = R; spec.type = SettingType::Float;
+        spec.help = "Quality lens effect intensity (0..10), shared by every viewport.";
+        spec.cliFlag = "--lens-flare-intensity <x>"; spec.hasRange = true; spec.minimum = 0; spec.maximum = 10; spec.defaultValue = 1.0;
+        spec.get = [](void*) { return json(RQ::settings().lensFlareIntensity); };
+        spec.set = [](void*, const json& v, std::string&) { RQ::settings().lensFlareIntensity = v.get<float>(); return true; };
+        addSetting(std::move(spec));
+    }
     qualityEnum("ssr_quality", &ux3d::imgui::RenderQualitySettings::ssrQuality, {"low", "medium", "high"},
                 "SSR sample budget 256/512/1024 (every viewport).", "--ssr-quality <low|medium|high>", {}, [] { RQ::pinSsr(); });
     qualityEnum("ssao_quality", &ux3d::imgui::RenderQualitySettings::ssaoQuality, {"low", "medium", "high"},
@@ -248,11 +345,11 @@ void Application::registerAgentRendererSettings()
             return spec;
         };
         {
-            // Settings scopes: the cost gate of the quality presets (settings.ini shadows=); the switch itself is the
-            // scene's shadows key.
+            // Old saved enable key, retained for existing clients (settings.ini shadows=).
             SettingSpec spec = shadowSpec("shadows_allowed", SettingType::Bool,
-                                          "Whether the quality allows sun shadows (part of the quality presets; the scene "
-                                          "switches them on with shadows).", "");
+                                          "Compatibility key: Quality shadow-map enablement, same as shadows.", "");
+            spec.compat = true;
+            spec.forwardsTo = R;
             spec.defaultValue = defaults.shadows;
             spec.get = [](void*) { return json(ux3d::imgui::RenderQuality::settings().shadows); };
             spec.set = [](void*, const json& v, std::string&) {

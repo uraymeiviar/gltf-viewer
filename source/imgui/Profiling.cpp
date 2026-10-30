@@ -640,6 +640,8 @@ bool writeProfileReport(const std::string& path, const ProfileReport& report)
     if (!report.effects.is_null()) {
         document["environment"] = {{"effects", report.effects}};
     }
+    if (!report.sceneEnvironment.is_null()) document["environment"] = report.sceneEnvironment;
+    if (!report.viewportSettings.is_null()) document["viewports"] = report.viewportSettings;
     if (!report.ssao.is_null()) {
         document["ssao"] = report.ssao;
     }

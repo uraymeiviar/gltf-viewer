@@ -10,8 +10,10 @@
             noCasters true, no volume, and no bake-scene rebuild per frame (sceneBuilds flat); exit isolate bakes again.
   * tod:    pipe time_of_day_mode on, then get_environment sun / sun_source / sun_mode / time_of_day_mode, matches the
             Inspector path (sun_source clock, selectSunSource); the following "off" matches Sun Source Manual.
-  * albedo: the sky's automatic ground albedo is the plane of the lowest-id viewport drawing one; focusing another
-            viewport (here one showing the grid) neither changes it nor rebuilds the atmosphere LUTs.
+  * albedo: the sky's automatic ground albedo comes from the scene's ground (plane or ocean), shared by every
+            viewport: a second viewport (here with its grid overlay hidden) and focus changes neither change it nor
+            rebuild the atmosphere LUTs, every viewport reports the same plane; turning the scene ground off makes the
+            albedo neutral for all of them.
 """
 import argparse
 import json
@@ -164,23 +166,30 @@ def check_sky_occlusion(model):
 
 
 def check_ground_albedo(model):
-    """Finding 6/7: the sky's automatic ground albedo comes from the lowest-id viewport drawing a plane, not the focus."""
-    lines = ["wait 20", "get_state", "vpcreate", "wait 10", "set_viewport_setting ground grid", "wait 20", "get_state",
-             "vpfocus 1", "wait 20", "get_state", "vpfocus 2", "wait 20", "get_state", "quit"]
+    """Finding 6/7, scene-ground semantics: the sky's automatic ground albedo comes from the scene's plane/ocean,
+    the same for every viewport and independent of the focus; scene ground off gives the neutral albedo."""
+    lines = ["wait 20", "get_state", "vpcreate", "wait 10", "set_viewport_setting grid false", "wait 20", "get_state",
+             "vpfocus 1", "wait 20", "get_state", "vpfocus 2", "wait 20", "get_state",
+             "set_environment ground off", "wait 20", "get_state", "quit"]
     _, results = follow_script(model, "ground_albedo", ["--environment", "sky", "--ground", "plane", "--ground-preset", "grass"],
                                lines)
     snaps = states(results)
-    if len(snaps) != 4:
-        check(False, f"ground albedo: expected 4 states, got {len(snaps)}")
+    if len(snaps) != 5:
+        check(False, f"ground albedo: expected 5 states, got {len(snaps)}")
         return
     albedos = [tuple(s["sky"]["groundAlbedo"]) for s in snaps]
     sources = [s["sky"]["groundAlbedoSource"] for s in snaps]
     builds = [s["sky"]["stats"]["lutAtmosphereBuilds"] for s in snaps]
     active = [s["activeViewport"] for s in snaps]
-    check(len(set(albedos)) == 1 and set(sources) == {"plane"},
-          f"ground albedo with viewports {active}: {sources}, {albedos[0]} in every state")
+    check(len(set(albedos[:4])) == 1 and set(sources[:4]) == {"plane"},
+          f"ground albedo with viewports {active[:4]}: {sources[:4]}, {albedos[0]} in every state")
+    modes = [[v["ground"]["mode"] for v in s["viewports"]] + [s["environment"]["ground"]["mode"]] for s in snaps]
+    check(all(set(m) == {"plane"} for m in modes[:4]) and len(modes[1]) == 3,
+          f"scene and every viewport report the shared plane: {modes[:4]}")
     check(builds[1] == builds[2] == builds[3],
-          f"focus changes between the plane and the grid viewport: atmosphere LUT builds {builds[1:]} (no re-filter)")
+          f"focus changes between the two viewports: atmosphere LUT builds {builds[1:4]} (no re-filter)")
+    check(sources[4] == "neutral" and albedos[4] != albedos[0] and set(modes[4]) == {"off"},
+          f"scene ground off: albedo source {sources[4]} {albedos[4]}, viewports/scene {modes[4]}")
     check(snaps[-1]["glErrors"] == 0, "ground albedo: zero GL errors")
 
 

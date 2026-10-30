@@ -13,6 +13,9 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
+#include <cstdlib>
+#include <sstream>
 
 namespace ux3d::imgui {
 
@@ -113,6 +116,25 @@ void GltfExtensionSettings::setEnabled(const std::string& key, bool enabledValue
     if (savedChanged) save();
 }
 
+float GltfExtensionSettings::tuning(const std::string& key) const
+{
+    const auto found = m_tuning.find(key);
+    return found == m_tuning.end() ? 0.0f : found->second;
+}
+
+void GltfExtensionSettings::setTuning(const std::string& key, float value, bool persist)
+{
+    const auto found = m_tuning.find(key);
+    if (found == m_tuning.end() || !std::isfinite(value) || value < 0 || value > (key == "decal_tolerance_mm" ? 10 : 1)) return;
+    if (found->second != value) { found->second = value; ++m_revision; }
+    if (persist && m_savedTuning[key] != value) { m_savedTuning[key] = value; save(); }
+}
+
+void GltfExtensionSettings::restoreTuning(const std::map<std::string, float>& values)
+{
+    if (m_tuning != values) { m_tuning = values; ++m_revision; }
+}
+
 void GltfExtensionSettings::commit(const std::string& key)
 {
     const bool on = enabled(key);
@@ -122,8 +144,10 @@ void GltfExtensionSettings::commit(const std::string& key)
 
 void GltfExtensionSettings::resetToDefaults()
 {
-    const bool changed = !m_effective.empty();
-    const bool savedChanged = !m_saved.empty();
+    const bool changed = !m_effective.empty() || m_tuning != std::map<std::string,float>{{"interior_sky_reflection",0.5f},{"decal_tolerance_mm",1.2f}};
+    const bool savedChanged = !m_saved.empty() || m_savedTuning != std::map<std::string,float>{{"interior_sky_reflection",0.5f},{"decal_tolerance_mm",1.2f}};
+    m_tuning = {{"interior_sky_reflection", 0.5f}, {"decal_tolerance_mm", 1.2f}};
+    m_savedTuning = m_tuning;
     m_effective.clear();
     m_saved.clear();
     if (changed) ++m_revision;
@@ -132,7 +156,8 @@ void GltfExtensionSettings::resetToDefaults()
 
 void GltfExtensionSettings::discardSessionChanges()
 {
-    if (m_effective == m_saved) return;
+    if (m_effective == m_saved && m_tuning == m_savedTuning) return;
+    m_tuning = m_savedTuning;
     m_effective = m_saved;
     ++m_revision;
 }
@@ -152,6 +177,13 @@ void GltfExtensionSettings::load()
     std::set<std::string> parsed;
     bool invalid = false;
     for (const SettingsEntry& entry : store.section(kSection)) {
+        if (m_tuning.contains(entry.first)) {
+            char* end = nullptr;
+            const float value = std::strtof(entry.second.c_str(), &end);
+            if (end == entry.second.c_str() || *end || !std::isfinite(value) || value < 0 || value > (entry.first == "decal_tolerance_mm" ? 10 : 1)) invalid = true;
+            else setTuning(entry.first, value, false);
+            continue;
+        }
         bool isFalse = false;
         if (!validKey(entry.first) || !parseFalse(entry.second, isFalse)) {
             invalid = true;
@@ -162,6 +194,7 @@ void GltfExtensionSettings::load()
     if (invalid) {
         logSettingsMessage("Ignoring invalid glTF extension values in settings.ini.", true);
     }
+    m_savedTuning = m_tuning;
     m_saved = parsed;
     if (m_effective != parsed) ++m_revision;
     m_effective = parsed;
@@ -174,6 +207,10 @@ void GltfExtensionSettings::save()
     store.load();
     std::vector<SettingsEntry> entries;
     for (const std::string& key : m_saved) entries.emplace_back(key, "0"); // only the switched-off names
+    for (const auto& [key, value] : m_savedTuning) {
+        const float def = key == "decal_tolerance_mm" ? 1.2f : 0.5f;
+        if (value != def) { std::ostringstream out; out.precision(9); out << value; entries.emplace_back(key, out.str()); }
+    }
     store.replaceSection(kSection, std::move(entries));
     store.save();
 }
@@ -199,7 +236,10 @@ nlohmann::json GltfExtensionSettings::stateJson() const
             {"extensions", extensions},
             {"disabled", std::vector<std::string>(m_effective.begin(), m_effective.end())},
             {"saved", std::vector<std::string>(m_saved.begin(), m_saved.end())},
-            {"differsFromSaved", m_effective != m_saved},
+            {"tuning", m_tuning},
+            {"savedTuning", m_savedTuning},
+            {"skyPortalStrength", 0.35f},
+            {"differsFromSaved", m_effective != m_saved || m_tuning != m_savedTuning},
             {"persistence", SettingsFile::instance().persistenceEnabled()}};
 }
 
@@ -210,8 +250,10 @@ void GltfExtensionSettings::drawSettings(SceneRevisions& revisions)
                        "off only changes the display; the file is not touched.");
     ImGui::Spacing();
 
-    const bool differs = m_effective != m_saved;
-    const bool anyOff = !m_effective.empty() || !m_saved.empty();
+    const bool differs = m_effective != m_saved || m_tuning != m_savedTuning;
+    const bool anyOff = !m_effective.empty() || !m_saved.empty() || tuning("interior_sky_reflection") != 0.5f ||
+                        tuning("decal_tolerance_mm") != 1.2f || m_savedTuning.at("interior_sky_reflection") != 0.5f ||
+                        m_savedTuning.at("decal_tolerance_mm") != 1.2f;
     ImGui::BeginDisabled(!anyOff);
     if (ImGui::Button("Reset to defaults")) {
         resetToDefaults();
@@ -227,7 +269,7 @@ void GltfExtensionSettings::drawSettings(SceneRevisions& revisions)
         }
         UiProbe::item("settings.ext.restore", 0);
         ImGui::TextDisabled("This run differs from the saved settings (a command-line flag or a script). A change made here "
-                            "saves only the switch you change.");
+                            "saves only the switch or tuning value you change.");
     }
     if (!SettingsFile::instance().persistenceEnabled()) {
         ImGui::TextDisabled("Settings are not saved in this session (--isolated).");
@@ -252,6 +294,21 @@ void GltfExtensionSettings::drawSettings(SceneRevisions& revisions)
 
         ImGui::BeginDisabled(!groupOn);
         ImGui::Indent();
+        if (group.vendor == "ASOBO") {
+            ImGui::PushID("vendor_tuning");
+            float reflection = tuning("interior_sky_reflection");
+            if (ImGui::SliderFloat("Interior sky reflection", &reflection, 0, 1, "%.2f")) {
+                setTuning("interior_sky_reflection", reflection, true); revisions.mark(SceneChange::RenderSettings);
+            }
+            UiProbe::item("settings.ext.interior_sky_reflection", 0);
+            float tolerance = tuning("decal_tolerance_mm");
+            if (ImGui::DragFloat("Decal depth tolerance (mm)", &tolerance, 0.05f, 0, 10, "%.2f", ImGuiSliderFlags_AlwaysClamp)) {
+                setTuning("decal_tolerance_mm", tolerance, true); revisions.mark(SceneChange::RenderSettings);
+            }
+            UiProbe::item("settings.ext.decal_tolerance", 0);
+            ImGui::TextDisabled("Sky portals: implicit, strength 0.35 (disable ASOBO_sky_portal below).");
+            ImGui::PopID();
+        }
         for (const GltfExtensionEntry& entry : group.extensions) {
             bool on = enabled(entry.name);
             const std::string label = entry.label + "##gltfext_" + entry.name;

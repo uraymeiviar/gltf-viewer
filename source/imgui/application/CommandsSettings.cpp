@@ -41,25 +41,9 @@ void Application::registerAgentSceneEffectSettings()
         }
         agentRegistry.addSetting(std::move(spec));
     };
-    using RQ = ux3d::imgui::RenderQuality;
 
     // --- Scene effects (settings scopes: SceneEnvironmentState::effects; formerly per viewport, shadows renderer-wide) ---
     using FX = ux3d::imgui::SceneEffectSettings;
-    const auto effectBool = [&](std::string key, bool FX::*member, std::string help, std::string cli, std::function<void()> onSet) {
-        SettingSpec spec;
-        spec.key = std::move(key);
-        spec.scope = E;
-        spec.type = SettingType::Bool;
-        spec.help = std::move(help);
-        spec.cliFlag = std::move(cli);
-        spec.get = [member](void* t) { return json(static_cast<ES*>(t)->effects.*member); };
-        spec.set = [member, onSet](void* t, const json& v, std::string&) {
-            static_cast<ES*>(t)->effects.*member = v.get<bool>();
-            if (onSet) onSet();
-            return true;
-        };
-        addSetting(std::move(spec));
-    };
     const auto effectFloat = [&](std::string key, float FX::*member, std::string help, std::string cli, double lo, double hi) {
         SettingSpec spec;
         spec.key = std::move(key);
@@ -77,19 +61,6 @@ void Application::registerAgentSceneEffectSettings()
         };
         addSetting(std::move(spec));
     };
-    effectBool("shadows", &FX::shadows,
-               "The scene's sun shadows (cascaded shadow maps, drawn while the sun is on and the quality allows them; "
-               "a viewport may override them with viewport_shadows).",
-               "--shadows <on|off>", [] { RQ::pinShadows(); });
-    effectBool("ssr", &FX::ssr,
-               "The scene's windshield screen-space reflections (a viewport may override them with viewport_ssr).",
-               "--ssr <on|off>", [] { RQ::pinSsr(); });
-    effectFloat("interior_sky_reflection", &FX::interiorSkyReflection,
-                "Windshield IBL fallback inside environment occluders.", "--interior-sky-reflection <0..1>", 0.0, 1.0);
-    effectBool("ssao", &FX::ssao,
-               "The scene's screen-space ambient occlusion (GTAO) of the sky light: IBL diffuse/specular/sheen/clearcoat "
-               "only, min() with the authored occlusion. Off by default; a viewport may override it with viewport_ssao.",
-               "--ssao <on|off>", nullptr);
     effectFloat("ssao_radius", &FX::ssaoRadius,
                 "SSAO radius in world units (metres in MSFS assets); occluders farther away do not count.",
                 "--ssao-radius <x>", 0.01, 100.0);
@@ -100,10 +71,23 @@ void Application::registerAgentSceneEffectSettings()
                 0.0, 1.0);
     // A3.7: ASOBO_sky_portal (its on/off switch is the generic ASOBO_sky_portal viewport key).
     effectFloat("sky_portal_strength", &FX::skyPortalStrength,
-                "Scale of the sky-portal window light (added only where the IBL is occluded).",
+                "Hidden compatibility override of the fixed default sky-portal strength 0.35; no UI control.",
                 "--sky-portal-strength <0..4>", 0.0, 4.0);
-    effectFloat("decal_tolerance_mm", &FX::decalDepthToleranceMm,
-                "Decal depth tolerance along the receiver normal (mm).", "--decal-tolerance <mm>", 0.0, 10.0);
+
+    for (const std::string key : {"interior_sky_reflection", "decal_tolerance_mm"}) {
+        SettingSpec spec;
+        spec.key = key; spec.scope = R; spec.type = SettingType::Float;
+        spec.help = "ASOBO app tuning; session-only unless set_persist(true).";
+        spec.cliFlag = key == "decal_tolerance_mm" ? "--decal-tolerance <mm>" : "--interior-sky-reflection <0..1>";
+        spec.hasRange = true; spec.minimum = 0; spec.maximum = key == "decal_tolerance_mm" ? 10 : 1;
+        spec.defaultValue = key == "decal_tolerance_mm" ? 1.2 : 0.5;
+        spec.get = [key](void*) { return json(ux3d::imgui::GltfExtensionSettings::instance().tuning(key)); };
+        spec.set = [key](void*, const json& v, std::string&) {
+            ux3d::imgui::GltfExtensionSettings::instance().setTuning(key, v.get<float>(), false); return true;
+        };
+        spec.onPersist = [key] { auto& e = ux3d::imgui::GltfExtensionSettings::instance(); e.setTuning(key, e.tuning(key), true); };
+        addSetting(std::move(spec));
+    }
 
     // glTF extension switches are an app setting (docs/SETTINGS_SCOPES.md): one global set for every viewport and
     // model, saved in settings.ini [GltfExtensions]. The canonical keys are in the renderer scope, keyed by the
@@ -165,11 +149,9 @@ void Application::registerAgentSceneEffectSettings()
 
 void Application::registerAgentCompatibilitySettings()
 {
-    using VS = ux3d::imgui::ViewportSettingsState;
     constexpr SettingScope V = SettingScope::Viewport;
     constexpr SettingScope E = SettingScope::Environment;
     constexpr SettingScope R = SettingScope::Renderer;
-    using RQ = ux3d::imgui::RenderQuality;
 
     // --- Compatibility keys (settings scopes): every key keeps working in its former scope ---
     // A forwarder has the canonical setting's type, range and default and reads/writes the canonical target (the
@@ -197,7 +179,7 @@ void Application::registerAgentCompatibilitySettings()
     for (const char* key : {"aa", "msaa", "post_aa", "ssr_quality", "ssao_quality", "ssao_resolution", "ocean_quality"}) {
         forward(key, V, R);
     }
-    for (const char* key : {"interior_sky_reflection", "windshield_icing", "sky_portal_strength", "decal_tolerance_mm",
+    for (const char* key : {"windshield_icing", "sky_portal_strength",
                             "ssao_radius", "ssao_intensity"}) {
         forward(key, V, E);
     }
@@ -207,35 +189,15 @@ void Application::registerAgentCompatibilitySettings()
     for (const ux3d::imgui::GltfExtensionGroup& group : ux3d::imgui::GltfExtensionSettings::groups()) {
         for (const ux3d::imgui::GltfExtensionEntry& entry : group.extensions) forward(entry.name, V, R);
     }
-    forward("shadows", R, E);
+    for (const char* key : {"shadows", "ssr", "ssao", "bloom", "ibl", "punctual_lights", "sky_occlusion",
+                            "interior_sky_reflection", "decal_tolerance_mm"}) forward(key, E, R);
+    for (const char* key : {"ssr", "ssao", "lens_flare", "lens_flare_intensity", "ocean_mode", "ocean_play",
+                            "interior_sky_reflection", "decal_tolerance_mm"}) forward(key, V, R);
+    for (const char* key : {"ground", "ground_height_mode", "ground_height", "ground_roughness", "ground_detail",
+                            "ground_detail_scale", "ground_joint_spacing", "ground_haze", "ground_preset", "ground_color",
+                            "ocean_wind_speed", "ocean_wind_dir", "ocean_time", "ocean_fetch", "ocean_choppiness",
+                            "ocean_swell", "ocean_foam", "ocean_period", "ocean_color"}) forward(key, V, E);
     forward("sky_occlusion_quality", E, R);
-    // ssr and ssao were per-viewport switches: their viewport keys set this viewport's override (true = on,
-    // false = off) and read the viewport's resolved value, so per-viewport scripts keep their meaning.
-    const auto overrideCompat = [&](const std::string& key, ux3d::imgui::EffectOverride VS::*member, bool ssr,
-                                    const std::string& viewportKey) {
-        SettingSpec spec;
-        spec.key = key;
-        spec.scope = V;
-        spec.type = SettingType::Bool;
-        spec.compat = true;
-        spec.help = "Compatibility key: sets this viewport's " + viewportKey + " override (true = on, false = off) and "
-                    "reads its resolved value; the scene's switch is the environment setting " + key + ".";
-        spec.defaultValue = key == "ssr";
-        spec.get = [this, member, key](void* t) {
-            auto* s = static_cast<VS*>(t);
-            const auto& effects = getSceneEnvironment(sceneEnvironments, gltfModel, activeScene).effects;
-            const bool scene = key == "ssr" ? effects.ssr : effects.ssao;
-            return json(ux3d::imgui::resolveEffect(s->*member, scene));
-        };
-        spec.set = [member, ssr](void* t, const json& v, std::string&) {
-            static_cast<VS*>(t)->*member = v.get<bool>() ? ux3d::imgui::EffectOverride::On : ux3d::imgui::EffectOverride::Off;
-            if (ssr) RQ::pinSsr();
-            return true;
-        };
-        agentRegistry.addSetting(std::move(spec));
-    };
-    overrideCompat("ssr", &VS::ssrOverride, true, "viewport_ssr");
-    overrideCompat("ssao", &VS::ssaoOverride, false, "viewport_ssao");
 }
 
 } // namespace ux3d::imgui::application

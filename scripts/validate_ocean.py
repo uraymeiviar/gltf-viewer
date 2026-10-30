@@ -5,7 +5,9 @@ A viewport's ground can be the animated ocean (--ground ocean, registry ground =
 simulation (OceanSimulation) drawn as a camera-centred polar grid (ocean.vert / ocean.frag) at the A3.6 height.
 Checks:
   * Grid (default) and Plane: byte-identical to the baseline binary (--baseline-exe) on HelloCube and the E195
-    exterior reference view (the plane with the sun on);
+    exterior reference view (the plane with the sun on). The grid is now a viewport overlay shown on the plane
+    too, so plane cases render the current build with --hide-grid (the baseline's Plane hid it); the default
+    grid-on-plane overlay is checked separately;
   * loop seam: captures at ocean time t and t + T (T = the 30 s period) are byte-identical (t = 0 and t = 7.3);
   * deterministic captures: the same flags twice with the ocean clock running (--fixed-frame-time) are identical, and
     two different times differ (the surface moves);
@@ -149,17 +151,29 @@ def check_baseline(baseline):
     if baseline is None or not baseline.exists():
         check(False, f"baseline binary present ({baseline})")
         return
+    # The baseline's Plane hid the grid unless "grid on ground" was set. The grid is now an independent
+    # viewport overlay drawn at the scene ground height and shown by default (docs/SETTINGS_SCOPES.md,
+    # Viewport), so a plane case compares the current build with the grid hidden (--hide-grid) to the
+    # baseline: the same 3D image. A separate check proves the default now draws the grid on the plane.
+    def grid_free(flags):
+        return list(flags) + (["--hide-grid"] if "plane" in flags else [])
     for name, flags in (("hellocube_grid", []), ("hellocube_plane", ["--ground", "plane"]),
                         ("hellocube_plane_sun", ["--ground", "plane", "--sun", "on", "--sun-dir", "40,35"])):
         a, _, _ = render(None, f"base_{name}", flags, exe=baseline)
-        b, _, _ = render(None, f"cur_{name}", flags)
-        check(same(a, b), f"HelloCube {' '.join(flags) or '(default grid)'}: byte-identical to {baseline.stem}")
+        b, _, _ = render(None, f"cur_{name}", grid_free(flags))
+        suffix = " (current with --hide-grid)" if "plane" in flags else ""
+        check(same(a, b), f"HelloCube {' '.join(flags) or '(default grid)'}: byte-identical to {baseline.stem}{suffix}")
+        if name == "hellocube_plane":
+            c, _, _ = render(None, f"cur_{name}_grid", flags)
+            check(c is not None and b is not None and not same(b, c),
+                  "HelloCube --ground plane: the viewport grid overlay is drawn on the plane by default")
     entry = view("exterior_fuselage_nose")
     for name, flags in (("grid", []), ("plane_sun", ["--ground", "plane", "--sun", "on", "--sun-dir", "40,35"])):
         a = render_view(baseline, entry, f"base_e195_{name}", flags, folder=OUT)
-        b = render_view(EXE, entry, f"cur_e195_{name}", flags, folder=OUT)
+        b = render_view(EXE, entry, f"cur_e195_{name}", grid_free(flags), folder=OUT)
         check(a is not None and same(a, b), f"E195 exterior_fuselage_nose {' '.join(flags) or '(default)'}: "
-                                            f"byte-identical to {baseline.stem}")
+                                            f"byte-identical to {baseline.stem}"
+                                            f"{' (current with --hide-grid)' if 'plane' in flags else ''}")
 
 
 def check_loop_and_determinism():
@@ -690,16 +704,16 @@ def check_shadow_water():
         session.process.kill()
 
 
-OCEAN_UI_TAGS = ["vp.ground.type", "vp.ground.height", "vp.ocean.mode", "vp.ocean.quality", "vp.ocean.wind_speed",
-                 "vp.ocean.wind_dir", "vp.ocean.choppiness", "vp.ocean.swell", "vp.ocean.foam", "vp.ocean.color",
-                 "vp.ocean.period", "vp.ocean.fetch", "vp.ocean.play", "vp.ocean.reset"]
-PLANE_UI_TAGS = ["vp.ground.type", "vp.ground.height", "vp.ground.material", "vp.ground.albedo", "vp.ground.roughness",
-                 "vp.ground.detail", "vp.ground.detail_size", "vp.ground.joints", "vp.ground.haze", "vp.ground.show_grid"]
+OCEAN_UI_TAGS = ["scene.ground.type", "scene.ground.height", "scene.ocean.quality", "scene.ocean.wind_speed",
+                 "scene.ocean.wind_dir", "scene.ocean.choppiness", "scene.ocean.swell", "scene.ocean.foam", "scene.ocean.color",
+                 "scene.ocean.period", "scene.ocean.fetch", "scene.ocean.reset"]
+PLANE_UI_TAGS = ["scene.ground.type", "scene.ground.height", "scene.ground.material", "scene.ground.albedo", "scene.ground.roughness",
+                 "scene.ground.detail", "scene.ground.detail_size", "scene.ground.joints", "scene.ground.haze"]
 
 
 def check_ui():
     print("[Settings UI: the Ground section in Ocean and Plane mode, ImGui ID conflicts]")
-    commands = ["wait 24", "clickp hier.viewport 1", "wait 8", "clickp vp.tab.camera 0", "wait 8",
+    commands = ["wait 24", "clickp hier.scene 0", "wait 8", "clickp scene.environment 0", "clickp scene.sun_time 0", "wait 8",
                 "set_viewport_setting ground ocean", "wait 12"]
     for tag in OCEAN_UI_TAGS:
         commands += [f"hoverp {tag} 0", "wait 3", f"snap {tag}"]
@@ -708,7 +722,15 @@ def check_ui():
         commands += [f"hoverp {tag} 0", "wait 3", f"snap plane_{tag}"]
     commands += [f"shot {(OUT / 'ui_plane.png').as_posix()}", "set_viewport_setting ground ocean", "wait 6",
                  "set_viewport_setting ocean_mode live", "wait 12", f"shot {(OUT / 'ui_ocean_live.png').as_posix()}",
-                 "hoverp vp.ocean.mode 0", "wait 3", "snap live_mode", "snap final", ""]
+                 "hoverp scene.ocean.period 0", "wait 3", "snap live_mode",
+                 "clickp hier.viewport 1", "wait 6", "clickp vp.open_quality 0", "wait 6",
+                 "clickp quality.summary 0", "clickp settings.quality.current 0", "wait 6",
+                 "scroll QualityPage 0.5", "wait 6"]
+    quality_tags = ["quality.ocean", "quality.ocean.mode", "quality.ocean.play"]
+    for tag in quality_tags:
+        commands += [f"hoverp {tag} 0", "wait 3", f"snap {tag}"]
+    commands += [f"shot {(OUT / 'ui_ocean_quality.png').as_posix()}", "clickp settings.close 0", "wait 6",
+                 "clickp vp.tab.camera 0", "wait 6", "hoverp vp.grid 0", "wait 3", "snap viewport_grid", "snap final", ""]
     script, report = OUT / "ui_ground.txt", OUT / "ui_ground.json"
     script.write_text("\n".join(commands), encoding="utf-8")
     report.unlink(missing_ok=True)
@@ -720,7 +742,8 @@ def check_ui():
     conflicts = [s["label"] for s in snaps if s.get("idConflict", -1) != 0 or s.get("hoveredIdCount", 0) > 1]
     check(result.returncode == 0 and not data.get("failed", True) and not data.get("errors"),
           f"UI script ran (exit {result.returncode}, failed {data.get('failed')}, errors {data.get('errors')})")
-    check(len(snaps) >= len(OCEAN_UI_TAGS) + len(PLANE_UI_TAGS), f"{len(snaps)} hover snapshots (every Ocean and Plane control)")
+    check(len(snaps) >= len(OCEAN_UI_TAGS) + len(PLANE_UI_TAGS) + len(quality_tags) + 1,
+          f"{len(snaps)} hover snapshots (scene appearance, moved Quality controls and viewport grid)")
     check(not conflicts, f"no ImGui ID conflict on any Ground control in Ocean and Plane mode {conflicts}")
     check(max((s["glErrors"] for s in snaps), default=-1) == 0, "UI script: 0 GL errors")
 

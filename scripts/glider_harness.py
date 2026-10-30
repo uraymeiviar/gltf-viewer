@@ -129,13 +129,53 @@ def same(a, b):
     return a is not None and b is not None and digest(a) == digest(b)
 
 
+# Window-screenshot rows above the viewports' 3D image: menu bar and dock tab bar end at y = 52, then the
+# viewport toolbar row (y 52..69 with small buttons only; taller when it holds a combo, e.g. material variants).
+VIEWPORT_TOOLBAR_TOP = 52
+# Default dark theme (Theme.cpp): WindowBg behind panels and toolbar buttons, and the dock splitter colour.
+UI_BACKGROUND = (36, 36, 41)
+UI_SPLITTER = (22, 22, 25)
+
+
+def viewport_3d_box(image):
+    """(left, top, right, bottom) of the viewports' 3D image in a window screenshot.
+
+    The default dock layout (Menus.cpp) gives the left panels 22% of the width and the Inspector 26% of the
+    rest, so the viewports lie within about 22-79.7% of the width; after a runtime resize the panels keep their
+    pixel widths, so the 3D columns are then found exactly: on the last compared row (above the status bar)
+    they are the runs of at least 64 px that are neither panel background nor splitter. Side-by-side splits
+    (vpsplit) give one run per viewport; the box spans them (the 1-2 px splitter between them is constant UI).
+    The top is the first row below the toolbar in which under 2% of those 3D columns show the background: every
+    toolbar row shows it between and beside its buttons and combos (over 15% of the row in practice), a 3D row
+    never. A row too low only shortens the compared area; it can never make two different images equal."""
+    width, height = image.size
+    bottom = height - 40  # the status bar (where hover tooltips also appear) is left out
+    left0, right0 = int(width * 0.22) + 6, int(width * (1 - 0.78 * 0.26)) - 6
+    probe = bottom - 1
+    columns, run = [], []
+    for x in range(left0, right0 + 1):
+        if x < right0 and image.getpixel((x, probe)) not in (UI_BACKGROUND, UI_SPLITTER):
+            run.append(x)
+            continue
+        if len(run) >= 64:
+            columns.extend(run)
+        run = []
+    if not columns:
+        return (left0, VIEWPORT_TOOLBAR_TOP + 18, right0, bottom)
+    left, right = columns[0], columns[-1] + 1
+    for y in range(VIEWPORT_TOOLBAR_TOP + 4, VIEWPORT_TOOLBAR_TOP + 80):
+        if sum(1 for x in columns if image.getpixel((x, y)) == UI_BACKGROUND) < len(columns) * 0.02:
+            return (left, y, right, bottom)
+    return (left, VIEWPORT_TOOLBAR_TOP + 18, right, bottom)
+
+
 def viewport_sha(path):
-    """Hash of a window screenshot's viewport area only. The default dock layout (Menus.cpp) gives the left
-    panels 22% of the width and the Inspector 26% of the rest, so the viewports span about 22-79.7%; the panels
-    are left out so that UI changes there do not fail render-equivalence checks."""
+    """Hash of a window screenshot's 3D viewport image only (viewport_3d_box): the side panels, the menu bar,
+    the viewport tabs and toolbar and the status bar are left out, so UI changes there do not fail
+    render-equivalence checks, which compare the viewports' 3D image byte for byte. The toolbar and panels are
+    covered by validate_p4_exit_gate.py (same-binary window screenshots). The box is part of the hash, so two
+    screenshots whose 3D areas are found at different places never compare equal."""
     from PIL import Image
     image = Image.open(path).convert("RGB")
-    width, height = image.size
-    # The menu bar (top) and the status bar (bottom, where hover tooltips also appear) are left out too.
-    box = (int(width * 0.22) + 6, 30, int(width * (1 - 0.78 * 0.26)) - 6, height - 40)
-    return hashlib.sha256(image.crop(box).tobytes()).hexdigest()
+    box = viewport_3d_box(image)
+    return hashlib.sha256(repr(box).encode() + image.crop(box).tobytes()).hexdigest()

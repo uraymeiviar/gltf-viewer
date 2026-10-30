@@ -1,36 +1,22 @@
 # Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
-"""Settings scopes: global quality, scene effects, viewport view overrides (docs/SETTINGS_SCOPES.md).
+"""Three settings layers and vendor tuning (docs/SETTINGS_SCOPES.md).
 
-One Glider process at a time; every run uses --isolated (and GLIDER_NO_FOCUS through harness_process) except the
-persistence check, which points GLIDER_DATA_DIR at a temporary folder.
+Outside the restricted build sandbox, run one Glider at a time. All launches are isolated
+and use the harness no-focus behavior except explicit GLIDER_DATA_DIR persistence tests.
 
-Checks:
-  * defaults and every legacy flag combination of the moved settings (--aa, --msaa/--post-aa, --ssr*, --ssao*,
-    --interior-sky-reflection, --windshield-icing, --decal-tolerance, --shadows, --shadow-*, --sky-occlusion-quality,
-    --ocean-quality) render byte-identically to the baseline (single viewport, --capture-viewport);
-  * CLI = pipe: the canonical keys (set_environment ssr / ssao / shadows ..., renderer msaa / ssao_quality ...), the
-    compatibility keys in their former scopes (set_viewport_setting ssr / ssao_radius / msaa ...) and the viewport
-    overrides give the same capture as the CLI flags;
-  * overrides: viewport_* off / on / scene behave (off removes the scene's effect, on adds it, scene follows);
-  * two viewports always share the quality (an AA / SSAO quality change through either one reaches both);
-  * a scene effect toggle reaches every viewport set to Scene and none that overrides it;
-  * get_state carries quality (configured / effective), environment.effects and each viewport's overrides and
-    effective values;
-  * no ImGui ID conflict on the controls this change touched (Viewport Settings Render Modes overrides and Quality
-    tab, Scene Inspector effects) with the HDR and the procedural sky; screenshots of each panel go to
-    build/review/settings_scopes/;
-  * --isolated writes nothing; without it a pipe edit of a non-persisted key writes nothing and set_persist(true) +
-    shadows_allowed false writes only that non-default value;
-  * the glTF extension switches are an app setting (File > Settings > glTF Extensions, settings.ini [GltfExtensions]):
-    --asobo / --asobo-disable render like the baseline with the same flags; CLI = pipe (canonical and former viewport
-    keys) = script; two viewports always share the set; get_state gltfExtensions; it survives a restart through
-    GLIDER_DATA_DIR (set, restart, still set; reset writes nothing); a command-line flag is never saved, not even by
-    another save; the Settings tab saves a click and its Reset removes the section; --isolated writes nothing;
-  * File > Settings > Quality (Presets and Current Settings sub-tabs), > glTF Extensions and the trimmed viewport
-    inspector (no Quality tab, no extension switches, buttons that open the two Settings tabs) have no ImGui ID
-    conflict; screenshots go to build/review/settings_scopes_2/.
+baseline: exact captures for default / legacy flags (Low's removed background gate is
+compared with an explicit equivalent background-off scene).
+pipe: canonical + compatibility CLI/pipe image equality and registry ranges.
+overrides: Quality off levels, Shaded vs Shaded+post and deprecated warned no-ops.
+viewports: shared ground, height, actual single ocean allocation/time, independent grid/shading.
+ui: all layer panels and presets, conditional controls, gear/status, vendor tuning, ID conflicts;
+screenshots in build/review/settings_layers.
+persistence: old gates + budgets, canonical precedence, save/restart, session-only flags,
+default pruning, no persisted scene/viewport state, --isolated writes nothing.
+extensions: extension switches, compatibility scopes, UI commits and persistence rules.
 
-Usage: python scripts/validate_settings_scopes.py [--baseline-exe build/baselines/<sha>.exe] [--only a,b,...]
+Usage: python scripts/validate_settings_scopes.py --baseline-exe build/baselines/7f9ff37.exe
+       [--only baseline,pipe,overrides,viewports,ui,persistence,extensions]
 """
 
 import argparse
@@ -53,7 +39,7 @@ import validate_asobo_glass as glass  # noqa: E402  (SSR fixture: a windshield_v
 REPO = Path(__file__).resolve().parents[1]
 EXE = REPO / "build" / "bin" / "Release" / "Glider.exe"
 OUT = REPO / "build" / "settings_scopes"
-REVIEW = REPO / "build" / "review" / "settings_scopes_2"
+REVIEW = REPO / "build" / "review" / "settings_layers"
 COMMON = ["--isolated", "--window-size", "1600x900", "--hide-grid", "--fixed-frame-time", "0.05", "--vsync", "off"]
 QUAD_VIEW = agent.VIEW
 # HelloCube (the embedded startup model) on a ground plane under a low sun: shadow and SSAO contact both visible.
@@ -86,11 +72,14 @@ def model_args(model):
     return [str(model)] if model else []
 
 
-def cli_capture(exe, model, name, flags, frame=8):
+def cli_capture(exe, model, name, flags, frame=8, show_grid=False, window=None):
     OUT.mkdir(parents=True, exist_ok=True)
     png = OUT / f"{name}.png"
     png.unlink(missing_ok=True)
-    result = subprocess.run([str(exe)] + model_args(model) + COMMON + list(flags) +
+    common = [arg for arg in COMMON if arg != "--hide-grid"] if show_grid else list(COMMON)
+    if window:
+        common[common.index("--window-size") + 1] = window
+    result = subprocess.run([str(exe)] + model_args(model) + common + list(flags) +
                             ["--capture-viewport", str(png), "--capture-frame", str(frame),
                              "--profile-report", str(OUT / f"{name}.json"), "--exit-after-profile"],
                             cwd=REPO, capture_output=True, text=True, timeout=300)
@@ -107,14 +96,13 @@ class Session:
         args = [str(EXE)] + model_args(model) + common + list(flags) + ["--control-pipe"]
         env = os.environ.copy()
         env.update(env_extra or {})
+        self.log = open(OUT / f"session_{time.time_ns()}.log", "w", encoding="utf-8")
         self.process = subprocess.Popen(args, cwd=REPO, env=env, stdin=subprocess.DEVNULL,
-                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        deadline = time.time() + 120
+                                        stdout=self.log, stderr=self.log)
+        print(f"    session pid={self.process.pid}",flush=True)
+        # connect_pipe retries while the process lives. No os.path.exists poll on the pipe first: every
+        # stat opens and closes a client connection, which used to kill Glider's listening instance.
         try:
-            while not os.path.exists(glider_ctl.pipe_name(self.process.pid)):
-                if self.process.poll() is not None or time.time() > deadline:
-                    raise RuntimeError(f"Glider did not open its pipe (exit {self.process.poll()})")
-                time.sleep(0.1)
             self.pipe = connect_pipe(self.process)
         except BaseException:
             self.process.kill()
@@ -149,6 +137,7 @@ class Session:
                 self.process.wait(60)
             except Exception:  # noqa: BLE001
                 self.process.kill()
+        self.log.close()
         return errors
 
 
@@ -171,10 +160,14 @@ def follow(model, name, flags, lines, timeout=300, env_extra=None):
 
 # ---------------------------------------------------------------------------------------------
 
+PRESET_TOOLBAR_CASES = {"preset_low", "preset_ultra"}
+
+
 def check_baseline(baseline, quads, ssr):
     print(f"[defaults and legacy flags: current build == baseline {baseline.name}]")
     cases = {
         "default_cube": (None, []),
+        "default_startup_grid": (None, []),
         "default_quads": (quads, QUAD_VIEW),
         "sun_ground": (None, SUN),
         "aa_msaa4": (None, ["--aa", "msaa4"]),
@@ -210,9 +203,25 @@ def check_baseline(baseline, quads, ssr):
         "asobo_invisible": (quads, QUAD_VIEW + ["--show-invisible-materials"]),
     }
     for name, (model, flags) in cases.items():
-        current = cli_capture(EXE, model, f"base_cur_{name}", flags)
-        reference = cli_capture(baseline, model, f"base_ref_{name}", flags)
+        current_flags = flags + (["--clear-color", "0.12,0.12,0.14"] if name == "preset_low" else [])
+        # With an explicit preset the baseline drew its Quality combo in the viewport toolbar row
+        # (7f9ff37 Viewports.cpp:224), 4 px taller than the small buttons: its viewport is 918x792. The
+        # combo now lives in the status bar, so the current build gets the same 918x792 viewport from a
+        # 4 px shorter window; the byte comparison is then of the same 3D image at the same size.
+        window = "1600x896" if name in PRESET_TOOLBAR_CASES else None
+        current = cli_capture(EXE, model, f"base_cur_{name}", current_flags, show_grid=name == "default_startup_grid",
+                              window=window)
+        reference = cli_capture(baseline, model, f"base_ref_{name}", flags, show_grid=name == "default_startup_grid")
         check(current is not None and same(current, reference), f"{name}: {' '.join(flags) or '(no flags)'}")
+        if name in {"default_cube", "default_startup_grid", "preset_ultra", "preset_low"}:
+            REVIEW.mkdir(parents=True,exist_ok=True)
+            if current: shutil.copyfile(current, REVIEW/f"{name}_after.png")
+            if reference: shutil.copyfile(reference, REVIEW/f"{name}_before.png")
+        if name == "preset_low":
+            visible_background = cli_capture(EXE,model,"low_background_scene_on",flags,window=window)
+            check(visible_background is not None and not same(visible_background,reference),
+                  "Low no longer gates scene background; explicit background off still equals the old image exactly")
+            if visible_background: shutil.copyfile(visible_background,REVIEW/"low_background_gate_removed.png")
     bad = subprocess.run([str(EXE), "--isolated", "--shadows", "maybe", "--dump-frame", str(OUT / "bad.png"),
                           "--exit-after-dump"], cwd=REPO, capture_output=True, text=True, timeout=120)
     check(bad.returncode != 0, f"--shadows maybe is refused (exit {bad.returncode})")
@@ -237,14 +246,18 @@ def check_cli_equals_pipe(ssr):
         pipe["ssr_env"] = session.capture("pipe_ssr_env")
         session.eset("ssr", True)
         session.vset("viewport_ssr", "off")
+        unchanged = session.capture("pipe_ssr_noop")
+        check(same(cli["plain"], unchanged), "deprecated viewport_ssr off is a warned no-op")
+        session.eset("ssr", False)
         pipe["ssr_override"] = session.capture("pipe_ssr_override")
         check(session.call("get_viewport_setting", key="ssr")["value"] is False, "get_viewport_setting ssr = false under viewport_ssr off")
         session.vset("viewport_ssr", "scene")
         session.vset("ssr", False)  # compatibility key: this viewport's override Off
         pipe["ssr_compat"] = session.capture("pipe_ssr_compat")
-        check(session.call("get_viewport_setting", key="viewport_ssr")["value"] == "off",
-              "set_viewport_setting ssr false sets viewport_ssr off")
+        check(session.call("get_viewport_setting", key="viewport_ssr")["value"] == "scene",
+              "compatibility SSR sets global Quality; deprecated override stays scene")
         session.vset("viewport_ssr", "scene")
+        session.eset("ssr", True)
         pipe["plain_again"] = session.capture("pipe_plain_again")
         # SSR look and quality through the compatibility keys in their former (viewport) scope.
         session.vset("ssr_quality", "high")
@@ -314,129 +327,72 @@ def check_cli_equals_pipe(ssr):
 
 
 def check_overrides():
-    print("[overrides Off / On / Scene, shadows and SSAO (HelloCube on a ground plane)]")
-    cli = {
-        "plain": cli_capture(EXE, None, "ovr_plain", NO_TAA + SUN),
-        "ssao": cli_capture(EXE, None, "ovr_ssao", NO_TAA + SUN + ["--ssao", "on", "--ssao-radius", "0.8", "--ssao-quality", "high"]),
-        "noshadow": cli_capture(EXE, None, "ovr_noshadow", NO_TAA + SUN + ["--shadows", "off"]),
-    }
-    check(not same(cli["plain"], cli["ssao"]) and not same(cli["plain"], cli["noshadow"]),
-          "the fixture shows SSAO and the sun shadow")
+    print("[Quality levels off; Shaded omits post effects and keeps shadows; compatibility no-ops]")
+    cli = {name: cli_capture(EXE, None, "layers_" + name, NO_TAA + SUN + flags) for name, flags in {
+        "plain": [], "ao": ["--ssao", "on"], "noshadow": ["--shadows", "off"], "no_post": ["--bloom", "off", "--ssr", "off", "--ssao", "off"]}.items()}
     session = Session(None, NO_TAA + SUN)
-    pipe = {}
     try:
-        session.eset("ssao", True)
-        session.eset("ssao_radius", 0.8)
-        session.vset("ssao_quality", "high")
-        pipe["ssao_env"] = session.capture("ovr_pipe_ssao_env")
-        session.vset("viewport_ssao", "off")
-        pipe["ssao_scene_on_vp_off"] = session.capture("ovr_pipe_ssao_vp_off")
-        session.eset("ssao", False)
-        session.vset("viewport_ssao", "on")
-        pipe["ssao_scene_off_vp_on"] = session.capture("ovr_pipe_ssao_vp_on")
-        session.vset("viewport_ssao", "scene")
-        pipe["ssao_scene_off"] = session.capture("ovr_pipe_ssao_scene_off")
-        # Compatibility viewport keys for the SSAO look (they reach the scene).
-        session.eset("ssao_radius", 0.5)
-        session.vset("ssao", True)
-        session.vset("ssao_radius", 0.8)
-        pipe["ssao_compat"] = session.capture("ovr_pipe_ssao_compat")
-        session.vset("viewport_ssao", "scene")
-        session.eset("ssao_radius", 0.5)
-        session.vset("ssao_quality", "medium")
-        # Shadows: scene on + viewport off, scene off + viewport on, scene off, compatibility key.
-        session.vset("viewport_shadows", "off")
-        pipe["shadow_vp_off"] = session.capture("ovr_pipe_shadow_vp_off")
+        session.vset("ssao_level", "mid")
+        check(same(cli["ao"], session.capture("level_ao")), "SSAO mid equals legacy --ssao on")
+        session.vset("ssao_level", "off")
+        check(same(cli["plain"], session.capture("level_ao_off")), "SSAO off byte-identical to default off")
+        session.call("set_persist", enabled=True)
+        session.vset("shadow_map", "off")
+        check(same(cli["noshadow"], session.capture("level_shadow_off")), "shadow map off equals --shadows off")
+        session.vset("shadow_map", "2048")
+        for key in ("viewport_shadows", "viewport_ssr", "viewport_ssao"):
+            session.vset(key, "off")
+        check(same(cli["plain"], session.capture("legacy_noops")), "all deprecated overrides leave the global effects unchanged")
+        session.vset("ssao_level", "high")
+        session.vset("reflections", "high")
+        session.vset("lens_flare", "both")
+        session.vset("post_aa", "fxaa")
+        session.vset("render_mode", "shaded")
         state = session.call("get_state")
-        check(state["viewports"][0]["overrides"]["shadows"] == "off" and state["viewports"][0]["effective"]["shadows"] is False
-              and state["sun"]["shadows"]["viewports"][0]["active"] is False,
-              "get_state: viewport_shadows off -> effective false, no active shadow map")
-        session.eset("shadows", False)
-        session.vset("viewport_shadows", "on")
-        pipe["shadow_scene_off_vp_on"] = session.capture("ovr_pipe_shadow_vp_on")
-        session.vset("viewport_shadows", "scene")
-        pipe["shadow_scene_off"] = session.capture("ovr_pipe_shadow_scene_off")
+        effective = state["viewports"][0]["effective"]
+        check(not effective["ssr"] and not effective["ssao"] and not effective["bloom"] and effective["lensFlare"] == 0
+              and effective["postAA"] == "none" and effective["shadows"], "Shaded disables all five post effects and retains shadows")
+        check(same(cli["no_post"], session.capture("shaded")), "Shaded equals the same scene with those post effects disabled")
+        session.vset("render_mode", "shaded_post")
         state = session.call("get_state")
-        check(state["environment"]["effects"]["shadows"] is False and state["sun"]["shadows"]["scene"] is False,
-              "get_state: environment.effects.shadows and sun.shadows.scene false")
-        session.eset("shadows", True)
-        session.vset("shadows", False)  # former renderer key: now the scene's switch
-        pipe["shadow_compat"] = session.capture("ovr_pipe_shadow_compat")
-        check(session.call("get_environment", key="shadows")["value"] is False,
-              "set_viewport_setting shadows false (former renderer key) reaches the scene")
-        session.eset("shadows", True)
-        pipe["plain"] = session.capture("ovr_pipe_plain")
-        errors = session.close()
-        check(errors == 0, f"override session: {errors} GL errors")
-    except Exception as error:  # noqa: BLE001
-        check(False, f"override session failed: {error}")
-        session.process.kill()
-        return
-    check(same(cli["ssao"], pipe["ssao_env"]), "set_environment ssao + radius, renderer ssao_quality == CLI")
-    check(same(cli["plain"], pipe["ssao_scene_on_vp_off"]), "scene SSAO on + viewport_ssao off == no SSAO")
-    check(same(cli["ssao"], pipe["ssao_scene_off_vp_on"]), "scene SSAO off + viewport_ssao on == SSAO")
-    check(same(cli["plain"], pipe["ssao_scene_off"]), "viewport_ssao scene follows the scene (off)")
-    check(same(cli["ssao"], pipe["ssao_compat"]), "compatibility ssao / ssao_radius viewport keys == CLI")
-    check(same(cli["noshadow"], pipe["shadow_vp_off"]), "scene shadows on + viewport_shadows off == --shadows off")
-    check(same(cli["plain"], pipe["shadow_scene_off_vp_on"]), "scene shadows off + viewport_shadows on == shadows")
-    check(same(cli["noshadow"], pipe["shadow_scene_off"]), "viewport_shadows scene follows the scene (off)")
-    check(same(cli["noshadow"], pipe["shadow_compat"]), "former renderer key shadows false == --shadows off")
-    check(same(cli["plain"], pipe["plain"]), "restored: the plain capture again")
+        check(state["viewports"][0]["postEffects"] and state["viewports"][0]["effective"]["ssao"], "Shaded + post restores the configured effects")
+        session.vset("reflections", "off")
+        session.vset("ssao_level", "off")
+        session.vset("ibl_cube", "off")
+        state = session.call("get_state")
+        check(state["quality"]["configured"]["iblCube"] == 0 and not state["viewports"][0]["effective"]["ssr"]
+              and not state["viewports"][0]["effective"]["ssao"], "levels off disable IBL, SSR and SSAO")
+        check(session.close() == 0, "layer session: zero GL errors")
+    except Exception as error:
+        check(False, f"layer session failed: {error}")
+        session.process.kill(); session.process.wait()
 
 
 def check_two_viewports():
-    print("[two viewports: shared quality, scene toggles reach the viewports set to Scene]")
-    lines = ["wait 10", "vpcreate", "wait 6", "vpsplit 2", "wait 10", "get_state",
-             # Viewport 2 is active: a quality change through it reaches viewport 1 too.
-             "set_viewport_setting msaa 4", "set_viewport_setting ssao_quality high", "wait 6", "get_state",
-             # Scene SSAO and shadows on, viewport 2 overrides SSAO off.
-             "set_viewport_setting viewport_ssao off", "set_environment ssao true", "wait 10", "get_state",
-             "set_environment shadows false", "wait 6", "get_state",
-             "set_viewport_setting viewport_shadows on", "wait 6", "get_state",
-             "vpfocus 1", "set_viewport_setting aa taa", "wait 6", "get_state", "quit"]
-    proc, rows = follow(None, "two_viewports", SUN, lines)
+    print("[two viewports: shared scene ground/ocean, global Quality, independent Shaded and grid]")
+    lines = ["wait 10", "set_viewport_setting grid true", "vpcreate", "wait 6", "vpsplit 2", "wait 10", "get_state",
+             "set_viewport_setting msaa 4", "set_viewport_setting ssao_level high", "wait 6", "get_state",
+             "set_viewport_setting ground plane", "set_viewport_setting ground_height_mode custom",
+             "set_viewport_setting ground_height 1.25", "wait 6", "get_state",
+             "set_viewport_setting ground ocean", "set_viewport_setting ocean_quality low",
+             "set_viewport_setting ocean_mode live", "set_viewport_setting ocean_time 2", "wait 10", "get_state",
+             "set_viewport_setting render_mode shaded", "set_viewport_setting grid false", "wait 6", "get_state", "quit"]
+    proc, rows = follow(None, "two_viewports_layers", SUN, lines)
     states = [r["result"] for r in rows if r.get("cmd") == "get_state" and r.get("ok")]
-    if not check(len(states) == 6, f"two-viewport script: 6 states ({len(states)}; exit {proc.returncode}; "
-                                   f"errors {[r for r in rows if not r.get('ok')][:2]})"):
-        return
-
-    def vp(state, vid):
-        return next(v for v in state["viewports"] if v["id"] == vid)
-
-    def ssao(state, vid):
-        return next(v for v in state["ssao"]["viewports"] if v["viewport"] == vid)
-
-    def shadow(state, vid):
-        return next(v for v in state["sun"]["shadows"]["viewports"] if v["viewport"] == vid)
-
-    s0, s1, s2, s3, s4, s5 = states
-    check(len(s0["viewports"]) == 2 and vp(s0, 1)["effective"]["postAA"] == vp(s0, 2)["effective"]["postAA"] == "taa",
-          "a new viewport renders with the global AA (TAA)")
-    check(all(vp(s1, i)["effective"]["msaa"] == "msaa4" for i in (1, 2)) and
-          all(ssao(s1, i)["quality"] == "high" for i in (1, 2)),
-          f"msaa 4 / ssao_quality high set through viewport 2 reach both "
-          f"({[vp(s1, i)['effective']['msaa'] for i in (1, 2)]}, {[ssao(s1, i)['quality'] for i in (1, 2)]})")
-    check(ssao(s2, 1)["enabled"] and ssao(s2, 1)["active"] and not ssao(s2, 2)["enabled"] and not ssao(s2, 2)["active"]
-          and ssao(s2, 2)["override"] == "off",
-          "scene SSAO on: viewport 1 (Scene) active, viewport 2 (Off) not")
-    check(shadow(s2, 1)["active"] and shadow(s2, 2)["active"], "scene shadows on: both viewports have a shadow map")
-    check(not shadow(s3, 1)["active"] and not shadow(s3, 2)["active"], "scene shadows off: neither viewport")
-    check(not shadow(s4, 1)["active"] and shadow(s4, 2)["active"] and vp(s4, 2)["overrides"]["shadows"] == "on",
-          "viewport_shadows on in viewport 2: only viewport 2 draws shadows")
-    check(all(vp(s5, i)["effective"]["msaa"] == "none" and vp(s5, i)["effective"]["postAA"] == "taa" for i in (1, 2)),
-          "aa taa through viewport 1 reaches viewport 2")
-    check(all(s["glErrors"] == 0 for s in states), "two-viewport script: zero GL errors")
-
-
-UI_TAGS_RENDER = ["vp.override.shadows", "vp.override.ssr", "vp.override.ssao", "vp.open_gltf_extensions", "vp.open_quality"]
-UI_TAGS_QUALITY = ["quality.msaa", "quality.post_aa", "quality.ssr", "quality.ssao", "quality.ssao_resolution",
-                   "quality.sky_occlusion", "quality.ocean"]
-UI_TAGS_QUALITY_LOW = ["scene.ibl.cube", "quality.shadows"]  # IBL filter and shadow gate, lower in Current Settings
-UI_TAGS_EXTENSIONS = ["settings.ext.reset", "settings.ext.group", "settings.ext.ASOBO_material_detail_map",
-                      "settings.ext.ASOBO_material_geometry_decal"]
-UI_TAGS_EXTENSIONS_LOW = ["settings.ext.ASOBO_material_windshield_v3", "settings.ext.ASOBO_sky_portal"]  # after scrolling
-UI_TAGS_SCENE = ["scene.effects.shadows", "scene.effects.ssr", "scene.effects.interior_sky", "scene.effects.ssao",
-                 "scene.effects.ssao_radius", "scene.effects.ssao_intensity", "scene.effects.icing"]
+    if not check(proc.returncode == 0 and len(states) == 5, f"five two-viewport states, exit {proc.returncode}"): return
+    s0,s1,s2,s3,s4 = states
+    check(len(s0["viewports"]) == 2 and all(v["effective"]["postAA"] == "taa" for v in s0["viewports"]), "new views share global TAA")
+    check(all(v["effective"]["msaa"] == "msaa4" and v["effective"]["ssao"] for v in s1["viewports"]), "Quality edit reaches both views")
+    check(all(v["ground"]["mode"] == "plane" and abs(v["ground"]["height"]-1.25) < 1e-6 for v in s2["viewports"]), "both views share plane and custom height")
+    check(s3["environment"]["oceanSimulationShared"] and all(v["ground"]["ocean"]["active"] for v in s3["viewports"]), "both views draw one shared scene ocean")
+    oceans = [v["ground"]["ocean"] for v in s3["viewports"]]
+    check(oceans[0]["time"] == oceans[1]["time"] and oceans[0]["memoryBytes"] == oceans[1]["memoryBytes"], "ocean time and simulation allocation are shared")
+    views = sorted(s4["viewports"], key=lambda v:v["id"])
+    check(views[0]["effective"]["ssao"] and not views[1]["effective"]["ssao"] and views[0]["postEffects"] and not views[1]["postEffects"], "Shaded is per view; other viewport keeps post effects")
+    check(all(state["glErrors"] == 0 for state in states), "two-view layer script: zero GL errors")
+    check(views[0]["ground"]["gridVisible"] and not views[1]["ground"]["gridVisible"], "grid overlay visibility is independent per view")
+    check(s3["environment"]["oceanSimulationShared"] and s3["environment"]["oceanSimulationCount"] == 1,
+          "two views reference the same non-null ocean simulation, not equal-sized duplicate allocations")
 
 
 def run_ui_script(model, name, commands, extra=(), env_extra=None, timeout=300):
@@ -456,132 +412,143 @@ def run_ui_script(model, name, commands, extra=(), env_extra=None, timeout=300):
 
 
 def check_ui(quads):
-    print("[UI: viewport inspector (trimmed), File > Settings > Quality / glTF Extensions, Scene Inspector; ID conflicts; screenshots]")
-    REVIEW.mkdir(parents=True, exist_ok=True)
-    shot = lambda name: f"shot {(REVIEW / name).as_posix()}"  # noqa: E731
-    commands = ["wait 24", "set_environment ssao true", "clickp hier.viewport 1", "wait 8"]
-    hovers = 0
-    for tag in UI_TAGS_RENDER:
-        commands += [f"hoverp {tag} 0", "wait 3", f"snap {tag}"]
-        hovers += 1
-    commands += [shot("viewport_render_modes.png"), "snap vp_tabs",
-                 # The Quality hint button opens File > Settings on the Quality tab (Presets sub-tab first).
-                 "clickp vp.open_quality 0", "wait 8", "snap opened_quality", shot("settings_quality_presets.png"),
-                 "hoverp settings.quality.presets 0", "wait 3", "snap settings.quality.presets",
-                 "hoverp quality.settings.preset 0", "wait 3", "snap quality.settings.preset",
-                 "hoverp settings.tab.quality 0", "wait 3", "snap settings.tab.quality",
-                 "clickp settings.quality.current 0", "wait 8", shot("settings_quality_current.png")]
-    hovers += 3
-    for tag in UI_TAGS_QUALITY:
-        commands += [f"hoverp {tag} 0", "wait 3", f"snap {tag}"]
-        hovers += 1
-    commands += ["hoverp quality.msaa 0", "wheel -20", "wait 6", shot("settings_quality_current_scrolled.png")]
-    for tag in UI_TAGS_QUALITY_LOW:
-        # scene.ibl.cube carries the cube size as its index; quality.shadows its value (1 = allowed).
-        index = 1024 if tag == "scene.ibl.cube" else 1
-        commands += [f"hoverp {tag} {index}", "wait 3", f"snap {tag}"]
-        hovers += 1
-    commands += ["clickp settings.tab.extensions 0", "wait 8", shot("settings_gltf_extensions.png")]
-    for tag in UI_TAGS_EXTENSIONS:
-        commands += [f"hoverp {tag} 0", "wait 3", f"snap {tag}"]
-        hovers += 1
-    commands += ["snap ext_tab", "hoverp settings.ext.group 0", "wheel -30", "wait 6", shot("settings_gltf_extensions_scrolled.png")]
-    for tag in UI_TAGS_EXTENSIONS_LOW:
-        commands += [f"hoverp {tag} 0", "wait 3", f"snap {tag}"]
-        hovers += 1
-    commands += ["clickp settings.ext.close 0", "wait 6",
-                 # The extension hint button opens the glTF Extensions tab.
-                 "clickp vp.open_gltf_extensions 0", "wait 8", "snap opened_extensions", "clickp settings.ext.close 0", "wait 6",
-                 "clickp vp.tab.camera 0", "wait 6", "set_viewport_setting ground ocean",
-                 "wait 12", "hoverp vp.ocean.quality 0", "wait 3", "snap vp.ocean.quality", shot("viewport_camera_ocean.png"),
-                 "set_viewport_setting ground grid", "clickp vp.tab.post 0", "wait 6", shot("viewport_post.png"),
-                 "snap vp_tabs_post",
-                 "clickp hier.scene 0", "wait 8", shot("scene_inspector_top.png"), "hoverp scene.environment 0", "wheel -12",
-                 "wait 6"]
-    hovers += 1
-    for tag in UI_TAGS_SCENE:
-        commands += [f"hoverp {tag} 0", "wait 3", f"snap hdr_{tag}"]
-        hovers += 1
-    commands += [shot("scene_inspector_hdr.png"), "set_environment environment sky", "wait 16", "hoverp scene.sun_time 0",
-                 "wheel -12", "wait 6"]
-    for tag in UI_TAGS_SCENE:
-        commands += [f"hoverp {tag} 0", "wait 3", f"snap sky_{tag}"]
-        hovers += 1
-    commands += [shot("scene_inspector_sky.png"), "snap final", ""]
-    result, data = run_ui_script(quads, "ui", commands, extra=["--isolated"])
-    snaps = data.get("snaps", [])
-    by_label = {s["label"]: s for s in snaps}
-    conflicts = [s["label"] for s in snaps if s.get("idConflict", -1) != 0 or s.get("hoveredIdCount", 0) > 1]
-    check(result.returncode == 0 and not data.get("failed", True) and not data.get("errors"),
-          f"UI script ran (exit {result.returncode}, failed {data.get('failed')}, errors {data.get('errors')})")
-    check(len(snaps) >= hovers, f"{len(snaps)} snapshots ({hovers} hovered controls)")
-    check(not conflicts, f"no ImGui ID conflict on the touched controls {conflicts}")
-    check(max((s["glErrors"] for s in snaps), default=-1) == 0, "UI script: 0 GL errors")
-
-    def tags(label):
-        return {p["tag"] for p in by_label.get(label, {}).get("probes", [])}
-
-    tabs = tags("vp_tabs")
-    check({"vp.tab.render", "vp.tab.camera", "vp.tab.post", "vp.wireframe_overlay"} <= tabs and "vp.tab.quality" not in tabs,
-          f"the viewport inspector keeps its view tabs and has no Quality tab ({sorted(t for t in tabs if t.startswith('vp.tab'))})")
-    check(not any(t.startswith("quality.") or t.startswith("settings.ext.") for t in tabs),
-          "no quality or extension switch is drawn in the viewport inspector")
-    check("quality.msaa" not in tags("vp_tabs_post"), "the Post tab has no quality controls either")
-    opened_q = tags("opened_quality")
-    check({"settings.tab.quality", "settings.quality.presets", "settings.quality.current", "quality.settings.preset", "quality.tab"} <= opened_q,
-          "the viewport's Quality button opens File > Settings > Quality (selector, Presets and Current Settings sub-tabs)")
-    opened_e = tags("opened_extensions")
-    check({"settings.tab.extensions", "settings.ext.close"} <= opened_e and any(t.startswith("settings.ext.ASOBO_") for t in opened_e),
-          "the viewport's glTF Extensions button opens File > Settings > glTF Extensions")
-    ext_boxes = [t for t in tags("ext_tab") if t.startswith("settings.ext.ASOBO_")]
-    check(len(ext_boxes) >= 10, f"the glTF Extensions tab lists {len(ext_boxes)} ASOBO extension switches")
-    for name in ("viewport_render_modes", "settings_quality_presets", "settings_quality_current", "settings_quality_current_scrolled",
-                 "settings_gltf_extensions", "settings_gltf_extensions_scrolled", "viewport_camera_ocean", "viewport_post", "scene_inspector_top", "scene_inspector_hdr",
-                 "scene_inspector_sky"):
-        check((REVIEW / f"{name}.png").exists(), f"screenshot {name}.png")
+    print("[UI: every layer, preset tabs, gear/status combo, vendor tuning; ImGui conflicts]")
+    REVIEW.mkdir(parents=True,exist_ok=True)
+    shot=lambda name:f"shot {(REVIEW/(name+'.png')).as_posix()}"
+    commands=["wait 24","clickp vp.toolbar.settings 1","wait 8","snap viewport_render",shot("viewport_settings"),
+              "hoverp vp.render_mode 0","wait 3","snap render_hover","hoverp vp.toolbar.settings 1","wait 3","snap gear_hover",
+              shot("toolbar_gear"),"hoverp status.quality 0","wait 3","snap status_hover",shot("status_quality_combo"),
+              "clickp vp.tab.camera 0","wait 6","snap viewport_camera",shot("viewport_camera"),
+              "clickp vp.tab.render 0","wait 6","clickp vp.open_quality 0","wait 8","snap quality_presets",shot("quality_presets")]
+    for i in range(1,5):
+        commands += ["scroll QualityPage top",f"clickp quality.tab {i}","wait 6",f"hoverp quality.reset {i}","wait 3",f"snap preset_{i}"]
+    commands += ["scroll QualityPage top","clickp quality.summary 0","clickp settings.quality.current 0","wait 6",
+                 "hoverp quality.ibl_cube 0","wait 3","snap ibl_level_hover",shot("quality_current")]
+    # Actual off-level UI edits must hide dependent controls, not merely disable them.
+    commands += ["clickp quality.ibl_cube 0","wait 3","clickp quality.ibl.option 0","wait 6","snap ibl_ui_off",
+                 "clickp quality.ibl_cube 0","wait 3","clickp quality.ibl.option 1024","wait 6","snap ibl_ui_on"]
+    for fraction in ("top","0.25","0.5","0.75","bottom"):
+        commands += [f"scroll QualityPage {fraction}","wait 6",f"snap quality_current_{fraction}",shot("quality_current_"+fraction)]
+    commands += ["set_viewport_setting ssao_level high", "scroll QualityPage 0.5", "wait 6",
+                 "hoverp quality.ssao_resolution 0", "wait 3", "snap ao_ui_on",
+                 "set_viewport_setting ssao_level off", "wait 6", "snap ao_ui_off",
+                 "scroll QualityPage bottom", "wait 6", "hoverp quality.shadow.details 0", "wait 3", "snap shadow_ui_on",
+                 "set_viewport_setting shadow_map off", "wait 6", "snap shadow_ui_off",
+                 "set_viewport_setting shadow_map 2048", "wait 6"]
+    commands += ["clickp settings.tab.extensions 0","wait 8","scroll ExtensionsPage top",
+                 "hoverp settings.ext.interior_sky_reflection 0","wait 3","snap vendor_reflection",
+                 "hoverp settings.ext.decal_tolerance 0","wait 3","snap vendor_decal",shot("gltf_extensions_tuning"),
+                 "scroll ExtensionsPage bottom","wait 6","snap vendor_switches",shot("gltf_extensions_switches"),
+                 "clickp settings.ext.close 0","wait 6","clickp hier.scene 0","wait 6","snap scene_top",shot("scene_inspector"),
+                 "clickp scene.environment 0","clickp scene.sun_time 0","wait 6","set_environment ground plane","wait 6"]
+    for tag in ("type","height","material","albedo","roughness","detail","detail_size","joints","haze"):
+        commands += [f"hoverp scene.ground.{tag} 0","wait 3",f"snap plane_{tag}"]
+    commands += [shot("scene_ground_plane"),"set_environment ground ocean","set_viewport_setting ocean_quality low","wait 10"]
+    for tag in ("wind_speed","wind_dir","choppiness","swell","foam","color","period","fetch","reset"):
+        commands += [f"hoverp scene.ocean.{tag} 0","wait 3",f"snap ocean_{tag}"]
+    commands += [shot("scene_ground_ocean"),"set_environment ground off","wait 6",
+                 "hoverp scene.effects.ssao_radius 0","wait 3","snap ao_radius","hoverp scene.effects.ssao_intensity 0",
+                 "wait 3","snap ao_intensity","hoverp scene.effects.icing 0","wait 3","snap icing",
+                 "clickp scene.sky 0","wait 6","hoverp scene.sky.refraction 0","wait 3","snap refraction",shot("scene_atmosphere"),"snap final"]
+    result,data=run_ui_script(quads,"ui_layers",commands,extra=["--isolated","--show-telemetry"])
+    snaps=data.get("snaps",[])
+    check(result.returncode==0 and not data.get("failed",True) and not data.get("errors"),f"layer UI script completed ({data.get('errors')})")
+    conflicts=[snap["label"] for snap in snaps if snap.get("idConflict",-1)!=0 or snap.get("hoveredIdCount",0)>1]
+    check(not conflicts,f"no ImGui ID conflict on layer controls {conflicts}")
+    check(len(snaps)>=40,f"all layer panels exercised ({len(snaps)} snapshots)")
+    check(max((snap["glErrors"] for snap in snaps),default=-1)==0,"layer UI: zero GL errors")
+    by_label={snap["label"]:snap for snap in snaps}
+    tags=lambda label:{p["tag"] for p in by_label.get(label,{}).get("probes",[])}
+    check("vp.render_mode" in tags("viewport_render") and not any(t.startswith("vp.override.") for t in tags("viewport_render")),"viewport shows render mode and no Scene/Off/On controls")
+    check("quality.ibl.details" not in tags("ibl_ui_off") and "quality.ibl.details" in tags("ibl_ui_on"),
+          "IBL off hides dependent filter controls, non-off restores them")
+    check("quality.ssao_resolution" in tags("ao_ui_on") and "quality.ssao_resolution" not in tags("ao_ui_off"),
+          "SSAO off hides resolution, non-off restores it")
+    check("quality.shadow.details" in tags("shadow_ui_on") and "quality.shadow.details" not in tags("shadow_ui_off"),
+          "shadow map off hides cascade/tuning controls")
+    check("vp.tab.post" not in tags("viewport_render") and "vp.ground.type" not in tags("viewport_camera"),"viewport has no lens tab or ground appearance")
+    check({"settings.ext.interior_sky_reflection","settings.ext.decal_tolerance"}<=tags("vendor_reflection"),"ASOBO tuning appears with its vendor group")
+    for filename in ("viewport_settings","toolbar_gear","status_quality_combo","quality_presets","quality_current","scene_inspector","scene_ground_plane","scene_ground_ocean","gltf_extensions_tuning"):
+        check((REVIEW/(filename+".png")).exists(),f"review screenshot {filename}.png")
 
 
 def check_persistence(quads):
-    print("[persistence: --isolated writes nothing; only non-default values]")
-    data_dir = Path(tempfile.mkdtemp(prefix="glider_scopes_"))
+    print("[Quality and ASOBO tuning migration/persistence; CLI session isolation; default pruning]")
+    data_dir = OUT / "persistence_layers"
+    if data_dir.exists(): shutil.rmtree(data_dir)
+    data_dir.mkdir(parents=True)
+    env = {"GLIDER_DATA_DIR": str(data_dir)}
+    ini = data_dir / "settings.ini"
+    _,rows = follow(quads,"layers_isolated",QUAD_VIEW,["wait 4","set_persist true","set_viewport_setting reflections off",
+        "set_viewport_setting decal_tolerance_mm 2.5","quit"],env_extra=env)
+    check(rows and all(r.get("ok") for r in rows) and not ini.exists(), "--isolated writes no persistent layer state")
+    ini.write_text("; Glider settings file (schema 1)\n[RenderQuality]\nshadows=0\nshadowResolution=4096\n"
+                   "[QualityProfiles]\nselection=2\nprofile1.ssr=0\nprofile1.ssrQuality=2\nprofile1.ibl=0\nprofile1.bloom=1\nprofile1.ssaoQuality=2\n",encoding="utf-8")
+    # QUAD_VIEW carries --bloom off, which is a Quality session override now; the migration session leaves
+    # it out so get_state shows the migrated profile's bloom rather than the CLI override.
+    migration_view = [a for i, a in enumerate(QUAD_VIEW) if a != "--bloom" and (i == 0 or QUAD_VIEW[i - 1] != "--bloom")]
+    session = Session(quads,migration_view,env_extra=env,isolated=False)
     try:
-        env = {"GLIDER_DATA_DIR": str(data_dir)}
-        _, rows = follow(quads, "persist_isolated", QUAD_VIEW,
-                         ["wait 4", "set_persist true", "set_viewport_setting msaa 4", "set_environment ssao true",
-                          "set_viewport_setting viewport_ssr off", "set_viewport_setting shadows_allowed false",
-                          "set_viewport_setting shadow_resolution 4096", "wait 4", "quit"], env_extra=env)
-        check(rows and all(r.get("ok") for r in rows), f"isolated script ran ({[r for r in rows if not r.get('ok')][:2]})")
-        check(not any(data_dir.iterdir()), f"--isolated: nothing written to GLIDER_DATA_DIR ({sorted(p.name for p in data_dir.iterdir())})")
-
-        session = Session(quads, QUAD_VIEW, env_extra=env, isolated=False)
-        settings = data_dir / "settings.ini"
-        before = settings.read_text(encoding="utf-8") if settings.exists() else None
-        try:
-            for key, value in (("msaa", "4"), ("ssao_quality", "high"), ("viewport_ssao", "on")):
-                session.vset(key, value)
-            session.eset("ssr", False)
-            session.eset("shadows", False)
-            after = settings.read_text(encoding="utf-8") if settings.exists() else None
-            check(after == before, "pipe edits of quality / scene / override keys write no settings.ini")
-            refused = session.request("set_viewport_setting", key="shadows_allowed", value=False)
-            check(not refused["ok"] and refused["error"]["code"] == "persist_required",
-                  "shadows_allowed is a saved preference (needs set_persist)")
-            session.call("set_persist", enabled=True)
-            session.vset("shadows_allowed", False)
-            text = settings.read_text(encoding="utf-8") if settings.exists() else ""
-            section = [line for line in text.splitlines() if line and not line.startswith(";")]
-            check("[RenderQuality]" in text and "shadows=0" in text and "msaa" not in text and "ssao" not in text,
-                  f"set_persist + shadows_allowed false writes [RenderQuality] shadows=0 only ({section})")
-            session.vset("shadows_allowed", True)
-            text = settings.read_text(encoding="utf-8") if settings.exists() else ""
-            check("shadows=" not in text, "back to the default: the value is removed again")
-            errors = session.close()
-            check(errors == 0, f"persistence session: {errors} GL errors")
-        except Exception as error:  # noqa: BLE001
-            check(False, f"persistence session failed: {error}")
-            session.process.kill()
-    finally:
-        shutil.rmtree(data_dir, ignore_errors=True)
+        q = session.call("get_state")["quality"]["configured"]
+        check(q["shadowMap"] == 0 and q["shadowResolution"] == 4096 and q["reflections"] == "off" and q["ssrQuality"] == "high"
+              and q["iblCube"] == 0 and q["bloom"], "old gates + budgets migrate without losing choices")
+        before = ini.read_text(encoding="utf-8")
+        session.vset("reflections","high")
+        check(ini.read_text(encoding="utf-8") == before, "session edit does not save")
+        session.call("set_persist",enabled=True)
+        session.vset("ssao_level","high")
+        session.vset("msaa","0")
+        session.vset("interior_sky_reflection",0.2)
+        session.vset("decal_tolerance_mm",2.5)
+        check(session.close() == 0, "migration session: zero GL errors")
+        saved = ini.read_text(encoding="utf-8")
+        check("msaaIdx=0" in saved, "MSAA Off is persisted when it overrides the selected preset's nonzero MSAA")
+        check("[GltfExtensions]" in saved and "decal_tolerance_mm=2.5" in saved and "ssaoEnabled=1" in saved, "only canonical non-default values saved")
+        session = Session(quads,QUAD_VIEW,env_extra=env,isolated=False)
+        q = session.call("get_state")["quality"]["configured"]
+        check(q["reflections"] == "off" and q["ssaoLevel"] == "high" and q["shadowMap"] == 0, "restart restores persisted Quality, not session SSR edit")
+        check(abs(session.call("get_viewport_setting",key="interior_sky_reflection")["value"]-0.2)<1e-6 and
+              session.call("get_viewport_setting",key="decal_tolerance_mm")["value"] == 2.5, "ASOBO tuning survives restart")
+        session.close()
+        session = Session(quads,QUAD_VIEW+["--ssr","on","--decal-tolerance","3"],env_extra=env,isolated=False)
+        session.call("set_persist",enabled=True)
+        session.vset("lens_flare_intensity",2)
+        session.close()
+        session = Session(quads,QUAD_VIEW,env_extra=env,isolated=False)
+        q=session.call("get_state")["quality"]["configured"]
+        check(q["reflections"] == "off" and q["lensFlareIntensity"] == 2 and
+              session.call("get_viewport_setting",key="decal_tolerance_mm")["value"] == 2.5,
+              "unrelated save never persists CLI SSR/vendor overrides")
+        session.call("set_persist",enabled=True)
+        for key,value in (("ssao_level","off"),("interior_sky_reflection",0.5),("decal_tolerance_mm",1.2),("lens_flare_intensity",1)):
+            session.vset(key,value)
+        session.eset("ground","plane")
+        session.eset("ssao_radius",0.7)
+        session.close()
+        text=ini.read_text(encoding="utf-8")
+        check("[GltfExtensions]" not in text and "ssaoEnabled=" not in text and "lensFlareIntensity=" not in text,
+              "default values are pruned; vendor section becomes empty and is removed")
+        check("ground=" not in text and "ssaoRadius=" not in text, "scene surface and look values are never saved")
+        session = Session(quads,QUAD_VIEW,env_extra=env,isolated=False)
+        check(session.call("get_state")["environment"]["ground"]["mode"] == "off" and
+              abs(session.call("get_environment",key="ssao_radius")["value"]-0.5)<1e-6, "scene ground/AO appearance reset after restart")
+        session.close()
+        precedence = data_dir / "precedence"
+        precedence.mkdir()
+        (precedence/"settings.ini").write_text("; Glider settings file (schema 1)\n[QualityProfiles]\nselection=3\n"
+            "profile2.ssrEnabled=0\nprofile2.ssr=1\nprofile2.ssaoEnabled=1\n",encoding="utf-8")
+        session = Session(quads,QUAD_VIEW,env_extra={"GLIDER_DATA_DIR":str(precedence)},isolated=False)
+        q = session.call("get_state")["quality"]["configured"]
+        check(q["reflections"] == "off" and q["ssaoLevel"] != "off", "new explicit profile fields win over later legacy gates")
+        session.call("set_persist",enabled=True)
+        session.vset("lens_flare_intensity",0.5)
+        session.close()
+        session = Session(quads,QUAD_VIEW,env_extra={"GLIDER_DATA_DIR":str(precedence)},isolated=False)
+        check(session.call("get_state")["quality"]["configured"]["reflections"] == "off", "canonical migration survives a second restart")
+        session.close()
+    except Exception as error:
+        check(False,f"layer persistence failed: {error}")
+        session.process.kill(); session.process.wait()
 
 
 EXT = "ASOBO_material_windshield_v3"
@@ -786,7 +753,7 @@ def check_extension_persistence(ssr):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--baseline-exe", default=str(REPO / "build" / "baselines" / "31b1c2b.exe"))
+    parser.add_argument("--baseline-exe", default=str(REPO / "build" / "baselines" / "7f9ff37.exe"))
     parser.add_argument("--only", default=None, help="comma-separated: baseline,pipe,overrides,viewports,ui,persistence,extensions")
     args = parser.parse_args()
     only = set(args.only.split(",")) if args.only else None

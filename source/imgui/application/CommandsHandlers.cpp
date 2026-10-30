@@ -684,7 +684,9 @@ void Application::registerAgentCommands()
                 return CommandReply::failure("unknown_render_mode", "unknown debug view: " + mode);
             }
             markViewport(vp);
-            return CommandReply::success({{"renderMode", renderModeName(vp->settings.renderMode)}, {"viewport", vp->id}});
+            const std::string resolved = vp->settings.renderMode == ux3d::renderer::RenderMode::None && vp->settings.postEffects
+                                             ? "shaded_post" : renderModeName(vp->settings.renderMode);
+            return CommandReply::success({{"renderMode", resolved}, {"viewport", vp->id}});
         };
         spec.legacyResult = [](const json& args, const json&) { return args["mode"]; };
         agentRegistry.add(std::move(spec));
@@ -754,9 +756,11 @@ void Application::registerAgentCommands()
                     if (!modelLoaded) return CommandReply::failure("load_failed", "failed to reload: " + path);
                     for (auto& env : sceneEnvironments) env = agentStartupEnvironment;
                     // Settings scopes: the AA and effect quality were viewport settings, which reset restored.
-                    ux3d::imgui::RenderQuality::settings().copyEffectQuality(agentStartupQuality);
+                    ux3d::imgui::RenderQuality::settings() = agentStartupQuality;
+                    ux3d::imgui::RenderQuality::observeSessionEdit();
                     // The glTF extension switches are an app setting: back to the startup (saved + flags) set.
                     ux3d::imgui::GltfExtensionSettings::instance().restore(agentStartupGltfExtensions);
+                    ux3d::imgui::GltfExtensionSettings::instance().restoreTuning(agentStartupVendorTuning);
                     for (const auto& vp : viewports) {
                         if (!vp) continue;
                         vp->settings = agentStartupViewportSettings;
@@ -819,6 +823,8 @@ void Application::registerAgentCommands()
                 if (other) other->antiAliasing.resetHistory();
             }
         }
+        if (affected == SettingScope::Renderer && context.source == agent::CommandSource::Pipe && context.persist)
+            ux3d::imgui::RenderQuality::commitSetting(spec->key);
         if (spec->persisted && context.source == agent::CommandSource::Pipe && context.persist) {
             ux3d::imgui::RenderQuality::save();
         }

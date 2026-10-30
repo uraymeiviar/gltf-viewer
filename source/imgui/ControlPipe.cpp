@@ -110,12 +110,18 @@ bool ControlPipe::start(std::function<void()> wake, std::string& error)
         OVERLAPPED connectOv{};
         // A client can open the instance before ConnectNamedPipe runs (ERROR_PIPE_CONNECTED);
         // no overlapped operation is pending then, so its result is not asked for.
+        // A client can also open and close it again before ConnectNamedPipe runs (ERROR_NO_DATA,
+        // e.g. a script polling os.path.exists on the pipe). Any such failure leaves no pending
+        // connect, and the instance would never listen again: every later client then sees
+        // ERROR_PIPE_BUSY. It is reported like a connect, closed and replaced by a new instance.
         bool connectedEarly = false;
+        bool connectFailed = false;
         auto beginConnect = [&] {
             ResetEvent(connectEvent);
             connectOv = OVERLAPPED{};
             connectOv.hEvent = connectEvent;
             connectedEarly = false;
+            connectFailed = false;
             if (ConnectNamedPipe(listen, &connectOv)) {
                 SetEvent(connectEvent);
                 return;
@@ -123,6 +129,9 @@ bool ControlPipe::start(std::function<void()> wake, std::string& error)
             const DWORD code = GetLastError();
             if (code == ERROR_PIPE_CONNECTED) {
                 connectedEarly = true;
+                SetEvent(connectEvent);
+            } else if (code != ERROR_IO_PENDING) {
+                connectFailed = true;
                 SetEvent(connectEvent);
             }
         };
@@ -241,7 +250,8 @@ bool ControlPipe::start(std::function<void()> wake, std::string& error)
                 }
             } else if (signalled == WAIT_OBJECT_0 + 1) {
                 DWORD ignored = 0;
-                const bool connected = connectedEarly || GetOverlappedResult(listen, &connectOv, &ignored, FALSE);
+                const bool connected =
+                    !connectFailed && (connectedEarly || GetOverlappedResult(listen, &connectOv, &ignored, FALSE));
                 ResetEvent(connectEvent);
                 HANDLE client = listen;
                 listen = createInstance(wideName, m_securityDescriptor, false);

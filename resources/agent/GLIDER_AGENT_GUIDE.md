@@ -51,7 +51,7 @@ Commands run on the render thread between frames, strictly in order. Multi-frame
 4. `capture(overlays=false)` and look at the image (`encoding="png-base64"` returns it inline; the MCP server
    always returns it as an image).
 5. `pick(x, y)` / `probe(x, y)` at a pixel of that image to ask what is there and what colour it has.
-6. `set_render_mode("roughness")`, `set_viewport_setting("viewport_ssr", "off")`, `set_environment("exposure", 1)`
+6. `set_render_mode("roughness")`, `set_viewport_setting("reflections", "off")`, `set_environment("exposure", 1)`
    ... then capture again to compare.
 7. `reset` returns to the startup state.
 
@@ -98,38 +98,37 @@ Commands run on the render thread between frames, strictly in order. Multi-frame
   clock. `time_of_day` (`day`, `night`, `auto`) stays the ASOBO emissive switch; `auto` follows the sun elevation
   (`night_threshold`). `get_state` `timeOfDay` has the computed sun (true azimuth, elevations, fade), sunrise and
   sunset, and the moon (position, phase). Colour and intensity are the Manual sun's.
-- Shadows (A3.2): on by default while the sun is on. The switch is the scene's: `set_environment shadows false`
-  (a viewport overrides it with `set_viewport_setting viewport_shadows scene|off|on`). The map is renderer-wide
-  quality through `set_viewport_setting`: `shadow_resolution` (1024/2048/4096), `shadow_cascades` (2-4),
-  `shadow_distance` (scene units: metres for MSFS files, centimetres for some samples), `shadow_filter`
-  (hard/pcf/soft), `shadow_split_lambda`, `shadow_normal_bias`, `shadow_slope_bias`, `shadow_constant_bias`, and the
-  presets' gate `shadows_allowed`. Those are saved preferences: call `set_persist(true)` first. `get_state` `sun.shadows` lists each viewport's cascades (depth range, radius,
-  texel size) and the caster counts.
+- Shadows (A3.2): on by default while the sun is on. Quality `shadow_map` chooses off / 1024 / 2048 / 4096;
+  `set_environment shadows false` is a compatibility forwarder to the global Quality enable bit. The old
+  `viewport_shadows` key warns and does nothing. Every viewport keeps its own fitted cascades; `shadow_resolution`,
+  `shadow_cascades`, `shadow_distance`, `shadow_filter`, `shadow_split_lambda`, `shadow_normal_bias`,
+  `shadow_slope_bias`, `shadow_constant_bias` are Quality. The old `shadows_allowed` name is accepted.
+  Saved preferences require `set_persist(true)`; CLI and ordinary script edits stay session-only.
+  `get_state sun.shadows` lists each viewport's cascades and caster counts.
 - Debug views `shadowcascades` (red/green/blue/yellow per cascade, grey beyond) and `shadowvisibility` (1 lit,
   0 shadowed; `probe` reads the value directly).
 
 ## Settings scopes
 
-- Four places (docs/SETTINGS_SCOPES.md): the **app settings** (the glTF extension switches, below), renderer-wide **quality** (`aa`, `msaa`, `post_aa`, `ssr_quality`,
-  `ssao_quality`, `ssao_resolution`, `sky_occlusion_quality`, `ocean_quality`, `grid_mode`, the
-  `shadow_*` map keys, `shadows_allowed`; set them with `set_viewport_setting`, they apply to every viewport); the
-  **scene** (`set_environment`: `shadows`, `ssr`, `interior_sky_reflection`, `ssao`, `ssao_radius`, `ssao_intensity`,
-  `windshield_icing`, `sky_portal_strength`, `decal_tolerance_mm`, besides sun, sky, exposure, bloom, ambient); the
-  **viewport** (`set_viewport_setting`: render mode, wireframe, grid, ground / ocean, lens effect,
-  and the overrides `viewport_shadows`, `viewport_ssr`, `viewport_ssao` = `scene` (default) / `off` / `on`).
-- The former keys still work where they were: the viewport keys `msaa`, `ssr_quality`, `ssao_radius`, ... forward
-  to the quality or the scene; the viewport keys `ssr` / `ssao` set that viewport's override; the renderer key
-  `shadows` is the scene's switch. `get_state`: `quality` (configured / effective), `environment.effects`,
-  `viewports[].overrides` and `viewports[].effective`.
-- **glTF extension switches are an app setting, not a viewport setting** (File > Settings > glTF Extensions). One
-  global set for every viewport and model, keyed by extension name: `asobo` (the master switch of the ASOBO group),
-  `show_invisible_materials`, and one key per extension (`ASOBO_material_detail_map`, ... see `list_settings`;
-  other vendors' extensions join the same way). The canonical keys are in the `renderer` scope; the former viewport
-  keys still work and set the global value (a `viewport` argument changes nothing: both viewports always share the
-  set). A `set_viewport_setting` / `--asobo` / `--asobo-disable` change applies to this run only and is not saved; with
-  `set_persist(true)` the key you set is also saved to `settings.ini` `[GltfExtensions]` (one `name=0` line per
-  switched-off name, `ASOBO=0` for the master switch). `get_state` `gltfExtensions`: `vendors`, `extensions`,
-  `disabled` (this run), `saved`.
+Quality owns effect levels and all cost settings; Scene owns appearance, environment, ground and ocean appearance;
+Viewport owns camera / overlays / shading. `set_viewport_setting reflections off|low|mid|high`, `ssao_level`,
+`shadow_map off|1024|2048|4096`, `ibl_cube off|256|512|1024` use the renderer fallback. Old `ssr`, `ssao`, `shadows`,
+`shadows_allowed`, bloom / IBL / lights, ocean mode / play, lens mode / intensity and sky occlusion map to Quality.
+Old environment and viewport keys forward to their new homes. `viewport_shadows`, `viewport_ssr`, `viewport_ssao`
+are warned no-ops. `shaded_post` is the default render mode; `shaded` omits post AA, bloom, lens effects, SSR and
+SSAO, preserving shadows / tone mapping. The grid is a per-view overlay at the scene surface height.
+
+One ocean simulation / clock belongs to each scene and is shared by every viewport. `ground grid` aliases off.
+`ground_grid` now aliases the independent viewport grid. No scene or viewport state is persisted. Quality profiles
+carry every cost setting and read old gate / budget keys without losing retained budgets. `set_persist(true)`
+commits only the requested Quality key; CLI / ordinary script overrides stay session-only through unrelated saves.
+
+ASOBO app tuning (`interior_sky_reflection`, `decal_tolerance_mm`) lives with extension switches in
+`[GltfExtensions]`; effective / saved values are independent. Sky portals are implicit with either source at
+default 0.35; disable ASOBO_sky_portal to remove them. `sky_portal_strength` / `--sky-portal-strength` stays a hidden
+compatibility override. Lens intensity is Quality, default 1; modes preserve off / ghosts / streak / both.
+`get_state` reports Quality levels, `environment.ground`, `viewports[].postEffects/effective`, and vendor
+`gltfExtensions.tuning/savedTuning`, retaining old fields for scripts. See docs/SETTINGS_SCOPES.md for all mappings.
 
 ## Procedural sky (A6.2 / A6.3)
 
@@ -166,7 +165,7 @@ Commands run on the render thread between frames, strictly in order. Multi-frame
 - `probe` reads the disk's linear radiance (with `rangeScale`). Mirror-like surfaces and windshields show the sun
   through the A3.1 specular highlight (GGX widened by the angular radius: peak E / (pi tan^2 R), the disk's size).
 - Glare is the scene bloom (`bloom`, `bloom_intensity`): `bloom false` leaves the disk with a sharp edge. The lens
-  effect is per viewport: `set_viewport_setting lens_flare ghosts|streak|both|off` (default off; `on` = both) and
+  effect is global Quality: `set_viewport_setting lens_flare ghosts|streak|both|off` (default off; `on` = both) and
   `lens_flare_intensity` (1); it is built from the bloom mips and only light far above white flares.
 
 ## Exposure, moon, stars, night (A6.4 / A6.5 / A6.6)
@@ -202,15 +201,14 @@ Commands run on the render thread between frames, strictly in order. Multi-frame
 
 ## Ground (A3.6)
 
-- `set_viewport_setting ground plane` replaces the editor grid by an infinite horizontal ground plane in the scene
+- `set_viewport_setting ground plane` sets the shared scene surface to an infinite horizontal ground plane in the scene
   (shaded views only; it is lit by the environment and the sun, receives the sun's shadows, fades into the horizon
   and is not pickable: `pick` / `probe` see through it to the background).
 - Height: `ground_height_mode` `model_base` (default: the lowest point of the model, from the static glTF pose;
   ground support equipment such as stairs counts), `zero`, or `custom` with `ground_height` (scene units).
 - Surface: `ground_preset` (`concrete` with slab joints, `grass`, `sand`, `grey`; sets the next four keys),
   `ground_color` (linear albedo), `ground_roughness`, `ground_detail`, `ground_detail_scale`,
-  `ground_joint_spacing`; fog: `ground_haze` (visibility distance, 0 = automatic). `ground_grid true` draws the grid
-  on the plane. Editing a surface key marks the preset `custom`.
+  `ground_joint_spacing`; fog: `ground_haze` (visibility distance, 0 = automatic). `ground_grid true` enables the independent viewport overlay at the scene surface height. Editing a surface key marks the preset `custom`.
 - `get_state` `ground` reports the mode, the resolved `height`, `modelBase`, and the `albedo` (the value the A6.2
   sky will read). `probe` returns the plane's linear colour like any pixel: with `sun` on and the shadows on, the
   shadow of the model on the plane is visible in it.
@@ -229,7 +227,7 @@ Commands run on the render thread between frames, strictly in order. Multi-frame
   the new one is complete), in capture runs at once.
 - Look: `ocean_foam` (0..1; 0.5 is the whitecap coverage observed at that wind speed, about 1% at 10 m/s and 10% at
   20 m/s), `ocean_color` (linear water body colour).
-- Time: the sea follows a per-viewport clock; capture runs (`capture`, `--fixed-frame-time`) advance it only by the
+- Time: the sea follows a shared per-scene clock; capture runs (`capture`, `--fixed-frame-time`) advance it only by the
   fixed frame time. `ocean_time` pins it (seconds, -1 follows the clock) for reproducible images; `ocean_play false`
   holds the clock. A looping set repeats exactly every `ocean_period` seconds (time t and t + period are the same
   image). `ocean_mode live` runs the FFT every frame instead (no loop; 512^2 at high quality; `ground.ocean.live`
@@ -243,9 +241,10 @@ Commands run on the render thread between frames, strictly in order. Multi-frame
 
 ## Ambient occlusion (A3.5)
 
-- `set_environment ssao true` turns on screen-space ambient occlusion (GTAO) for the scene, i.e. every viewport
-  (off by default; Auto quality never changes it); `set_viewport_setting viewport_ssao off|on|scene` overrides it in one
-  viewport (the older `set_viewport_setting ssao true` sets that viewport's override to on). It darkens only the sky light (IBL diffuse, specular, sheen, clearcoat) of OPAQUE
+- `set_viewport_setting ssao_level low|mid|high` enables Quality SSAO (GTAO), off disables it. The older
+  `set_environment ssao true` / `set_viewport_setting ssao true` set the same global enable bit. The deprecated
+  `viewport_ssao` key warns and does nothing. Shaded omits SSAO for one view. It darkens only the sky light
+  (IBL diffuse, specular, sheen, clearcoat) of OPAQUE
   and MASK surfaces, combined with the authored occlusion maps as `min(authored, SSAO)`; the sun, punctual lights,
   emissive, BLEND / transmission surfaces, the background and the A3.6 ground plane are never changed by it.
 - Keys: scene `ssao_radius` (world units, metres in MSFS files; default 0.5), `ssao_intensity` (exponent, default 1,

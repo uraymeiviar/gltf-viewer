@@ -318,10 +318,14 @@ int Application::run(int argc, char** argv)
     gltfLayer->renderSettings.enableSpecular = true;
 
     if (const auto exitCode = configure(argc, argv)) return *exitCode;
+    ux3d::imgui::RenderQuality::beginSession();
     // The agent `reset` command returns to the state the startup flags produced.
     if (activeViewport != nullptr) agentStartupViewportSettings = activeViewport->settings;
     agentStartupEnvironment = getSceneEnvironment(sceneEnvironments, gltfModel, activeScene);
+    agentStartupEnvironment.oceanSimulation.reset();
+    agentStartupEnvironment.oceanUpdateFrame = ~uint64_t(0);
     agentStartupQuality = ux3d::imgui::RenderQuality::settings();
+    agentStartupVendorTuning = ux3d::imgui::GltfExtensionSettings::instance().tuningSnapshot();
     agentStartupGltfExtensions = ux3d::imgui::GltfExtensionSettings::instance().snapshot();
     resolveAllViewportSettings();
     if (controlPipeArg) startControlPipe();
@@ -435,6 +439,8 @@ int Application::run(int argc, char** argv)
     gridRenderer.cleanup();
     bboxRenderer.cleanup();
     viewports.clear();
+    for (auto& environment : sceneEnvironments) environment.oceanSimulation.reset();
+    agentStartupEnvironment.oceanSimulation.reset();
     pickingTarget = ux3d::imgui::Framebuffer();
     if (glRenderer != nullptr) {
         glRenderer->uninit();

@@ -8,12 +8,13 @@
 
 namespace ux3d::imgui {
 
-// A3.6: what a viewport draws on the ground (docs/ASOBO_EXTENSIONS_PHASE_3.md). Grid is the editor's
-// infinite grid overlay (the default, unchanged). Plane is an infinite horizontal surface rendered into the
+// The scene's ground surface (shared by every viewport). Off has no surface; the viewport
+// grid remains an independent overlay. Plane is an infinite horizontal surface rendered into the
 // linear HDR scene target. Ocean (A6.8, docs/ASOBO_EXTENSIONS_PHASE_6.md) is an animated FFT sea surface at the
 // same height; it needs an OpenGL 4.3+ context (compute shaders) and is unavailable below.
 enum class GroundMode : int {
-    Grid = 0,
+    Off = 0,
+    Grid = Off, // legacy C++ spelling; the grid is an independent viewport overlay
     Plane = 1,
     Ocean = 2,
 };
@@ -25,7 +26,7 @@ enum class OceanQuality : int {
     High = 2,
 };
 
-// A6.8: the ocean's settings (per viewport, part of GroundSettings). Wind direction uses the sun's azimuth convention
+// A6.8: the scene ocean appearance and resolved Quality mirrors (part of GroundSettings). Wind direction uses the sun's azimuth convention
 // (around +Y from +Z towards +X) and names the direction the wind comes FROM (aviation and meteorology), so the waves
 // travel towards windDirection + 180 degrees. Simulation fields (wind, fetch, choppiness, swell, quality, period)
 // recompute the precomputed loop (or rebuild the live set); foam, colour, time and play are applied while rendering.
@@ -87,7 +88,7 @@ inline const std::array<GroundPresetInfo, 4>& groundPresets()
 }
 
 struct GroundSettings {
-    GroundMode mode = GroundMode::Grid;
+    GroundMode mode = GroundMode::Off;
     GroundHeightMode heightMode = GroundHeightMode::ModelBase;
     float customHeight = 0.0f; // scene units; used by GroundHeightMode::Custom
     GroundPreset preset = GroundPreset::Concrete;
@@ -97,7 +98,6 @@ struct GroundSettings {
     float detailScale = groundPresets()[0].detailScale;
     float jointSpacing = groundPresets()[0].jointSpacing;
     float haze = 0.0f;      // visibility distance of the horizon fog, scene units; 0 = automatic (0.9 x far plane)
-    bool showGrid = false;  // draw the editor grid on top of the plane (the viewport's Grid switch must be on too)
     OceanSettings ocean;    // A6.8: used while mode is Ocean (the height fields above give its sea level)
 
     // Copies a preset's values into the surface fields (Custom leaves them as they are).

@@ -728,14 +728,10 @@ std::optional<int> Application::configure(int argc, char** argv)
                 applyCliSetting(SettingScope::Environment, "tone_mapping", "hill", "--tone-mapping");
             }
         } else if (arg == "--render-mode" && i + 1 < argc) {
-            // Only wireframe and shaded; other values are ignored, as before.
-            const std::string rmVal = toLowerAscii(argv[++i]);
-            std::string error;
-            if (rmVal == "wireframe" || rmVal == "1") {
-                applySettingValue(SettingScope::Viewport, "render_mode", "wireframe", &activeViewport->settings, nullptr, error);
-            } else if (rmVal == "default" || rmVal == "shaded" || rmVal == "0" || rmVal == "none") {
-                applySettingValue(SettingScope::Viewport, "render_mode", "shaded", &activeViewport->settings, nullptr, error);
-            }
+            std::string mode = toLowerAscii(argv[++i]);
+            if (mode == "1") mode = "wireframe";
+            if (mode == "0" || mode == "default" || mode == "none") mode = "shaded_post";
+            if (!applyCliSetting(SettingScope::Viewport, "render_mode", mode, "--render-mode")) return 1;
         } else if (std::string qualityError; ux3d::imgui::RenderQuality::parseArgument(argc, argv, i, qualityError)) {
             // Already applied by the pre-scan; this only skips the flag and its value.
         } else if (!arg.empty() && arg[0] != '-') {

@@ -1,7 +1,7 @@
 # Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
 """A3.6: the ground plane (docs/ASOBO_EXTENSIONS_PHASE_3.md, A3.6).
 
-A viewport's ground is the editor grid (--ground grid, the default) or an infinite horizontal plane
+A scene's ground is off (--ground off; legacy grid alias, the default) or an infinite horizontal plane
 (--ground plane) rendered into the linear HDR scene target by per-pixel ray intersection (ground.frag), lit by
 the IBL and by the A3.1 sun with the A3.2 shadow lookup, fogged into the environment's horizon.
 
@@ -441,7 +441,7 @@ def check_state_and_settings(black, zero):
         session.call("set_viewport_setting", key="ground", value="grid")
         session.settle()
         state = session.call("get_state")["ground"]
-        check(state["mode"] == "grid" and not state["active"], "ground grid: the plane is inactive")
+        check(state["mode"] == "off" and not state["active"], "ground grid compatibility alias: scene surface off, plane inactive")
         listed = {s["key"] for s in session.call("list_settings", scope="viewport")["settings"]}
         wanted = {"ground", "ground_height_mode", "ground_height", "ground_preset", "ground_color", "ground_roughness",
                   "ground_detail", "ground_detail_scale", "ground_joint_spacing", "ground_haze", "ground_grid"}
@@ -527,6 +527,8 @@ def check_grid_on_ground(black, zero):
              "--ground-joints", "0", "--ground-haze", "1e9"]
     off, report = render(zero, "gridon_off", common + plane + ["--ground-grid", "off"])
     on, _ = render(zero, "gridon_on", common + plane + ["--ground-grid", "on"])
+    hidden, _ = render(zero, "grid_hide", common + plane + ["--ground-grid", "on", "--hide-grid"])
+    check(hidden is not None and same(off, hidden), "--hide-grid and ground_grid off disable the same independent overlay")
     if off is None or on is None:
         check(False, "grid on ground renders")
         return

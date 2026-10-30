@@ -94,7 +94,9 @@ bool Application::applySettingValue(SettingScope scope, const std::string& key, 
         error = "no target for setting " + key;
         return false;
     }
-    return spec->set(target, coerced, error);
+    const bool ok = spec->set(target, coerced, error);
+    if (ok) ux3d::imgui::RenderQuality::observeSessionEdit();
+    return ok;
 }
 
 bool Application::applyCliSetting(SettingScope scope, const std::string& key, const std::string& value, const char* flag)
@@ -106,7 +108,8 @@ bool Application::applyCliSetting(SettingScope scope, const std::string& key, co
         std::fprintf(stderr, "Invalid %s %s: %s\n", flag, value.c_str(), error.c_str());
         return false;
     }
-    if (scope == SettingScope::Environment) cliEnvironmentSettings.emplace_back(key, value);
+    const auto* spec = agentRegistry.findSetting(scope, key);
+    if (spec && (spec->forwardsTo.value_or(scope) == SettingScope::Environment)) cliEnvironmentSettings.emplace_back(key, value);
     return true;
 }
 

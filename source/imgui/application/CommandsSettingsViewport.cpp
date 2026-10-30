@@ -12,6 +12,7 @@ void Application::registerAgentViewportSettings()
     using VS = ux3d::imgui::ViewportSettingsState;
     using ES = ux3d::imgui::SceneEnvironmentState;
     constexpr SettingScope V = SettingScope::Viewport;
+    constexpr SettingScope E = SettingScope::Environment;
     // Defaults come from default-constructed state, so they never drift from the structs.
     auto addSetting = [this](SettingSpec spec) {
         if (spec.scope == SettingScope::Viewport) {
@@ -26,29 +27,25 @@ void Application::registerAgentViewportSettings()
     using RQ = ux3d::imgui::RenderQuality;
 
     // --- Viewport: overrides of the scene's effects (settings scopes) ---
-    const auto overrideSetting = [&](std::string key, ux3d::imgui::EffectOverride VS::*member, std::string help, bool ssr) {
+    const auto overrideSetting = [&](std::string key, ux3d::imgui::EffectOverride VS::*member) {
         SettingSpec spec;
         spec.key = std::move(key);
         spec.scope = V;
         spec.type = SettingType::Enum;
-        spec.help = std::move(help);
+        spec.help = "Compatibility key: warned no-op. Use global Quality levels or render_mode shaded for a view without post effects.";
+        spec.compat = true;
         spec.enumValues = {"scene", "off", "on"};
         spec.enumAliases = {{"default", "scene"}, {"auto", "scene"}, {"false", "off"}, {"true", "on"}};
         spec.get = [member](void* t) { return json(ux3d::imgui::effectOverrideName(static_cast<VS*>(t)->*member)); };
-        spec.set = [member, ssr, values = spec.enumValues](void* t, const json& v, std::string&) {
-            static_cast<VS*>(t)->*member = static_cast<ux3d::imgui::EffectOverride>(
-                std::find(values.begin(), values.end(), v.get<std::string>()) - values.begin());
-            if (ssr) RQ::pinSsr();
+        spec.set = [](void*, const json&, std::string&) {
+            ux3d::core::logWarning("viewport effect override is a compatibility no-op; use Quality levels or Shaded");
             return true;
         };
         addSetting(std::move(spec));
     };
-    overrideSetting("viewport_shadows", &VS::shadowsOverride,
-                    "This viewport's sun shadows: scene (follow the scene's shadows, default), off or on.", false);
-    overrideSetting("viewport_ssr", &VS::ssrOverride,
-                    "This viewport's windshield SSR: scene (follow the scene's ssr, default), off or on.", true);
-    overrideSetting("viewport_ssao", &VS::ssaoOverride,
-                    "This viewport's SSAO: scene (follow the scene's ssao, default), off or on.", false);
+    overrideSetting("viewport_shadows", &VS::shadowsOverride);
+    overrideSetting("viewport_ssr", &VS::ssrOverride);
+    overrideSetting("viewport_ssao", &VS::ssaoOverride);
 
     // --- Viewport: shading and overlays ---
     {
@@ -57,19 +54,21 @@ void Application::registerAgentViewportSettings()
         spec.aliases = {"debug_view"};
         spec.scope = V;
         spec.type = SettingType::Enum;
-        spec.help = "Shaded, wireframe or a debug render mode (View menu names; spaces, _ and - are ignored).";
-        spec.cliFlag = "--debug-view <name> / --render-mode <shaded|wireframe>";
+        spec.help = "Shaded + post effects (shaded_post, default), Shaded without post effects, wireframe or a debug render mode (View menu names; spaces, _ and - are ignored).";
+        spec.cliFlag = "--debug-view <name> / --render-mode <shaded_post|shaded|wireframe>";
         spec.enumValues = renderModeNames();
-        spec.enumAliases = {{"default", "shaded"}, {"none", "shaded"}};
-        spec.get = [this](void* t) { return json(renderModeName(static_cast<VS*>(t)->renderMode)); };
+        spec.enumValues.push_back("shaded_post");
+        spec.enumAliases = {{"default", "shaded_post"}, {"none", "shaded_post"}, {"shaded+posteffects", "shaded_post"}};
+        spec.get = [this](void* t) { return json(static_cast<VS*>(t)->renderMode == ux3d::renderer::RenderMode::None && static_cast<VS*>(t)->postEffects ? "shaded_post" : renderModeName(static_cast<VS*>(t)->renderMode)); };
         spec.set = [this](void* t, const json& v, std::string& error) {
-            const auto mode = getRenderModeFromName(v.get<std::string>());
+            const auto mode = getRenderModeFromName(v == "shaded_post" ? "shaded" : v.get<std::string>());
             if (!mode.has_value()) {
                 error = "unknown render mode " + v.get<std::string>();
                 return false;
             }
+            static_cast<VS*>(t)->postEffects = v != "shaded";
             static_cast<VS*>(t)->renderMode = mode.value();
-            static_cast<VS*>(t)->renderModeIdx = getIndexFromRenderMode(mode.value());
+            static_cast<VS*>(t)->renderModeIdx = v == "shaded" ? 38 : getIndexFromRenderMode(mode.value());
             return true;
         };
         addSetting(std::move(spec));
@@ -84,15 +83,16 @@ void Application::registerAgentViewportSettings()
         using GS = ux3d::imgui::GroundSettings;
         SettingSpec spec;
         spec.key = "ground";
-        spec.scope = V;
+        spec.scope = E;
         spec.type = SettingType::Enum;
-        spec.help = "What the viewport draws on the ground: the editor grid (default), an infinite ground plane "
+        spec.help = "Shared scene ground: off (default), an infinite ground plane "
                     "that receives IBL and the sun's shadow, or an animated FFT ocean (A6.8; needs OpenGL 4.3, "
                     "otherwise refused with a warning and the ground is kept).";
-        spec.cliFlag = "--ground <grid|plane|ocean>";
-        spec.enumValues = {"grid", "plane", "ocean"};
+        spec.cliFlag = "--ground <off|grid|plane|ocean>";
+        spec.enumValues = {"off", "plane", "ocean"};
+        spec.enumAliases = {{"grid", "off"}, {"none", "off"}};
         spec.get = [values = spec.enumValues](void* t) {
-            return json(values[static_cast<size_t>(static_cast<VS*>(t)->ground.mode)]);
+            return json(values[static_cast<size_t>(static_cast<ES*>(t)->ground.mode)]);
         };
         spec.set = [this, values = spec.enumValues](void* t, const json& v, std::string&) {
             const auto mode = static_cast<ux3d::imgui::GroundMode>(
@@ -106,14 +106,14 @@ void Application::registerAgentViewportSettings()
                 }
                 return true;
             }
-            static_cast<VS*>(t)->ground.mode = mode;
+            static_cast<ES*>(t)->ground.mode = mode;
             return true;
         };
         addSetting(std::move(spec));
 
         SettingSpec heightMode;
         heightMode.key = "ground_height_mode";
-        heightMode.scope = V;
+        heightMode.scope = E;
         heightMode.type = SettingType::Enum;
         heightMode.help = "Plane height: the scene's lowest point (model_base; static pose, animation does not move it), "
                           "Y = 0 (zero) or ground_height (custom).";
@@ -121,10 +121,10 @@ void Application::registerAgentViewportSettings()
         heightMode.enumValues = {"model_base", "zero", "custom"};
         heightMode.enumAliases = {{"model-base", "model_base"}, {"modelbase", "model_base"}, {"base", "model_base"}};
         heightMode.get = [values = heightMode.enumValues](void* t) {
-            return json(values[static_cast<size_t>(static_cast<VS*>(t)->ground.heightMode)]);
+            return json(values[static_cast<size_t>(static_cast<ES*>(t)->ground.heightMode)]);
         };
         heightMode.set = [values = heightMode.enumValues](void* t, const json& v, std::string&) {
-            static_cast<VS*>(t)->ground.heightMode = static_cast<ux3d::imgui::GroundHeightMode>(
+            static_cast<ES*>(t)->ground.heightMode = static_cast<ux3d::imgui::GroundHeightMode>(
                 std::find(values.begin(), values.end(), v.get<std::string>()) - values.begin());
             return true;
         };
@@ -134,7 +134,7 @@ void Application::registerAgentViewportSettings()
                                      std::optional<std::pair<double, double>> range, bool editsSurface) {
             SettingSpec f;
             f.key = key;
-            f.scope = V;
+            f.scope = E;
             f.type = SettingType::Float;
             f.help = help;
             f.cliFlag = cli;
@@ -143,9 +143,9 @@ void Application::registerAgentViewportSettings()
                 f.minimum = range->first;
                 f.maximum = range->second;
             }
-            f.get = [member](void* t) { return agent::floatJson(static_cast<VS*>(t)->ground.*member); };
+            f.get = [member](void* t) { return agent::floatJson(static_cast<ES*>(t)->ground.*member); };
             f.set = [member, editsSurface](void* t, const json& v, std::string&) {
-                auto& ground = static_cast<VS*>(t)->ground;
+                auto& ground = static_cast<ES*>(t)->ground;
                 ground.*member = static_cast<float>(v.get<double>());
                 if (editsSurface) ground.preset = ux3d::imgui::GroundPreset::Custom;
                 return true;
@@ -170,7 +170,7 @@ void Application::registerAgentViewportSettings()
 
         SettingSpec preset;
         preset.key = "ground_preset";
-        preset.scope = V;
+        preset.scope = E;
         preset.type = SettingType::Enum;
         preset.help = "Plane surface preset: sets colour, roughness and detail (concrete, grass, sand, grey); "
                       "custom keeps the current values.";
@@ -178,10 +178,10 @@ void Application::registerAgentViewportSettings()
         preset.enumValues = {"concrete", "grass", "sand", "grey", "custom"};
         preset.enumAliases = {{"tarmac", "concrete"}, {"gray", "grey"}};
         preset.get = [values = preset.enumValues](void* t) {
-            return json(values[static_cast<size_t>(static_cast<VS*>(t)->ground.preset)]);
+            return json(values[static_cast<size_t>(static_cast<ES*>(t)->ground.preset)]);
         };
         preset.set = [values = preset.enumValues](void* t, const json& v, std::string&) {
-            static_cast<VS*>(t)->ground.applyPreset(static_cast<ux3d::imgui::GroundPreset>(
+            static_cast<ES*>(t)->ground.applyPreset(static_cast<ux3d::imgui::GroundPreset>(
                 std::find(values.begin(), values.end(), v.get<std::string>()) - values.begin()));
             return true;
         };
@@ -189,47 +189,37 @@ void Application::registerAgentViewportSettings()
 
         SettingSpec color;
         color.key = "ground_color";
-        color.scope = V;
+        color.scope = E;
         color.type = SettingType::Color3;
         color.help = "Plane albedo (linear base colour, also the average albedo A6.2 reads); marks the preset custom.";
         color.cliFlag = "--ground-color <r,g,b>";
         color.get = [](void* t) {
-            const glm::vec3& c = static_cast<VS*>(t)->ground.albedo;
+            const glm::vec3& c = static_cast<ES*>(t)->ground.albedo;
             return json{agent::floatJson(c.r), agent::floatJson(c.g), agent::floatJson(c.b)};
         };
         color.set = [](void* t, const json& v, std::string&) {
-            auto& ground = static_cast<VS*>(t)->ground;
+            auto& ground = static_cast<ES*>(t)->ground;
             ground.albedo = glm::vec3(v[0].get<float>(), v[1].get<float>(), v[2].get<float>());
             ground.preset = ux3d::imgui::GroundPreset::Custom;
             return true;
         };
         addSetting(std::move(color));
 
-        SettingSpec onGround = boolSetting<VS>("ground_grid", V, &VS::showGrid, "", "--ground-grid <on|off>");
-        onGround.help = "Draw the grid on top of the ground plane (needs the viewport grid switch on).";
-        onGround.get = [](void* t) { return json(static_cast<VS*>(t)->ground.showGrid); };
-        onGround.set = [](void* t, const json& v, std::string&) {
-            static_cast<VS*>(t)->ground.showGrid = v.get<bool>();
-            return true;
-        };
-        addSetting(std::move(onGround));
-
-        // A6.8: the ocean (all its settings are in OceanSettings, per viewport, not persisted).
         using OS = ux3d::imgui::OceanSettings;
         const auto oceanFloat = [&](const char* key, float OS::*member, const char* help, const char* cli,
                                     std::pair<double, double> range) {
             SettingSpec f;
             f.key = key;
-            f.scope = V;
+            f.scope = E;
             f.type = SettingType::Float;
             f.help = help;
             f.cliFlag = cli;
             f.hasRange = true;
             f.minimum = range.first;
             f.maximum = range.second;
-            f.get = [member](void* t) { return agent::floatJson(static_cast<VS*>(t)->ground.ocean.*member); };
+            f.get = [member](void* t) { return agent::floatJson(static_cast<ES*>(t)->ground.ocean.*member); };
             f.set = [member](void* t, const json& v, std::string&) {
-                static_cast<VS*>(t)->ground.ocean.*member = static_cast<float>(v.get<double>());
+                static_cast<ES*>(t)->ground.ocean.*member = static_cast<float>(v.get<double>());
                 return true;
             };
             addSetting(std::move(f));
@@ -264,7 +254,7 @@ void Application::registerAgentViewportSettings()
         {
             SettingSpec c;
             c.key = "ocean_color";
-            c.scope = V;
+            c.scope = E;
             c.type = SettingType::Color3;
             c.help = "Water body colour, linear RGB 0..1: the light scattered back out of the water (times the sky's "
                      "diffuse light and the sun). The ocean's average albedo (0.066 + colour) feeds A6.2.";
@@ -273,43 +263,14 @@ void Application::registerAgentViewportSettings()
             c.minimum = 0.0;
             c.maximum = 1.0;
             c.get = [](void* t) {
-                const glm::vec3& v = static_cast<VS*>(t)->ground.ocean.color;
+                const glm::vec3& v = static_cast<ES*>(t)->ground.ocean.color;
                 return json{agent::floatJson(v.r), agent::floatJson(v.g), agent::floatJson(v.b)};
             };
             c.set = [](void* t, const json& v, std::string&) {
-                static_cast<VS*>(t)->ground.ocean.color = glm::vec3(v[0].get<float>(), v[1].get<float>(), v[2].get<float>());
+                static_cast<ES*>(t)->ground.ocean.color = glm::vec3(v[0].get<float>(), v[1].get<float>(), v[2].get<float>());
                 return true;
             };
             addSetting(std::move(c));
-        }
-        {
-            SettingSpec mode;
-            mode.key = "ocean_mode";
-            mode.scope = V;
-            mode.type = SettingType::Enum;
-            mode.help = "Ocean mode: loop (default; a precomputed set that repeats every ocean_period, per-frame cost is "
-                        "texture sampling) or live (the FFT runs every frame; 512^2 at high quality). A mode change builds "
-                        "the new set at once.";
-            mode.cliFlag = "--ocean-mode <loop|live>";
-            mode.enumValues = {"loop", "live"};
-            mode.enumAliases = {{"looping", "loop"}, {"precomputed", "loop"}};
-            mode.get = [](void* t) { return json(static_cast<VS*>(t)->ground.ocean.live ? "live" : "loop"); };
-            mode.set = [](void* t, const json& v, std::string&) {
-                static_cast<VS*>(t)->ground.ocean.live = v.get<std::string>() == "live";
-                return true;
-            };
-            addSetting(std::move(mode));
-        }
-        {
-            SettingSpec play = boolSetting<VS>("ocean_play", V, &VS::showGrid, "", "--ocean-play <on|off>");
-            play.help = "Whether the ocean animates (on, default) or holds its current time (off; a pinned ocean_time "
-                        "holds regardless).";
-            play.get = [](void* t) { return json(static_cast<VS*>(t)->ground.ocean.play); };
-            play.set = [](void* t, const json& v, std::string&) {
-                static_cast<VS*>(t)->ground.ocean.play = v.get<bool>();
-                return true;
-            };
-            addSetting(std::move(play));
         }
 
     }
@@ -359,30 +320,12 @@ void Application::registerAgentViewportSettings()
     addSetting(boolSetting<VS>("show_sky_portals", V, &VS::showSkyPortals,
                                "Draw every sky portal's gizmo (UI overlay, not in captures); a selected portal always shows.",
                                "--show-sky-portals"));
-    // --- Viewport: lens effect (A6.7; docs/ASOBO_EXTENSIONS_PHASE_6.md) ---
-    {
-        SettingSpec spec;
-        spec.key = "lens_flare";
-        spec.scope = V;
-        spec.type = SettingType::Enum;
-        spec.help = "Lens effect from the bloom mips: ghosts + halo, an anamorphic streak, or both (on = both). Off by "
-                    "default; part of the bloom chain, so bloom off removes it.";
-        spec.cliFlag = "--lens-flare <off|on|ghosts|streak|both>";
-        spec.enumValues = {"off", "ghosts", "streak", "both"};
-        spec.enumAliases = {{"on", "both"}, {"none", "off"}, {"starburst", "ghosts"}, {"anamorphic", "streak"}};
-        spec.get = [values = spec.enumValues](void* t) {
-            return json(values[static_cast<size_t>(std::clamp(static_cast<VS*>(t)->lensFlare, 0, 3))]);
-        };
-        spec.set = [values = spec.enumValues](void* t, const json& v, std::string&) {
-            static_cast<VS*>(t)->lensFlare =
-                static_cast<int>(std::find(values.begin(), values.end(), v.get<std::string>()) - values.begin());
-            return true;
-        };
-        addSetting(std::move(spec));
-    }
-    addSetting(floatSetting<VS>("lens_flare_intensity", V, &VS::lensFlareIntensity,
-                                "Strength of the lens effect (1 = default).", "--lens-flare-intensity <x>",
-                                std::pair{0.0, 10.0}));
+    // Lens effects are renderer Quality settings; compatibility forwards are registered centrally.
+    auto gridCompat = boolSetting<VS>("ground_grid", V, &VS::showGrid,
+                                      "Compatibility key: viewport grid overlay, same as grid.", "--ground-grid <on|off>");
+    gridCompat.compat = true;
+    gridCompat.forwardsTo = V;
+    addSetting(std::move(gridCompat));
 }
 
 } // namespace ux3d::imgui::application

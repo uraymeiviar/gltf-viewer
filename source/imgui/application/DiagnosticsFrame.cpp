@@ -424,6 +424,9 @@ void Application::finishFrame(FrameContext& frame, int displayW, int displayH)
         report.quality = qualityStateJson();
         report.gltfExtensions = ux3d::imgui::GltfExtensionSettings::instance().stateJson();
         report.effects = effectsStateJson(activeEnvironment);
+        const auto layers = agentStateJson();
+        report.sceneEnvironment = layers.at("environment");
+        report.viewportSettings = layers.at("viewports");
         report.skyOcclusion = skyOcclusionStateJson(activeEnvironment);
         // A6.8: the ocean's settings, cascades, memory, precompute and live GPU cost (only while the ground is the ocean).
         if (activeViewport != nullptr && activeViewport->settings.ground.mode == ux3d::imgui::GroundMode::Ocean) {

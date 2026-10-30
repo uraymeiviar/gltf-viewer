@@ -50,7 +50,9 @@ json Application::agentStateJson()
                         {"open", vp->isOpen},
                         {"width", vp->sceneFbo.getWidth()},
                         {"height", vp->sceneFbo.getHeight()},
-                        {"renderMode", renderModeName(vp->settings.renderMode)},
+                        {"renderMode", vp->settings.renderMode == ux3d::renderer::RenderMode::None && vp->settings.postEffects ? "shaded_post" : renderModeName(vp->settings.renderMode)},
+                        {"postEffects", vp->settings.postEffects},
+                        {"ground", groundStateJson(*vp)},
                         {"attachedCamera", vp->isAttachedToCamera ? json(vp->attachedCameraNodeName) : json(nullptr)},
                         // Settings scopes: this viewport's overrides of the scene's effects and what it renders with.
                         {"overrides", {{"shadows", ux3d::imgui::effectOverrideName(vp->settings.shadowsOverride)},
@@ -59,6 +61,8 @@ json Application::agentStateJson()
                         {"effective", {{"shadows", vp->settings.sunShadows && shadowsAllowed},
                                        {"ssr", effective.screenSpaceReflections},
                                        {"ssao", vp->settings.ssao.enabled},
+                                       {"bloom", vp->settings.postEffects && ux3d::imgui::RenderQuality::allowBloom(true)},
+                                       {"lensFlare", vp->settings.lensFlare},
                                        {"msaa", aaNames[std::clamp(effective.effectiveMsaaIdx(), 0, 3)]},
                                        {"postAA", postNames[std::clamp(effective.effectivePostAAIdx(), 0, 2)]},
                                        {"ssrQuality", effective.ssrQuality},
@@ -67,7 +71,7 @@ json Application::agentStateJson()
                                                   {"disabled", vp->settings.asobo.disabled}}}}}});
     }
     st["viewports"] = list;
-    if (activeViewport != nullptr) st["renderMode"] = renderModeName(activeViewport->settings.renderMode);
+    if (activeViewport != nullptr) st["renderMode"] = activeViewport->settings.renderMode == ux3d::renderer::RenderMode::None && activeViewport->settings.postEffects ? "shaded_post" : renderModeName(activeViewport->settings.renderMode);
     const auto& report = ux3d::imgui::GltfValidator::instance().getLastReport();
     st["validation"] = {{"errors", report.errorCount}, {"warnings", report.warningCount}, {"infos", report.infoCount}};
     st["persist"] = agentPersist;
@@ -96,6 +100,18 @@ json Application::agentStateJson()
     if (activeViewport != nullptr) {
         st["ground"] = groundStateJson(*activeViewport);
     }
+    st["environment"]["background"] = environment.showBackground;
+    st["environment"]["ground"] = activeViewport ? groundStateJson(*activeViewport) : json(nullptr);
+    std::set<const void*> oceanSimulations;
+    bool oceanShared = true;
+    for (const auto& vp : viewports) {
+        if (!vp || !vp->ocean) continue;
+        oceanSimulations.insert(vp->ocean.get());
+        oceanShared &= vp->ocean == environment.oceanSimulation;
+    }
+    st["environment"]["oceanSimulationShared"] = oceanShared;
+    st["environment"]["oceanSimulationCount"] = oceanSimulations.size();
+    st["environment"]["oceanClock"] = environment.oceanClock;
     // A3.7: the file's sky portals (world centre, direction into the cabin, disc radius) and how many lit the
     // active viewport's last render.
     if (gltfLayer != nullptr && gltfLayer->hasSkyPortals()) {
@@ -121,11 +137,21 @@ json Application::qualityStateJson() const
 {
     using ux3d::imgui::RenderQuality;
     static const char* const levels[] = {"low", "medium", "high"};
+    static const char* const effectLevels[] = {"low", "mid", "high"};
     static const char* const aaNames[] = {"0", "2", "4", "8"};
     static const char* const postNames[] = {"none", "fxaa", "taa"};
     const auto describe = [&](const ux3d::imgui::RenderQualitySettings& q) {
         return json{{"msaa", aaNames[std::clamp(q.msaaIdx, 0, 3)]},
                     {"postAA", postNames[std::clamp(q.postAAIdx, 0, 2)]},
+                    {"reflections", q.ssrEnabled ? effectLevels[std::clamp(q.ssrQuality,0,2)] : "off"},
+                    {"ssaoLevel", q.ssaoEnabled ? effectLevels[std::clamp(q.ssaoQuality,0,2)] : "off"},
+                    {"shadowMap", q.shadows ? json(q.shadowResolution) : json(0)},
+                    {"iblCube", q.iblEnabled ? json(q.iblCubeSize) : json(0)},
+                    {"bloom", q.bloomEnabled}, {"punctualLights", q.lightsEnabled},
+                    {"lensFlare", q.lensFlare}, {"lensFlareIntensity", q.lensFlareIntensity},
+                    {"oceanMode", q.oceanLive ? "live" : "loop"}, {"oceanPlay", q.oceanPlay},
+                    {"skyOcclusion", q.skyOcclusion < 0 ? "auto" : q.skyOcclusion ? "on" : "off"},
+                    {"textureMaxSize", q.textureMaxSize},
                     {"ssrQuality", levels[std::clamp(q.ssrQuality, 0, 2)]},
                     {"ssaoQuality", levels[std::clamp(q.ssaoQuality, 0, 2)]},
                     {"ssaoResolution", q.ssaoHalfResolution ? "half" : "full"},
@@ -149,15 +175,17 @@ json Application::qualityStateJson() const
 json Application::effectsStateJson(const ux3d::imgui::SceneEnvironmentState& environment) const
 {
     const auto& fx = environment.effects;
-    return {{"shadows", fx.shadows},
-            {"ssr", fx.ssr},
-            {"interiorSkyReflection", agent::floatJson(fx.interiorSkyReflection)},
-            {"ssao", fx.ssao},
+    const auto& q = ux3d::imgui::RenderQuality::settings();
+    const auto& vendor = ux3d::imgui::GltfExtensionSettings::instance();
+    return {{"shadows", q.shadows},
+            {"ssr", q.ssrEnabled},
+            {"interiorSkyReflection", agent::floatJson(vendor.tuning("interior_sky_reflection"))},
+            {"ssao", q.ssaoEnabled},
             {"ssaoRadius", agent::floatJson(fx.ssaoRadius)},
             {"ssaoIntensity", agent::floatJson(fx.ssaoIntensity)},
             {"windshieldIcing", agent::floatJson(fx.windshieldIcing)},
             {"skyPortalStrength", agent::floatJson(fx.skyPortalStrength)},
-            {"decalToleranceMm", agent::floatJson(fx.decalDepthToleranceMm)}};
+            {"decalToleranceMm", agent::floatJson(vendor.tuning("decal_tolerance_mm"))}};
 }
 
 json Application::ssaoStateJson() const

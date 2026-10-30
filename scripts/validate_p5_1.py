@@ -8,7 +8,8 @@ Sections:
   equivalence  Each UI script runs three times: the pre-P5.1 binary
                (build/p5.1/pre/Glider.exe), the candidate with --always-pick
                (every-frame picking), and the candidate. Selections, cameras
-               and full-window screenshots must be identical across all three.
+               and the screenshots' 3D viewport area (glider_harness.viewport_sha)
+               must be identical across all three.
                Candidate counters: one picking render per viewport click, no
                picking renders on other frames, no unserved clicks.
   benchmark    Paired pre/candidate runs: CPU frame and GPU time on the
@@ -16,12 +17,13 @@ Sections:
 """
 
 import argparse
-import hashlib
 import json
 import statistics
 import harness_process as subprocess
 import sys
 from pathlib import Path
+
+from glider_harness import viewport_sha
 
 REPO = Path(__file__).resolve().parents[1]
 EXE = REPO / "build" / "bin" / "Release" / "Glider.exe"
@@ -61,7 +63,9 @@ def check(condition, label):
 
 
 def sha(path):
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    # Window screenshots are compared on the viewports' 3D area (glider_harness.viewport_sha); the
+    # toolbar and panels are covered by validate_p4_exit_gate.py.
+    return viewport_sha(path)
 
 
 subprocess.run([sys.executable, str(REPO / "scripts" / "generate_many_drawables_fixture.py"), str(REPO / MANY), "40"],

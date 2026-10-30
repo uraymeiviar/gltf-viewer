@@ -2,6 +2,7 @@
 
 #include "imgui/SceneInspector.h"
 #include "imgui/RenderQuality.h"
+#include "imgui/OceanSimulation.h"
 #include "imgui/StdFileSystem.h"
 #include "imgui/IconsMaterialDesignIcons.h"
 #include "imgui/UiProbe.h"
@@ -16,6 +17,174 @@
 #include <cstring>
 
 namespace ux3d::imgui {
+
+namespace {
+template <typename Widget> bool probed(const char* tag, Widget&& widget) {
+    const bool changed = widget(); UiProbe::item(tag, 0); return changed;
+}
+void renderSceneGround(SceneEnvironmentState& env, SceneRevisions& revisions) {
+    ImGui::PushID("scene_ground");
+    // A3.6: the ground. Grid is the editor grid overlay; Plane is an infinite surface in the scene.
+    ImGui::Separator();
+    const bool groundOpen = ImGui::CollapsingHeader("Ground", ImGuiTreeNodeFlags_DefaultOpen);
+    UiProbe::item("scene.ground",0);
+    if (groundOpen) {
+        GroundSettings& ground = env.ground;
+        const char* groundNames[] = { "Off", "Plane", "Ocean" };
+        if (probed("scene.ground.type", [&] { return ImGui::BeginCombo("Type", groundNames[static_cast<int>(ground.mode)]); })) {
+            for (int i = 0; i < 3; ++i) {
+                // A6.8: the ocean needs compute shaders (OpenGL 4.3).
+                const bool unavailable = i == static_cast<int>(GroundMode::Ocean) && !oceanAvailable();
+                ImGui::BeginDisabled(unavailable);
+                if (ImGui::Selectable(groundNames[i], static_cast<int>(ground.mode) == i)) {
+                    ground.mode = static_cast<GroundMode>(i);
+                    revisions.mark(SceneChange::RenderSettings);
+                }
+                ImGui::EndDisabled();
+                if (unavailable && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                    ImGui::SetTooltip("The ocean needs an OpenGL 4.3 context (compute shaders).");
+                }
+            }
+            ImGui::EndCombo();
+        }
+        if (ground.mode == GroundMode::Plane || ground.mode == GroundMode::Ocean) {
+            const char* heightNames[] = { "Model base (lowest point)", "Y = 0", "Custom" };
+            int heightMode = static_cast<int>(ground.heightMode);
+            if (probed("scene.ground.height", [&] { return ImGui::Combo("Height", &heightMode, heightNames, IM_ARRAYSIZE(heightNames)); })) {
+                ground.heightMode = static_cast<GroundHeightMode>(heightMode);
+                revisions.mark(SceneChange::RenderSettings);
+            }
+            if (ground.heightMode == GroundHeightMode::Custom) {
+                if (probed("scene.ground.custom_height", [&] { return ImGui::DragFloat("Height (scene units)", &ground.customHeight, 0.01f, -1.0e6f, 1.0e6f, "%.3f"); })) {
+                    revisions.mark(SceneChange::RenderSettings);
+                }
+            }
+        }
+        if (ground.mode == GroundMode::Ocean) {
+            // A6.8: the ocean. Wind, fetch, choppiness, swell, quality and period recompute the simulation
+            // (a looping set in the background, a live set at once); foam, colour and play only change the
+            // shading. Every ID carries an "##ocean" suffix (no clash with the plane's or other tabs' labels).
+            OceanSettings& ocean = ground.ocean;
+            const OceanUiStatus& status = oceanUiStatus();
+            ImGui::Spacing();
+            ImGui::Text("Ocean");
+            // Settings scopes: the simulation quality is renderer-wide (File > Settings > Quality); shown here for reference.
+            {
+                const char* qualityNames[] = { "Low", "Medium", "High" };
+                probed("scene.ocean.quality", [&] {
+                    ImGui::TextDisabled("Quality: %s (File > Settings > Quality, all viewports)",
+                                        qualityNames[std::clamp(static_cast<int>(ocean.quality), 0, 2)]);
+                    return false;
+                });
+            }
+            if (probed("scene.ocean.wind_speed", [&] { return ImGui::SliderFloat("Wind speed (m/s)##oceanWindSpeed", &ocean.windSpeed, 0.5f, 40.0f, "%.1f"); })) {
+                revisions.mark(SceneChange::RenderSettings);
+            }
+            if (probed("scene.ocean.wind_dir", [&] { return ImGui::SliderFloat("Wind from (deg)##oceanWindDirection", &ocean.windDirection, 0.0f, 360.0f, "%.0f"); })) {
+                revisions.mark(SceneChange::RenderSettings);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("The direction the wind comes from, around +Y from +Z towards +X (the sun's azimuth). The waves travel the other way.");
+            }
+            if (probed("scene.ocean.choppiness", [&] { return ImGui::SliderFloat("Choppiness##oceanChoppiness", &ocean.choppiness, 0.0f, 2.0f, "%.2f"); })) {
+                revisions.mark(SceneChange::RenderSettings);
+            }
+            if (probed("scene.ocean.swell", [&] { return ImGui::SliderFloat("Swell##oceanSwell", &ocean.swell, 0.0f, 1.0f, "%.2f"); })) {
+                revisions.mark(SceneChange::RenderSettings);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Narrows the directional spread of the waves (long, parallel swell).");
+            }
+            if (probed("scene.ocean.foam", [&] { return ImGui::SliderFloat("Foam amount##oceanFoam", &ocean.foam, 0.0f, 1.0f, "%.2f"); })) {
+                revisions.mark(SceneChange::RenderSettings);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Whitecaps. 0.5 is the coverage observed at this wind speed (about 1%% at 10 m/s, 10%% at 20 m/s); 1 is four times that.");
+            }
+            if (probed("scene.ocean.color", [&] { return ImGui::ColorEdit3("Water colour##oceanColor", &ocean.color.x, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR); })) {
+                revisions.mark(SceneChange::RenderSettings);
+            }
+            ImGui::BeginDisabled(ocean.live);
+            if (probed("scene.ocean.period", [&] { return ImGui::DragFloat("Loop period (s)##oceanPeriod", &ocean.period, 0.5f, 5.0f, 120.0f, "%.1f"); })) {
+                ocean.period = std::clamp(ocean.period, 5.0f, 120.0f);
+                revisions.mark(SceneChange::RenderSettings);
+            }
+            ImGui::EndDisabled();
+            if (probed("scene.ocean.fetch", [&] { return ImGui::DragFloat("Fetch (m)##oceanFetch", &ocean.fetch, 100.0f, 1000.0f, 1.0e7f, "%.0f", ImGuiSliderFlags_Logarithmic); })) {
+                ocean.fetch = std::clamp(ocean.fetch, 1000.0f, 1.0e7f);
+                revisions.mark(SceneChange::RenderSettings);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Distance the wind has blown over. Beyond full development (about 22000 x U^2 / g) it changes nothing.");
+            }
+
+            ImGui::SameLine();
+            if (probed("scene.ocean.reset", [&] { return ImGui::Button("Reset ocean##oceanReset"); })) {
+                ocean = OceanSettings();
+                revisions.mark(SceneChange::RenderSettings);
+            }
+            if (ocean.time >= 0.0f) {
+                ImGui::TextDisabled("Time pinned at %.2f s (--ocean-time).", ocean.time);
+            }
+            if (status.busy) {
+                ImGui::ProgressBar(status.progress, ImVec2(-FLT_MIN, 0.0f), "Recomputing the waves");
+            } else if (status.ready) {
+                if (status.live) {
+                    ImGui::TextDisabled("Hs %.2f m, %.1f MiB, %.2f ms GPU per frame (live)", status.significantWaveHeight,
+                                        static_cast<double>(status.memoryBytes) / 1048576.0, status.liveGpuMs);
+                } else {
+                    ImGui::TextDisabled("Hs %.2f m, %.1f MiB (precomputed, sampled per frame)", status.significantWaveHeight,
+                                        static_cast<double>(status.memoryBytes) / 1048576.0);
+                }
+            }
+            ImGui::TextDisabled("Reflections: sky and environment only (no ocean SSR).");
+        }
+        if (ground.mode == GroundMode::Plane) {
+            int preset = static_cast<int>(ground.preset);
+            const char* presetLabel =
+                ground.preset == GroundPreset::Custom ? "Custom" : groundPresets()[static_cast<size_t>(preset)].label.data();
+            if (probed("scene.ground.material", [&] { return ImGui::BeginCombo("Material", presetLabel); })) {
+                for (size_t i = 0; i < groundPresets().size(); ++i) {
+                    if (ImGui::Selectable(groundPresets()[i].label.data(), static_cast<size_t>(preset) == i)) {
+                        ground.applyPreset(static_cast<GroundPreset>(i));
+                        revisions.mark(SceneChange::RenderSettings);
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            if (probed("scene.ground.albedo", [&] { return ImGui::ColorEdit3("Albedo", &ground.albedo.x, ImGuiColorEditFlags_Float); })) {
+                ground.preset = GroundPreset::Custom;
+                revisions.mark(SceneChange::RenderSettings);
+            }
+            if (probed("scene.ground.roughness", [&] { return ImGui::SliderFloat("Roughness", &ground.roughness, 0.0f, 1.0f, "%.2f"); })) {
+                ground.preset = GroundPreset::Custom;
+                revisions.mark(SceneChange::RenderSettings);
+            }
+            if (probed("scene.ground.detail", [&] { return ImGui::SliderFloat("Detail", &ground.detail, 0.0f, 1.0f, "%.2f"); })) {
+                ground.preset = GroundPreset::Custom;
+                revisions.mark(SceneChange::RenderSettings);
+            }
+            if (probed("scene.ground.detail_size", [&] { return ImGui::DragFloat("Detail size", &ground.detailScale, 0.01f, 0.0001f, 1.0e6f, "%.3f", ImGuiSliderFlags_Logarithmic); })) {
+                ground.preset = GroundPreset::Custom;
+                revisions.mark(SceneChange::RenderSettings);
+            }
+            if (probed("scene.ground.joints", [&] { return ImGui::DragFloat("Joint spacing", &ground.jointSpacing, 0.05f, 0.0f, 1.0e6f, ground.jointSpacing > 0.0f ? "%.2f" : "None"); })) {
+                ground.preset = GroundPreset::Custom;
+                revisions.mark(SceneChange::RenderSettings);
+            }
+            if (probed("scene.ground.haze", [&] { return ImGui::DragFloat("Haze distance", &ground.haze, 1.0f, 0.0f, 1.0e9f, ground.haze > 0.0f ? "%.0f" : "Auto", ImGuiSliderFlags_Logarithmic); })) {
+                revisions.mark(SceneChange::RenderSettings);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Distance at which the plane has faded 98%% into the horizon colour. 0 = automatic (0.9 x far plane).");
+            }
+            ImGui::TextDisabled("Lit by the environment (its own lower hemisphere) and the sun with shadows.");
+        }
+    }
+
+    ImGui::PopID();
+}
+}
 
 // A3.1: Sun & Time of Day -> Sun. Conventions in SceneEnvironmentState (SceneEnvironment.h).
 void SceneInspector::renderSun(SceneEnvironmentState& env, ux3d::renderer::GltfRenderLayer* gltfLayer,
@@ -189,7 +358,7 @@ void SceneInspector::renderTimeOfDay(SceneEnvironmentState& env, SceneRevisions&
         ImGui::SetTooltip("True compass direction the model's nose points to (0 = north, 90 = east).\n"
                           "MSFS aircraft have their nose on glTF +Z and their left side on +X.");
     }
-    if (ImGui::Checkbox("Atmospheric Refraction", &clock.refraction)) edited = true;
+
     if (ImGui::DragFloat("Night Below", &clock.nightThreshold, 0.1f, -90.0f, 90.0f, "%.1f deg")) edited = true;
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip("Emissive Day/Night = Automatic: night while the sun's elevation is below this (-6 = civil twilight).");
@@ -249,13 +418,14 @@ void SceneInspector::render(SceneEnvironmentState& env,
     UiProbe::item("scene.environment", 0);
     if (environmentOpen) {
         // Show background skybox toggle
-        if (ImGui::Checkbox("Show Background Skybox", &env.showBackground)) {
+        if (ImGui::Checkbox("Background", &env.showBackground)) {
             if (gltfLayer != nullptr) {
                 gltfLayer->enableCubeMap(env.showBackground);
             }
             revisions.mark(SceneChange::RenderSettings);
         }
 
+        UiProbe::item("scene.background", 0);
         // Clear color (used when skybox is disabled)
         if (!env.showBackground) {
             float clr[4] = { env.clearColor.r, env.clearColor.g, env.clearColor.b, env.clearColor.a };
@@ -278,9 +448,8 @@ void SceneInspector::render(SceneEnvironmentState& env,
                     // A6.2: loading a panorama selects it as the environment source.
                     env.environmentSource = static_cast<int>(EnvironmentSource::Hdr);
                     env.currentHdrPath = selection[0];
-                    env.iblEnabled = true;
                     if (commandGenerator != nullptr) {
-                        commandGenerator->setIBLEnabled(true);
+                        commandGenerator->setIBLEnabled(RenderQuality::allowIbl());
                     }
                     revisions.mark(SceneChange::RenderSettings);
                 }
@@ -430,11 +599,7 @@ void SceneInspector::render(SceneEnvironmentState& env,
         ImGui::Separator();
 
         // Physically based bloom (Jimenez 2014)
-        if (ImGui::Checkbox("Bloom", &env.bloomEnabled)) {
-            revisions.mark(SceneChange::RenderSettings);
-        }
-        UiProbe::item("scene.bloom.on", 0);
-        if (env.bloomEnabled) {
+        { // Bloom appearance stays editable while the Quality level is off.
             if (ImGui::SliderFloat("Bloom Intensity", &env.bloomIntensity, 0.0f, 0.5f, "%.3f")) {
                 revisions.mark(SceneChange::RenderSettings);
             }
@@ -482,24 +647,6 @@ void SceneInspector::render(SceneEnvironmentState& env,
 
         ImGui::Separator();
 
-        // IBL toggle
-        if (ImGui::Checkbox("Image Based Lighting (IBL)", &env.iblEnabled)) {
-            if (commandGenerator != nullptr) {
-                commandGenerator->setIBLEnabled(env.iblEnabled);
-            }
-            revisions.mark(SceneChange::RenderSettings);
-        }
-        UiProbe::item("scene.ibl.on", 0);
-
-        // Punctual lights toggle
-        if (ImGui::Checkbox("Punctual / Analytical Lights", &env.punctualLightsEnabled)) {
-            if (commandGenerator != nullptr) {
-                commandGenerator->setPunctualLightsEnabled(env.punctualLightsEnabled);
-            }
-            revisions.mark(SceneChange::RenderSettings);
-        }
-        UiProbe::item("scene.punctual.on", 0);
-
         // Settings scopes: the IBL filter is quality (renderer-wide) and is edited in File > Settings > Quality.
         // While IBL is on, the scene shows what it gets (the probe tag stays on the heading).
         if (env.iblEnabled) {
@@ -524,7 +671,8 @@ void SceneInspector::render(SceneEnvironmentState& env,
 
     // Settings scopes: the scene's effect switches and look parameters (formerly per viewport; the shadow switch was
     // renderer-wide). Every viewport follows them unless its Viewport Settings override shadows, SSR or SSAO.
-    const bool effectsOpen = ImGui::CollapsingHeader("Shadows, Reflections & AO", ImGuiTreeNodeFlags_DefaultOpen);
+    renderSceneGround(env, revisions);
+    const bool effectsOpen = ImGui::CollapsingHeader("Ambient Occlusion & Aircraft", ImGuiTreeNodeFlags_DefaultOpen);
     UiProbe::item("scene.effects", 0);
     if (effectsOpen) {
         renderEffects(env, gltfLayer, revisions);
@@ -570,51 +718,6 @@ void SceneInspector::renderEffects(SceneEnvironmentState& env, ux3d::renderer::G
                                    SceneRevisions& revisions)
 {
     SceneEffectSettings& fx = env.effects;
-    const RenderQualitySettings& quality = RenderQuality::settings();
-    ImGui::TextDisabled("Scene settings; a viewport can override shadows, SSR and SSAO.");
-
-    if (ImGui::Checkbox("Sun shadows##sceneShadows", &fx.shadows)) {
-        revisions.mark(SceneChange::RenderSettings);
-    }
-    UiProbe::item("scene.effects.shadows", 0);
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Cascaded shadow maps of the sun (drawn while the sun is on).\n"
-                          "Map size, cascades, distance, filter and biases: File > Settings > Quality.");
-    }
-    if (fx.shadows && !quality.shadows) {
-        ImGui::SameLine();
-        ImGui::TextDisabled("(not allowed by the quality)");
-    }
-
-    if (ImGui::Checkbox("Windshield reflections (SSR)##sceneSsr", &fx.ssr)) {
-        RenderQuality::pinSsr();
-        revisions.mark(SceneChange::RenderSettings);
-    }
-    UiProbe::item("scene.effects.ssr", 0);
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Screen-space reflections on ASOBO_material_windshield_v3 glass. Sample budget: File > Settings > Quality.");
-    }
-    ImGui::BeginDisabled(!fx.ssr);
-    if (ImGui::SliderFloat("Interior sky reflection##sceneInteriorSky", &fx.interiorSkyReflection, 0.0f, 1.0f, "%.2f")) {
-        revisions.mark(SceneChange::RenderSettings);
-    }
-    UiProbe::item("scene.effects.interior_sky", 0);
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Windshield IBL fallback inside the environment occluders (all windshields without occluders).");
-    }
-    ImGui::EndDisabled();
-
-    if (ImGui::Checkbox("Screen-space ambient occlusion (SSAO)##sceneSsao", &fx.ssao)) {
-        revisions.mark(SceneChange::RenderSettings);
-    }
-    UiProbe::item("scene.effects.ssao", 0);
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("GTAO from the scene depth: darkens the sky light (IBL) in creases, corners and\n"
-                          "under nearby objects. The sun and punctual lights keep their own shadows.\n"
-                          "Combined with the authored occlusion maps as min(authored, SSAO).\n"
-                          "Samples and resolution: File > Settings > Quality.");
-    }
-    ImGui::BeginDisabled(!fx.ssao);
     if (ImGui::DragFloat("AO radius##sceneSsaoRadius", &fx.ssaoRadius, 0.01f, 0.01f, 100.0f, "%.2f",
                          ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic)) {
         revisions.mark(SceneChange::RenderSettings);
@@ -627,8 +730,6 @@ void SceneInspector::renderEffects(SceneEnvironmentState& env, ux3d::renderer::G
         revisions.mark(SceneChange::RenderSettings);
     }
     UiProbe::item("scene.effects.ssao_intensity", 0);
-    ImGui::EndDisabled();
-
     ImGui::SeparatorText("Aircraft state (MSFS)");
     if (ImGui::SliderFloat("Icing##sceneIcing", &fx.windshieldIcing, 0.0f, 1.0f, "%.2f")) {
         revisions.mark(SceneChange::RenderSettings);
@@ -637,51 +738,12 @@ void SceneInspector::renderEffects(SceneEnvironmentState& env, ux3d::renderer::G
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip("Windshield icing and frosted geometry decals (0 = clean aircraft).");
     }
-    if (gltfLayer != nullptr && gltfLayer->hasSkyPortals()) {
-        // A3.7: shown only for files with ASOBO_sky_portal nodes.
-        if (ImGui::SliderFloat("Sky portal strength##scenePortal", &fx.skyPortalStrength, 0.0f, 4.0f, "%.2f")) {
-            revisions.mark(SceneChange::RenderSettings);
-        }
-        UiProbe::item("scene.effects.sky_portal", 0);
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Window light of the sky portals, added only where the occlusion\n"
-                              "removed sky light: (1 - occlusion) x strength x portal light.");
-        }
-    }
-    if (gltfLayer != nullptr && (gltfLayer->hasGeometryDecalMaterials() || gltfLayer->hasBlendGbufferMaterials())) {
-        if (ImGui::DragFloat("Decal depth tolerance (mm)##sceneDecalTolerance", &fx.decalDepthToleranceMm, 0.05f, 0.0f, 10.0f,
-                             "%.2f", ImGuiSliderFlags_AlwaysClamp)) {
-            revisions.mark(SceneChange::RenderSettings);
-        }
-        UiProbe::item("scene.effects.decal_tolerance", 0);
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Decal buffer depth tolerance along the receiver normal.");
-        }
-    }
+
 }
 
 void SceneInspector::renderSkyOcclusion(SceneEnvironmentState& env, const SkyStatus* sky, SceneRevisions& revisions)
 {
-    int mode = env.skyOcclusion < 0 ? 0 : env.skyOcclusion != 0 ? 1 : 2;
-    if (ImGui::Combo("Sky Occlusion##mode", &mode, "Auto (on with the procedural sky)\0On\0Off\0")) {
-        env.skyOcclusion = mode == 0 ? -1 : mode == 1 ? 1 : 0;
-        revisions.mark(SceneChange::RenderSettings);
-    }
-    UiProbe::item("scene.sky_occlusion.mode", 0);
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("How much sky each point sees past the model's own geometry (a cockpit, a wheel well), baked\n"
-                          "into a volume over the model and applied to the sky light (IBL) only. The sun keeps its\n"
-                          "shadows; punctual lights, emissive, Manual ambient and the background are unchanged.\n"
-                          "Auto: on with the procedural sky, off with the HDR.");
-    }
-    // Settings scopes: the bake quality is renderer-wide (File > Settings > Quality); shown here for reference.
-    {
-        static const char* const names[] = { "Low (64 directions, 64 cells)", "Medium (128 directions, 96 cells)",
-                                             "High (256 directions, 128 cells)" };
-        ImGui::TextDisabled("Bake quality: %s (File > Settings > Quality)",
-                            names[std::clamp(RenderQuality::settings().skyOcclusionQuality, 0, 2)]);
-    }
-    UiProbe::item("scene.sky_occlusion.quality", 0);
+    ImGui::TextDisabled("Mode and bake quality: File > Settings > Quality.");
     if (ImGui::Checkbox("Environment occluders block the sky", &env.skyOcclusionOccluders)) {
         revisions.mark(SceneChange::RenderSettings);
     }
@@ -849,6 +911,9 @@ void SceneInspector::renderSunDisk(SceneEnvironmentState& env, SceneRevisions& r
 
 void SceneInspector::renderSky(SceneEnvironmentState& env, const SkyStatus* sky, SceneRevisions& revisions)
 {
+    if (ImGui::Checkbox("Atmospheric Refraction##sky", &env.clock.refraction)) revisions.mark(SceneChange::RenderSettings);
+    UiProbe::item("scene.sky.refraction", 0);
+
     const char* sourceNames[] = { "HDR panorama", "Procedural sky" };
     if (ImGui::Combo("Environment Source", &env.environmentSource, sourceNames, 2)) {
         revisions.mark(SceneChange::RenderSettings);

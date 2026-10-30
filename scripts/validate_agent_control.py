@@ -410,7 +410,7 @@ def check_settings_and_probe(fixture):
 
         session.call("set_render_mode", mode="geometry_normal")
         results["debug_view"] = session.capture("set_pipe_debug_view")
-        session.call("set_render_mode", mode="shaded")
+        session.call("set_render_mode", mode="shaded_post")
         results["plain_again"] = session.capture("set_pipe_plain_again")
 
         bad = session.request("set_viewport_setting", key="interior_sky_reflection", value=3)
@@ -419,7 +419,7 @@ def check_settings_and_probe(fixture):
         check(not unknown["ok"] and unknown["error"]["code"] == "unknown_setting", "an unknown key is refused")
         listed = session.call("list_settings")["settings"]
         keys = {entry["key"] for entry in listed}
-        wanted = {"aa", "msaa", "post_aa", "ssr", "ssr_quality", "interior_sky_reflection", "windshield_icing",
+        wanted = {"reflections", "ssao_level", "shadow_map", "ibl_cube", "texture_max_size", "lens_flare", "ocean_mode", "aa", "msaa", "post_aa", "ssr", "ssr_quality", "interior_sky_reflection", "windshield_icing",
                   "decal_tolerance_mm", "grid", "grid_mode", "render_mode", "wireframe_overlay", "wireframe_color",
                   "wireframe_blend", "asobo", FRESNEL, "show_invisible_materials", "exposure", "tone_mapping",
                   "hdr_rotation", "time_of_day", "msfs_emissive_scale", "msfs_emissive"}

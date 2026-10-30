@@ -25,12 +25,11 @@ void Application::updateOceanClock(float deltaTime)
 {
     // Capture runs are deterministic: the clock moves only by --fixed-frame-time steps.
     if (s_deterministicExposure && s_fixedFrameTime < 0.0f) return;
-    for (auto& vp : viewports) {
-        const auto& ocean = vp->settings.ground.ocean;
-        if (vp->isOpen && vp->settings.ground.mode == ux3d::imgui::GroundMode::Ocean && ocean.play && ocean.time < 0.0f) {
-            vp->oceanClock += static_cast<double>(deltaTime);
-        }
-    }
+    auto& environment = getSceneEnvironment(sceneEnvironments, gltfModel, activeScene);
+    const auto& ocean = environment.ground.ocean;
+    if (environment.ground.mode == ux3d::imgui::GroundMode::Ocean &&
+        ux3d::imgui::RenderQuality::settings().oceanPlay && ocean.time < 0.0f)
+        environment.oceanClock += static_cast<double>(deltaTime);
 }
 
 void Application::setOceanUniforms(const ux3d::imgui::ViewportInstance& vp, ux3d::renderer::Material& material,
@@ -204,21 +203,22 @@ nlohmann::json Application::groundStateJson(const ux3d::imgui::ViewportInstance&
     // A3.6: the viewport's ground. height/albedo are what the last render used (the albedo is what A6.2 reads);
     // modelBase is the scene's lowest point whatever the height mode.
     const auto& ground = vp.settings.ground;
-    static const char* const modes[] = {"grid", "plane", "ocean"};
+    static const char* const modes[] = {"off", "plane", "ocean"};
     static const char* const heightModes[] = {"model_base", "zero", "custom"};
     float modelBase = 0.0f;
     const bool hasBase = activeScene != nullptr && getCachedModelBaseHeight(activeScene, gltfModel, gltfLayer.get(), modelBase);
     json out = {{"mode", modes[static_cast<size_t>(ground.mode)]},
+                {"gridVisible", vp.settings.showGrid},
                 {"heightMode", heightModes[static_cast<size_t>(ground.heightMode)]},
                 {"preset", ground.preset == ux3d::imgui::GroundPreset::Custom
                                ? json("custom")
                                : json(std::string(ux3d::imgui::groundPresets()[static_cast<size_t>(ground.preset)].key))},
-                {"active", vp.groundPlaneActive},
+                {"active", vp.groundPlaneActive || vp.oceanActive},
                 {"height", agent::floatJson(vp.groundPlaneHeight)},
                 {"modelBase", hasBase ? json(agent::floatJson(modelBase)) : json(nullptr)},
                 {"albedo", {agent::floatJson(ground.albedo.r), agent::floatJson(ground.albedo.g), agent::floatJson(ground.albedo.b)}},
                 {"roughness", agent::floatJson(ground.roughness)},
-                {"gridOnGround", ground.showGrid}};
+                {"gridOnGround", vp.settings.showGrid}};
     out["ocean"] = oceanStateJson(vp); // A6.8
     return out;
 }

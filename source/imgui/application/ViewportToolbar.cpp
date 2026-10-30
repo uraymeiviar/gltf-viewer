@@ -27,6 +27,16 @@ void Application::drawViewportToolbar(ux3d::imgui::ViewportInstance* vp)
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4.0f, 2.0f));
     ImGui::BeginGroup();
 
+    if (!ux3d::imgui::RenderQuality::legacyCaptureUi()) {
+        if (ImGui::SmallButton(ICON_MDI_COG "##ViewportSettingsGear")) {
+            activeViewport = vp;
+            selection.selectViewport(vp->id);
+            showInspector = true;
+        }
+        ux3d::imgui::UiProbe::item("vp.toolbar.settings", vp->id);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Viewport settings in the Inspector");
+        ImGui::SameLine();
+    }
     // 1. Perspective / Orthographic Toggle (E)
     bool isOrtho = (vp->rendererCamera.getType() == ux3d::renderer::Camera::Type::Orthographic);
     const char* projIcon = isOrtho ? ICON_MDI_PERSPECTIVE_LESS : ICON_MDI_PERSPECTIVE_MORE;
@@ -135,27 +145,43 @@ void Application::drawViewportToolbar(ux3d::imgui::ViewportInstance* vp)
         }
     }
 
+    // Where the left-hand items end (window-local x). After an item the cursor already sits on the
+    // next line, so GetCursorPosX() cannot tell how much of the row is taken.
+    const float leftEndX = ImGui::GetItemRectMax().x - ImGui::GetWindowPos().x;
+
     // Right-corner pulldowns: [ Free Look | <camera-list> ] and [ Shading Mode ]
-    std::string camPulldownLabel;
-    if (vp->isAttachedToCamera) {
-        std::string camName = vp->attachedCameraNodeName.empty() ? "Camera" : vp->attachedCameraNodeName;
-        camPulldownLabel = std::string(ICON_MDI_CAMERA " ") + camName + " " ICON_MDI_MENU_DOWN;
-    } else {
-        camPulldownLabel = std::string(ICON_MDI_EYE_OUTLINE " Free Look ") + ICON_MDI_MENU_DOWN;
-    }
-    float camPulldownWidth = ImGui::CalcTextSize(camPulldownLabel.c_str()).x + 18.0f;
+    std::string camName;
+    if (vp->isAttachedToCamera) camName = vp->attachedCameraNodeName.empty() ? "Camera" : vp->attachedCameraNodeName;
+    const std::string camIcon = vp->isAttachedToCamera ? ICON_MDI_CAMERA : ICON_MDI_EYE_OUTLINE;
+    const std::string camFullLabel = camIcon + " " + (vp->isAttachedToCamera ? camName : std::string("Free Look")) +
+                                     " " ICON_MDI_MENU_DOWN;
+    const std::string camCompactLabel = camIcon + " " ICON_MDI_MENU_DOWN;
 
+    // The toolbar uses a short name for the default mode; the Inspector combo keeps the full one.
     const char* curModeLabel = getRenderModeLabel(vp->settings.renderMode);
+    if (vp->settings.renderMode == ux3d::renderer::RenderMode::None)
+        curModeLabel = vp->settings.postEffects ? "Shaded + Post" : "Shaded";
     std::string shadingPulldownLabel = std::string(curModeLabel) + " " ICON_MDI_MENU_DOWN;
-    float shadingPulldownWidth = ImGui::CalcTextSize(shadingPulldownLabel.c_str()).x + 18.0f;
+    const ImGuiStyle& style = ImGui::GetStyle();
+    auto buttonWidth = [&](const std::string& label) {
+        return ImGui::CalcTextSize(label.c_str(), nullptr, true).x + style.FramePadding.x * 2.0f;
+    };
+    const float shadingPulldownWidth = buttonWidth(shadingPulldownLabel);
+    const float rightEdge = ImGui::GetWindowContentRegionMax().x - 8.0f;
+    const float minGap = style.ItemSpacing.x + 6.0f;
 
-    float totalRightWidth = camPulldownWidth + shadingPulldownWidth + ImGui::GetStyle().ItemSpacing.x;
-    if (!ux3d::imgui::RenderQuality::legacyCaptureUi()) totalRightWidth += 109.0f;
-    float rightX = ImGui::GetWindowContentRegionMax().x - totalRightWidth - 8.0f;
-    if (rightX > ImGui::GetCursorPosX() + 10.0f) {
+    // Right-aligned when there is room; in a narrow viewport the camera button drops its text, and
+    // if that is still too wide the pulldowns follow the left items (clipped at the edge, never on top).
+    std::string camPulldownLabel = camFullLabel;
+    float rightX = rightEdge - (buttonWidth(camPulldownLabel) + style.ItemSpacing.x + shadingPulldownWidth);
+    if (rightX < leftEndX + minGap) {
+        camPulldownLabel = camCompactLabel;
+        rightX = rightEdge - (buttonWidth(camPulldownLabel) + style.ItemSpacing.x + shadingPulldownWidth);
+    }
+    if (rightX >= leftEndX + minGap) {
         ImGui::SameLine(rightX);
     } else {
-        ImGui::SameLine();
+        ImGui::SameLine(leftEndX + minGap);
     }
 
     // 1. Camera attachment pulldown [ Free Look | <camera-list> ]

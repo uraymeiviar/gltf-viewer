@@ -52,8 +52,7 @@ struct RenderQualitySettings {
     float renderScale = 1.0f;         // viewport render resolution relative to its panel size
 
     // A3.2 cascaded sun shadow maps (only while the sun is on). The quality fields (on/off, resolution,
-    // cascades, distance, filter) are part of the four quality presets; the split lambda and the bias
-    // values are tuning values kept across preset changes.
+    // cascades, distance, filter, split lambda and biases) are carried by every quality preset.
     bool shadows = true;
     uint32_t shadowResolution = 2048; // 1024 / 2048 / 4096 texels per cascade side
     int shadowCascades = 3;           // 2..4
@@ -64,9 +63,19 @@ struct RenderQualitySettings {
     float shadowSlopeBias = 2.0f;     // caster glPolygonOffset factor
     float shadowConstantBias = 1.0f;  // caster glPolygonOffset units
 
-    // Settings scopes (docs/SETTINGS_SCOPES.md): the cost side of the per-effect settings, renderer-wide since they
-    // left the viewports. Every viewport renders with these values; the scene decides whether an effect is on, a
-    // viewport may override that (Scene / Off / On). The defaults are the former per-viewport defaults.
+    // Enable bits and retained budgets form the off/low/mid/high levels. Keeping the budget
+    // while off preserves legacy saved choices and makes toggling an old bool reversible.
+    bool ssrEnabled = true;
+    bool ssaoEnabled = false;
+    bool iblEnabled = true;
+    bool bloomEnabled = true;
+    bool lightsEnabled = true;
+    int skyOcclusion = -1;           // auto / off / on
+    bool oceanLive = false;
+    bool oceanPlay = true;
+    int lensFlare = 0;              // legacy modes: off, ghosts+halo, streak, ghosts+streak
+    float lensFlareIntensity = 1.0f; // Quality value, shared by every viewport
+    uint32_t textureMaxSize = 0;
     int msaaIdx = 0;                  // 0 off, 1/2/3 = 2x/4x/8x
     int postAAIdx = 2;                // 0 none, 1 FXAA, 2 TAA
     int ssrQuality = 1;               // 0/1/2: 256/512/1024 screen-space samples
@@ -83,7 +92,7 @@ struct RenderQualitySettings {
     uint64_t estimatedIblBytes() const;
     // A3.2: GPU memory of one viewport's shadow map (32-bit depth, every cascade); 0 when shadows are off.
     uint64_t estimatedShadowBytes() const;
-    // Copies the shadow tuning values (lambda, biases) that preset changes keep.
+    // Copies shadow tuning (lambda and biases), also carried by the editable profiles.
     void copyShadowTuning(const RenderQualitySettings& from);
     // Copies every shadow field.
     void copyShadows(const RenderQualitySettings& from);
@@ -94,12 +103,10 @@ struct RenderQualitySettings {
 };
 
 // The four editable user profiles. Selection 0 is Auto; 1..4 address these profiles.
-// render carries the profile's AA, SSR/SSAO/sky-occlusion/ocean quality; the booleans below are cost gates (an
-// effect the profile does not allow stays off even when the scene turns it on, until the user pins it).
+// render carries every cost setting. skybox is retained migration metadata, never a render gate.
 struct QualityProfile {
     RenderQualitySettings render;
-    uint32_t textureMaxSize = 0;
-    bool skybox = true, ibl = true, lights = true, ssr = false, bloom = false;
+    bool skybox = true; // old profile metadata; background is now a scene setting
 };
 
 class RenderQuality {
@@ -114,12 +121,11 @@ public:
     // A3.2: a user or agent edit of a shadow setting pins the shadow group for this session (Auto quality
     // then uses the configured values instead of its cheaper start).
     static void pinShadows();
-    // Settings scopes: an explicit AA edit (global quality) or SSR edit (scene switch, viewport override or SSR
-    // quality) pins that group for the session, as the per-viewport edits did before.
+    // An explicit AA or reflection Quality edit pins that group for the session.
     static void pinAA();
     static void pinSsr();
-    // Whether the selected profile and Auto quality allow screen-space reflections (the scene / viewport decide
-    // whether they are on).
+    static void pinBloom();
+    // Whether the reflection level and Auto stage run SSR (Shaded can still omit it per view).
     static bool allowSsr();
     static bool validShadowResolution(uint32_t value);
     static const char* shadowFilterName(ShadowFilter filter);
@@ -127,7 +133,7 @@ public:
     // profile adapted) AA and SSR quality and the SSR gate.
     static ViewportSettingsState effectiveViewport(const ViewportSettingsState& configured);
     // Settings scopes: writes the resolved values into the viewport's mirror fields (AA, SSR, SSAO, shadows, ocean
-    // quality from the global quality; effects from the scene through the viewport's overrides). The renderer
+    // quality from global Quality; appearance from the scene; Shaded suppresses post effects). The renderer
     // reads only these mirrors, so every read site stays as it was.
     static void resolveViewport(ViewportSettingsState& viewport, const SceneEffectSettings& effects);
     static const std::string& autoStatus();
@@ -157,11 +163,17 @@ public:
     // Copies the IBL fields into the layer; they take effect on the next setEnvironmentMap.
     static void applyIblParameters(ux3d::renderer::GltfRenderLayer& layer);
 
-    // Persisted under %APPDATA%/Glider. Disabled for isolated runs, where load and save
+    // Persisted through the single portable SettingsFile. Disabled for isolated runs, where load and save
     // do nothing.
     static void setPersistenceEnabled(bool enabled);
     static void load();
     static void save();
+    // Session overrides do not leak into an unrelated save. UI save records changed fields;
+    // the registry observes session edits and commits only the explicitly persisted key.
+    static void beginSession();
+    static void observeSessionEdit();
+    static void commitSetting(const std::string& key);
+    static void pinIbl();
 
     // Parses one quality command-line flag starting at argv[i]; advances i past its value.
     // Returns false when argv[i] is not a quality flag. Sets error on a bad value.
