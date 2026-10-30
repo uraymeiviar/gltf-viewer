@@ -13,6 +13,42 @@ sun-shadow switch was renderer-wide, the IBL filter (a cost setting) was edited 
 
 There is no per-viewport quality any more, and there are no per-viewport extension switches any more. To compare AA modes side by side, run two instances.
 
+## Target layout (agreed 2026-10-30, not implemented yet)
+
+The next step replaces the effect switches and the Scene / Off / On overrides with one rule: **Quality decides
+whether an effect runs and how well, the Scene decides how the world looks, the Viewport decides how this view
+shows it.** Vendor-specific tuning lives with its extension (File > Settings > glTF Extensions), not in these layers.
+
+**Quality** (global, presets, Auto adapts it; File > Settings > Quality, the preset combo in the status bar beside
+the FPS readout): texture cap; MSAA (off/2x/4x/8x); post AA (off/FXAA/TAA); render scale (the whole 3D image);
+grid technique (ray/plane); IBL cube (off/256/512/1024) and, unless off, irradiance size (32/64/128/256/full cube),
+LUT (128..1024), samples (128..1024), precision (half/float); reflections (SSR: off/low/mid/high; not off implies the
+ASOBO windshield reflection); SSAO (off/low/mid/high) and, unless off, its resolution (half/full); sky occlusion
+(auto/on/off) and its quality; ocean quality, mode (precomputed/live FFT) and animation (on/off); shadow map
+(off/1024/2048/4096; not off = the sun always casts shadows), cascades, distance, filter, plus the advanced tuning
+(split lambda, biases); bloom on/off; lens effect (off/ghosts+halo/ghosts+streak/anamorphic streak); punctual lights
+on/off.
+
+**Scene** (one per glTF scene, Scene Inspector): ground (off/plane/ocean) and the plane's and ocean's appearance
+(height, preset, colour, roughness, detail, joints, haze; wind, fetch, choppiness, swell, foam, colour, period);
+environment source (HDR/procedural sky) and background on/off (off = solid clear colour; the environment still
+lights the scene); HDR file, rotation, intensity, blur; sky: Mie density, ozone, ground-albedo override, airglow,
+atmospheric refraction; sun source and attributes (direction, colour, intensity, angular radius); time-of-day clock
+(date, time, place, heading, play, speed); sun disk and limb darkening; moon and stars; ambient light; exposure
+(mode, compensation, limits, metering), tone mapping, night vision; bloom strength and radius; SSAO radius and
+intensity; emissive day/night and MSFS emissive scale; windshield icing (temporary, until a weather system drives it).
+
+**Viewport** (Viewport Settings; a gear button in the viewport toolbar selects the viewport so the Inspector shows
+it): render mode (Shaded + post effects, Shaded, debug views; Shaded turns off post AA, bloom, lens effect, SSR and
+SSAO and keeps shadows and tone mapping); wireframe overlay/mode, colour, blend; 3D compass; ground grid (drawn at
+the scene ground's height, y = 0 without ground); selection visualizers (boxes, node gizmo); camera projection, FoV,
+near/far, attach to glTF camera; turntable; view presets; navigation; face-culling debug switches; show sky portals;
+material variants; per-material Khronos display switches.
+
+**glTF extensions** (app setting, File > Settings > glTF Extensions, per vendor group): the switches as today, plus
+the ASOBO group's tuning: interior sky reflection strength (windshields), decal depth tolerance. Sky portals are
+implicit with either environment source (fixed strength; switch `ASOBO_sky_portal` off to remove them).
+
 ## Classification of every former per-viewport setting
 
 | Setting (field) | Key / flag | Now | Reason |
