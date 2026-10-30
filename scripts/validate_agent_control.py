@@ -38,6 +38,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from glider_harness import connect_pipe  # noqa: E402
 import harness_process as subprocess  # noqa: E402
 import glider_ctl  # noqa: E402
 
@@ -199,7 +200,7 @@ class Session:
                 if self.process.poll() is not None or time.time() > deadline:
                     raise RuntimeError(f"Glider did not open its pipe (exit {self.process.poll()})")
                 time.sleep(0.1)
-            self.pipe = glider_ctl.GliderPipe(self.process.pid)
+            self.pipe = connect_pipe(self.process)
         except BaseException:
             # Never leave a test window open when the session cannot start.
             self.process.kill()

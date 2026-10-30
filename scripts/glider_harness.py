@@ -12,6 +12,7 @@ scripts/ with ``import glider_harness`` (or ``from glider_harness import ...``).
   run(args, timeout, env)       harness_process.run(args) in REPO, text output captured
   capture(exe, model, png, ...) one isolated viewport capture + profile report; (png|None, report|None, log)
   start_pipe_session(args)      Popen with --control-pipe already in args; waits for and connects the pipe
+  connect_pipe(process)         connects to a started Glider's pipe, retrying while it lives (no 10 s give-up)
   gl_errors_zero(log)           the "GL automation errors: 0" line is present and no "GL error 0x" was logged
   read_json(path)               parsed JSON, or None when the file is missing or unreadable
   digest(path), same(a, b)      SHA-256 of a file; byte equality of two image files (None never equal)
@@ -87,9 +88,20 @@ def start_pipe_session(args, timeout=120):
         if process.poll() is not None or time.time() > deadline:
             raise RuntimeError(f"Glider did not open its pipe (exit {process.poll()})")
         time.sleep(0.1)
+    return process, connect_pipe(process, max(deadline - time.time(), 1.0))
+
+
+def connect_pipe(process, timeout=120):
+    """Connects to the control pipe of a started Glider, retrying while the process lives.
+
+    GliderPipe alone gives up after 10 s, but a busy startup (CPU-limited runs, model load, IBL
+    filtering) can keep the pipe refusing clients longer: that was the connect_failed flake. Kills
+    the process and re-raises when it exits or `timeout` seconds pass."""
+    import glider_ctl
+    deadline = time.time() + timeout
     while True:
         try:
-            return process, glider_ctl.GliderPipe(process.pid)
+            return glider_ctl.GliderPipe(process.pid)
         except glider_ctl.GliderError:
             if process.poll() is not None or time.time() > deadline:
                 process.kill()
