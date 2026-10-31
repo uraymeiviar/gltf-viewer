@@ -67,6 +67,8 @@ Quick tier (equivalence only: byte-identical viewport images, identical selectio
     no stale sky-occlusion volume without casters, pipe time_of_day_mode = Inspector Sun Source),
   validate_agent_control.py (control pipe, shared command registry, MCP shim; CLI flags against the baseline),
   validate_viewport_image.py (Viewport capture/save/copy, capture folder setting),
+  validate_area_maximize.py (Maximize Area / Full Screen / drag-and-drop open: restored layout and byte-identical
+  viewport image, borderless full screen and Esc, keys and menus, drops, settings.ini keeps the restored layout),
   validate_settings_scopes.py (Quality levels / scene appearance and shared ground / viewport Shaded and overlays:
   legacy flags against the baseline, CLI = pipe, migration/restart, shared ocean, UI ID conflicts)
 Full tier adds:
@@ -181,6 +183,7 @@ serial_jobs = [
     ("texture_ktx2", ["scripts/validate_texture_ktx2.py", "--baseline-exe", str(baseline)]),
     ("agent_control", ["scripts/validate_agent_control.py", "--baseline-exe", str(baseline)]),
     ("viewport_image", ["scripts/validate_viewport_image.py"]),
+    ("area_maximize", ["scripts/validate_area_maximize.py"]),
     ("settings_scopes", ["scripts/validate_settings_scopes.py", "--baseline-exe", str(baseline)]),
 ]
 if args.tier == "full":

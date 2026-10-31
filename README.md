@@ -57,7 +57,8 @@
 - **Streamlined Menu Navigation**:
   - **File**: Open, Re-open Recent, Save As (glTF/GLB), Search Paths, Exit.
   - **Viewport**: New Viewport, New Viewport From Camera, Grid/BBox/Turntable toggles, Camera Detach, Orientation Presets, Shading Mode, and Camera Reset / Fit to Scene.
-  - **Panel**: Toggle Scene Hierarchy, Resources, Inspector, Statistics, Validation, Logger, and Reset Default Layout (`Ctrl+L`).
+  - **Panel**: Toggle Scene Hierarchy, Resources, Inspector, Statistics, Validation, Logger, Reset Default Layout (`Ctrl+L`), Maximize Area (`Ctrl+Space`: the panel under the mouse fills the window, again restores the layout) and Full Screen (`Ctrl+Alt+Space`, `Esc` leaves). The Viewport menu has Maximize Viewport / Full Screen for its viewport.
+  - **Drag and drop**: drop a `.gltf` / `.glb` anywhere on the window to open it (the first one if several are dropped).
 - **Blender-Style Viewport Controls**:
   - Middle Drag: Orbit / Rotate view
   - Shift + Middle Drag: Pan view

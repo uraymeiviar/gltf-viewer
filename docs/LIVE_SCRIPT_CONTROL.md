@@ -108,7 +108,8 @@ list_settings environment
 
 Their results are the registry results (the same objects the pipe returns). `Glider.exe --agent-guide <file>`
 writes the full, generated command and settings reference. The UI-testing commands (`click`, `drag`, `snap`,
-`vpsetting`, `aamode`, `asoboparam`, ...) stay in the harness. A command that runs over several frames (`capture`,
+`vpsetting`, `aamode`, `asoboparam`, ...) stay in the harness. `key <name> [mods]` accepts combined modifiers
+(`key space ctrl+alt`) and the digit keys (`key 7 ctrl`). A command that runs over several frames (`capture`,
 `open`, `reset`) holds back the following lines until it has replied, as before.
 
 ---

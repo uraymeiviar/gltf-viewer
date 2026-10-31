@@ -404,7 +404,7 @@ bool Application::loadGltfModel(const std::string& filePath, ux3d::gltf::Gltf& g
         startupProfile.imageCount = gltfModel.getElements<ux3d::gltf::Image>().size();
         startupProfile.textureCount = gltfModel.getElements<ux3d::gltf::Texture>().size();
         std::error_code sizeError;
-        const auto modelSize = std::filesystem::file_size(std::filesystem::path(filePath), sizeError);
+        const auto modelSize = std::filesystem::file_size(std::filesystem::u8path(filePath), sizeError);
         if (!sizeError) {
             startupProfile.modelBytes = static_cast<uint64_t>(modelSize);
         }

@@ -211,9 +211,7 @@ void Application::loadImguiLayout()
 
 void Application::captureLayoutBaseline()
 {
-    size_t size = 0;
-    const char* data = ImGui::SaveIniSettingsToMemory(&size);
-    layoutBaseline.assign(data != nullptr ? data : "", data != nullptr ? size : 0);
+    layoutBaseline = persistedLayoutIni();
 }
 
 void Application::resetImguiLayoutPersistence()
@@ -237,12 +235,11 @@ void Application::saveImguiLayout()
     if (s_isolatedState || layoutBaselineCountdown > 0) {
         return;
     }
-    size_t size = 0;
-    const char* data = ImGui::SaveIniSettingsToMemory(&size);
-    if (data == nullptr || size == 0) {
+    // A maximized area is temporary: settings.ini always gets the layout it restores to.
+    std::string current = persistedLayoutIni();
+    if (current.empty()) {
         return;
     }
-    std::string current(data, size);
 
     SettingsFile& settings = SettingsFile::instance();
     settings.load();
@@ -278,8 +275,8 @@ void Application::updateWindowTitle(GLFWwindow* window, const std::string& curre
     if (currentFilePath.empty()) {
         title += "untitled.glb";
     } else {
-        std::filesystem::path p(currentFilePath);
-        title += p.filename().string();
+        const auto name = std::filesystem::u8path(currentFilePath).filename().u8string(); // UTF-8 for GLFW
+        title += std::string(name.begin(), name.end());
     }
     glfwSetWindowTitle(window, title.c_str());
 }

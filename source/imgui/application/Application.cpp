@@ -378,6 +378,8 @@ int Application::run(int argc, char** argv)
         auto* app = static_cast<Application*>(glfwGetWindowUserPointer(resizedWindow));
         if (app != nullptr && app->s_resizeFrame) app->s_resizeFrame();
     });
+    // Drag and drop: .gltf / .glb files dropped anywhere on the window open like File > Open (AreaLayout.cpp).
+    glfwSetDropCallback(window, glfwDropCallback);
 
     // Main Loop
     while (!glfwWindowShouldClose(window)) {
@@ -404,6 +406,9 @@ int Application::run(int argc, char** argv)
         runFrame();
     }
     glfwSetFramebufferSizeCallback(window, nullptr);
+    glfwSetDropCallback(window, nullptr);
+    // Leave full screen before the window state is saved; a maximized area saves its pre-maximize layout.
+    leaveAreaForExit();
     s_resizeFrame = nullptr;
     glfwSetWindowUserPointer(window, nullptr);
 

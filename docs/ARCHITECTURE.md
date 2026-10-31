@@ -207,6 +207,39 @@ Implemented in [`CameraActor.cpp`](file:///H:/git-repos/gltf-viewer/source/rende
   - **Right**: Element Inspector (full height).
   - Optional panels (Viewport Settings, Statistics) dock into the center-bottom tab bar.
 - Layout reset shortcut: `Ctrl + L`.
+- **Maximize Area / Full Screen / drag-and-drop open** (`source/imgui/application/AreaLayout.cpp`, registry commands in
+  `CommandsArea.cpp`):
+  - **`Ctrl + Space` — Maximize Area** (Blender "Toggle Maximize Area"): the docked panel under the mouse (else the last
+    focused panel, else the active viewport) fills the dock area; the menu bar and status bar stay, every other docked
+    panel is not submitted (`areaShows`). Before maximizing, the layout is saved as ImGui ini text
+    (`SaveIniSettingsToMemory`); the main dockspace is rebuilt with the target as its only window (`DockBuilder`, applied
+    in `drawMenus` before `DockSpace()`, tab kept, undocking disabled). `Ctrl + Space` again loads the snapshot back with
+    `LoadIniSettingsFromMemory` between two frames (before `ImGui::NewFrame`), restoring node sizes, tab order, selected
+    tabs and focus; the hidden viewports skip `SetNextWindowDockID(Appearing)` for that frame so they return to their own
+    nodes. Viewports render at the panel size each frame, so a maximized viewport renders, picks and navigates at the new
+    size and returns to its old size (byte-identical image) after the restore. Showing/closing a panel, closing the
+    maximized window or creating a viewport while maximized restores first; Reset Layout drops the snapshot.
+  - **`Ctrl + Alt + Space` — Full Screen** (Blender "Toggle Fullscreen Area"): the window becomes borderless and covers
+    the monitor it is on (largest overlap), the area under the mouse is maximized and the menu bar, status bar and tab bar
+    are hidden. `Ctrl + Alt + Space` again or `Esc` (no popup open) returns to the windowed position/size/maximized state
+    and the previous layout. Chosen over `glfwSetWindowMonitor`: no display-mode change, the GL context and ImGui backend
+    are untouched, and the window does not iconify on focus loss (Alt+Tab, other monitors, no-focus harness runs).
+    Maximized then full screen returns to the maximized area; `Ctrl + Space` in full screen leaves full screen and keeps the
+    area maximized.
+  - Menus: **Panel → Maximize Area / Full Screen** (act on the last focused panel; checked while active) and, in the
+    Viewport menu body (main Viewport menu, viewport right-click menu, hierarchy viewport row), **Maximize Viewport** /
+    **Full Screen** acting on that viewport. Shortcuts never fire while an ImGui text input is active.
+  - **Persistence**: neither state is saved. `persistedLayoutIni()` returns the pre-maximize snapshot while maximized
+    (used by `saveImguiLayout` and the layout baseline); exit leaves full screen before `[Window]` is written. `--isolated`
+    writes nothing.
+  - **Drag and drop**: `glfwSetDropCallback` queues the UTF-8 paths; the next frame opens the first `.gltf` / `.glb`
+    through `loadGltfModel` exactly like File → Open (recent files, loading screen, errors, window title) and logs the
+    other files as ignored; only non-glTF files log a warning and open nothing. File reads in `StdFileSystem` open
+    streams through `u8path`, so Unicode paths load.
+  - Agent control: `toggle_maximize_area(target?, state?)`, `toggle_fullscreen(target?, state?)`, `open_dropped(paths)`
+    (the drop path without the OS), `get_layout` (live and persisted ini text) and `get_state.area` (state, target,
+    dock/target/window/monitor rectangles, visible windows, layout hashes, last drop). Checked by
+    `scripts/validate_area_maximize.py`.
 - **Settings scopes** (`docs/SETTINGS_SCOPES.md`): global Quality owns effect levels (SSR / SSAO off-low-mid-high,
   shadow map and IBL cube off-size), AA, filter / shadow tuning, sky occlusion, ocean mode / animation, bloom,
   lens mode / intensity, lights and texture cap; every editable preset carries these and Auto adapts them.

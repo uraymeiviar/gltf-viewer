@@ -578,6 +578,34 @@ void Application::drawViewportMenuBody()
     }
 
     ImGui::Separator();
+    // Maximize / full screen for the viewport the menu belongs to (checked while it is the maximized area).
+    {
+        const bool vpMaximized = hasActiveVp && areaTargets(activeViewport);
+        if (ImGui::MenuItem(ICON_MDI_WINDOW_MAXIMIZE " Maximize Viewport", "Ctrl+Space", vpMaximized && !area.fullscreen,
+                            hasActiveVp)) {
+            if (vpMaximized) {
+                requestArea(AreaAction::ExitAll);
+            } else if (auto target = areaTargetForViewport(activeViewport)) {
+                if (area.maximized || area.fullscreen) requestArea(AreaAction::ExitAll);
+                requestArea(AreaAction::ToggleMaximize, *target);
+            }
+        }
+        ux3d::imgui::UiProbe::item("viewport.maximize", 0);
+        if (ImGui::MenuItem(ICON_MDI_FULLSCREEN " Full Screen", "Ctrl+Alt+Space", vpMaximized && area.fullscreen,
+                            hasActiveVp)) {
+            if (vpMaximized && area.fullscreen) {
+                requestArea(AreaAction::ExitFullscreen);
+            } else if (vpMaximized) {
+                requestArea(AreaAction::ToggleFullscreen);
+            } else if (auto target = areaTargetForViewport(activeViewport)) {
+                if (area.maximized || area.fullscreen) requestArea(AreaAction::ExitAll);
+                requestArea(AreaAction::ToggleFullscreen, *target);
+            }
+        }
+        ux3d::imgui::UiProbe::item("viewport.fullscreen", 0);
+    }
+
+    ImGui::Separator();
     drawViewportImageMenuItems();
 }
 
@@ -616,6 +644,14 @@ void Application::showViewportMenuFor(ux3d::imgui::ViewportInstance* vp)
 {
     activeViewport = vp;
     drawViewportMenuBody();
+    if ((pendingNewViewport || pendingNewViewportCamera != nullptr) && area.maximized) {
+        // Created after the layout is restored (trackAreaFrame).
+        deferredNewViewport = pendingNewViewport;
+        deferredNewViewportCamera = pendingNewViewportCamera;
+        pendingNewViewport = false;
+        pendingNewViewportCamera = nullptr;
+        requestArea(AreaAction::ExitAll);
+    }
     if (pendingNewViewport || pendingNewViewportCamera != nullptr) {
         createViewport(pendingNewViewportCamera);
         pendingNewViewport = false;
@@ -629,10 +665,14 @@ void Application::drawMenus(FrameContext& frame)
     const auto uiChromeStart = ux3d::imgui::profiling::Clock::now();
     pendingNewViewport = false;
     pendingNewViewportCamera = nullptr;
-    // Main DockSpace covering the whole window (minus status bar at bottom)
-    float statusBarHeight = ImGui::GetFrameHeight() + 8.0f;
+    trackAreaFrame();
+    // Main DockSpace covering the whole window (minus status bar at bottom). Full screen (AreaLayout.cpp) has
+    // neither the menu bar nor the status bar; a maximized area cannot be undocked, full screen has no tab bar.
+    float statusBarHeight = area.fullscreen ? 0.0f : ImGui::GetFrameHeight() + 8.0f;
     ImGuiDockNodeFlags dockspaceFlags = ImGuiDockNodeFlags_None;
-    ImGuiWindowFlags windowFlags = ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoDocking;
+    if (area.maximized) dockspaceFlags |= ImGuiDockNodeFlags_NoUndocking;
+    if (area.fullscreen) dockspaceFlags |= static_cast<ImGuiDockNodeFlags>(ImGuiDockNodeFlags_NoTabBar);
+    ImGuiWindowFlags windowFlags = (area.fullscreen ? ImGuiWindowFlags_None : ImGuiWindowFlags_MenuBar) | ImGuiWindowFlags_NoDocking;
     const ImGuiViewport* mainViewport = ImGui::GetMainViewport();
     ImVec2 dockspaceSize = ImVec2(mainViewport->WorkSize.x, mainViewport->WorkSize.y - statusBarHeight);
     ImGui::SetNextWindowPos(mainViewport->WorkPos);
@@ -649,9 +689,13 @@ void Application::drawMenus(FrameContext& frame)
     ImGui::PopStyleVar(3);
 
     ImGuiID dockspaceId = ImGui::GetID("GliderMainDockSpace_v1");
+    mainDockspaceId = dockspaceId;
+    mainDockspaceSize = dockspaceSize;
 
     if (s_firstLayout || s_resetLayout) {
         const bool reset = s_resetLayout;
+        // Reset Layout wins over a maximized area or full screen: the snapshot is dropped.
+        if (reset && (area.maximized || area.fullscreen)) discardAreaState();
         bool force = s_resetLayout || s_isolatedState;
         s_firstLayout = false;
         s_resetLayout = false;
@@ -661,7 +705,28 @@ void Application::drawMenus(FrameContext& frame)
         }
     }
 
+    applyAreaLayout(dockspaceId, dockspaceSize);
     ImGui::DockSpace(dockspaceId, ImVec2(0.0f, 0.0f), dockspaceFlags);
+
+    // Maximize Area (Ctrl+Space: the panel under the mouse, else the focused one) and Full Screen
+    // (Ctrl+Alt+Space; Esc leaves it). Never while typing; Esc not while a popup is open.
+    if (!io.WantTextInput && io.KeyCtrl && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Space, false)) {
+        if (io.KeyAlt) {
+            if (area.fullscreen) {
+                requestArea(AreaAction::ToggleFullscreen);
+            } else if (auto target = areaTargetAtMouse()) {
+                requestArea(AreaAction::ToggleFullscreen, *target);
+            }
+        } else if (area.maximized || area.fullscreen) {
+            requestArea(AreaAction::ToggleMaximize);
+        } else if (auto target = areaTargetAtMouse()) {
+            requestArea(AreaAction::ToggleMaximize, *target);
+        }
+    }
+    if (area.fullscreen && !io.WantTextInput && GImGui->OpenPopupStack.Size == 0 &&
+        ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        requestArea(AreaAction::ExitFullscreen);
+    }
 
     // Global Keyboard Shortcuts (File & View)
     if (!io.WantTextInput && io.KeyCtrl && !io.KeyShift && !io.KeyAlt) {
@@ -698,8 +763,8 @@ void Application::drawMenus(FrameContext& frame)
         }
     }
 
-    // Menu Bar
-    if (ImGui::BeginMenuBar()) {
+    // Menu Bar (none in full screen)
+    if (!area.fullscreen && ImGui::BeginMenuBar()) {
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem(ICON_MDI_FOLDER_OPEN " Open ...", "Ctrl+O")) {
                 auto openResult =
@@ -802,7 +867,9 @@ void Application::drawMenus(FrameContext& frame)
             ImGui::EndMenu();
         }
 
-        if (ImGui::BeginMenu("Panel")) {
+        const bool panelMenuOpen = ImGui::BeginMenu("Panel");
+        UiProbe::item("menu.panel", 0, panelMenuOpen);
+        if (panelMenuOpen) {
             ImGui::MenuItem(WND_INSPECTOR, "Ctrl+1", &showInspector);
             ImGui::MenuItem(WND_HIERARCHY, "Ctrl+2", &showHierarchy);
             ImGui::MenuItem(WND_RESOURCES, "Ctrl+4", &showResources);
@@ -817,6 +884,27 @@ void Application::drawMenus(FrameContext& frame)
                     vp->isOpen = true;
                 s_resetLayout = true;
             }
+            ImGui::Separator();
+            // Act on the last focused panel (the mouse is on this menu).
+            if (ImGui::MenuItem(ICON_MDI_WINDOW_MAXIMIZE " Maximize Area", "Ctrl+Space", area.maximized && !area.fullscreen)) {
+                std::string error;
+                if (area.maximized || area.fullscreen) {
+                    requestArea(AreaAction::ToggleMaximize);
+                } else if (auto target = areaTargetByKey("focused", error)) {
+                    requestArea(AreaAction::ToggleMaximize, *target);
+                }
+            }
+            UiProbe::item("panel.maximize_area", 0);
+            if (ImGui::MenuItem(ICON_MDI_FULLSCREEN " Full Screen", "Ctrl+Alt+Space", area.fullscreen)) {
+                std::string error;
+                if (area.fullscreen || area.maximized) {
+                    requestArea(AreaAction::ToggleFullscreen);
+                } else if (auto target = areaTargetByKey("focused", error)) {
+                    requestArea(AreaAction::ToggleFullscreen, *target);
+                }
+            }
+            UiProbe::item("panel.fullscreen", 0);
+            ImGui::MenuItem(ICON_MDI_TRAY_ARROW_DOWN " Open: drop a .gltf / .glb on the window", nullptr, false, false);
             ImGui::EndMenu();
         }
 

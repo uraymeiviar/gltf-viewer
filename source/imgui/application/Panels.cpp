@@ -17,7 +17,8 @@ void Application::drawPanels(FrameContext& frame)
     // Hierarchy Panel
     // -------------------------------------------------------------
     const auto panelsStart = ux3d::imgui::profiling::Clock::now();
-    if (showHierarchy) {
+    // Maximize Area (AreaLayout.cpp): only the maximized panel is submitted.
+    if (showHierarchy && areaShows(WND_HIERARCHY)) {
         ux3d::editor::CameraActor dummyActor;
         ux3d::imgui::AntiAliasing dummyAA;
         ux3d::imgui::SceneHierarchyPanel::render(gltfModel, activeScene, selection, gltfLayer.get(),
@@ -30,14 +31,14 @@ void Application::drawPanels(FrameContext& frame)
     // -------------------------------------------------------------
     // Resources Panel
     // -------------------------------------------------------------
-    if (showResources) {
+    if (showResources && areaShows(WND_RESOURCES)) {
         ux3d::imgui::ResourcesPanel::render(gltfModel, selection, gltfLayer.get(), &sceneRevisions, &showResources);
     }
 
     // -------------------------------------------------------------
     // Inspector Panel
     // -------------------------------------------------------------
-    if (showInspector) {
+    if (showInspector && areaShows(WND_INSPECTOR)) {
         if (ImGui::Begin(WND_INSPECTOR, &showInspector)) {
             if (selection.type == ux3d::imgui::SelectionType::Scene) {
                 auto* inspectedScene = selection.selectedScene != nullptr ? selection.selectedScene : activeScene;
@@ -57,7 +58,7 @@ void Application::drawPanels(FrameContext& frame)
     // -------------------------------------------------------------
     // Statistics Panel
     // -------------------------------------------------------------
-    if (showStatistics) {
+    if (showStatistics && areaShows(WND_STATISTICS)) {
         if (ux3d::imgui::StatisticsPanel::consumeFocusRequest()) {
             ImGui::SetNextWindowFocus();
         }
@@ -80,7 +81,7 @@ void Application::drawPanels(FrameContext& frame)
     // -------------------------------------------------------------
     // Validation Panel
     // -------------------------------------------------------------
-    if (showValidation) {
+    if (showValidation && areaShows(WND_VALIDATION)) {
         ux3d::editor::CameraActor dummyActor;
         ux3d::imgui::ValidationPanel::render(&showValidation, currentFilePath, gltfModel, selection,
                                              activeViewport ? activeViewport->cameraActor : dummyActor,

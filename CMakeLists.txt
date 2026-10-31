@@ -96,6 +96,8 @@ set(GLIDER_SOURCES
 	"source/imgui/GltfExtensionSettings.cpp"
 	"header/imgui/GltfExtensionSettings.h"
 	"source/imgui/application/ViewportImage.cpp"
+	"source/imgui/application/AreaLayout.cpp"
+	"source/imgui/application/CommandsArea.cpp"
 	"header/imgui/CommandRegistry.h"
 	"header/imgui/CaptureSettings.h"
 	"source/imgui/ControlPipe.cpp"

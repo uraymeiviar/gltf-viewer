@@ -75,6 +75,8 @@ json Application::agentStateJson()
     const auto& report = ux3d::imgui::GltfValidator::instance().getLastReport();
     st["validation"] = {{"errors", report.errorCount}, {"warnings", report.warningCount}, {"infos", report.infoCount}};
     st["persist"] = agentPersist;
+    // Maximize Area / Full Screen / drag-and-drop open (AreaLayout.cpp).
+    st["area"] = areaStateJson();
     st["frame"] = frameCount;
     st["glErrors"] = s_glErrorTotal;
     // Renderer synchronisations from the glTF model (full or material-only) and the frames that needed none.

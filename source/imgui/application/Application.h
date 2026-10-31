@@ -342,6 +342,73 @@ private:
     void drawViewportToolbar(ux3d::imgui::ViewportInstance* vp);
     void drawPanels(FrameContext& frame);
     void drawLogger();
+
+    // Maximize Area (Ctrl+Space), Full Screen (Ctrl+Alt+Space) and drag-and-drop open (AreaLayout.cpp,
+    // docs/ARCHITECTURE.md 3.6). Maximize snapshots the docking layout (ImGui ini text), rebuilds the main
+    // dockspace with only the target window and hides every other docked panel; restore loads the snapshot
+    // back between frames. Full screen makes the window borderless over its monitor and hides the menu and
+    // status bars. Neither state is ever written to settings.ini (persistedLayoutIni).
+    enum class AreaAction { ToggleMaximize, ToggleFullscreen, ExitFullscreen, ExitAll };
+    struct AreaTarget {
+        ImGuiID id = 0;
+        std::string name; // the ImGui window name (DockBuilderDockWindow)
+    };
+    struct AreaState {
+        bool maximized = false;
+        bool fullscreen = false;
+        bool fullscreenFromMaximized = false; // Maximize Area was already on when full screen started
+        AreaTarget target;
+        std::string layoutSnapshot;  // SaveIniSettingsToMemory() right before maximizing
+        std::string focusedName;     // the docked window that had focus before maximizing
+        std::string refocusName;     // focused again on the first frame after a restore
+        uint64_t visibilitySignature = 0;
+        bool buildPending = false;   // rebuild the maximized dockspace in drawMenus (before DockSpace())
+        int builtFrame = 0;          // ImGui frame of the last rebuild
+        int restoreGuardFrames = 0;  // frames after a restore without SetNextWindowDockID(Appearing)
+        AreaTarget lastFocused;      // last focused docked window (menu items act on it)
+        // Window placement while in full screen (restored on exit).
+        int windowX = 0, windowY = 0, windowW = 0, windowH = 0;
+        bool windowWasMaximized = false;
+        int monitorX = 0, monitorY = 0, monitorW = 0, monitorH = 0;
+        uint64_t transitions = 0; // completed maximize / restore / full-screen changes (get_state)
+    };
+    AreaState area;
+    std::vector<std::pair<AreaAction, AreaTarget>> areaRequests;
+    bool deferredNewViewport = false;
+    const ux3d::gltf::Node* deferredNewViewportCamera = nullptr;
+    std::vector<std::vector<std::string>> pendingDrops; // filled by the GLFW drop callback
+    nlohmann::json lastDropResult;                      // get_state area.drops / open_dropped
+    uint64_t dropSerial = 0;
+    void registerAgentAreaCommands(); // CommandsArea.cpp
+    ImGuiID mainDockspaceId = 0;
+    ImVec2 mainDockspaceSize{0.0f, 0.0f};
+    static std::string viewportWindowName(const ux3d::imgui::ViewportInstance& vp);
+    std::optional<AreaTarget> areaTargetAtMouse();
+    std::optional<AreaTarget> areaTargetForViewport(const ux3d::imgui::ViewportInstance* vp);
+    // "viewport:<id>", "inspector", "hierarchy", "resources", "logger", "statistics", "validation", "mouse",
+    // "focused", or an exact window name.
+    std::optional<AreaTarget> areaTargetByKey(const std::string& key, std::string& error);
+    void requestArea(AreaAction action, const AreaTarget& target = {});
+    bool areaRequestPending() const { return !areaRequests.empty() || area.buildPending; }
+    void applyAreaRequests();                             // runFrame, before ImGui::NewFrame
+    void applyAreaLayout(ImGuiID dockspaceId, ImVec2 size); // drawMenus, before DockSpace()
+    void trackAreaFrame();                                // drawMenus, start of the frame
+    bool areaShows(const char* windowName) const;
+    bool areaShows(const std::string& windowName) const { return areaShows(windowName.c_str()); }
+    bool areaTargets(const ux3d::imgui::ViewportInstance* vp) const;
+    uint64_t areaVisibilitySignature() const;
+    void beginAreaMaximize(const AreaTarget& target);
+    void restoreAreaLayout();
+    void enterFullscreenWindow();
+    void leaveFullscreenWindow();
+    void discardAreaState(); // Reset Layout while maximized: the snapshot is dropped
+    void leaveAreaForExit(); // before the exit-time layout and window saves
+    // The layout text for settings.ini: the pre-maximize snapshot while maximized, else the live layout.
+    std::string persistedLayoutIni();
+    nlohmann::json areaStateJson();
+    static void glfwDropCallback(GLFWwindow* window, int count, const char** paths);
+    // Opens the first .gltf / .glb (File > Open path), logs the rest as ignored; returns what it did.
+    nlohmann::json handleDroppedFiles(const std::vector<std::string>& paths);
     void finishFrame(FrameContext& frame, int displayW, int displayH);
     // A2.1: true when this viewport's file has decal materials, ASOBO is on and the
     // viewport applies ASOBO_material_geometry_decal.

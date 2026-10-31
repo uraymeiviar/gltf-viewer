@@ -356,6 +356,7 @@ ImGuiKey UiScenario::keyFromName(const std::string& name)
     if (name == "slash") return ImGuiKey_Slash;
     if (name == "lbracket") return ImGuiKey_LeftBracket;
     if (name == "rbracket") return ImGuiKey_RightBracket;
+    if (name.size() == 1 && name[0] >= '0' && name[0] <= '9') return static_cast<ImGuiKey>(ImGuiKey_0 + (name[0] - '0'));
     return ImGuiKey_None;
 }
 
@@ -482,9 +483,11 @@ void UiScenario::executeCommand(const std::string& cmd, const std::vector<std::s
         if (!need(2)) return;
         const ImGuiKey key = keyFromName(args[1]);
         if (key == ImGuiKey_None) { fail("unknown key: " + line); return; }
-        const bool ctrl = args.size() > 2 && args[2] == "ctrl";
-        const bool shift = args.size() > 2 && args[2] == "shift";
-        const bool alt = args.size() > 2 && args[2] == "alt";
+        // key <name> [ctrl|shift|alt|ctrl+alt|...]: modifiers can be combined with '+'.
+        const std::string mods = args.size() > 2 ? "+" + args[2] + "+" : std::string();
+        const bool ctrl = mods.find("+ctrl+") != std::string::npos;
+        const bool shift = mods.find("+shift+") != std::string::npos;
+        const bool alt = mods.find("+alt+") != std::string::npos;
         if (ctrl) queueFrame([](ImGuiIO& io) { io.AddKeyEvent(ImGuiMod_Ctrl, true); });
         if (shift) queueFrame([](ImGuiIO& io) { io.AddKeyEvent(ImGuiMod_Shift, true); });
         if (alt) queueFrame([](ImGuiIO& io) { io.AddKeyEvent(ImGuiMod_Alt, true); });

@@ -236,7 +236,7 @@ void Application::logMessage(const std::string& msg, ImVec4 color, ux3d::core::L
 
 void Application::drawLogger()
 {
-    if (showLogger) {
+    if (showLogger && areaShows(WND_LOGGER)) {
         if (ImGui::Begin(WND_LOGGER, &showLogger)) {
 
             const bool loggerClearClicked = ImGui::Button(ICON_MDI_DELETE_OUTLINE " Clear");

@@ -233,10 +233,12 @@ void Application::drawViewports(FrameContext& frame)
             continue;
         }
 
-        std::string wndTitle =
-            std::string(ICON_MDI_CUBE_OUTLINE " ") + vp->name + "###Viewport_" + std::to_string(vp->id);
+        const std::string wndTitle = viewportWindowName(*vp);
+        // Maximize Area: only the maximized window is submitted (the others keep their images and targets).
+        if (!areaShows(wndTitle)) continue;
 
-        ImGui::SetNextWindowDockID(s_centralDockId, ImGuiCond_Appearing);
+        // Right after a restored layout the hidden viewports "appear" again in their restored dock nodes.
+        if (area.restoreGuardFrames == 0) ImGui::SetNextWindowDockID(s_centralDockId, ImGuiCond_Appearing);
 
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
         bool isVpVisible = ImGui::Begin(wndTitle.c_str(), &vp->isOpen);
@@ -1813,7 +1815,14 @@ void Application::drawViewports(FrameContext& frame)
 
     // Deferred viewport creation: the Viewport menu body can run inside the viewport
     // loop (right-click context menu), where changing the viewports vector would
-    // invalidate the iteration.
+    // invalidate the iteration. While an area is maximized the layout is restored first (trackAreaFrame).
+    if ((pendingNewViewport || pendingNewViewportCamera != nullptr) && area.maximized) {
+        deferredNewViewport = pendingNewViewport;
+        deferredNewViewportCamera = pendingNewViewportCamera;
+        pendingNewViewport = false;
+        pendingNewViewportCamera = nullptr;
+        requestArea(AreaAction::ExitAll);
+    }
     if (pendingNewViewport || pendingNewViewportCamera != nullptr) {
         createViewport(pendingNewViewportCamera);
         pendingNewViewport = false;

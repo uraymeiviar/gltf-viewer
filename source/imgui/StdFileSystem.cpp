@@ -20,6 +20,21 @@
 namespace fs = std::filesystem;
 using namespace ux3d::filesystem;
 
+namespace {
+
+// Paths are UTF-8 (file dialogs, drag and drop, settings); a narrow std::fstream path would use the ANSI code
+// page on Windows and fail for other characters. Text that is not valid UTF-8 keeps the narrow conversion.
+fs::path streamPath(const char* path)
+{
+    try {
+        return fs::u8path(path);
+    } catch (...) {
+        return fs::path(path);
+    }
+}
+
+} // namespace
+
 namespace ux3d::imgui {
 
 StdFileSystem& StdFileSystem::instance()
@@ -305,7 +320,7 @@ filesystem::FileSaveResult StdFileSystem::save(const filesystem::File& file, con
 
 filesystem::FileSaveResult StdFileSystem::append(const filesystem::File& file, const core::string& text) const
 {
-    std::ofstream stream(file.toString().c_str(), std::ios::app);
+    std::ofstream stream(streamPath(file.toString().c_str()), std::ios::app);
     if (!stream.is_open()) {
         return filesystem::FileSaveResultE::CannotOpenFile;
     }
@@ -326,11 +341,11 @@ bool StdFileSystem::readRange(const core::string& path, uint64_t offset, uint64_
         return true;
     }
 
-    std::ifstream stream(path.c_str(), std::ios::binary | std::ios::ate);
+    std::ifstream stream(streamPath(path.c_str()), std::ios::binary | std::ios::ate);
     if (!stream.is_open()) {
         std::string resolved = AppSettings::instance().resolveAssetPath(path.c_str());
         if (!resolved.empty() && resolved != path.c_str()) {
-            stream.open(resolved.c_str(), std::ios::binary | std::ios::ate);
+            stream.open(streamPath(resolved.c_str()), std::ios::binary | std::ios::ate);
         }
     }
     if (!stream.is_open()) {
@@ -360,11 +375,11 @@ filesystem::FileLoadResult StdFileSystem::loadBinary(const char* pPath, core::Ve
         return filesystem::FileLoadResult::Success;
     }
 
-    std::ifstream stream(pPath, std::ios::binary | std::ios::ate);
+    std::ifstream stream(streamPath(pPath), std::ios::binary | std::ios::ate);
     if (!stream.is_open()) {
         std::string resolved = AppSettings::instance().resolveAssetPath(pPath);
         if (!resolved.empty() && resolved != pPath) {
-            stream.open(resolved.c_str(), std::ios::binary | std::ios::ate);
+            stream.open(streamPath(resolved.c_str()), std::ios::binary | std::ios::ate);
         }
     }
     if (!stream.is_open()) {
@@ -401,11 +416,11 @@ filesystem::FileLoadResult StdFileSystem::loadBinary(const char* pPath, core::Sl
         return filesystem::FileLoadResult::Success;
     }
 
-    std::ifstream stream(pPath, std::ios::binary | std::ios::ate);
+    std::ifstream stream(streamPath(pPath), std::ios::binary | std::ios::ate);
     if (!stream.is_open()) {
         std::string resolved = AppSettings::instance().resolveAssetPath(pPath);
         if (!resolved.empty() && resolved != pPath) {
-            stream.open(resolved.c_str(), std::ios::binary | std::ios::ate);
+            stream.open(streamPath(resolved.c_str()), std::ios::binary | std::ios::ate);
         }
     }
     if (!stream.is_open()) {
@@ -440,11 +455,11 @@ filesystem::FileLoadResult StdFileSystem::loadText(const char* pPath, core::stri
         return filesystem::FileLoadResult::Success;
     }
 
-    std::ifstream stream(pPath, std::ios::binary | std::ios::ate);
+    std::ifstream stream(streamPath(pPath), std::ios::binary | std::ios::ate);
     if (!stream.is_open()) {
         std::string resolved = AppSettings::instance().resolveAssetPath(pPath);
         if (!resolved.empty() && resolved != pPath) {
-            stream.open(resolved.c_str(), std::ios::binary | std::ios::ate);
+            stream.open(streamPath(resolved.c_str()), std::ios::binary | std::ios::ate);
         }
     }
     if (!stream.is_open()) {
@@ -464,7 +479,7 @@ filesystem::FileLoadResult StdFileSystem::loadText(const char* pPath, core::stri
 
 filesystem::FileSaveResult StdFileSystem::saveBinary(const char* pPath, const uint8_t* data, size_t byteLength) const
 {
-    std::ofstream stream(pPath, std::ios::binary | std::ios::out);
+    std::ofstream stream(streamPath(pPath), std::ios::binary | std::ios::out);
     if (!stream.is_open()) {
         return filesystem::FileSaveResultE::CannotOpenFile;
     }
@@ -478,7 +493,7 @@ filesystem::FileSaveResult StdFileSystem::saveBinary(const char* pPath, const ui
 
 filesystem::FileSaveResult StdFileSystem::saveText(const char* pPath, const core::string& text) const
 {
-    std::ofstream stream(pPath, std::ios::out);
+    std::ofstream stream(streamPath(pPath), std::ios::out);
     if (!stream.is_open()) {
         return filesystem::FileSaveResultE::CannotOpenFile;
     }

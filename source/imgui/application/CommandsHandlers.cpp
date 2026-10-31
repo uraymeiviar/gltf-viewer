@@ -1033,6 +1033,7 @@ void Application::registerAgentCommands()
         };
         agentRegistry.add(std::move(spec));
     }
+    registerAgentAreaCommands();
 }
 
 } // namespace ux3d::imgui::application

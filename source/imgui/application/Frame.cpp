@@ -37,6 +37,14 @@ void Application::runFrame()
     }
     auto& io = ImGui::GetIO();
     frameInProgress = true;
+    // Maximize / restore / full screen requested last frame (before NewFrame: the layout reload and the window
+    // changes must not happen inside an ImGui frame; frameInProgress keeps the resize callback from re-entering).
+    applyAreaRequests();
+    // Files dropped on the window since the last frame: opened like File > Open (the load is queued).
+    if (!pendingDrops.empty()) {
+        const auto drops = std::exchange(pendingDrops, {});
+        for (const auto& batch : drops) handleDroppedFiles(batch);
+    }
     if (!s_idleStatsPath.empty() && idleFrameStartsMs.size() < 200000) {
         idleFrameStartsMs.push_back(wallClockMs());
     }
@@ -94,7 +102,7 @@ void Application::runFrame()
     ux3d::imgui::RenderQuality::updateAuto(s_sceneRenderTotal != sceneRendersAtFrameStart
         ? ux3d::imgui::profiling::elapsedMs(frame.start) : 0, gltfLayer.get(), sceneRevisions);
     const auto statusBarStart = ux3d::imgui::profiling::Clock::now();
-    ux3d::imgui::StatusBar::render(gltfModel, gltfLayer.get(), animationPlayer, sceneRevisions, showLogger,
+    if (!area.fullscreen) ux3d::imgui::StatusBar::render(gltfModel, gltfLayer.get(), animationPlayer, sceneRevisions, showLogger,
                                    showStatistics, showValidation, s_consoleLogs.counts(),
                                    activeViewport ? &activeViewport->antiAliasing : nullptr,
                                    uiScriptFollowPath,
@@ -164,7 +172,8 @@ void Application::runFrame()
     const bool frameActive = inputThisFrame || s_sceneRenderTotal != sceneRendersAtFrameStart ||
                              sceneRevisions.hasPending() || animationPlayer.isPlaying() || turntableActive || timeOfDayPlaying || oceanActive ||
                              skyEnvironment.busy() || skyOcclusionVolume.busy() ||
-                             io.WantTextInput || ImGui::IsAnyMouseDown();
+                             io.WantTextInput || ImGui::IsAnyMouseDown() || areaRequestPending() ||
+                             !pendingDrops.empty() || !queuedLoadPath.empty();
     idleQuietFrames = frameActive ? 0 : idleQuietFrames + 1;
     frameInProgress = false;
 }
