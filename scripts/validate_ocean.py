@@ -27,8 +27,8 @@ Checks:
     with the grid ground (no water inside), with the HDR (bounds rule) and with the procedural sky (A3.9 volume rule);
   * GPU cost: the Opaque pass with the ocean against the plane, per quality (median over 24 frames with the ocean
     animating), and the precompute time per quality (synchronous set) and the background recompute: its measured
-    GPU slice times (median, largest) against the baseline measured in the same conditions (interleaved A B A B A B,
-    uncached; glider_harness.relative_timing), against the absolute 3 ms budget (median) / 1.5 x budget (largest)
+    GPU slice times (mean, largest) against the baseline measured in the same conditions (interleaved A B A B A B,
+    uncached; glider_harness.relative_timing), against the absolute 3 ms budget (mean) / 1.5 x budget (largest)
     only with --bench;
   * runtime switching (the interactive path): a model opened without ground flags, then Ground -> Ocean, Height ->
     Model base, Sun Source -> From HDR, HDR <-> procedural sky, the ocean sliders, Ocean -> Off, Plane -> Ocean, each
@@ -393,8 +393,10 @@ def background_recompute(exe=EXE):
 
 
 def slice_times(state):
+    # Mean, not median: the recompute splits into 8 or 9 slices run to run, and the median then jumps between a
+    # small setup slice (~0.2 ms) and a cascade slice (~0.9 ms) with no change in the work.
     measured = (state or {}).get("precompute", {}).get("slicesGpuMs", [])
-    return (statistics.median(measured) if measured else None), (state or {}).get("precompute", {}).get("maxSliceGpuMs")
+    return (statistics.fmean(measured) if measured else None), (state or {}).get("precompute", {}).get("maxSliceGpuMs")
 
 
 def check_cost(baseline=None, bench=False):
@@ -457,22 +459,22 @@ def check_cost(baseline=None, bench=False):
             continue
         pre = state["precompute"]
         measured = pre.get("slicesGpuMs", [])
-        median, largest = slice_times(state)
+        mean, largest = slice_times(state)
         print(f"  INFO background recompute (medium, run {index // 2 + 1}): {pre['appFrames']} frames, {pre['gpuMs']:.1f} ms "
-              f"GPU in total, {len(measured)} measured slices, median {median or 0:.2f} ms, largest {largest or 0:.2f} ms: "
+              f"GPU in total, {len(measured)} measured slices, mean {mean or 0:.2f} ms, largest {largest or 0:.2f} ms: "
               f"{[round(v, 2) for v in measured]}")
         check(state["ready"] and state["version"] != before and pre["appFrames"] > 1 and measured,
               f"a wind change recomputes in the background over {pre['appFrames']} frames and swaps "
               f"({len(measured)} measured slices)")
         if bench:
-            check(measured and median <= SLICE_BUDGET_MS and largest <= 1.5 * SLICE_BUDGET_MS,
-                  f"--bench: background slices: median {median:.2f} ms <= {SLICE_BUDGET_MS} ms budget, largest "
+            check(measured and mean <= SLICE_BUDGET_MS and largest <= 1.5 * SLICE_BUDGET_MS,
+                  f"--bench: background slices: mean {mean:.2f} ms <= {SLICE_BUDGET_MS} ms budget, largest "
                   f"{largest:.2f} ms <= 1.5 x budget")
         check(errors == 0, f"background session: {errors} GL errors")
     if have_baseline:
         cand = [slice_times(s) for s in results["candidate"] if s]
         base = [slice_times(s) for s in results["baseline"] if s]
-        for label, index in (("median", 0), ("largest", 1)):
+        for label, index in (("mean", 0), ("largest", 1)):
             ok, best, best_base, limit = relative_timing([c[index] for c in cand], [b[index] for b in base])
             check(ok, f"background slices: {label} {best if best is None else round(best, 3)} ms (best of {len(cand)}) <= 1.25 x "
                       f"{Path(baseline).stem}'s {best_base if best_base is None else round(best_base, 3)} ms + 0.5 = "
@@ -1020,7 +1022,7 @@ def main():
     parser.add_argument("--only", default=None, help="comma-separated: baseline,loop,registry,registry_b,live,energy,foam,shadow,ui,nocompute,depth,"
                                                   "interior,cost,runtime,horizon")
     parser.add_argument("--bench", action="store_true",
-                        help="also the absolute background-slice limits (median <= 3 ms, largest <= 4.5 ms)")
+                        help="also the absolute background-slice limits (mean <= 3 ms, largest <= 4.5 ms)")
     args = parser.parse_args()
     only = set(args.only.split(",")) if args.only else None
 
