@@ -26,8 +26,10 @@ Checks:
   * model interior: a camera inside a closed box (6 walls) whose middle is at the sea level sees exactly what it sees
     with the grid ground (no water inside), with the HDR (bounds rule) and with the procedural sky (A3.9 volume rule);
   * GPU cost: the Opaque pass with the ocean against the plane, per quality (median over 24 frames with the ocean
-    animating), and the precompute time per quality (synchronous set) and the background recompute (slices against
-    the 3 ms budget);
+    animating), and the precompute time per quality (synchronous set) and the background recompute: its measured
+    GPU slice times (median, largest) against the baseline measured in the same conditions (interleaved A B A B A B,
+    uncached; glider_harness.relative_timing), against the absolute 3 ms budget (median) / 1.5 x budget (largest)
+    only with --bench;
   * runtime switching (the interactive path): a model opened without ground flags, then Ground -> Ocean, Height ->
     Model base, Sun Source -> From HDR, HDR <-> procedural sky, the ocean sliders, Ocean -> Off, Plane -> Ocean, each
     capture byte-identical to a fresh launch with the equivalent flags, through the pipe registry keys and through
@@ -37,7 +39,7 @@ Checks:
     same as with a 50 x far plane, HDR and procedural sky; the automatic haze is at least 100 camera heights;
   * zero GL errors.
 
-Run: python scripts/validate_ocean.py [--baseline-exe build/baselines/<sha>.exe] [--only a,b]
+Run: python scripts/validate_ocean.py [--baseline-exe build/baselines/<sha>.exe] [--only a,b] [--bench]
 """
 
 import argparse
@@ -51,7 +53,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import harness_process as subprocess  # noqa: E402
-from glider_harness import start_pipe_session  # noqa: E402
+from glider_harness import relative_timing, start_pipe_session  # noqa: E402
 import glider_ctl  # noqa: E402
 import shadow_fixtures  # noqa: E402
 from validate_asobo_common import EXE, REPO, check, finish, same, view, render_view  # noqa: E402
@@ -62,6 +64,7 @@ COMMON = ["--isolated", "--window-size", "1280x720", "--fixed-frame-time", "0.05
 OCEAN = ["--ground", "ocean", "--hide-grid"]
 PERIOD = 30.0
 SLICE_BUDGET_MS = 3.0
+BACKGROUND_PAIRS = 3  # interleaved candidate / baseline background-recompute sessions
 
 gl_logs = []
 
@@ -90,8 +93,8 @@ def render(model, name, flags=(), exe=EXE, frame=24, common=COMMON, env=None):
 
 
 class Session:
-    def __init__(self, model, flags=(), common=COMMON):
-        args = [str(EXE)] + ([str(model)] if model else []) + list(common) + list(flags) + ["--control-pipe"]
+    def __init__(self, model, flags=(), common=COMMON, exe=EXE):
+        args = [str(exe)] + ([str(model)] if model else []) + list(common) + list(flags) + ["--control-pipe"]
         self.process, self.pipe = start_pipe_session(args)
 
     def call(self, cmd, **args):
@@ -365,7 +368,36 @@ def gpu_opaque_ms(report, first=24):
     return statistics.median(values) if values else None
 
 
-def check_cost():
+def background_recompute(exe=EXE):
+    """A wind change in an interactive session (no capture-run flags, so the recompute is spread over frames):
+    returns (ocean state before, after, GL errors)."""
+    interactive = ["--isolated", "--window-size", "1280x720", "--vsync", "off", "--aa", "none"]
+    session = Session(None, OCEAN, common=interactive, exe=exe)
+    try:
+        session.settle(4, "bg_settle")
+        before = session.ocean()["version"]
+        session.set("ocean_wind_speed", 15)
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            session.settle(1, "bg_step")
+            state = session.ocean()
+            if state["ready"] and state["version"] != before:
+                break
+        session.settle(4, "bg_step")  # the last slices' timestamps
+        state = session.ocean()
+        errors = session.close()
+    except Exception:
+        session.process.kill()
+        raise
+    return before, state, errors
+
+
+def slice_times(state):
+    measured = (state or {}).get("precompute", {}).get("slicesGpuMs", [])
+    return (statistics.median(measured) if measured else None), (state or {}).get("precompute", {}).get("maxSliceGpuMs")
+
+
+def check_cost(baseline=None, bench=False):
     print("[GPU cost and precompute]")
     # HelloCube seen from above: the ocean fills the frame (1280 x 720 window). The ocean animates every frame.
     timing = ["--sun", "on", "--sun-dir", "40,35", "--disable-redraw-skip", "--camera-pitch", "35"]
@@ -407,41 +439,44 @@ def check_cost():
         check(False, f"precompute session failed: {error}")
         session.process.kill()
         return
-    # Background: no capture-run flags, so a change is spread over frames.
-    interactive = ["--isolated", "--window-size", "1280x720", "--vsync", "off", "--aa", "none"]
-    try:
-        session = Session(None, OCEAN, common=interactive)
-    except Exception as error:  # noqa: BLE001
-        check(False, f"pipe session started: {error}")
-        return
-    try:
-        session.settle(4, "bg_settle")
-        before = session.ocean()["version"]
-        session.set("ocean_wind_speed", 15)
-        deadline = time.time() + 60
-        while time.time() < deadline:
-            session.settle(1, "bg_step")
-            state = session.ocean()
-            if state["ready"] and state["version"] != before:
-                break
-        session.settle(4, "bg_step")  # the last slices' timestamps
-        state = session.ocean()
+    # Background: no capture-run flags, so a change is spread over frames. Measured against the baseline in the
+    # same conditions: candidate, baseline, three times (pipe sessions are never cached). A recompute has only about
+    # ten slices and its largest varies by about 1 ms from run to run, hence three pairs rather than two.
+    have_baseline = baseline is not None and Path(baseline).exists()
+    runs = [("candidate", EXE), ("baseline", Path(baseline))] * BACKGROUND_PAIRS if have_baseline else [("candidate", EXE)]
+    results = {"candidate": [], "baseline": []}
+    for index, (who, exe) in enumerate(runs):
+        try:
+            before, state, errors = background_recompute(exe)
+        except Exception as error:  # noqa: BLE001
+            check(False, f"background session ({who}) failed: {error}")
+            results[who].append(None)
+            continue
+        results[who].append(state)
+        if who != "candidate":
+            continue
         pre = state["precompute"]
         measured = pre.get("slicesGpuMs", [])
-        median = statistics.median(measured) if measured else 0.0
-        print(f"  INFO background recompute (medium): {pre['appFrames']} frames, {pre['gpuMs']:.1f} ms GPU in total, "
-              f"{len(measured)} measured slices, median {median:.2f} ms, largest {pre['maxSliceGpuMs']:.2f} ms: "
+        median, largest = slice_times(state)
+        print(f"  INFO background recompute (medium, run {index // 2 + 1}): {pre['appFrames']} frames, {pre['gpuMs']:.1f} ms "
+              f"GPU in total, {len(measured)} measured slices, median {median or 0:.2f} ms, largest {largest or 0:.2f} ms: "
               f"{[round(v, 2) for v in measured]}")
-        check(state["ready"] and state["version"] != before and pre["appFrames"] > 1,
-              f"a wind change recomputes in the background over {pre['appFrames']} frames and swaps")
-        check(measured and median <= SLICE_BUDGET_MS and pre["maxSliceGpuMs"] <= 1.5 * SLICE_BUDGET_MS,
-              f"background slices: median {median:.2f} ms <= {SLICE_BUDGET_MS} ms budget, largest "
-              f"{pre['maxSliceGpuMs']:.2f} ms <= 1.5 x budget")
-        errors = session.close()
+        check(state["ready"] and state["version"] != before and pre["appFrames"] > 1 and measured,
+              f"a wind change recomputes in the background over {pre['appFrames']} frames and swaps "
+              f"({len(measured)} measured slices)")
+        if bench:
+            check(measured and median <= SLICE_BUDGET_MS and largest <= 1.5 * SLICE_BUDGET_MS,
+                  f"--bench: background slices: median {median:.2f} ms <= {SLICE_BUDGET_MS} ms budget, largest "
+                  f"{largest:.2f} ms <= 1.5 x budget")
         check(errors == 0, f"background session: {errors} GL errors")
-    except Exception as error:  # noqa: BLE001
-        check(False, f"background session failed: {error}")
-        session.process.kill()
+    if have_baseline:
+        cand = [slice_times(s) for s in results["candidate"] if s]
+        base = [slice_times(s) for s in results["baseline"] if s]
+        for label, index in (("median", 0), ("largest", 1)):
+            ok, best, best_base, limit = relative_timing([c[index] for c in cand], [b[index] for b in base])
+            check(ok, f"background slices: {label} {best if best is None else round(best, 3)} ms (best of {len(cand)}) <= 1.25 x "
+                      f"{Path(baseline).stem}'s {best_base if best_base is None else round(best_base, 3)} ms + 0.5 = "
+                      f"{limit if limit is None else round(limit, 3)} ms")
 
 
 # ---------------------------------------------------------------------------------------------
@@ -984,6 +1019,8 @@ def main():
     parser.add_argument("--baseline-exe", default=str(REPO / "build" / "baselines" / "7d5a091.exe"))
     parser.add_argument("--only", default=None, help="comma-separated: baseline,loop,registry,registry_b,live,energy,foam,shadow,ui,nocompute,depth,"
                                                   "interior,cost,runtime,horizon")
+    parser.add_argument("--bench", action="store_true",
+                        help="also the absolute background-slice limits (median <= 3 ms, largest <= 4.5 ms)")
     args = parser.parse_args()
     only = set(args.only.split(",")) if args.only else None
 
@@ -1016,7 +1053,8 @@ def main():
     if wanted("interior"):
         check_interior()
     if wanted("cost"):
-        check_cost()
+        check_cost(Path(args.baseline_exe) if Path(args.baseline_exe).is_absolute() else REPO / args.baseline_exe,
+                   bench=args.bench)
     if wanted("runtime"):
         check_runtime()
     if wanted("horizon"):

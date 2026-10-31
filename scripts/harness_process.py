@@ -64,7 +64,9 @@ candidate's SHA-256) against that directory: an identical launch later in the sa
 invocation, in any suite, replays the first one's outputs (log ``memo hit``). It never
 outlives the invocation and never crosses executables. A check that launches the same
 arguments twice to prove determinism wraps the second launch in ``with fresh():``, which
-always starts the binary. With ``GLIDER_HARNESS_SEED=1`` (run_regression.py) and without
+always starts the binary; a timing check that compares measured times of interleaved
+candidate and baseline runs wraps them in ``with uncached():``, which starts both binaries
+(no memo, no baseline cache read or write). With ``GLIDER_HARNESS_SEED=1`` (run_regression.py) and without
 ``GLIDER_CANDIDATE_EXE``, every stored memo entry is also copied to
 ``build/regression_cache/<key>/`` marked ``seeded`` unless an entry exists there: after the
 commit ``save_baseline.py`` copies the same bytes to ``build/baselines/<sha>.exe``, so the
@@ -292,6 +294,21 @@ def fresh():
         yield
     finally:
         _fresh.depth = depth
+
+
+_uncached = threading.local()
+
+
+@contextlib.contextmanager
+def uncached():
+    """Launches inside this block always start, the candidate (no in-run memo) and the baseline (no render cache
+    read or write): for timing checks that compare measured GPU / CPU times of interleaved runs."""
+    depth = getattr(_uncached, "depth", 0)
+    _uncached.depth = depth + 1
+    try:
+        yield
+    finally:
+        _uncached.depth = depth
 
 
 def memo_dir():
@@ -913,6 +930,8 @@ def _cache_plan(command, target, kwargs):
         return None, f"{CACHE_SWITCH}=0"
     if not _cacheable_target(target):
         return None, "not a baseline"
+    if getattr(_uncached, "depth", 0):
+        return None, "uncached launch (timing)"
     return _launch_plan(command, target, kwargs, CACHE_DIR, memo=False)
 
 
@@ -925,6 +944,8 @@ def _memo_plan(command, target, kwargs):
         return None, f"{CACHE_SWITCH}=0"
     if getattr(_fresh, "depth", 0):
         return None, "fresh launch (determinism check)"
+    if getattr(_uncached, "depth", 0):
+        return None, "uncached launch (timing)"
     return _launch_plan(command, target, kwargs, folder, memo=True)
 
 

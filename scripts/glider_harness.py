@@ -11,12 +11,14 @@ scripts/ with ``import glider_harness`` (or ``from glider_harness import ...``).
   baseline_exe(value)           a --baseline-exe value resolved against REPO, else latest_baseline()
   run(args, timeout, env)       harness_process.run(args) in REPO, text output captured
   capture(exe, model, png, ...) one isolated viewport capture + profile report; (png|None, report|None, log)
-  start_pipe_session(args)      Popen with --control-pipe already in args; waits for and connects the pipe
+  start_pipe_session(args, env=None)  Popen with --control-pipe already in args; waits for and connects the pipe
   connect_pipe(process)         connects to a started Glider's pipe, retrying while it lives (no 10 s give-up)
   gl_errors_zero(log)           the "GL automation errors: 0" line is present and no "GL error 0x" was logged
   read_json(path)               parsed JSON, or None when the file is missing or unreadable
   digest(path), same(a, b)      SHA-256 of a file; byte equality of two image files (None never equal)
   viewport_sha(path)            SHA-256 of a window screenshot's viewport area (side panels, menu, status bar cut)
+  relative_timing(cand, base)   measured times of interleaved runs (A B A B, harness_process.uncached()): the
+                                best candidate value <= TIMING_FACTOR x the best baseline value + TIMING_SLACK_MS
 """
 
 import hashlib
@@ -74,15 +76,16 @@ def capture(exe, model, png, flags=(), frame=24, report=None, timeout=600):
     return (png if png.exists() else None), read_json(report), result.stdout + result.stderr
 
 
-def start_pipe_session(args, timeout=120):
+def start_pipe_session(args, timeout=120, env=None):
     """Starts Glider (args include --control-pipe) and returns (process, glider_ctl.GliderPipe).
 
     Waits up to `timeout` seconds for the pipe to appear and accept a client; the pipe can exist a
     moment before it does. Raises RuntimeError when Glider exits or never opens it, and the
     connection error when the pipe never accepts (the process is killed then)."""
     import glider_ctl
+    extra = {} if env is None else {"env": env}
     process = harness_process.Popen([str(arg) for arg in args], cwd=REPO, stdin=harness_process.DEVNULL,
-                                    stdout=harness_process.DEVNULL, stderr=harness_process.DEVNULL)
+                                    stdout=harness_process.DEVNULL, stderr=harness_process.DEVNULL, **extra)
     deadline = time.time() + timeout
     while not os.path.exists(glider_ctl.pipe_name(process.pid)):
         if process.poll() is not None or time.time() > deadline:
@@ -112,6 +115,26 @@ def connect_pipe(process, timeout=120):
 def gl_errors_zero(log):
     lines = [line for line in log.splitlines() if line.startswith("GL automation errors")]
     return lines == ["GL automation errors: 0"] and "GL error 0x" not in log
+
+
+# Measured GPU / CPU times on the shared, loaded machine: compared with the baseline binary measured in the same
+# conditions (interleaved A B A B, uncached), not with an absolute limit (those run under each harness's --bench).
+TIMING_FACTOR = 1.25
+TIMING_SLACK_MS = 0.5
+
+
+def relative_timing(candidate, baseline, factor=TIMING_FACTOR, slack_ms=TIMING_SLACK_MS):
+    """(ok, best candidate, best baseline, limit) for the values of interleaved candidate / baseline runs.
+
+    The best (smallest) value of each binary is compared: background load only ever adds time, so the minimum of
+    two runs filters it, while a regression in the candidate raises both of its runs. None values are ignored;
+    without a value on either side the check fails."""
+    cand = [float(v) for v in candidate if v is not None]
+    base = [float(v) for v in baseline if v is not None]
+    if not cand or not base:
+        return False, (min(cand) if cand else None), (min(base) if base else None), None
+    limit = factor * min(base) + slack_ms
+    return min(cand) <= limit, min(cand), min(base), limit
 
 
 def read_json(path):

@@ -12,10 +12,11 @@ Checks:
   * pipe (toggle_fullscreen): the window is borderless and covers its monitor, no menu or status bar, the area fills
     the screen; leaving restores the window rectangle, decoration and layout; maximized -> full screen -> back ends
     maximized, then restored;
-  * UI script keys (follow mode): Ctrl+Space with the mouse over the viewport and over the Inspector, Ctrl+Alt+Space
-    and Esc, the shortcut ignored while a text field is active, camera input (wheel) in the maximized viewport, the
-    Panel menu and the viewport menu items; full-frame screenshots of the maximized viewport, the maximized Inspector
-    and full screen;
+  * UI script keys (follow mode): one Ctrl+Space round trip with the mouse over the viewport (maximized, restored to
+    the exact layout); with --keys (on-demand) the whole section: Ctrl+Space over the viewport and over the
+    Inspector, Ctrl+Alt+Space and Esc, the shortcut ignored while a text field is active, camera input (wheel) in the
+    maximized viewport, the Panel menu and the viewport menu items; full-frame screenshots of the maximized viewport,
+    the maximized Inspector and full screen;
   * open_dropped (the drop callback's path): a .glb, a .gltf, a non-glTF file (warning, nothing opened), two files
     (first opens, the rest is logged as ignored), a Unicode file name (model path, window title, recent files with
     set_persist), a corrupt .glb (error, Glider keeps running);
@@ -23,7 +24,8 @@ Checks:
     full screen stores no full-screen window rectangle, --isolated writes nothing;
   * no GL errors in any session.
 
-Usage: python scripts/validate_area_maximize.py
+Usage: python scripts/validate_area_maximize.py [--keys] [pipe] [keys] [drops] [settings]
+  --keys   on-demand: the whole "keys and menus" section instead of the single Ctrl+Space round trip
 Screenshots: build/review/area-maximize/.
 """
 
@@ -400,6 +402,30 @@ def check_pipe_maximize():
         shutil.rmtree(work, ignore_errors=True)
 
 
+def check_keys_round_trip():
+    print("[Ctrl+Space round trip through the UI script (the whole section: --keys)]")
+    live = Follow("keys_round_trip")
+    try:
+        live.push("wait 20")
+        area0 = live.area()
+        layout0 = live.result("get_layout")["live"]
+        vp = find_panel(area0, VIEWPORT)
+        check(vp is not None, "the viewport is on screen")
+        vx, vy = vp["rect"][0] + vp["rect"][2] * 0.5, vp["rect"][1] + vp["rect"][3] * 0.5
+        live.push(f"move {vx:.0f} {vy:.0f}", "wait 3", "key space ctrl", "wait 8")
+        area = live.area()
+        check(area["maximized"] and (area["target"] or "").endswith(VIEWPORT) and near(area["targetRect"], area["dockRect"]),
+              "Ctrl+Space with the mouse over the viewport maximizes it")
+        live.push("key space ctrl", "wait 8")
+        area = live.area()
+        check(not area["maximized"] and live.result("get_layout")["live"] == layout0,
+              "Ctrl+Space again restores the exact layout")
+        gl = live.close()
+        check(gl == 0, f"no GL errors ({gl})")
+    finally:
+        live.close()
+
+
 def check_keys_and_menus():
     print("[Ctrl+Space / Ctrl+Alt+Space / Esc and the menus through the UI script]")
     live = Follow("keys")
@@ -595,8 +621,10 @@ def main():
         sys.exit(f"no build at {EXE}")
     OUT.mkdir(parents=True, exist_ok=True)
     REVIEW.mkdir(parents=True, exist_ok=True)
-    only = set(sys.argv[1:])
-    for name, fn in (("pipe", check_pipe_maximize), ("keys", check_keys_and_menus), ("drops", check_drops),
+    keys = "--keys" in sys.argv[1:]
+    only = {arg for arg in sys.argv[1:] if not arg.startswith("--")}
+    for name, fn in (("pipe", check_pipe_maximize), ("keys", check_keys_and_menus if keys else check_keys_round_trip),
+                     ("drops", check_drops),
                      ("settings", check_settings)):
         if not only or name in only:
             fn()

@@ -15,6 +15,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -94,7 +95,17 @@ public:
         // readback waits for the LUT build).
         uint64_t radianceScaleReadbacks = 0;
         double radianceScaleMsLast = 0.0, radianceScaleMsMax = 0.0, radianceScaleMsSum = 0.0;
+        // The scheduler's own estimate of each time-sliced frame's work (from the costs it planned with): the
+        // largest, and the frames estimated above kStatedBudgetMs. Deterministic under GLIDER_TEST_SKY_FIXED_COST.
+        double plannedMsMax = 0.0;
+        uint64_t plannedOverBudgetFrames = 0;
     };
+
+    // Test hook GLIDER_TEST_SKY_FIXED_COST=<GPU ms per unit> (environment, read once): every filter / source kind of
+    // work is planned at this constant cost and a LUT build at kLutGuessMs instead of the measured GL timestamps, so
+    // the rows per frame, the jobs and the swaps do not depend on the GPU's load. 0 when unset or invalid (measured
+    // costs: unchanged behaviour). The measured GPU times (gpuMs*, overBudgetFrames) are reported either way.
+    static double testFixedMsPerUnit();
 
     static constexpr uint32_t kFastCubeSize = 128;
     static constexpr uint32_t kFastLambertianSize = 32;

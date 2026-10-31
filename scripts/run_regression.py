@@ -9,6 +9,8 @@ Usage:
   python scripts/run_regression.py --baseline build/baselines/23f61c6.exe --extra=--show-invisible-materials
   python scripts/run_regression.py --extra=--asobo --extra=off   # uncommitted work that changes ASOBO rendering
   python scripts/run_regression.py --only sun,sky                 # a subset of the tier (suite names as printed)
+  python scripts/run_regression.py --on-demand night              # also night's on-demand part (--sweep)
+  python scripts/run_regression.py --tier full --with-on-demand   # every suite with every on-demand part
   python scripts/run_regression.py --no-cache                     # start every launch (cold timing; no memo, no seeding)
   python scripts/run_regression.py --no-memo                      # the candidate's repeated launches start again
   GLIDER_CANDIDATE_EXE=build/baselines/474b81c.exe python scripts/run_regression.py --only ocean   # other candidate
@@ -24,6 +26,14 @@ brdf.glsl, Application.*, Frame.cpp, Scene.cpp, CMake, thirdparty/, the default 
 every suite. A resources/ file outside the shaders triggers the suites whose scripts name it. Any other
 file that matches no trigger selects every suite and prints a warning naming it, so TRIGGERS can be
 extended. --only replaces the selection with the named suites of the tier.
+
+On-demand parts (ON_DEMAND below): a few slow sections of a suite run only when its flag is passed: night
+--sweep (the evening exposure sweeps and the minute-by-minute emissive blend), area_maximize --keys (the whole
+keys-and-menus section; one Ctrl+Space round trip always runs) and sky_occlusion --da62 (the DA62 SDK cockpit
+in the real-asset bake checks). The quick tier passes the flag when a changed path matches the part's trigger
+patterns (subsets of the suite's TRIGGERS group, plus its own script); --on-demand a,b selects those suites
+with their flags in any tier; --with-on-demand passes every flag of the selected suites. The full tier does
+not run them otherwise.
 
 Candidate: GLIDER_CANDIDATE_EXE=<path> (relative to the repository) replaces build/bin/Release/Glider.exe
 in this script and every harness (harness_process.candidate_exe()), e.g. to prove that a known-bad binary
@@ -196,6 +206,15 @@ TRIGGERS = (
       "CaptureSettings.*", "GltfExtensionSettings.*", "ViewportSettingsPanel.*", "ViewportToolbar.cpp",
       "GLIDER_AGENT_GUIDE.md")),
 )
+# On-demand parts: (suite, flag, path patterns that pass the flag in the quick tier). The patterns are taken from
+# the suite's TRIGGERS group (plus its own script), narrowed to the code the part exercises.
+ON_DEMAND = (
+    ("night", "--sweep", ("NightSky.*", "SkyEnvironment.*", "EnvironmentState.cpp", "tonemapping.glsl",
+                          "validate_night.py")),
+    ("area_maximize", "--keys", ("AreaLayout.cpp", "CommandsArea.cpp", "Menus.cpp", "Application.cpp",
+                                 "validate_area_maximize.py")),
+    ("sky_occlusion", "--da62", ("SkyOcclusion.*", "sky_occlusion*", "validate_sky_occlusion.py")),
+)
 # Never part of Glider.exe or a suite.
 IGNORED = ("docs/*", "scratch/*", "legacy/*", "licenses/*", ".git*", "*/.git*", ".clang-*", "*/.clang-*")
 UNTRACKED_ROOTS = ("source", "header", "resources", "OpenGL-Renderer", "scripts")
@@ -299,6 +318,11 @@ parser.add_argument("--only", help="comma-separated suite names to run (default:
 parser.add_argument("--plan", action="store_true", help="print the selected suites and why, then exit without launching")
 parser.add_argument("--changed", help="comma-separated repository-relative paths used instead of the git diff "
                                       "(quick-tier selection; an empty value means nothing changed)")
+parser.add_argument("--on-demand", dest="on_demand", default=None,
+                    help="comma-separated suites whose on-demand part runs (their flag); selects them in any tier: "
+                         + ", ".join(f"{suite} {flag}" for suite, flag, _ in ON_DEMAND))
+parser.add_argument("--with-on-demand", action="store_true",
+                    help="pass every on-demand flag of the selected suites (the full tier does not otherwise)")
 args = parser.parse_args()
 if args.no_cache:
     os.environ[subprocess.CACHE_SWITCH] = "0"
@@ -365,6 +389,12 @@ scripts = {name: command[0].split("/", 1)[1] for name, command in jobs + serial_
 
 # Why each suite runs: "core", "full tier", "--only", or the changed paths that trigger it.
 reasons, warnings, file_rows = {}, [], []
+demand_flags = {suite: flag for suite, flag, _ in ON_DEMAND}
+demanded = {name.strip() for name in (args.on_demand or "").split(",") if name.strip()}
+if demanded - set(demand_flags):
+    sys.exit(f"no on-demand part in: {', '.join(sorted(demanded - set(demand_flags)))} "
+             f"(on-demand: {', '.join(demand_flags)})")
+on_demand = {}  # suite -> reasons its flag is passed
 if args.only:
     wanted = {name.strip() for name in args.only.split(",") if name.strip()}
     if wanted - set(tier_suites):
@@ -398,8 +428,22 @@ else:
     unreachable = [suite for suite in scripts if suite not in CORE
                    and not any(suite in group for group, _ in TRIGGERS)]
     warnings += [f"WARNING: suite {suite} has no path trigger besides its own scripts" for suite in unreachable]
+for suite in sorted(demanded):
+    reasons.setdefault(suite, []).append("--on-demand")
+    on_demand.setdefault(suite, []).append("--on-demand")
+if args.with_on_demand:
+    for suite in demand_flags:
+        if suite in reasons:
+            on_demand.setdefault(suite, []).append("--with-on-demand")
+if args.tier == "quick" and not args.only:
+    for suite, flag, patterns in ON_DEMAND:
+        hits = [path for path, _, selected in file_rows if suite in selected and
+                any(_match(path, pattern) for pattern in patterns)]
+        if hits:
+            on_demand.setdefault(suite, []).extend(hits)
 jobs = [job for job in jobs if job[0] in reasons]
-serial_jobs = [job for job in serial_jobs if job[0] in reasons]
+serial_jobs = [(name, command + ([demand_flags[name]] if name in on_demand else []))
+               for name, command in serial_jobs if name in reasons]
 selfchecks = [check for check in SELFCHECKS if check in reasons]
 
 if args.plan:
@@ -417,12 +461,18 @@ if args.plan:
     print(f"selected suites ({len(order)} of {len(tier_suites)}):")
     for name in order:
         why = reasons[name]
-        label = why[0] if why[0] in ("core", "full tier", "--only") else \
+        label = why[0] if why[0] in ("core", "full tier", "--only", "--on-demand") else \
             "triggered by " + ", ".join(why[:3]) + (f" (+{len(why) - 3} more)" if len(why) > 3 else "")
         print(f"  {name:28s} {label}")
     skipped = [name for name in tier_suites if name not in reasons]
     if skipped:
         print(f"not selected ({len(skipped)}): {', '.join(skipped)}")
+    for suite, flag, _ in ON_DEMAND:
+        if suite in on_demand:
+            why = on_demand[suite]
+            print(f"on-demand: {suite} {flag} ({', '.join(why[:3])}" + (f" +{len(why) - 3} more" if len(why) > 3 else "") + ")")
+        elif suite in reasons:
+            print(f"on-demand: {suite} {flag} not run (--on-demand {suite} or a trigger path passes it)")
     for line in warnings:
         print(line)
     sys.exit(0)
@@ -540,6 +590,8 @@ selection = "" if args.only or args.tier == "full" else \
     f", {len(jobs) + len(serial_jobs) + len(selfchecks)} of {len(tier_suites)} suites (core + triggered)"
 print(f"[regression: {args.tier} tier{selection}, candidate {candidate_name} vs baseline {baseline.name}, {args.jobs} jobs, "
       f"baseline render cache {cache_state}]")
+if on_demand:
+    print("[on-demand: " + ", ".join(f"{suite} {demand_flags[suite]}" for suite in on_demand) + "]")
 start = time.time()
 try:
     with ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
@@ -580,6 +632,7 @@ print(f"  in-run memo: {totals['memo_hits']} of {totals['current']} candidate la
       f"{totals['seeded']} seeded into the baseline cache; {totals['seed_hits']} baseline launches served from seeds")
 (OUT / "summary.json").write_text(json.dumps({"tier": args.tier, "candidate": str(EXE), "baseline": baseline.name,
                                               "cache": cache_state, "totals": totals, "selected": {name: reasons[name] for name in reasons},
+                                              "on_demand": {name: [demand_flags[name]] + why for name, why in on_demand.items()},
                                               "seconds": round(time.time() - start, 1), "suites": summary}, indent=1),
                                   encoding="utf-8")
 print("=" * 60)

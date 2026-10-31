@@ -26,15 +26,22 @@ Checks:
     reported in get_state / --profile-report; before it finishes the image is exactly the sky-occlusion-off image (no
     volume yet); while a newer bake (quality change) runs, the viewport keeps rendering the previous complete volume
     (byte-identical frame by frame) and swaps to the new one only when it is complete (= the CLI render at that
-    quality); real assets (E195 cockpit, E195 exterior, DA62 cockpit) bake at every quality with no frame above
-    FRAME_BUDGET_MS of CPU or GPU bake time (time-sliced); the per-frame cost of the lookup is reported;
+    quality); real assets (E195 cockpit, E195 exterior; the DA62 cockpit with --da62) bake at every quality in
+    directions / directions per frame frames (time-sliced); the largest frame's CPU and GPU bake time at high quality
+    against the baseline measured in the same conditions (interleaved A B A B, uncached;
+    glider_harness.relative_timing); with --bench also no frame above FRAME_BUDGET_MS of CPU or GPU bake time at
+    every quality, and the per-frame cost of the lookup is reported;
   * registry keys and CLI flags: CLI = pipe (byte-identical), invalid values refused, zero GL errors.
 
-Run: python scripts/validate_sky_occlusion.py [--baseline-exe build/baselines/<sha>.exe] [--only a,b]
+Run: python scripts/validate_sky_occlusion.py [--baseline-exe build/baselines/<sha>.exe] [--only a,b] [--da62]
+     [--bench]
+  --da62   on-demand: the DA62 SDK cockpit (if installed, read only) joins the real-asset bake checks
+  --bench  the absolute FRAME_BUDGET_MS limits and the lookup's per-frame GPU cost (timing evidence)
 """
 
 import argparse
 import atexit
+import contextlib
 import json
 import os
 import statistics
@@ -46,6 +53,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import harness_process as subprocess  # noqa: E402
 import glider_ctl  # noqa: E402
 import sky_occlusion_fixtures as fixtures  # noqa: E402
+from glider_harness import relative_timing  # noqa: E402
 from validate_asobo_common import EXE, REAL_ASSETS, REPO, check, finish, same, view, render_view  # noqa: E402
 from validate_asobo_sss import write_hdr  # noqa: E402
 from validate_sun import Camera, gltf, lambert, gl_errors_zero, load  # noqa: E402
@@ -72,7 +80,9 @@ OPEN_DEBUG_MIN = 0.99     # debug view on the open plane / sphere
 CLOSED_MAX = 0.05         # floor-centre visibility with the occluder lid
 LEAK_CELLS = 2.0          # thin box: floor points at least this many cells from a wall ...
 LEAK_MAX = 0.02           # ... see no sky
-FRAME_BUDGET_MS = 200.0   # largest bake time in one frame (CPU submission, GPU timestamps)
+FRAME_BUDGET_MS = 200.0   # largest bake time in one frame (CPU submission, GPU timestamps; --bench)
+# quality: (directions, directions baked per frame), as reported by the bake checks
+QUALITIES = {"low": (64, 16), "medium": (128, 16), "high": (256, 32)}
 
 gl_logs = []
 _processes = []
@@ -443,41 +453,73 @@ def gpu_main_ms(report, label="main"):
     return totals
 
 
-def check_costs():
-    print("[real assets: bake time, memory, per-frame cost]")
+def check_costs(baseline=None, da62=False, bench=False):
+    print("[real assets: bake frames, bake time against the baseline, memory" + (", per-frame cost]" if bench else "]"))
     scenes = []
     cockpit, exterior = REAL_ASSETS.get("Cockpit"), REAL_ASSETS.get("Exterior")
     if cockpit and Path(cockpit).exists():
         scenes.append(("E195 cockpit", cockpit, list(view("cockpit_windshield_inside")["flags"])))
     if exterior and Path(exterior).exists():
         scenes.append(("E195 exterior", exterior, list(view("exterior_fuselage_nose")["flags"])))
-    if DA62_COCKPIT.exists():
+    if da62 and DA62_COCKPIT.exists():
         scenes.append(("DA62 cockpit", DA62_COCKPIT, DA62_CAMERA))
+    elif da62:
+        print("  SKIP DA62 SDK cockpit not installed")
     if not scenes:
         print("  SKIP no real assets")
         return
+    have_baseline = baseline is not None and Path(baseline).exists()
     results = {}
     for label, model, flags in scenes:
         for quality in ("low", "medium", "high"):
             tag = f"cost_{label.split()[0]}_{label.split()[1]}_{quality}".lower()
-            _, data = render(model, tag, SKY + flags + ["--sky-occlusion-quality", quality], frame=40)
+            args = SKY + flags + ["--sky-occlusion-quality", quality]
+            # The high-quality timing is A of the interleaved A B A B: never replayed from the in-run memo.
+            with subprocess.uncached() if quality == "high" else contextlib.nullcontext():
+                _, data = render(model, tag, args, frame=40)
             so = (data or {}).get("skyOcclusion") or {}
             bake, volume = so.get("bake") or {}, so.get("volume") or {}
             results[f"{label} {quality}"] = {"volume": volume, "bake": bake, "casters": so.get("casters"),
                                              "occluderCasters": so.get("occluderCasters")}
             gpu = bake.get("maxFrameGpuMs")
-            check(bake.get("completed") == 1 and bake.get("maxFrameCpuMs", 1e9) <= FRAME_BUDGET_MS and
-                  (gpu is None or gpu <= FRAME_BUDGET_MS),
+            directions, per_frame = QUALITIES[quality]
+            check(bake.get("completed") == 1 and so.get("directions") == directions and
+                  bake.get("frames") == directions // per_frame,
                   f"{label} {quality}: volume {'x'.join(map(str, volume.get('dims', [])))} (cell {volume.get('cell', 0) * 100:.1f} cm, "
-                  f"{volume.get('memoryBytes', 0) / 2**20:.1f} MiB), {so.get('casters')} casters, bake {bake.get('frames')} frames, "
+                  f"{volume.get('memoryBytes', 0) / 2**20:.1f} MiB), {so.get('casters')} casters, one bake of "
+                  f"{so.get('directions')} directions in {bake.get('frames')} frames ({directions // per_frame} expected), "
                   f"{bake.get('cpuMs', 0):.0f} ms CPU / {bake.get('gpuMs') or 0:.0f} ms GPU in total, largest frame "
-                  f"{bake.get('maxFrameCpuMs', 0):.0f} ms CPU / {gpu or 0:.0f} ms GPU (<= {FRAME_BUDGET_MS:.0f})")
+                  f"{bake.get('maxFrameCpuMs', 0):.0f} ms CPU / {gpu or 0:.0f} ms GPU")
+            if bench:
+                check(bake.get("maxFrameCpuMs", 1e9) <= FRAME_BUDGET_MS and (gpu is None or gpu <= FRAME_BUDGET_MS),
+                      f"--bench: {label} {quality}: largest bake frame {bake.get('maxFrameCpuMs', 0):.0f} ms CPU / "
+                      f"{gpu or 0:.0f} ms GPU <= {FRAME_BUDGET_MS:.0f}")
+            if quality != "high" or not have_baseline:
+                continue
+            # Measured: B A B after that A, uncached; the best of two runs per binary.
+            runs = {"candidate": [bake], "baseline": []}
+            with subprocess.uncached():
+                for index, (who, exe) in enumerate((("baseline", baseline), ("candidate", EXE), ("baseline", baseline))):
+                    _, other = render(model, f"{tag}_{who}_{index}", args, exe=exe, frame=40)
+                    runs[who].append(((other or {}).get("skyOcclusion") or {}).get("bake") or {})
+            for key, unit in (("maxFrameCpuMs", "CPU"), ("maxFrameGpuMs", "GPU")):
+                cand = [b.get(key) for b in runs["candidate"]]
+                base = [b.get(key) for b in runs["baseline"]]
+                if key == "maxFrameGpuMs" and all(v is None for v in cand + base):
+                    print(f"  INFO {label} high: no GPU bake timestamps")
+                    continue
+                ok, best, best_base, limit = relative_timing(cand, base)
+                check(ok and all(b.get("completed") == 1 for b in runs["candidate"]),
+                      f"{label} high: largest bake frame {unit} {best if best is None else round(best, 1)} ms (best of 2) "
+                      f"<= 1.25 x {Path(baseline).stem}'s {best_base if best_base is None else round(best_base, 1)} ms + 0.5 "
+                      f"= {limit if limit is None else round(limit, 1)} ms")
     # Per-frame cost of the lookup: the main frame's GPU pass times (median over frames 40-120), every frame redrawn.
-    if cockpit and Path(cockpit).exists():
+    if bench and cockpit and Path(cockpit).exists():
         flags = SKY + list(view("cockpit_windshield_inside")["flags"]) + ["--disable-redraw-skip"]
         times = {}
         for setting in ("off", "on"):
-            _, data = render(cockpit, f"cost_frame_{setting}", flags + ["--sky-occlusion", setting], frame=120)
+            with subprocess.uncached():
+                _, data = render(cockpit, f"cost_frame_{setting}", flags + ["--sky-occlusion", setting], frame=120)
             per_frame = gpu_main_ms(data or {})
             samples = [ms for frame, ms in per_frame.items() if frame >= 40]
             times[setting] = statistics.median(samples) if samples else None
@@ -492,6 +534,9 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--baseline-exe", type=Path, default=None)
     parser.add_argument("--only", default="", help="comma-separated: baseline,box,leak,open,bake,registry,costs")
+    parser.add_argument("--da62", action="store_true", help="on-demand: the DA62 SDK cockpit in the real-asset bake checks")
+    parser.add_argument("--bench", action="store_true",
+                        help="the absolute per-frame bake limits and the lookup's per-frame GPU cost")
     args = parser.parse_args()
     OUT.mkdir(parents=True, exist_ok=True)
     baseline = args.baseline_exe
@@ -521,7 +566,7 @@ def main():
     if wanted("registry"):
         check_registry(uniform, box)
     if wanted("costs"):
-        check_costs()
+        check_costs(baseline, da62=args.da62, bench=args.bench)
     print("[GL errors]")
     bad = [name for name, log in gl_logs if not gl_errors_zero(log)]
     check(not bad, f"zero GL errors in {len(gl_logs)} renders" + (f" (errors in {bad})" if bad else ""))

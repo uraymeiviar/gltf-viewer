@@ -99,6 +99,29 @@ python scripts/run_regression.py --tier full
   (`FAIL night: HelloCube (night_settings): byte-identical to <baseline>`). Those suites no longer render them;
   comparisons against any other baseline render (fixtures, sun or plane on, procedural sky, explicit
   `--environment hdr` in `validate_emissive_units.py`) stay in the suite.
+- **On-demand parts** (`ON_DEMAND` in `run_regression.py`): slow sections that are acceptance evidence rather than
+  equivalence run only with their suite flag. `night --sweep`: the two evening exposure sweeps (Curve and Auto,
+  5-minute steps) and the minute-by-minute emissive day/night blend (about 90 samples; the default run places about
+  17 samples by sun elevation: both sides of the band, 11 inside it, two bracketing the threshold).
+  `area_maximize --keys`: the whole keys-and-menus section (the default run keeps one Ctrl+Space round trip over the
+  viewport). `sky_occlusion --da62`: the DA62 SDK cockpit in the real-asset bake checks (its HDR-default
+  byte-identity check always runs). The quick tier passes the flag when a changed path matches the part's
+  patterns (taken from the suite's trigger group: night `NightSky.*`, `SkyEnvironment.*`, `EnvironmentState.cpp`,
+  `tonemapping.glsl`; area_maximize `AreaLayout.cpp`, `CommandsArea.cpp`, `Menus.cpp`, `Application.cpp`;
+  sky_occlusion `SkyOcclusion.*`, `sky_occlusion*`; each also its own `validate_<suite>.py`); `--on-demand a,b`
+  selects those suites with their flags in any tier, `--with-on-demand` passes every flag of the selected suites.
+  `--tier full` does not run them otherwise. `--plan` lists which flags are passed and why.
+- **GPU / CPU timing checks** never compare a measured time with an absolute limit in the regression (the machine
+  and its GPU are shared). The procedural sky's scheduling runs under the test hook `GLIDER_TEST_SKY_FIXED_COST`
+  (constant cost per unit, [CLI reference](CLI_REFERENCE.md#test-hooks--environment-variables)): swaps and fast
+  jobs must equal the baseline's under the same hook (a baseline without the hook: ≥ 40), with no incomplete swap
+  and no planned frame above the stated 4 ms. Measured times (sky extra GPU per frame while time plays and after it
+  stops, ocean background slices, sky-occlusion largest bake frame) are compared with the baseline measured in the
+  same conditions: interleaved candidate, baseline, candidate, baseline (ocean: three pairs), never cached
+  (`harness_process.uncached()`), the best run of each: candidate ≤ 1.25 × baseline + 0.5 ms
+  (`glider_harness.relative_timing`). The absolute limits (sky 4 ms and no frame over, ocean median 3 ms / largest
+  4.5 ms, sky occlusion 200 ms per bake frame) and the sky-occlusion lookup's per-frame cost run with each harness's
+  `--bench`.
 - **`validate_p5_1.py` is superseded** (not registered): its candidate counters — no unserved click, one picking
   render per viewport click, no picking render on idle frames — plus the focus double-click, resize clicks,
   split-viewport node check and `--always-pick` A/B run in `validate_p8_5.py`.

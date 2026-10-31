@@ -11,9 +11,9 @@ Checks:
     with the clock at night: byte-identical to the baseline (HelloCube, two E195 ASOBO views);
   * exposure: E195 exterior on the A3.6 plane with the procedural sky and the clock, in Auto (the sky's default) and
     Curve: the mean displayed luminance (sRGB-encoded luma of the viewport image) at noon, sunset, dusk, night (moonless)
-    and a full-moon night lies inside READABLE_BAND; over an evening sweep (TIME_STEP_MIN steps) the image changes
-    smoothly (no step between consecutive captures above SWEEP_STEP_LIMIT after the adaptation settles) and in Curve
-    mode it darkens monotonically (rises at most SWEEP_RISE_TOLERANCE);
+    and a full-moon night lies inside READABLE_BAND; with --sweep (on-demand) also over an evening sweep
+    (TIME_STEP_MIN steps) the image changes smoothly (no step between consecutive captures above SWEEP_STEP_LIMIT
+    after the adaptation settles) and in Curve mode it darkens monotonically (rises at most SWEEP_RISE_TOLERANCE);
   * moon: the full moon's disk centre in the image within MOON_CENTRE_TOLERANCE_PX of the projected A6.1 moon direction;
     lit fraction of the disk in the image within PHASE_TOLERANCE of A6.1's illuminatedFraction (gibbous, near-quarter);
     the bright limb towards the sun (the lit part's centroid offset against the projected sun direction from the moon,
@@ -27,7 +27,8 @@ Checks:
     reported celestial pole by the sidereal angle (15.04 deg) within ROTATION_TOLERANCE, westwards;
   * emissive: Automatic day/night blends the ASOBO_material_emissive multipliers as a smoothstep from threshold + 3 to
     threshold - 3 degrees (radiance of an emissive quad = day x (1 - w) + night x w, w the reported nightBlend), exactly
-    Day / Night outside;
+    Day / Night outside; about 17 samples placed by sun elevation (both sides of the band, 11 inside it, two
+    bracketing the threshold), with --sweep every minute of the evening (about 90 samples);
   * registry keys and CLI flags, invalid values refused, pipe = CLI (byte-identical), zero GL errors;
   * A6.4b interiors (Auto with the highlight meter, the procedural sky's default): E195 cockpit main displays at night
     and the E195 windshield view at noon, the DA62 SDK cockpit at night (if installed, read only): the display screens
@@ -43,7 +44,8 @@ Checks:
     --ibl-precision 16 as with 32 (luminance within HALF_FLOAT_TOLERANCE at normals up / side / down, nonzero), and
     --sky-airglow 0 leaves it dark (the probes measure the airglow).
 
-Run: python scripts/validate_night.py [--baseline-exe build/baselines/<sha>.exe] [--only a,b]
+Run: python scripts/validate_night.py [--baseline-exe build/baselines/<sha>.exe] [--only a,b] [--sweep]
+  --sweep  on-demand: the two evening exposure sweeps and the minute-by-minute emissive blend sweep
 """
 
 import argparse
@@ -264,7 +266,7 @@ def check_baseline(baseline):
     check(same(now, before), f"HelloCube, HDR with the clock at night (moon/stars flags set): byte-identical to {baseline.stem}")
 
 
-def check_exposure():
+def check_exposure(sweep=False):
     print("[A6.4 exposure across the day: E195 exterior, procedural sky, clock]")
     model = e195_model()
     if model is None:
@@ -294,7 +296,10 @@ def check_exposure():
           f"default exposure mode with the procedural sky resolves to auto with highlight metering (A6.4b; "
           f"{data['night']['exposure']['effectiveMode']}, {data['night']['exposure'].get('metering')})")
 
-    # Evening sweep: sunset - 30 min .. sunset + 2.5 h.
+    # Evening sweep: sunset - 30 min .. sunset + 2.5 h (on-demand).
+    if not sweep:
+        print("  INFO evening sweeps (curve, auto) are on-demand: --sweep")
+        return
     for mode in ("curve", "auto"):
         session = Session(model, SKY + ["--ground", "plane", "--window-size", "640x360"] + E195_CAMERA +
                           ["--exposure-mode", mode, "--time", hhmm(sunset - 0.5)])
@@ -622,7 +627,7 @@ def check_stars():
         session.process.kill()
 
 
-def check_emissive():
+def check_emissive(sweep=False):
     print("[A6.5 Automatic day/night blends the ASOBO_material_emissive multipliers over twilight]")
     emissive.EMIS_DIR.mkdir(parents=True, exist_ok=True)
     model = emissive.make_quad_fixture("night_blend", [3000.0, 3000.0, 3000.0], is_asobo=True, day_mult=1.0, night_mult=0.1)
@@ -637,19 +642,36 @@ def check_emissive():
     try:
         sunset, _ = sunset_times_from(session)
         threshold = -6.0
-        samples = []
-        hours = sunset + 6.0 / 60.0  # the sun's light (and its specular on the quad) has faded out
-        for i in range(90):
+
+        def sample(hours):
             session.env("time", hhmm(hours))
             session.capture("_emissive", frames=2)
             state = session.call("get_state")
             vp = state["viewports"][0]
             value = luminance(session.probe(vp["width"] / 2, vp["height"] / 2))
             tod = state["timeOfDay"]
-            samples.append((tod["sun"]["lightElevation"], tod["dayNight"]["nightBlend"], tod["dayNight"]["effective"], value))
-            hours += 1.0 / 60.0
-            if tod["sun"]["lightElevation"] < threshold - 4.0:
-                break
+            return (hours, tod["sun"]["lightElevation"], tod["dayNight"]["nightBlend"], tod["dayNight"]["effective"], value)
+
+        start = sunset + 6.0 / 60.0  # the sun's light (and its specular on the quad) has faded out
+        timed = []
+        if sweep:
+            hours = start
+            for i in range(90):
+                timed.append(sample(hours))
+                hours += 1.0 / 60.0
+                if timed[-1][1] < threshold - 4.0:
+                    break
+        else:
+            # Two scouting samples give the sun's descent rate (near-linear over this hour); the others are placed at
+            # sun elevations: day side, 11 across the blend band, two bracketing the threshold, night side.
+            first, last = sample(start), sample(start + 1.5)
+            rate = (last[1] - first[1]) / (last[0] - first[0])  # degrees per hour (negative)
+            band = [threshold + 2.75 - 5.5 * k / 10.0 for k in range(11)]
+            wanted = [threshold + 3.5] + band + [threshold + 0.15, threshold - 0.15, threshold - 3.5]
+            timed = [first, last] + [sample(first[0] + (e - first[1]) / rate) for e in wanted
+                                     if first[0] < first[0] + (e - first[1]) / rate < last[0]]
+            timed.sort(key=lambda s: s[0])
+        samples = [s[1:] for s in timed]
         day = next(v for e, w, _, v in samples if w == 0.0)
         worst_formula, worst_render, flips = 0.0, 0.0, []
         for e, w, eff, v in samples:
@@ -658,14 +680,16 @@ def check_emissive():
             worst_render = max(worst_render, abs(v - day * ((1.0 - w) * 1.0 + w * 0.1)) / day)
             flips.append((e, eff))
         blended = [s for s in samples if 0.0 < s[1] < 1.0]
-        check(worst_formula < 1e-4 and len(blended) >= 10,
-              f"night weight = smoothstep from {threshold + 3:g} to {threshold - 3:g} deg ({len(blended)} blended samples, "
-              f"worst {worst_formula:.2e})")
+        outside = (sum(1 for s in samples if s[1] == 0.0), sum(1 for s in samples if s[1] == 1.0))
+        check(worst_formula < 1e-4 and len(blended) >= 10 and min(outside) >= 1,
+              f"night weight = smoothstep from {threshold + 3:g} to {threshold - 3:g} deg ({len(samples)} samples: "
+              f"{len(blended)} blended, {outside[0]} day, {outside[1]} night; worst {worst_formula:.2e})")
         check(worst_render <= EMISSIVE_TOLERANCE,
               f"quad radiance = day x (1 - w) + night x w over the sweep (worst {worst_render * 100:.2f}% of day)")
         changes = [(a, b) for a, b in zip(flips, flips[1:]) if a[1] != b[1]]
         check(len(changes) == 1 and changes[0][0][0] >= threshold > changes[0][1][0],
-              "the reported day/night state flips once, at the threshold")
+              "the reported day/night state flips once, at the threshold" +
+              (f" (between {changes[0][0][0]:.2f} and {changes[0][1][0]:.2f} deg)" if len(changes) == 1 else ""))
         errors = session.close()
         check(errors == 0, f"emissive session: {errors} GL errors")
     except Exception as error:  # noqa: BLE001
@@ -937,6 +961,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--baseline-exe", type=Path, default=None)
     parser.add_argument("--only", default="")
+    parser.add_argument("--sweep", action="store_true",
+                        help="on-demand: the evening exposure sweeps and the minute-by-minute emissive blend sweep")
     args = parser.parse_args()
     OUT.mkdir(parents=True, exist_ok=True)
     baseline = args.baseline_exe
@@ -946,8 +972,9 @@ def main():
     elif not baseline.is_absolute():
         baseline = REPO / baseline
     only = {s for s in args.only.split(",") if s}
-    for name, function in (("baseline", lambda: check_baseline(baseline)), ("exposure", check_exposure), ("moon", check_moon),
-                           ("moonlight", check_moonlight), ("stars", check_stars), ("emissive", check_emissive),
+    for name, function in (("baseline", lambda: check_baseline(baseline)),
+                           ("exposure", lambda: check_exposure(args.sweep)), ("moon", check_moon),
+                           ("moonlight", check_moonlight), ("stars", check_stars), ("emissive", lambda: check_emissive(args.sweep)),
                            ("registry", check_registry), ("interiors", check_interiors), ("halffloat", check_half_float)):
         if only and name not in only:
             continue

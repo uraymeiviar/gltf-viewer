@@ -24,9 +24,14 @@ Checks:
   * dynamic IBL: a white Lambert sphere's diffuse IBL (probe at normals the sun does not reach) against the
     reference irradiance (cosine-weighted mean radiance) within IRRADIANCE_TOLERANCE at both suns, i.e. the lighting
     follows the sky; the converged time-sliced result equals a full synchronous filter (sky_time_slicing off) within
-    CONVERGED_TOLERANCE; while time plays, every time-sliced frame's extra GPU time (profile report) stays under the
-    stated 4 ms budget, the reduced cubes are swapped in repeatedly and only complete jobs are swapped
-    (incompleteSwaps 0); once time stops the cubes refine to the configured size;
+    CONVERGED_TOLERANCE; while time plays the reduced cubes are swapped in repeatedly, only complete jobs are swapped
+    (incompleteSwaps 0) and once time stops the cubes refine to the configured size. The time-sliced scheduling is
+    checked deterministically with the test hook GLIDER_TEST_SKY_FIXED_COST (a constant cost per unit instead of
+    the measured GL timestamps): the swaps and fast jobs equal the baseline's under the same hook (a baseline
+    without the hook: at least MIN_SWAPS), no planned frame above the stated 4 ms budget. The measured extra GPU
+    time per frame (profile report / get_state) is compared with the baseline measured in the same conditions
+    (interleaved A B A B, uncached; glider_harness.relative_timing), and with the absolute 4 ms (overBudgetFrames
+    0) only with --bench;
   * ground albedo (A3.6 plane, override), ozone and Mie respond; registry keys listed, CLI = pipe (byte-identical),
     invalid values refused;
   * time of day + sky + shadows + ground plane together: finite probes, zero GL errors;
@@ -35,19 +40,21 @@ Checks:
     EXPOSURE_ASYNC_TOLERANCE, before and after an exposure-compensation change (the adaptation then runs over frames),
     and get_state reports which readback ran.
 
-Run: python scripts/validate_sky.py [--baseline-exe build/baselines/<sha>.exe] [--only a,b] [--regenerate-references]
+Run: python scripts/validate_sky.py [--baseline-exe build/baselines/<sha>.exe] [--only a,b] [--bench]
+     [--regenerate-references]
 """
 
 import argparse
 import json
 import math
+import os
 import sys
 import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import harness_process as subprocess  # noqa: E402
-from glider_harness import gl_errors_zero, start_pipe_session  # noqa: E402
+from glider_harness import gl_errors_zero, relative_timing, start_pipe_session  # noqa: E402
 import glider_ctl  # noqa: E402
 from validate_asobo_common import EXE, REPO, check, finish, same, views, render_view, REAL_ASSETS  # noqa: E402
 from validate_sun import lambert  # noqa: E402
@@ -63,6 +70,12 @@ SUN_TOLERANCE = 0.005            # relative, sun transmittance per channel
 IRRADIANCE_TOLERANCE = 0.10      # relative, Lambert sphere diffuse IBL against the reference cosine mean
 CONVERGED_TOLERANCE = 1.0e-4     # relative, converged time-sliced cubes against a full synchronous filter
 BUDGET_MS = 4.0                  # stated per-frame limit of the time-sliced work (SkyEnvironment::kStatedBudgetMs)
+MIN_SWAPS = 40                   # complete reduced-size jobs swapped in over the 240 played frames
+# Test hook (SkyEnvironment::testFixedMsPerUnit): GPU ms per unit (one filter sample at one texel) the scheduler plans
+# with instead of the measured cost: 7e-7 plans about as much work per frame as the measured costs do on the maintainer
+# GPU (48 swaps in the 240 played frames, about 3 ms measured extra GPU per frame).
+FIXED_COST_ENV = "GLIDER_TEST_SKY_FIXED_COST"
+FIXED_COST_MS_PER_UNIT = "7e-7"
 # EV: both meters stop adapting within 1e-3 EV of the same target (a still image without TAA meters the same in both).
 EXPOSURE_ASYNC_TOLERANCE = 2.0e-3
 
@@ -130,16 +143,24 @@ def lambert_model():
     return path
 
 
-def run(args, timeout=900):
-    return subprocess.run([str(a) for a in args], cwd=REPO, capture_output=True, text=True, timeout=timeout)
+def run(args, timeout=900, env=None):
+    extra = {} if env is None else {"env": env}
+    return subprocess.run([str(a) for a in args], cwd=REPO, capture_output=True, text=True, timeout=timeout, **extra)
 
 
-def render(model, name, flags=(), exe=EXE, frame=24, common=COMMON):
+def fixed_cost_env():
+    env = dict(os.environ)
+    env[FIXED_COST_ENV] = FIXED_COST_MS_PER_UNIT
+    return env
+
+
+def render(model, name, flags=(), exe=EXE, frame=24, common=COMMON, env=None):
     png, report = OUT / f"{name}.png", OUT / f"{name}.json"
     png.unlink(missing_ok=True)
     report.unlink(missing_ok=True)
     result = run([exe] + ([model] if model else []) + list(common) + list(flags) +
-                 ["--capture-viewport", png, "--capture-frame", str(frame), "--profile-report", report, "--exit-after-profile"])
+                 ["--capture-viewport", png, "--capture-frame", str(frame), "--profile-report", report, "--exit-after-profile"],
+                 env=env)
     log = result.stdout + result.stderr
     if exe == EXE:
         gl_logs.append((name, log))
@@ -148,9 +169,9 @@ def render(model, name, flags=(), exe=EXE, frame=24, common=COMMON):
 
 
 class Session:
-    def __init__(self, model, flags=()):
-        args = [str(EXE), str(model)] + COMMON + list(flags) + ["--control-pipe"]
-        self.process, self.pipe = start_pipe_session(args)
+    def __init__(self, model, flags=(), exe=EXE, env=None):
+        args = [str(exe), str(model)] + COMMON + list(flags) + ["--control-pipe"]
+        self.process, self.pipe = start_pipe_session(args, env=env)
         self.size = None
 
     def call(self, cmd, **args):
@@ -384,24 +405,19 @@ def check_converged_equals_full(session, sliced):
     print(f"  INFO worst relative difference {worst:.2e}")
 
 
-def check_budget(model):
-    print("[Time-sliced updates while time plays: GPU budget, complete swaps, refinement]")
-    flags = SKY + ["--time-of-day-mode", "on", "--time-preset", "afternoon", "--time-play", "on", "--time-scale", "1200"]
-    png, data = render(model, "budget_play", flags, frame=240)
-    if data is None:
-        check(False, "time-play run produced a profile report")
-        return
-    sky = data["sky"]
-    stats = sky["stats"]
-    check(stats["slicedFrames"] >= 200 and stats["gpuMsMax"] <= BUDGET_MS and stats["overBudgetFrames"] == 0,
-          f"{stats['slicedFrames']} time-sliced frames: max extra GPU {stats['gpuMsMax']:.3f} ms, mean {stats['gpuMsMean']:.3f} ms "
-          f"(budget {BUDGET_MS} ms, aim {sky['budgetMs']} ms)")
-    check(stats["swaps"] >= 40 and stats["fastJobs"] >= 40 and stats["incompleteSwaps"] == 0,
-          f"{stats['swaps']} swaps of complete reduced-size jobs ({stats['fastJobs']} fast jobs, incomplete swaps "
-          f"{stats['incompleteSwaps']}); front {sky['refine']['frontSize']} px while moving")
-    check(sky["refine"]["frontSize"] < sky["refine"]["targetSize"] and stats["refineJobs"] == 0,
-          f"no refinement while moving (front {sky['refine']['frontSize']} px, target {sky['refine']['targetSize']} px)")
-    session = Session(model, SKY + ["--time-of-day-mode", "on", "--time-preset", "afternoon", "--time-scale", "1200"])
+def hooked(stats):
+    """True when the run planned with the fixed cost (a binary without the hook neither reports nor honours it)."""
+    return abs(float(stats.get("testFixedMsPerUnit") or 0.0) - float(FIXED_COST_MS_PER_UNIT)) <= 1e-15
+
+
+PLAY = ["--time-of-day-mode", "on", "--time-preset", "afternoon", "--time-play", "on", "--time-scale", "1200"]
+STILL = ["--time-of-day-mode", "on", "--time-preset", "afternoon", "--time-scale", "1200"]
+
+
+def play_then_stop(model, exe=EXE, env=None):
+    """Plays the clock for 60 frames in a converged session, stops it and lets the cubes refine.
+    Returns (sky while moving, frames to converge after the stop, sky afterwards, GL errors)."""
+    session = Session(model, SKY + STILL, exe=exe, env=env)
     try:
         session.converge()
         session.env("time_playing", True)
@@ -410,17 +426,106 @@ def check_budget(model):
         session.env("time_playing", False)
         frames = session.converge()
         done = session.call("get_state")["sky"]
-        check(moving["refine"]["frontSize"] == 128 and frames is not None and done["refine"]["frontSize"] == done["refine"]["targetSize"]
-              and done["stats"]["gpuMsMax"] <= BUDGET_MS and done["stats"]["refineJobs"] >= 1,
-              f"play then stop: {moving['refine']['frontSize']} px while moving, refined to {done['refine']['frontSize']} px "
-              f"{frames} frames after the stop; max extra GPU {done['stats']['gpuMsMax']:.3f} ms over "
-              f"{done['stats']['slicedFrames']} frames (refinement included)")
-        check(done["stats"]["incompleteSwaps"] == 0, f"only complete jobs swapped ({done['stats']['swaps']} swaps)")
         errors = session.close()
-        check(errors == 0, f"budget session: {errors} GL errors")
-    except Exception as error:  # noqa: BLE001
-        check(False, f"budget session failed: {error}")
+    except Exception:
         session.process.kill()
+        raise
+    return moving, frames, done, errors
+
+
+def fmt(value):
+    return "n/a" if value is None else f"{value:.3f}"
+
+
+def check_budget(model, baseline, bench=False):
+    print("[Time-sliced updates while time plays: scheduling (fixed-cost hook), GPU time, complete swaps, refinement]")
+    flags = SKY + PLAY
+    have_baseline = baseline is not None and baseline.exists()
+    # Deterministic: the scheduler plans with the fixed cost, so rows per frame, jobs and swaps do not depend on load.
+    _, data = render(model, "budget_play_fixed", flags, frame=240, env=fixed_cost_env())
+    if data is None:
+        check(False, "time-play run (fixed-cost hook) produced a profile report")
+        return
+    sky = data["sky"]
+    stats = sky["stats"]
+    check(hooked(stats), f"the candidate plans with the fixed-cost hook ({FIXED_COST_ENV}={FIXED_COST_MS_PER_UNIT}; "
+                         f"reported {stats.get('testFixedMsPerUnit')})")
+    check(stats["slicedFrames"] >= 200 and stats.get("plannedMsMax", 1e9) <= BUDGET_MS and
+          stats.get("plannedOverBudgetFrames", 1) == 0,
+          f"fixed cost: {stats['slicedFrames']} time-sliced frames, largest planned frame {stats.get('plannedMsMax', 0):.3f} ms, "
+          f"{stats.get('plannedOverBudgetFrames')} planned above the stated {BUDGET_MS} ms (aim {sky['budgetMs']} ms)")
+    check(stats["swaps"] >= MIN_SWAPS and stats["fastJobs"] >= MIN_SWAPS and stats["incompleteSwaps"] == 0,
+          f"fixed cost: {stats['swaps']} swaps of complete reduced-size jobs ({stats['fastJobs']} fast jobs, incomplete "
+          f"swaps {stats['incompleteSwaps']}; >= {MIN_SWAPS}); front {sky['refine']['frontSize']} px while moving")
+    check(sky["refine"]["frontSize"] < sky["refine"]["targetSize"] and stats["refineJobs"] == 0,
+          f"no refinement while moving (front {sky['refine']['frontSize']} px, target {sky['refine']['targetSize']} px)")
+    if have_baseline:
+        _, base = render(model, "budget_play_fixed_base", flags, exe=baseline, frame=240, env=fixed_cost_env())
+        base_stats = ((base or {}).get("sky") or {}).get("stats") or {}
+        if hooked(base_stats):
+            check(stats["swaps"] == base_stats["swaps"] and stats["fastJobs"] == base_stats["fastJobs"] and
+                  base_stats["incompleteSwaps"] == 0,
+                  f"fixed cost: swaps {stats['swaps']} / fast jobs {stats['fastJobs']} = {baseline.stem}'s "
+                  f"{base_stats.get('swaps')} / {base_stats.get('fastJobs')}")
+        else:
+            print(f"  INFO {baseline.stem} has no {FIXED_COST_ENV} hook: the swaps are checked against >= {MIN_SWAPS} only")
+    else:
+        print(f"  INFO no baseline binary: the swaps are checked against >= {MIN_SWAPS} only")
+
+    # Measured extra GPU time per frame: interleaved with the baseline (A B A B), never cached.
+    runs = [("candidate", EXE), ("baseline", baseline)] * 2 if have_baseline else [("candidate", EXE)] * 2
+    measured = {"candidate": [], "baseline": []}
+    with subprocess.uncached():
+        for index, (who, exe) in enumerate(runs):
+            _, report = render(model, f"budget_play_{who}_{index // 2}", flags, exe=exe, frame=240)
+            measured[who].append(((report or {}).get("sky") or {}).get("stats"))
+    cand = [s for s in measured["candidate"] if s]
+    check(len(cand) == 2 and all(s["slicedFrames"] >= 200 and s["incompleteSwaps"] == 0 for s in cand),
+          f"measured runs: {[s['slicedFrames'] for s in cand]} time-sliced frames, incomplete swaps "
+          f"{[s['incompleteSwaps'] for s in cand]} (swaps {[s['swaps'] for s in cand]})")
+    if have_baseline:
+        ok, best, best_base, limit = relative_timing([s["gpuMsMax"] for s in cand],
+                                                     [s["gpuMsMax"] for s in measured["baseline"] if s])
+        check(ok, f"max extra GPU per frame {fmt(best)} ms (best of 2) <= 1.25 x {baseline.stem}'s {fmt(best_base)} ms "
+                  f"+ 0.5 = {fmt(limit)} ms (frames over the stated {BUDGET_MS} ms: {[s['overBudgetFrames'] for s in cand]}; "
+                  f"mean {[round(s['gpuMsMean'], 3) for s in cand]} ms)")
+    if bench:
+        for s in cand:
+            check(s["gpuMsMax"] <= BUDGET_MS and s["overBudgetFrames"] == 0,
+                  f"--bench: {s['slicedFrames']} time-sliced frames: max extra GPU {s['gpuMsMax']:.3f} ms, mean "
+                  f"{s['gpuMsMean']:.3f} ms, {s['overBudgetFrames']} frames over (budget {BUDGET_MS} ms)")
+
+    # Play then stop: refinement after the clock stops, measured sessions interleaved with the baseline (pipe
+    # sessions are never cached). The refinement's scheduling is checked on the candidate's runs (no timing in it);
+    # the fixed-cost hook is not used here: one constant cost for every kind of work over-prices the full-size
+    # filter rows, so the refinement would crawl.
+    sessions = {"candidate": [], "baseline": []}
+    for who, exe in runs:
+        try:
+            moving, frames, done, errors = play_then_stop(model, exe=exe)
+            sessions[who].append(done["stats"] if frames is not None else None)
+            if who == "candidate":
+                ds = done["stats"]
+                check(moving["refine"]["frontSize"] == 128 and frames is not None and
+                      done["refine"]["frontSize"] == done["refine"]["targetSize"] and ds["refineJobs"] >= 1,
+                      f"play then stop: {moving['refine']['frontSize']} px while moving, refined to "
+                      f"{done['refine']['frontSize']} px {frames} frames after the stop ({ds['slicedFrames']} "
+                      f"time-sliced frames, refinement included)")
+                check(ds["incompleteSwaps"] == 0, f"only complete jobs swapped ({ds['swaps']} swaps)")
+                check(errors == 0, f"budget session: {errors} GL errors")
+        except Exception as error:  # noqa: BLE001
+            check(False, f"play then stop ({who}, measured) failed: {error}")
+            sessions[who].append(None)
+    cand = [s for s in sessions["candidate"] if s]
+    if have_baseline:
+        ok, best, best_base, limit = relative_timing([s["gpuMsMax"] for s in cand],
+                                                     [s["gpuMsMax"] for s in sessions["baseline"] if s])
+        check(ok, f"play then stop: max extra GPU per frame {fmt(best)} ms (best of 2, refinement included) <= 1.25 x "
+                  f"{baseline.stem}'s {fmt(best_base)} ms + 0.5 = {fmt(limit)} ms")
+    if bench:
+        for s in cand:
+            check(s["gpuMsMax"] <= BUDGET_MS, f"--bench: play then stop: max extra GPU {s['gpuMsMax']:.3f} ms over "
+                                              f"{s['slicedFrames']} frames (refinement included) <= {BUDGET_MS} ms")
 
 
 def check_parameters(session):
@@ -564,11 +669,15 @@ def main():
     parser.add_argument("--regenerate-references", action="store_true", help="print the reference values (numpy, slow) and exit")
     parser.add_argument("--only", default=None,
                         help="comma-separated: baseline,reference,behaviour,sun,ibl,budget,params,registry,together,exposure")
+    parser.add_argument("--bench", action="store_true",
+                        help="also the absolute GPU-time limits (max extra GPU <= 4 ms, no frame over) of the measured runs")
     args = parser.parse_args()
     if args.regenerate_references:
         regenerate_references()
         return 0
     baseline = Path(args.baseline_exe) if args.baseline_exe else None
+    if baseline is not None and not baseline.is_absolute():
+        baseline = REPO / baseline
     if baseline is None:
         candidates = sorted((REPO / "build" / "baselines").glob("*.exe"), key=lambda p: p.stat().st_mtime)
         baseline = candidates[-1] if candidates else None
@@ -609,7 +718,7 @@ def main():
             check(False, f"IBL session failed: {error}")
             session.process.kill()
     if want("budget"):
-        check_budget(sphere)
+        check_budget(sphere, baseline, bench=args.bench)
     if want("registry"):
         check_registry(sphere)
     if want("together"):

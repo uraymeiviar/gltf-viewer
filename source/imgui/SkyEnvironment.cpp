@@ -143,6 +143,10 @@ SkyEnvironment::Result SkyEnvironment::update(const Inputs& in)
         }
     }
     if (timing) endFrameTimer(refineWork);
+    if (in.timeSlicing && usedMs > 0.0) {
+        m_stats.plannedMsMax = std::max(m_stats.plannedMsMax, usedMs);
+        if (usedMs > kStatedBudgetMs) ++m_stats.plannedOverBudgetFrames;
+    }
     saved.restore();
     return result;
 }
@@ -220,8 +224,27 @@ bool SkyEnvironment::isLutKey(uint64_t key)
     return kind == kKindAtmosphereLuts || kind == kKindSkyViewLut;
 }
 
+double SkyEnvironment::testFixedMsPerUnit()
+{
+    static const double value = [] {
+        const char* text = std::getenv("GLIDER_TEST_SKY_FIXED_COST");
+        if (text == nullptr || text[0] == '\0') return 0.0;
+        char* end = nullptr;
+        const double parsed = std::strtod(text, &end);
+        if (end == text || !std::isfinite(parsed) || parsed <= 0.0) {
+            std::fprintf(stderr, "Sky: GLIDER_TEST_SKY_FIXED_COST=%s ignored (expected a positive ms per unit)\n", text);
+            return 0.0;
+        }
+        std::fprintf(stderr, "Sky: test hook GLIDER_TEST_SKY_FIXED_COST: %g ms per unit, LUT builds %g ms\n", parsed,
+                     kLutGuessMs);
+        return parsed;
+    }();
+    return value;
+}
+
 double SkyEnvironment::msPerUnit(uint64_t key) const
 {
+    if (const double fixed = testFixedMsPerUnit(); fixed > 0.0) return isLutKey(key) ? kLutGuessMs : fixed;
     const auto it = m_costs.find(key);
     if (it != m_costs.end() && it->second.count > 0) return it->second.value();
     if (isLutKey(key)) return kLutGuessMs;
