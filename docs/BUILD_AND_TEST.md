@@ -62,8 +62,9 @@ python scripts/run_regression.py --tier full
   side-panel UI changes do not fail them (`validate_p4_exit_gate.py` covers the panels). The script's docstring
   lists what each suite covers. `--only a,b` runs exactly those suites of the tier (names as printed);
   `--no-cache` starts every baseline launch.
-- **Tiers**: `--tier full` runs every suite (one full run per commit for broad changes; about 34 minutes on the
-  CPU-limited maintainer setup, 12 of 24 cores, `--jobs 1`). The **quick tier** (default) runs the **core** —
+- **Tiers**: `--tier full` runs every suite except the on-demand ones (one full run per commit for broad changes;
+  about 33 minutes on the CPU-limited maintainer setup, 12 of 24 cores, `--jobs 1`, before the capture sessions and
+  on-demand suites of 2026-11-01; an estimated 26 minutes since). The **quick tier** (default) runs the **core** —
   `p8_1`, `p4_exit_gate`, `asobo_common`, `defaults` (about 57 s) and the self-checks; 139 s warm before
   `defaults` joined, 288 s measured with `p8_1`'s baseline cold — plus the suites that the changed
   files **trigger**. Changed files are `git diff --name-only HEAD` plus untracked files under `source/`, `header/`,
@@ -111,6 +112,29 @@ python scripts/run_regression.py --tier full
   sky_occlusion `SkyOcclusion.*`, `sky_occlusion*`; each also its own `validate_<suite>.py`); `--on-demand a,b`
   selects those suites with their flags in any tier, `--with-on-demand` passes every flag of the selected suites.
   `--tier full` does not run them otherwise. `--plan` lists which flags are passed and why.
+- **On-demand suites** (`ON_DEMAND_SUITES`): `p8_followup` (a same-binary A/B of shared traversal; `p8_1`'s split
+  case compares the multi-viewport image with the baseline), `texture_dds`, `texture_ktx2`, `asobo_model`,
+  `asobo_support`, `asobo_normal` and `asobo_occlusion` (phase acceptance of one or two commits; `asobo_common`'s
+  E195 report covers the parsing) are not in `--tier full`. They keep their triggers, so the quick tier runs them
+  when their paths or their own scripts change; `--on-demand <suite>` or `--with-on-demand` (with `--tier full`:
+  every suite and every on-demand part) selects them in any tier. `--plan` lists each as
+  `on-demand suite: <name> selected (...)` or `... not run`.
+- **Capture sessions** (`glider_harness.capture_run`): the fixture captures of `asobo_uv_options`,
+  `asobo_decal_modes`, `asobo_dither`, `asobo_draworder`, `asobo_fresnel_ghost` and `asobo_occlusion` go through
+  one helper that takes the capture's CLI argv. For the candidate, a capture whose flags the session can replay
+  runs in a control-pipe session started with the same startup flags (started at the second consecutive capture
+  with those flags, one Glider at a time, closed before any other Glider starts): `open_model <fixture>
+  startup_state=true` restores the state a fresh start with those flags gives (the `reset` state plus the replayed
+  `--select-node` / `--camera-*` flags), `--debug-view`, `--asobo-disable`, `--asobo off`, `--set-asobo-param`,
+  `--windshield-icing` and `--without-textures` go through the registry, then `capture` settles the remaining
+  frames. Every session capture of those suites was hashed against its CLI launch (byte-identical, 185 of 185 on
+  2026-11-01). Baseline launches, the candidate's side of every baseline comparison, captures whose profile report
+  or launch log is read, and flags outside the replayable set stay CLI launches. `asobo_anisotropy` and
+  `asobo_sss` are routed through the helper but keep CLI launches (`SESSIONS = False`: identical, but small `--env`
+  launches are not slower than a session); `asobo_normal` keeps CLI launches because a DirectX-convention file
+  opened before an OpenGL one in the same Glider leaves the green flip applied. `GLIDER_HARNESS_SESSIONS=0` turns
+  sessions off; `GLIDER_HARNESS_SESSION_PROOF=<file>` launches each session capture's CLI argv as well when the
+  harness exits and appends one JSON line per capture (session hash, CLI hash, equal) to `<file>`.
 - **GPU / CPU timing checks** never compare a measured time with an absolute limit in the regression (the machine
   and its GPU are shared). The procedural sky's scheduling runs under the test hook `GLIDER_TEST_SKY_FIXED_COST`
   (constant cost per unit, [CLI reference](CLI_REFERENCE.md#test-hooks--environment-variables)): swaps and fast
@@ -159,7 +183,7 @@ python scripts/run_regression.py --tier full
   the commit, so the first run against the new baseline replays them (`seed` column, log `hit, seed`) instead of
   starting the baseline; the entry then becomes an ordinary baseline entry. A rebuilt exe simply misses.
 - **Harness helpers**: `scripts/glider_harness.py` holds the pieces harnesses share (baseline lookup, `run`,
-  `capture`, `start_pipe_session`, `gl_errors_zero`, `read_json`, `digest`/`same`, `viewport_sha`); its docstring lists
+  `capture`, `capture_run`, `start_pipe_session`, `gl_errors_zero`, `read_json`, `digest`/`same`, `viewport_sha`); its docstring lists
   the API. Launches go through `harness_process`, so new harnesses get the focus rules and the cache by using it.
 - **Harness launches never request keyboard focus**: they go through `scripts/harness_process.py`, which sets
   `GLIDER_NO_FOCUS=1` and starts Glider with `SW_SHOWNOACTIVATE`. Baselines older than the marker may still take

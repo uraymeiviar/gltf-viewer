@@ -836,6 +836,22 @@ private:
     uint64_t lastGltfExtensionRevision = ~0ull;             // resolveAllViewportSettings marks a change of the set
     std::map<std::string, float> agentStartupVendorTuning;
     std::set<std::string> agentStartupGltfExtensions;       // reset restores the glTF extension switches (effective set)
+    // The model-dependent startup flags (--select-node, --camera-*), kept so that open_model(startup_state=true)
+    // replays them on another model exactly as configure() applied them to the startup model.
+    struct StartupCameraFlags {
+        bool yawProvided = false, pitchProvided = false, distanceProvided = false, targetProvided = false,
+             fovProvided = false;
+        float yaw = 0.0f, pitch = 0.0f, distance = 0.0f, fov = 0.0f;
+        float targetX = 0.0f, targetY = 0.0f, targetZ = 0.0f;
+        std::string projection;
+        std::string selectNode; // --select-node (exact name): select and frame before the camera flags
+    };
+    StartupCameraFlags agentStartupCamera;
+    // The --camera-* part of the startup flags on the active viewport (configure() and open_model startup_state).
+    void applyStartupCameraFlags(const StartupCameraFlags& flags);
+    // reset / open_model(startup_state): startup environment, quality, extension switches and viewport settings,
+    // camera fitted, no selection or isolation, fresh history.
+    void restoreAgentStartupState();
     // CLI environment flags, replayed onto every scene environment after the model loads.
     std::vector<std::pair<std::string, std::string>> cliEnvironmentSettings;
 

@@ -110,7 +110,8 @@ def declared(name, base, material_extensions):
 
 
 def capture(model, name, flags=()):
-    return render(EXE, model, name, flags, OUT)
+    """Same-binary captures only: in glider_harness.capture_run's shared pipe session."""
+    return render(EXE, model, name, flags, OUT, session=True)
 
 
 def undeclared(name, declared_path):

@@ -1205,57 +1205,22 @@ std::optional<int> Application::configure(int argc, char** argv)
     }
 
     // P0.1 explicit camera/projection controls are applied after model load and
-    // after --select-node framing so the requested pose always wins.
-    const bool cameraOverrideRequested = cameraYawProvided || cameraPitchProvided || cameraDistanceProvided ||
-                                         cameraTargetProvided || cameraFovProvided || !cameraProjectionArg.empty();
-    if (cameraOverrideRequested && activeViewport != nullptr) {
-        auto& viewport = *activeViewport;
-
-        if (cameraFovProvided) {
-            if (cameraFovArg > 0.1f && cameraFovArg < 179.0f) {
-                auto& camera = viewport.rendererCamera;
-                camera.setPerspective(camera.getAspectRatio(), glm::radians(cameraFovArg), camera.getZNearPlane(),
-                                      camera.getZFarPlane());
-            } else {
-                logMessage("Ignoring --camera-fov outside (0.1, 179) degrees", ImVec4(1.0f, 0.8f, 0.2f, 1.0f));
-            }
-        }
-
-        if (cameraTargetProvided) {
-            viewport.cameraActor.setTarget(ux3d::math::vec3(cameraTargetX, cameraTargetY, cameraTargetZ));
-        }
-
-        if (cameraDistanceProvided) {
-            if (cameraDistanceArg > 0.0f) {
-                viewport.cameraActor.setZoom(cameraDistanceArg);
-            } else {
-                logMessage("Ignoring non-positive --camera-distance", ImVec4(1.0f, 0.8f, 0.2f, 1.0f));
-            }
-        }
-
-        if (cameraYawProvided || cameraPitchProvided) {
-            const float yaw = cameraYawProvided ? glm::radians(cameraYawArg) : viewport.cameraActor.getRotationX();
-            const float pitch =
-                cameraPitchProvided ? glm::radians(cameraPitchArg) : viewport.cameraActor.getRotationY();
-            viewport.cameraActor.setCameraRotation(yaw, pitch);
-        } else {
-            viewport.cameraActor.updateUserCameraTransform();
-        }
-
-        if (!cameraProjectionArg.empty()) {
-            if (cameraProjectionArg == "ortho" || cameraProjectionArg == "orthographic") {
-                viewport.cameraActor.changeUserCameraType(ux3d::renderer::Camera::Type::Orthographic);
-            } else if (cameraProjectionArg == "perspective" || cameraProjectionArg == "persp") {
-                viewport.cameraActor.changeUserCameraType(ux3d::renderer::Camera::Type::Perspective);
-            } else {
-                logMessage("Unknown --camera-projection (use perspective or orthographic)",
-                           ImVec4(1.0f, 0.8f, 0.2f, 1.0f));
-            }
-        }
-
-        viewport.antiAliasing.resetHistory();
-        sceneRevisions.mark(ux3d::imgui::SceneChange::ViewCamera);
-    }
+    // after --select-node framing so the requested pose always wins. Kept for open_model(startup_state).
+    agentStartupCamera.yawProvided = cameraYawProvided;
+    agentStartupCamera.pitchProvided = cameraPitchProvided;
+    agentStartupCamera.distanceProvided = cameraDistanceProvided;
+    agentStartupCamera.targetProvided = cameraTargetProvided;
+    agentStartupCamera.fovProvided = cameraFovProvided;
+    agentStartupCamera.yaw = cameraYawArg;
+    agentStartupCamera.pitch = cameraPitchArg;
+    agentStartupCamera.distance = cameraDistanceArg;
+    agentStartupCamera.targetX = cameraTargetX;
+    agentStartupCamera.targetY = cameraTargetY;
+    agentStartupCamera.targetZ = cameraTargetZ;
+    agentStartupCamera.fov = cameraFovArg;
+    agentStartupCamera.projection = cameraProjectionArg;
+    agentStartupCamera.selectNode = isolateNodeArg.empty() ? selectNodeArg : std::string();
+    applyStartupCameraFlags(agentStartupCamera);
 
     if (!debugViewArg.empty() && activeViewport != nullptr) {
         const std::optional<ux3d::renderer::RenderMode> mode = getRenderModeFromName(debugViewArg);
@@ -1287,6 +1252,60 @@ std::optional<int> Application::configure(int argc, char** argv)
     }
 
     return std::nullopt;
+}
+
+void Application::applyStartupCameraFlags(const StartupCameraFlags& flags)
+{
+    const bool cameraOverrideRequested = flags.yawProvided || flags.pitchProvided || flags.distanceProvided ||
+                                         flags.targetProvided || flags.fovProvided || !flags.projection.empty();
+    if (cameraOverrideRequested && activeViewport != nullptr) {
+        auto& viewport = *activeViewport;
+
+        if (flags.fovProvided) {
+            if (flags.fov > 0.1f && flags.fov < 179.0f) {
+                auto& camera = viewport.rendererCamera;
+                camera.setPerspective(camera.getAspectRatio(), glm::radians(flags.fov), camera.getZNearPlane(),
+                                      camera.getZFarPlane());
+            } else {
+                logMessage("Ignoring --camera-fov outside (0.1, 179) degrees", ImVec4(1.0f, 0.8f, 0.2f, 1.0f));
+            }
+        }
+
+        if (flags.targetProvided) {
+            viewport.cameraActor.setTarget(ux3d::math::vec3(flags.targetX, flags.targetY, flags.targetZ));
+        }
+
+        if (flags.distanceProvided) {
+            if (flags.distance > 0.0f) {
+                viewport.cameraActor.setZoom(flags.distance);
+            } else {
+                logMessage("Ignoring non-positive --camera-distance", ImVec4(1.0f, 0.8f, 0.2f, 1.0f));
+            }
+        }
+
+        if (flags.yawProvided || flags.pitchProvided) {
+            const float yaw = flags.yawProvided ? glm::radians(flags.yaw) : viewport.cameraActor.getRotationX();
+            const float pitch =
+                flags.pitchProvided ? glm::radians(flags.pitch) : viewport.cameraActor.getRotationY();
+            viewport.cameraActor.setCameraRotation(yaw, pitch);
+        } else {
+            viewport.cameraActor.updateUserCameraTransform();
+        }
+
+        if (!flags.projection.empty()) {
+            if (flags.projection == "ortho" || flags.projection == "orthographic") {
+                viewport.cameraActor.changeUserCameraType(ux3d::renderer::Camera::Type::Orthographic);
+            } else if (flags.projection == "perspective" || flags.projection == "persp") {
+                viewport.cameraActor.changeUserCameraType(ux3d::renderer::Camera::Type::Perspective);
+            } else {
+                logMessage("Unknown --camera-projection (use perspective or orthographic)",
+                           ImVec4(1.0f, 0.8f, 0.2f, 1.0f));
+            }
+        }
+
+        viewport.antiAliasing.resetHistory();
+        sceneRevisions.mark(ux3d::imgui::SceneChange::ViewCamera);
+    }
 }
 
 } // namespace ux3d::imgui::application

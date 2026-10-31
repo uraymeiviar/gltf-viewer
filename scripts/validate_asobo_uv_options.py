@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 import harness_process as subprocess
+from glider_harness import capture_run
 from PIL import Image
 from validate_asobo_detail_map import Fixture, make_png, base_material, CAMERA, same
 
@@ -107,16 +108,18 @@ def fixture(name, options=None, slot="base", uv1=False, baked=None, khr=None,
     return path
 
 
-def capture(path, label, flags=(), view="basecolor", exe=EXE):
+def capture(path, label, flags=(), view="basecolor", exe=EXE, session=True):
+    """Capture at frame 8 through glider_harness.capture_run (the candidate's in a shared pipe session unless
+    session=False: the CLI launch, for checks that read its log or compare against a baseline)."""
     png = OUT / (label + ".png")
     png.unlink(missing_ok=True)
     report = OUT / (label + ".json")
     args = [str(exe), str(path), *CAMERA, "--msfs-emissive", "off", *flags]
     if view:
         args += ["--debug-view", view]
-    result = subprocess.run(args + ["--capture-viewport", str(png), "--capture-frame", "8",
-                                   "--profile-report", str(report), "--exit-after-profile"],
-                            cwd=REPO, capture_output=True, text=True, timeout=300)
+    result = capture_run(args + ["--capture-viewport", str(png), "--capture-frame", "8",
+                                 "--profile-report", str(report), "--exit-after-profile"],
+                         timeout=300, session=session)
     log = result.stdout + result.stderr
     (OUT / (label + ".log")).write_text(log, encoding="utf-8")
     if result.returncode & 0xffffffff == 0xc0000142:
@@ -158,7 +161,8 @@ def main():
              "aliases": {"UVOffSetU": .25, "UVOffSetV": -.25},
              "both_spellings": {"UVOffsetU": .25, "UVOffSetU": -.25, "UVOffsetV": -.25, "UVOffSetV": .25}}
     for name, options in cases.items():
-        actual = capture(fixture(name, options), name)
+        # both_spellings: its launch log is read below.
+        actual = capture(fixture(name, options), name, session=name != "both_spellings")
         expected = capture(fixture(name + "_reference", baked=options), name + "_reference")
         probes_equal(actual, expected, name + ": CPU-baked UV reference")
         check(not same(actual, plain), name + ": visible spatial change")
@@ -224,7 +228,7 @@ def main():
     baseline = REPO / "build/baselines/d0761e7.exe"
     for name, model in (("hello", REPO / "resources/sampleGltf/HelloCube.glb"),
                         ("non_asobo", REPO / "resources/test_models/hierarchy_animation_fixture.gltf")):
-        a = capture(model, name, view=None)
+        a = capture(model, name, view=None, session=False)  # CLI against CLI
         b = capture(model, name + "_baseline", exe=baseline, view=None)
         check(same(a, b), name + ": byte-identical to d0761e7")
     (OUT / "results.json").write_text(json.dumps({"failures": failures}, indent=2))

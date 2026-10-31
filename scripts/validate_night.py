@@ -571,6 +571,18 @@ def rotate(v, axis, degrees):
     return [v[i] * c + cross[i] * s + k[i] * dot * (1 - c) for i in range(3)]
 
 
+def rotate_many(vectors, axis, degrees):
+    """rotate() for an (n, 3) numpy array, with the same operations in the same order."""
+    import numpy as np
+    a = math.radians(degrees)
+    k = axis
+    c, s = math.cos(a), math.sin(a)
+    v0, v1, v2 = vectors[:, 0], vectors[:, 1], vectors[:, 2]
+    dot = v0 * k[0] + v1 * k[1] + v2 * k[2]
+    cross = (k[1] * v2 - k[2] * v1, k[2] * v0 - k[0] * v2, k[0] * v1 - k[1] * v0)
+    return np.stack([vectors[:, i] * c + cross[i] * s + k[i] * dot * (1 - c) for i in range(3)], axis=1)
+
+
 def check_stars():
     print("[A6.6 stars: present at night, absent at noon, turning with the sidereal time]")
     model = empty_model()
@@ -595,12 +607,18 @@ def check_stars():
         check(abs(sidereal - SIDEREAL_DEG_PER_HOUR) < 0.01, f"reported local sidereal time advances {sidereal:.3f} deg in 1 h")
 
         def matches(angle):
-            count = 0
-            for s in stars1:
-                r = rotate(s, pole, angle)
-                best = min(angle_between(r, t) for t in stars2)
-                count += best < 0.12
-            return count
+            # rotate() and angle_between() over every pair at once (numpy, the same operations in the same order;
+            # the pure-Python double loop held the session open for ~3 minutes).
+            r = rotate_many(stars1_array, pole, angle)
+            dot = (r[:, None, 0] * stars2_array[None, :, 0] + r[:, None, 1] * stars2_array[None, :, 1]
+                   + r[:, None, 2] * stars2_array[None, :, 2])
+            norms = np.sqrt((r * r).sum(axis=1)[:, None] * (stars2_array * stars2_array).sum(axis=1)[None, :])
+            angles = np.degrees(np.arccos(np.clip(dot / np.maximum(norms, 1e-30), -1.0, 1.0)))
+            return int((angles.min(axis=1) < 0.12).sum())
+
+        import numpy as np
+        stars1_array = np.array(stars1, dtype=float).reshape(-1, 3)
+        stars2_array = np.array(stars2, dtype=float).reshape(-1, 3)
 
         best_angle, best_count = 0.0, -1
         for tenth in range(-300, 301, 5):

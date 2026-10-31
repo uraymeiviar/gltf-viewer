@@ -230,7 +230,7 @@ Nodes are addressed by name (exact, then case-insensitive, then unique substring
 | `set_environment(key, value)` / `get_environment(key?)` | immediate | Phase 3: exposure, tone mapping, HDR rotation, time of day, emissive scale, bloom, clear colour. |
 | `set_material_param(material, extension, param, value)` / `get_material_param` | immediate | Phase 3: same path as `--set-asobo-param` / Inspector. |
 | `list_settings(scope?)` | immediate | Every setting key with scope, type, range or values, current value, default and CLI flag. |
-| `open_model(path, without_textures?)` | multi-frame | Open a model; replies when the first model frame is ready, with load timings. |
+| `open_model(path, without_textures?, startup_state?)` | multi-frame | Open a model; replies when the first model frame is ready, with load timings. `startup_state=true` (§7.3): the state a fresh start with this model and the startup flags gives. |
 | `validate` | immediate | Validation summary and issues (same engine as the Validation panel). |
 | `toggle_maximize_area(target?, state?)` | multi-frame | Maximize Area (`Ctrl+Space`): `target` = `viewport[:<id>]`, `inspector`, `hierarchy`, `resources`, `logger`, `statistics`, `validation`, `mouse` (default), `focused` or a window name; replies with `get_state.area` once applied. |
 | `toggle_fullscreen(target?, state?)` | multi-frame | Full Screen (`Ctrl+Alt+Space`): borderless window over its monitor, no menu/status/tab bar or viewport toolbar; leaving restores window and layout. |
@@ -379,6 +379,17 @@ entry, but the CLI flag, the UI, `get_state` and any persistence are manual. The
   box for that capture only. The capture path defaults to `%TEMP%/glider-agent/<pid>/capture_<n>.png`.
 - **Loads are queued**: inside a frame `loadGltfModel` queues the file for the next frame (as File > Open does), so
   `open_model` and `reset` wait for the queued load, then settle 4 frames (the Phase 0 `open` wait).
+- **`open_model(startup_state=true)`** (2026-11-01, for the regression's capture sessions,
+  `glider_harness.capture_run`): a load normally resets the scene environment and fits the camera, so a pipe
+  session could not reproduce a CLI capture of another model with the same flags. With `startup_state` the
+  command applies, once the load is done, what `reset` restores (`Application::restoreAgentStartupState()`, now
+  shared by both: startup environment, quality, glTF extension switches and viewport settings, camera fitted, no
+  selection or isolation, fresh history), then replays `--select-node` (select and frame) and the `--camera-*`
+  flags. The camera flags are kept at startup in `agentStartupCamera` and applied by
+  `Application::applyStartupCameraFlags()`, the code `configure()` itself now calls, so CLI and pipe run the same
+  statements. Renders are unchanged (the defaults suite and every baseline comparison stay byte-identical); a
+  session capture after `open_model(startup_state=true)` was byte-identical to the CLI capture in 255 of 256
+  ASOBO fixture cases (the exception: an OpenGL-convention file after a DirectX one, see BUILD_AND_TEST.md §4.5).
 - **One registry, one parser**: script lines use the registry's positional text form (`set_viewport_setting ssr
   off`); the Phase 0 names keep their own parsers (`camera` with comma vectors, `isolate <node> children`).
 - **Phase 2 commands** `get_camera`, `set_camera`, `pick`, `node_screen_rect`, `set_render_mode`, `open_model`,

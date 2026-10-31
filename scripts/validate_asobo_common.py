@@ -73,17 +73,21 @@ def view(name):
     return next(v for v in views() if v["name"] == name)
 
 
-def render(exe, model, name, flags=(), folder=OUT, search_paths=()):
-    """Captures the viewport (no UI) at frame 24; returns the PNG path or None."""
+def render(exe, model, name, flags=(), folder=OUT, search_paths=(), session=False):
+    """Captures the viewport (no UI) at frame 24; returns the PNG path or None.
+
+    session=True: through glider_harness.capture_run's shared pipe session for the candidate (the fixture suites'
+    same-binary checks); the default keeps the CLI launch (baseline comparisons, the E195 views)."""
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
     png = folder / f"{name}.png"
     png.unlink(missing_ok=True)
     paths = [arg for path in search_paths for arg in ("--search-path", path)]
-    result = subprocess.run([str(exe), str(model)] + COMMON + paths + list(flags) +
-                            ["--capture-viewport", str(png), "--capture-frame", "24",
-                             "--profile-report", str(folder / f"{name}.json"), "--exit-after-profile"],
-                            cwd=REPO, capture_output=True, timeout=900)
+    from glider_harness import capture_run
+    result = capture_run([str(exe), str(model)] + COMMON + paths + list(flags) +
+                         ["--capture-viewport", str(png), "--capture-frame", "24",
+                          "--profile-report", str(folder / f"{name}.json"), "--exit-after-profile"],
+                         timeout=900, session=session, text=False)
     if getattr(result, "from_cache", False):
         print(f"  INFO {name}: {Path(exe).name} render served from the cache (hit)")
     return png if png.exists() else None

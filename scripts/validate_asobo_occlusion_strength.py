@@ -58,14 +58,14 @@ def luminance(path):
 
 
 def main():
-    plain = render(EXE, write("plain", occlusion=False), "plain", folder=OUT)
-    mapped = render(EXE, write("mapped", occlusion=True), "mapped", folder=OUT)
-    one = render(EXE, write("strength_1", occlusion=True, strength=1.0), "strength_1", folder=OUT)
-    zero = render(EXE, write("strength_0", occlusion=True, strength=0.0), "strength_0", folder=OUT)
+    plain = render(EXE, write("plain", occlusion=False), "plain", folder=OUT, session=True)
+    mapped = render(EXE, write("mapped", occlusion=True), "mapped", folder=OUT, session=True)
+    one = render(EXE, write("strength_1", occlusion=True, strength=1.0), "strength_1", folder=OUT, session=True)
+    zero = render(EXE, write("strength_0", occlusion=True, strength=0.0), "strength_0", folder=OUT, session=True)
     strong_model = write("strength_1_6", occlusion=True, strength=1.6)
-    strong = render(EXE, strong_model, "strength_1_6", folder=OUT)
-    disabled = render(EXE, strong_model, "strength_1_6_disabled", ["--asobo-disable", EXT], folder=OUT)
-    master_off = render(EXE, strong_model, "strength_1_6_asobo_off", ["--asobo", "off"], folder=OUT)
+    strong = render(EXE, strong_model, "strength_1_6", folder=OUT, session=True)
+    disabled = render(EXE, strong_model, "strength_1_6_disabled", ["--asobo-disable", EXT], folder=OUT, session=True)
+    master_off = render(EXE, strong_model, "strength_1_6_asobo_off", ["--asobo", "off"], folder=OUT, session=True)
 
     check(all(p is not None for p in (plain, mapped, one, zero, strong, disabled, master_off)), "every capture exists")
     check(not same(plain, mapped), "the grey occlusion map darkens the fixture")

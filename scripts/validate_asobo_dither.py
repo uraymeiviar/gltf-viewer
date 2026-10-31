@@ -37,6 +37,7 @@ import sys
 from pathlib import Path
 
 import harness_process as subprocess
+from glider_harness import capture_run
 from validate_asobo_common import EXE, PLAIN_FIXTURE, REPO, check, finish, same
 from validate_asobo_common import render as common_render
 
@@ -153,15 +154,18 @@ def run(args, timeout=600):
     return subprocess.run([str(a) for a in args], cwd=REPO, capture_output=True, text=True, timeout=timeout)
 
 
-def render(exe, model, name, flags=(), frame=24, picks=(), nodes=()):
-    """Viewport capture at `frame`; returns (png or None, profile report dict or None)."""
+def render(exe, model, name, flags=(), frame=24, picks=(), nodes=(), session=True):
+    """Viewport capture at `frame`; returns (png or None, profile report dict or None).
+
+    Through glider_harness.capture_run: the candidate's captures without picks or report nodes run in a shared
+    pipe session (no profile report then); session=False keeps the CLI launch."""
     png, report = OUT / f"{name}.png", OUT / f"{name}.json"
     png.unlink(missing_ok=True)
     report.unlink(missing_ok=True)
     extra = [a for p in picks for a in ("--report-pick", f"{p[0]},{p[1]}")]
     extra += [a for n in nodes for a in ("--report-node", n)]
-    run([exe, model, *COMMON, *VIEW, *flags, *extra, "--capture-viewport", png, "--capture-frame", str(frame),
-         "--profile-report", report, "--exit-after-profile"])
+    capture_run([exe, model, *COMMON, *VIEW, *flags, *extra, "--capture-viewport", png, "--capture-frame", str(frame),
+                 "--profile-report", report, "--exit-after-profile"], session=session and not (picks or nodes))
     data = None
     try:
         data = json.loads(report.read_text(encoding="utf-8"))
@@ -389,7 +393,7 @@ def main():
     else:
         print(f"  INFO baseline {baseline.name}")
         for name, model, flags in (("dither_none", plain_model, NO_AA), ("dither_none_taa", plain_model, TAA)):
-            now, _ = render(EXE, model, "now_" + name, flags)
+            now, _ = render(EXE, model, "now_" + name, flags, session=False)  # CLI against CLI
             before, _ = render(baseline, model, "base_" + name, flags)
             check(same(now, before), f"{name}: byte-identical to the baseline {baseline.name}")
         now = common_render(EXE, PLAIN_FIXTURE, "now_hierarchy", [], folder=OUT)

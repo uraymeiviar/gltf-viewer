@@ -262,6 +262,25 @@ def _prepare(command, kwargs):
     return target, kwargs
 
 
+# Called with the target exe right before a Glider process really starts (run() misses of the cache and memo,
+# Popen()); glider_harness's capture session pool uses it to close its idle session first, so a harness never
+# has two Glider windows at once.
+_launch_hooks = []
+
+
+def add_launch_hook(function):
+    if function not in _launch_hooks:
+        _launch_hooks.append(function)
+
+
+def _before_launch(target):
+    for function in list(_launch_hooks):
+        try:
+            function(target)
+        except Exception:  # noqa: BLE001 - a hook must never break a launch
+            pass
+
+
 # ----------------------------------------------------------------------------- launch log
 
 _log_lock = threading.Lock()
@@ -361,6 +380,7 @@ def _run(command, popenargs, kwargs):
         if cached is not None:
             log_launch(target, "run", cached.cache_status, time.time() - start, command)
             return cached
+    _before_launch(target)
     result = _subprocess.run(*popenargs, **kwargs)
     status = f"off: {reason}"
     if plan is not None:
@@ -487,6 +507,7 @@ def popen(command, **kwargs):
     target, kwargs = _prepare(command, kwargs)
     if target is None:
         return _subprocess.Popen(command, **kwargs)
+    _before_launch(target)
     start = time.time()
     process = _WatchedPopen(command, **kwargs)
     process._session = _SessionWatch(target, command, process, start)

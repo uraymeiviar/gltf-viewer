@@ -42,7 +42,7 @@ import sys
 from pathlib import Path
 
 import harness_process as subprocess
-from glider_harness import gl_errors_zero
+from glider_harness import capture_run, gl_errors_zero
 from validate_asobo_common import EXE, PLAIN_FIXTURE, REPO, check, finish, same
 from validate_asobo_common import render as common_render
 
@@ -216,13 +216,21 @@ def run(args, timeout=600):
     return subprocess.run([str(a) for a in args], cwd=REPO, capture_output=True, text=True, timeout=timeout)
 
 
-def render(exe, model, name, flags=(), frame=24):
-    """Viewport capture; returns (png or None, stdout + stderr)."""
+SESSIONS = False  # glider_harness capture sessions: byte-identical here (35 of 35, 2026-11-01) but not faster (the
+#                  small --env launches cost ~0.65 s, every case compiles its own shader variant and --env, a startup
+#                  flag, splits the sessions), so the captures stay CLI launches; True switches them on.
+
+
+def render(exe, model, name, flags=(), frame=24, session=SESSIONS):
+    """Viewport capture; returns (png or None, stdout + stderr).
+
+    Through glider_harness.capture_run: the candidate's captures run in a shared pipe session (no profile report)
+    unless session=False (the CLI launch); see SESSIONS."""
     png, report = OUT / f"{name}.png", OUT / f"{name}.json"
     png.unlink(missing_ok=True)
     report.unlink(missing_ok=True)
-    result = run([exe, model, *COMMON, *VIEW, *flags, "--capture-viewport", png, "--capture-frame", str(frame),
-                  "--profile-report", report, "--exit-after-profile"])
+    result = capture_run([exe, model, *COMMON, *VIEW, *flags, "--capture-viewport", png, "--capture-frame", str(frame),
+                          "--profile-report", report, "--exit-after-profile"], session=session)
     return (png if png.exists() else None), result.stdout + result.stderr
 
 
@@ -345,8 +353,8 @@ def main():
     back_env = ["--env", str(write_hdr(OUT / "behind.hdr", 128, 64, behind))]
     gl_logs = []
 
-    def shot(model, name, flags=(), exe=EXE):
-        png, log = render(exe, model, name, list(NO_AA) + list(flags))
+    def shot(model, name, flags=(), exe=EXE, session=SESSIONS):
+        png, log = render(exe, model, name, list(NO_AA) + list(flags), session=session)
         if exe == EXE:
             gl_logs.append((name, log))
         return png
@@ -498,7 +506,7 @@ def main():
         for name, flags in (("core_quad_back", black), ("core_quad_front", black), ("core_sphere_side", black),
                             ("core_sphere_side_default_env", []), ("core_quad_back_behind_env", back_env)):
             model = OUT / f"{name}.gltf"
-            now = shot(model, "now_" + name, flags)
+            now = shot(model, "now_" + name, flags, session=False)  # CLI against CLI
             before = shot(model, "base_" + name, flags, exe=baseline)
             check(now is not None and same(now, before), f"{name}: byte-identical to the baseline {baseline.name}")
         now = common_render(EXE, PLAIN_FIXTURE, "now_hierarchy", [], folder=OUT)

@@ -193,7 +193,7 @@ def main():
         candidates = sorted((REPO / "build" / "baselines").glob("*.exe"), key=lambda p: p.stat().st_mtime)
         baseline = candidates[-1] if candidates else None
 
-    plain_png = render(EXE, write_sphere("plain"), "plain", VIEW, folder=OUT)
+    plain_png = render(EXE, write_sphere("plain"), "plain", VIEW, folder=OUT, session=True)
     check(plain_png is not None, "plain sphere captured")
     disc = silhouette(plain_png) if plain_png else None
     check(disc is not None and disc[2] > 100, f"sphere silhouette found (centre/radius {disc})")
@@ -219,7 +219,7 @@ def main():
     pngs = {}
     for name, (factor, offset) in cases.items():
         ext = {FRESNEL: {"fresnelFactor": factor, "fresnelOpacityOffset": offset}}
-        pngs[name] = render(EXE, write_sphere("fresnel_" + name, ext), "fresnel_" + name, VIEW, folder=OUT)
+        pngs[name] = render(EXE, write_sphere("fresnel_" + name, ext), "fresnel_" + name, VIEW, folder=OUT, session=True)
         if pngs[name] is not None:
             compare(f"fresnel {factor}/{offset}", pngs[name], disc, expected(lambda d: fresnel_alpha(d, factor, offset)))
     check(all(p is not None for p in pngs.values()), "every fresnel capture exists")
@@ -229,10 +229,10 @@ def main():
     check(sample_alphas(pngs["offset_plus_1"], disc)[0] < 0.01, "offset +1: the surface is fully transparent")
     check(same(pngs["offset_minus_1"], plain_png), "offset -1: alpha is 1 everywhere, identical to the plain opaque-alpha sphere")
     sphere_default_factor = write_sphere("fresnel_offset_only", {FRESNEL: {"fresnelOpacityOffset": 0.0}})
-    default_factor = render(EXE, sphere_default_factor, "fresnel_offset_only", VIEW, folder=OUT)
+    default_factor = render(EXE, sphere_default_factor, "fresnel_offset_only", VIEW, folder=OUT, session=True)
     check(same(default_factor, pngs["factor_1_offset_0"]), "absent fresnelFactor behaves as the default 1.0")
     half = render(EXE, write_sphere("fresnel_base_alpha", {FRESNEL: {"fresnelFactor": 1.0, "fresnelOpacityOffset": 0.0}},
-                                    base_alpha=0.5), "fresnel_base_alpha", VIEW, folder=OUT)
+                                    base_alpha=0.5), "fresnel_base_alpha", VIEW, folder=OUT, session=True)
     if half is not None:
         compare("fresnel with base alpha 0.5", half, disc, expected(lambda d: fresnel_alpha(d, 1.0, 0.0, 0.5)))
 
@@ -248,7 +248,7 @@ def main():
     ghost_pngs = {}
     for name, values in ghost_cases.items():
         bias, scale, power = values.get("bias", 0.0), values.get("scale", 1.0), values.get("power", 1.0)
-        ghost_pngs[name] = render(EXE, write_sphere("ghost_" + name, {GHOST: values}), "ghost_" + name, VIEW, folder=OUT)
+        ghost_pngs[name] = render(EXE, write_sphere("ghost_" + name, {GHOST: values}), "ghost_" + name, VIEW, folder=OUT, session=True)
         if ghost_pngs[name] is not None:
             compare(f"ghost bias {bias} scale {scale} power {power}", ghost_pngs[name], disc,
                     expected(lambda d: ghost_alpha(d, bias, scale, power)))
@@ -263,22 +263,22 @@ def main():
     fresnel_ext = {FRESNEL: {"fresnelFactor": 0.5, "fresnelOpacityOffset": 0.789}}
     ghost_ext = {GHOST: {"bias": 0.2, "power": 0.5}}
     for alpha_mode in ("OPAQUE", "MASK"):
-        reference = render(EXE, write_sphere("plain_" + alpha_mode, alpha_mode=alpha_mode), "plain_" + alpha_mode, VIEW, folder=OUT)
+        reference = render(EXE, write_sphere("plain_" + alpha_mode, alpha_mode=alpha_mode), "plain_" + alpha_mode, VIEW, folder=OUT, session=True)
         for label, ext in (("fresnel", fresnel_ext), ("ghost", ghost_ext)):
             image = render(EXE, write_sphere(f"{label}_{alpha_mode}", ext, alpha_mode=alpha_mode),
-                           f"{label}_{alpha_mode}", VIEW, folder=OUT)
+                           f"{label}_{alpha_mode}", VIEW, folder=OUT, session=True)
             check(same(image, reference), f"{label} on {alpha_mode}: alpha is ignored / untouched (identical to no extension)")
 
     print("[switches]")
     for label, ext, name, other in (("fresnel", fresnel_ext, FRESNEL, GHOST), ("ghost", ghost_ext, GHOST, FRESNEL)):
         model = write_sphere("switch_" + label, ext)
-        applied = render(EXE, model, "switch_" + label, VIEW, folder=OUT)
+        applied = render(EXE, model, "switch_" + label, VIEW, folder=OUT, session=True)
         check(applied is not None and not same(applied, plain_png), f"{label}: the extension changes the render")
-        disabled = render(EXE, model, f"switch_{label}_disabled", VIEW + ["--asobo-disable", name], folder=OUT)
+        disabled = render(EXE, model, f"switch_{label}_disabled", VIEW + ["--asobo-disable", name], folder=OUT, session=True)
         check(same(disabled, plain_png), f"--asobo-disable {name} equals no extension")
-        other_disabled = render(EXE, model, f"switch_{label}_other_disabled", VIEW + ["--asobo-disable", other], folder=OUT)
+        other_disabled = render(EXE, model, f"switch_{label}_other_disabled", VIEW + ["--asobo-disable", other], folder=OUT, session=True)
         check(same(other_disabled, applied), f"--asobo-disable {other} leaves {name} applied")
-        master = render(EXE, model, f"switch_{label}_master_off", VIEW + ["--asobo", "off"], folder=OUT)
+        master = render(EXE, model, f"switch_{label}_master_off", VIEW + ["--asobo", "off"], folder=OUT, session=True)
         check(same(master, plain_png), f"--asobo off equals no extension ({label})")
 
     print("[GL errors]")

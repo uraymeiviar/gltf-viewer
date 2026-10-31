@@ -699,7 +699,10 @@ void Application::registerAgentCommands()
         spec.timeoutSeconds = 600.0;
         spec.help = "Open a glTF/GLB (File > Open); replies when the first model frames have rendered. Environment settings reset with the model.";
         spec.args = objectSchema({{"path", prop("string", "Model path.")},
-                                  {"without_textures", withDefault(prop("boolean", "Skip image reads (File > Open without texture)."), false)}},
+                                  {"without_textures", withDefault(prop("boolean", "Skip image reads (File > Open without texture)."), false)},
+                                  {"startup_state", withDefault(prop("boolean", "After the load, the state Glider started with: reset's "
+                                                                                "startup settings plus the --select-node and --camera-* "
+                                                                                "flags replayed on this model (regression sessions)."), false)}},
                                  {"path"});
         spec.positional = {"path"};
         spec.restIsText = true;
@@ -720,12 +723,27 @@ void Application::registerAgentCommands()
                 double loadMs = 0.0;
             };
             auto job = std::make_shared<OpenJob>();
-            return agent::JobStep([this, path, job]() -> std::optional<CommandReply> {
+            const bool startupState = args.value("startup_state", false);
+            return agent::JobStep([this, path, job, startupState]() -> std::optional<CommandReply> {
                 if (!queuedLoadPath.empty() || loadingActive) return std::nullopt;
                 if (!job->loaded) {
                     job->loaded = true;
                     job->loadMs = ux3d::imgui::profiling::elapsedMs(job->start);
                     if (!modelLoaded) return CommandReply::failure("load_failed", "failed to open: " + path);
+                    if (startupState) {
+                        // As configure(): the startup state, then --select-node framing, then the camera flags.
+                        restoreAgentStartupState();
+                        if (!agentStartupCamera.selectNode.empty()) {
+                            for (auto& candidate : gltfModel.getNodes()) {
+                                if (candidate.hasName() && candidate.getName() == agentStartupCamera.selectNode) {
+                                    selectNodeAction(&candidate);
+                                    frameNodeAction(&candidate, std::nullopt, 1.0f);
+                                    break;
+                                }
+                            }
+                        }
+                        applyStartupCameraFlags(agentStartupCamera);
+                    }
                 }
                 if (++job->frames < kSettleAfterLoadFrames) return std::nullopt;
                 return CommandReply::success({{"path", path}, {"loaded", true}, {"loadMs", job->loadMs}, {"state", agentStateJson()}});
@@ -754,28 +772,7 @@ void Application::registerAgentCommands()
                 if (!queuedLoadPath.empty() || loadingActive) return std::nullopt;
                 if (*frames < 0) {
                     if (!modelLoaded) return CommandReply::failure("load_failed", "failed to reload: " + path);
-                    for (auto& env : sceneEnvironments) env = agentStartupEnvironment;
-                    // Settings scopes: the AA and effect quality were viewport settings, which reset restored.
-                    ux3d::imgui::RenderQuality::settings() = agentStartupQuality;
-                    ux3d::imgui::RenderQuality::observeSessionEdit();
-                    // The glTF extension switches are an app setting: back to the startup (saved + flags) set.
-                    ux3d::imgui::GltfExtensionSettings::instance().restore(agentStartupGltfExtensions);
-                    ux3d::imgui::GltfExtensionSettings::instance().restoreTuning(agentStartupVendorTuning);
-                    for (const auto& vp : viewports) {
-                        if (!vp) continue;
-                        vp->settings = agentStartupViewportSettings;
-                        if (activeScene != nullptr && !vp->isAttachedToCamera) vp->cameraActor.fitCameraToScene(*activeScene, &gltfModel);
-                        vp->antiAliasing.resetHistory();
-                    }
-                    gltfLayer->setIsolation(nullptr, false);
-                    selection.type = ux3d::imgui::SelectionType::None;
-                    selection.selectedNode = nullptr;
-                    ++selection.revision;
-                    sceneRevisions.mark(ux3d::imgui::SceneChange::ViewportSettings);
-                    sceneRevisions.mark(ux3d::imgui::SceneChange::RenderSettings);
-                    sceneRevisions.mark(ux3d::imgui::SceneChange::ViewCamera);
-                    sceneRevisions.mark(ux3d::imgui::SceneChange::Selection);
-                    sceneRevisions.mark(ux3d::imgui::SceneChange::Visibility);
+                    restoreAgentStartupState();
                     *frames = 0;
                 }
                 if (++*frames < kSettleAfterLoadFrames) return std::nullopt;
@@ -1034,6 +1031,32 @@ void Application::registerAgentCommands()
         agentRegistry.add(std::move(spec));
     }
     registerAgentAreaCommands();
+}
+
+void Application::restoreAgentStartupState()
+{
+    for (auto& env : sceneEnvironments) env = agentStartupEnvironment;
+    // Settings scopes: the AA and effect quality were viewport settings, which reset restored.
+    ux3d::imgui::RenderQuality::settings() = agentStartupQuality;
+    ux3d::imgui::RenderQuality::observeSessionEdit();
+    // The glTF extension switches are an app setting: back to the startup (saved + flags) set.
+    ux3d::imgui::GltfExtensionSettings::instance().restore(agentStartupGltfExtensions);
+    ux3d::imgui::GltfExtensionSettings::instance().restoreTuning(agentStartupVendorTuning);
+    for (const auto& vp : viewports) {
+        if (!vp) continue;
+        vp->settings = agentStartupViewportSettings;
+        if (activeScene != nullptr && !vp->isAttachedToCamera) vp->cameraActor.fitCameraToScene(*activeScene, &gltfModel);
+        vp->antiAliasing.resetHistory();
+    }
+    gltfLayer->setIsolation(nullptr, false);
+    selection.type = ux3d::imgui::SelectionType::None;
+    selection.selectedNode = nullptr;
+    ++selection.revision;
+    sceneRevisions.mark(ux3d::imgui::SceneChange::ViewportSettings);
+    sceneRevisions.mark(ux3d::imgui::SceneChange::RenderSettings);
+    sceneRevisions.mark(ux3d::imgui::SceneChange::ViewCamera);
+    sceneRevisions.mark(ux3d::imgui::SceneChange::Selection);
+    sceneRevisions.mark(ux3d::imgui::SceneChange::Visibility);
 }
 
 } // namespace ux3d::imgui::application

@@ -225,6 +225,8 @@ def main():
     undeclared = write_fixture("undeclared", convention="DirectX", declare=False)
     flags = ["--select-node", "AsoboNormalMapQuad"]
 
+    # CLI launches, not the shared capture session: an OpenGL-convention file opened after a DirectX one in the
+    # same Glider renders with the green flip still applied (open_model, 2026-11-01), so each file gets its own start.
     plain = render(EXE, missing, "missing", flags, OUT)
     flipped = render(EXE, directx, "directx", flags, OUT)
     inverted = render(EXE, preinverted, "preinverted", flags, OUT)

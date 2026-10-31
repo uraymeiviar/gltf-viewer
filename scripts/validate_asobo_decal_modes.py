@@ -41,6 +41,7 @@ import zlib
 from pathlib import Path
 
 import harness_process as subprocess
+from glider_harness import capture_run
 from validate_asobo_normal import _read_png
 
 REPO = Path(__file__).resolve().parents[1]
@@ -196,14 +197,16 @@ def write_fixture(name, *, extension="ASOBO_material_geometry_decal", decal=None
     return path
 
 
-def capture(model, view, label, extra=(), exe=EXE):
+def capture(model, view, label, extra=(), exe=EXE, session=True):
+    """Capture at frame 24 through glider_harness.capture_run: the candidate's in a shared pipe session unless
+    session=False (the CLI launch, for the comparisons against the baseline binary)."""
     png = OUT / f"{label}_{view or 'shaded'}.png"
     png.unlink(missing_ok=True)
     debug = ["--debug-view", view] if view else []
-    result = subprocess.run([str(exe), str(model), *COMMON, *extra, *debug,
-                             "--capture-viewport", str(png), "--capture-frame", "24",
-                             "--profile-report", str(png.with_suffix(".json")),
-                             "--exit-after-profile"], cwd=REPO, capture_output=True, text=True, timeout=300)
+    result = capture_run([str(exe), str(model), *COMMON, *extra, *debug,
+                          "--capture-viewport", str(png), "--capture-frame", "24",
+                          "--profile-report", str(png.with_suffix(".json")),
+                          "--exit-after-profile"], timeout=300, session=session)
     if result.returncode != 0 or not png.is_file():
         check(False, f"{label}_{view}: capture failed ({result.returncode}) {result.stderr[-200:]}")
         return None
@@ -381,7 +384,7 @@ def main():
             for flags, flag_name in ((("--asobo-disable", "ASOBO_material_geometry_decal"), "decal_off"),
                                      (("--asobo", "off"), "asobo_off")):
                 for view in ("basecolor", None):
-                    now = capture(model, view, f"switch_{name}_{flag_name}", flags)
+                    now = capture(model, view, f"switch_{name}_{flag_name}", flags, session=False)  # CLI vs CLI
                     before = capture(model, view, f"switch_{name}_{flag_name}_baseline", flags, exe=baseline_exe)
                     check(same(now, before), f"{name}, {' '.join(flags)}, {view or 'shaded'}: byte-identical to baseline")
         # With the switch on, the blendMasked mask shapes the decal: it differs from the same decal in

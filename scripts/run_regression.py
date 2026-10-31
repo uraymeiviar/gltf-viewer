@@ -10,7 +10,8 @@ Usage:
   python scripts/run_regression.py --extra=--asobo --extra=off   # uncommitted work that changes ASOBO rendering
   python scripts/run_regression.py --only sun,sky                 # a subset of the tier (suite names as printed)
   python scripts/run_regression.py --on-demand night              # also night's on-demand part (--sweep)
-  python scripts/run_regression.py --tier full --with-on-demand   # every suite with every on-demand part
+  python scripts/run_regression.py --tier full --with-on-demand   # every suite (also the on-demand suites) with
+                                                                  # every on-demand part
   python scripts/run_regression.py --no-cache                     # start every launch (cold timing; no memo, no seeding)
   python scripts/run_regression.py --no-memo                      # the candidate's repeated launches start again
   GLIDER_CANDIDATE_EXE=build/baselines/474b81c.exe python scripts/run_regression.py --only ocean   # other candidate
@@ -34,6 +35,11 @@ in the real-asset bake checks). The quick tier passes the flag when a changed pa
 patterns (subsets of the suite's TRIGGERS group, plus its own script); --on-demand a,b selects those suites
 with their flags in any tier; --with-on-demand passes every flag of the selected suites. The full tier does
 not run them otherwise.
+
+On-demand suites (ON_DEMAND_SUITES below): p8_followup, texture_dds, texture_ktx2, asobo_model,
+asobo_support, asobo_normal and asobo_occlusion are not in the full tier. The quick tier still runs them when
+a changed path triggers them (TRIGGERS, their own scripts); --on-demand <suite> or --with-on-demand (with
+--tier full: every suite) selects them in any tier. --plan lists them with "on-demand suite:".
 
 Candidate: GLIDER_CANDIDATE_EXE=<path> (relative to the repository) replaces build/bin/Release/Glider.exe
 in this script and every harness (harness_process.candidate_exe()), e.g. to prove that a known-bad binary
@@ -120,7 +126,7 @@ Suites (equivalence against the baseline plus each feature's analytic acceptance
   viewport image, borderless full screen and Esc, keys and menus, drops, settings.ini keeps the restored layout),
   validate_settings_scopes.py (Quality levels / scene appearance and shared ground / viewport Shaded and overlays:
   legacy flags against the baseline, CLI = pipe, migration/restart, shared ocean, UI ID conflicts)
-Full tier: every suite above, plus
+Full tier: every suite above except the on-demand suites (see above), plus
   --with-ab (each feature against its own switch; validate_p8_5.py then also runs the P5.1 cases with
   --always-pick) and validate_p8_5.py's 10,000-drawable grid and MSAA/TAA fixture copies (the quick tier passes
   --quick). validate_p5_1.py is superseded: its on-demand picking counters run in validate_p8_5.py.
@@ -215,6 +221,12 @@ ON_DEMAND = (
                                  "validate_area_maximize.py")),
     ("sky_occlusion", "--da62", ("SkyOcclusion.*", "sky_occlusion*", "validate_sky_occlusion.py")),
 )
+# On-demand suites: whole suites the full tier leaves out (phase acceptance of one or two commits, or a same-binary
+# A/B of a switch whose image the core suites already compare against the baseline). They stay in TRIGGERS, so the
+# quick tier runs them when their paths (or their own scripts) change; --on-demand <suite> or --with-on-demand
+# selects them in any tier.
+ON_DEMAND_SUITES = ("p8_followup", "texture_dds", "texture_ktx2", "asobo_model", "asobo_support", "asobo_normal",
+                    "asobo_occlusion")
 # Never part of Glider.exe or a suite.
 IGNORED = ("docs/*", "scratch/*", "legacy/*", "licenses/*", ".git*", "*/.git*", ".clang-*", "*/.clang-*")
 UNTRACKED_ROOTS = ("source", "header", "resources", "OpenGL-Renderer", "scripts")
@@ -391,9 +403,9 @@ scripts = {name: command[0].split("/", 1)[1] for name, command in jobs + serial_
 reasons, warnings, file_rows = {}, [], []
 demand_flags = {suite: flag for suite, flag, _ in ON_DEMAND}
 demanded = {name.strip() for name in (args.on_demand or "").split(",") if name.strip()}
-if demanded - set(demand_flags):
-    sys.exit(f"no on-demand part in: {', '.join(sorted(demanded - set(demand_flags)))} "
-             f"(on-demand: {', '.join(demand_flags)})")
+if demanded - set(demand_flags) - set(ON_DEMAND_SUITES):
+    sys.exit(f"no on-demand part in: {', '.join(sorted(demanded - set(demand_flags) - set(ON_DEMAND_SUITES)))} "
+             f"(on-demand parts: {', '.join(demand_flags)}; on-demand suites: {', '.join(ON_DEMAND_SUITES)})")
 on_demand = {}  # suite -> reasons its flag is passed
 if args.only:
     wanted = {name.strip() for name in args.only.split(",") if name.strip()}
@@ -401,7 +413,8 @@ if args.only:
         sys.exit(f"unknown suite(s): {', '.join(sorted(wanted - set(tier_suites)))}")
     reasons = {name: ["--only"] for name in tier_suites if name in wanted}
 elif args.tier == "full":
-    reasons = {name: ["full tier"] for name in tier_suites}
+    reasons = {name: ["full tier"] for name in tier_suites
+               if name not in ON_DEMAND_SUITES or args.with_on_demand}
 else:
     reasons = {name: ["core"] for name in CORE}
     closures = {suite: _script_closure(script) for suite, script in scripts.items()}
@@ -430,7 +443,8 @@ else:
     warnings += [f"WARNING: suite {suite} has no path trigger besides its own scripts" for suite in unreachable]
 for suite in sorted(demanded):
     reasons.setdefault(suite, []).append("--on-demand")
-    on_demand.setdefault(suite, []).append("--on-demand")
+    if suite in demand_flags:
+        on_demand.setdefault(suite, []).append("--on-demand")
 if args.with_on_demand:
     for suite in demand_flags:
         if suite in reasons:
@@ -473,6 +487,12 @@ if args.plan:
             print(f"on-demand: {suite} {flag} ({', '.join(why[:3])}" + (f" +{len(why) - 3} more" if len(why) > 3 else "") + ")")
         elif suite in reasons:
             print(f"on-demand: {suite} {flag} not run (--on-demand {suite} or a trigger path passes it)")
+    for suite in ON_DEMAND_SUITES:
+        if suite in reasons:
+            print(f"on-demand suite: {suite} selected ({', '.join(reasons[suite][:3])})")
+        else:
+            print(f"on-demand suite: {suite} not run (--on-demand {suite}, --with-on-demand or a trigger path "
+                  f"selects it)")
     for line in warnings:
         print(line)
     sys.exit(0)
@@ -633,6 +653,8 @@ print(f"  in-run memo: {totals['memo_hits']} of {totals['current']} candidate la
 (OUT / "summary.json").write_text(json.dumps({"tier": args.tier, "candidate": str(EXE), "baseline": baseline.name,
                                               "cache": cache_state, "totals": totals, "selected": {name: reasons[name] for name in reasons},
                                               "on_demand": {name: [demand_flags[name]] + why for name, why in on_demand.items()},
+                                              "on_demand_suites_not_run": [name for name in ON_DEMAND_SUITES
+                                                                           if name not in reasons],
                                               "seconds": round(time.time() - start, 1), "suites": summary}, indent=1),
                                   encoding="utf-8")
 print("=" * 60)
