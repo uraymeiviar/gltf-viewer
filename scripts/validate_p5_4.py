@@ -27,7 +27,7 @@ from pathlib import Path
 import psutil
 
 REPO = Path(__file__).resolve().parents[1]
-EXE = REPO / "build" / "bin" / "Release" / "Glider.exe"
+EXE = subprocess.candidate_exe()
 OUT = REPO / "build" / "p5.4"
 HIER = "resources/test_models/hierarchy_animation_fixture.gltf"
 

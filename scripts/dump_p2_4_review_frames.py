@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-EXE = REPO / "build" / "bin" / "Release" / "Glider.exe"
+EXE = subprocess.candidate_exe()
 FINAL = REPO / "build" / "p2.4" / "final"
 FINAL.mkdir(parents=True, exist_ok=True)
 FIX_DIR = REPO / "build" / "p2.4" / "fixtures"

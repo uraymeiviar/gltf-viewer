@@ -44,7 +44,7 @@ import harness_process as subprocess
 from validate_asobo_normal import _read_png
 
 REPO = Path(__file__).resolve().parents[1]
-EXE = REPO / "build" / "bin" / "Release" / "Glider.exe"
+EXE = subprocess.candidate_exe()
 OUT = REPO / "build" / "a2_3"
 COMMON = ["--isolated", "--window-size", "1280x800", "--aa", "none",
           "--fixed-frame-time", "0.05", "--vsync", "off",

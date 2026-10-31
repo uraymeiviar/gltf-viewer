@@ -16,7 +16,7 @@ import harness_process as subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "build/review/without_textures"
-EXE = ROOT / "build/bin/Release/Glider.exe"
+EXE = subprocess.candidate_exe()
 
 
 def fixtures():

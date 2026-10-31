@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-EXE = REPO / "build" / "bin" / "Release" / "Glider.exe"
+EXE = subprocess.candidate_exe()
 POS_DIR = REPO / "build" / "p2.4" / "selfchecks_positive"
 NEG_DIR = REPO / "build" / "p2.4" / "selfchecks_negative"
 

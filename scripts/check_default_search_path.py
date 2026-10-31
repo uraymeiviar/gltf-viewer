@@ -10,7 +10,7 @@ import check_open_without_textures as assets
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "build/review/default_search_path" / str(time.time_ns())
-EXE = ROOT / "build/bin/Release/Glider.exe"
+EXE = subprocess.candidate_exe()
 
 
 def run(model, directory, label, commands="", extra=()):

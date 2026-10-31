@@ -40,7 +40,7 @@ from validate_asobo_normal import _read_png
 from validate_texture_ktx2 import bc5_block, make_ktx2
 
 REPO = Path(__file__).resolve().parents[1]
-EXE = REPO / "build" / "bin" / "Release" / "Glider.exe"
+EXE = subprocess.candidate_exe()
 OUT = REPO / "build" / "asobo_detail_map"
 DETAIL = "ASOBO_material_detail_map"
 MSFT_DDS = "MSFT_texture_dds"

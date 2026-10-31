@@ -54,7 +54,7 @@ from validate_asobo_common import COMMON, check, finish, render, same
 from PIL import Image, ImageChops, ImageStat
 
 REPO = Path(__file__).resolve().parents[1]
-EXE = Path(os.environ.get("GLIDER_EXE", REPO / "build" / "bin" / "Release" / "Glider.exe"))
+EXE = Path(os.environ.get("GLIDER_EXE") or subprocess.candidate_exe())
 OUT = REPO / "build" / "asobo_packaged"
 ASSET_OPTIMIZED = "ASOBO_asset_optimized"
 WINDSHIELD = "ASOBO_material_windshield_v3"

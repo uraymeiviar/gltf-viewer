@@ -20,7 +20,7 @@ sys.path.insert(0, str(REPO / "scripts"))
 import harness_process as subprocess
 from glider_live import GliderLive
 
-EXE = REPO / "build" / "bin" / "Release" / "Glider.exe"
+EXE = subprocess.candidate_exe()
 OUT_DIR = REPO / "build" / "review" / "live_control"
 FIXTURE = str(REPO / "resources" / "test_models" / "hierarchy_animation_fixture.gltf")
 DA62_MODEL = Path(r"C:\MSFS 2024 Flighting SDK\Samples\DevmodeProjects\SimObjects\Aircraft\DA62\PackageSources\SimObjects\Airplanes\DA62_SDK\attachments\asobo\Part_Interior_Cockpit\model\Cockpit_LOD00.gltf")

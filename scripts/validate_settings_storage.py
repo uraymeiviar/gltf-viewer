@@ -32,7 +32,7 @@ import sys
 import time
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
-EXE = REPO / "build" / "bin" / "Release" / "Glider.exe"
+EXE = subprocess.candidate_exe()
 REVIEW_DIR = REPO / "build" / "review"
 PORTABLE = EXE.parent / "settings.ini"
 SCHEMA_MARKER = "; Glider settings file (schema 1)"

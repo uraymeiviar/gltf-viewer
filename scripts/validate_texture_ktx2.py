@@ -38,7 +38,7 @@ sys.modules.setdefault("e195_assets", _e195_assets)
 from validate_asobo_common import COMMON, check, finish, render, same
 
 REPO = Path(__file__).resolve().parents[1]
-EXE = Path(os.environ.get("GLIDER_EXE", REPO / "build" / "bin" / "Release" / "Glider.exe"))
+EXE = Path(os.environ.get("GLIDER_EXE") or subprocess.candidate_exe())
 BASELINE = Path(os.environ["GLIDER_BASELINE"]) if os.environ.get("GLIDER_BASELINE") else None
 OUT = REPO / "build" / "texture_ktx2"
 EXTENSION = "MSFT_texture_dds"

@@ -29,7 +29,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 REPO = Path(__file__).resolve().parents[1]
-DEFAULT_EXE = REPO / "build" / "bin" / "Release" / "Glider.exe"
+# GLIDER_CANDIDATE_EXE (relative to REPO) replaces the default build, as in harness_process.candidate_exe().
+DEFAULT_EXE = REPO / (os.environ.get("GLIDER_CANDIDATE_EXE", "").strip().strip('"') or "build/bin/Release/Glider.exe")
 PIPE_PREFIX = "\\\\.\\pipe\\"
 PIPE_PATTERN = re.compile(r"^glider-(\d+)$")
 ERROR_PIPE_BUSY = 231

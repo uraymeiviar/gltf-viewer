@@ -13,10 +13,12 @@ Baseline render cache
 A binary under ``build/baselines/`` never changes for a given hash, so ``run()`` caches
 what a baseline launch wrote. It applies to every executable under ``build/baselines/``
 (the HEAD baseline passed by run_regression.py and the pinned references such as 167a5e0
-and a9c0a29), never to the current build (``build/bin/Release/Glider.exe``) or any other
-executable, and never to ``Popen()`` (pipe sessions). The key (SHA-256) covers:
+and a9c0a29), never to the candidate build (``candidate_exe()``) or any other executable,
+and never to ``Popen()`` (pipe sessions). The key (SHA-256) covers:
 
   * the SHA-256 of the executable;
+  * with ``GLIDER_CANDIDATE_EXE`` set, also the SHA-256 of that candidate, so nothing
+    stored during a run against one candidate is replayed in a run against another;
   * the working directory and the exact argument list, in order;
   * the content (SHA-256) and resolved path of every argument that names an existing
     file, and for each .gltf/.glb among them every file it names through a ``uri``
@@ -41,7 +43,19 @@ executable nor an input changed while it ran.
 ``GLIDER_RENDER_CACHE=0`` turns the cache off (cold runs). ``prune_cache()`` removes entries
 whose executable is gone or changed. ``GLIDER_HARNESS_LAUNCH_LOG=<file>`` appends one JSON
 line per Glider launch (role current/baseline/other, run or popen, cache hit/miss/off and
-why, seconds, argv); run_regression.py sets it per suite for its launch summary.
+why, seconds, argv); run_regression.py sets it per suite for its launch summary. ``run``
+launches are logged when they return; ``Popen`` sessions when the process exits (Windows:
+a watcher thread waits on a duplicate of the process handle), with the real session seconds
+and ``exit``; a session still running when the harness ends is logged then with
+``"exit": null`` and ``"running_at_harness_exit": true``.
+
+Candidate build
+---------------
+``candidate_exe()`` (and ``CURRENT_EXE``) is ``build/bin/Release/Glider.exe`` unless
+``GLIDER_CANDIDATE_EXE=<path>`` names another executable (relative paths resolve against
+the repository root). Harnesses use it as their current build, so a known-bad binary from
+``build/baselines/`` can be the candidate; it then has role ``current`` and is never served
+from or stored in the cache.
 """
 
 import functools
@@ -57,7 +71,8 @@ import time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-CURRENT_EXE = REPO / "build" / "bin" / "Release" / "Glider.exe"
+DEFAULT_EXE = REPO / "build" / "bin" / "Release" / "Glider.exe"
+CANDIDATE_ENV = "GLIDER_CANDIDATE_EXE"
 BASELINE_DIR = REPO / "build" / "baselines"
 CACHE_DIR = REPO / "build" / "regression_cache"
 CACHE_VERSION = 2
@@ -65,6 +80,23 @@ GLIDER_NO_FOCUS = "GLIDER_NO_FOCUS"
 CACHE_SWITCH = "GLIDER_RENDER_CACHE"
 LAUNCH_LOG = "GLIDER_HARNESS_LAUNCH_LOG"
 SW_SHOWNOACTIVATE = 4
+
+
+def candidate_exe():
+    """The candidate (current) build: $GLIDER_CANDIDATE_EXE (relative to REPO) or build/bin/Release/Glider.exe."""
+    value = os.environ.get(CANDIDATE_ENV, "").strip().strip('"')
+    if not value:
+        return DEFAULT_EXE
+    path = Path(value)
+    if not path.is_absolute():
+        path = REPO / path
+    try:
+        return path.resolve()
+    except OSError:
+        return path
+
+
+CURRENT_EXE = candidate_exe()
 
 
 def __getattr__(name):
@@ -134,7 +166,7 @@ def _inside(path, folder):
 
 
 def role(path):
-    """'current' for build/bin/Release/Glider.exe, 'baseline' under build/baselines/, else 'other'."""
+    """'current' for the candidate (candidate_exe()), 'baseline' under build/baselines/, else 'other'."""
     try:
         if Path(path).resolve() == CURRENT_EXE.resolve():
             return "current"
@@ -195,13 +227,13 @@ def _prepare(command, kwargs):
 _log_lock = threading.Lock()
 
 
-def log_launch(target, kind, cache, seconds, command):
-    """Appends one JSON line to $GLIDER_HARNESS_LAUNCH_LOG (no-op when unset)."""
-    path = os.environ.get(LAUNCH_LOG)
+def log_launch(target, kind, cache, seconds, command, path=None, **extra):
+    """Appends one JSON line to `path` or $GLIDER_HARNESS_LAUNCH_LOG (no-op when unset)."""
+    path = path or os.environ.get(LAUNCH_LOG)
     if not path:
         return
     record = {"exe": Path(target).name, "role": role(target), "kind": kind, "cache": cache,
-              "seconds": round(seconds, 3), "argv": [str(arg) for arg in command[1:]]}
+              "seconds": round(seconds, 3), "argv": [str(arg) for arg in command[1:]], **extra}
     try:
         with _log_lock, open(path, "a", encoding="utf-8") as stream:
             stream.write(json.dumps(record) + "\n")
@@ -248,11 +280,108 @@ def run(*popenargs, **kwargs):
     return _run(command, popenargs, kwargs)
 
 
+class _SessionWatch:
+    """Logs one Popen session with its real duration when the process exits.
+
+    On Windows a daemon thread waits on a duplicate of the process handle, so it never
+    reaps the process or races the harness's own wait()/poll(). Elsewhere the exit is
+    noticed through the harness's wait()/poll(). Sessions still open when the harness
+    ends are logged then (atexit)."""
+
+    _lock = threading.Lock()
+    _open = set()
+    _atexit = False
+
+    def __init__(self, target, command, process, start):
+        self.target, self.command, self.start = target, list(command), start
+        self.log_path = os.environ.get(LAUNCH_LOG)
+        self.done = False
+        self.process = process
+        with _SessionWatch._lock:
+            _SessionWatch._open.add(self)
+            if not _SessionWatch._atexit:
+                import atexit
+                atexit.register(_SessionWatch._flush)
+                _SessionWatch._atexit = True
+        if os.name == "nt":
+            try:
+                import _winapi
+                current = _winapi.GetCurrentProcess()
+                handle = _winapi.DuplicateHandle(current, int(process._handle), current, 0, False,
+                                                 _winapi.DUPLICATE_SAME_ACCESS)
+            except (AttributeError, OSError, TypeError, ValueError):
+                handle = None
+            if handle is not None:
+                threading.Thread(target=self._watch, args=(handle,), daemon=True).start()
+
+    def _watch(self, handle):
+        import _winapi
+        code = None
+        try:
+            _winapi.WaitForSingleObject(handle, _winapi.INFINITE)
+            code = _winapi.GetExitCodeProcess(handle)
+        except OSError:
+            pass
+        finally:
+            try:
+                _winapi.CloseHandle(handle)
+            except OSError:
+                pass
+        self.finish(code)
+
+    def finish(self, code, still_running=False):
+        with _SessionWatch._lock:
+            if self.done:
+                return
+            self.done = True
+            _SessionWatch._open.discard(self)
+        extra = {"exit": code}
+        if still_running:
+            extra["running_at_harness_exit"] = True
+        log_launch(self.target, "popen", "off: popen", time.time() - self.start, self.command,
+                   path=self.log_path, **extra)
+
+    @staticmethod
+    def _flush():
+        with _SessionWatch._lock:
+            pending = list(_SessionWatch._open)
+        for watch in pending:
+            try:
+                code = watch.process.poll()
+            except OSError:
+                code = None
+            watch.finish(code, still_running=code is None)
+
+
+class _WatchedPopen(_subprocess.Popen):
+    """subprocess.Popen whose wait()/poll() also close the session's launch-log record."""
+
+    _session = None
+
+    def _check_session(self):
+        if self._session is not None and self.returncode is not None:
+            self._session.finish(self.returncode)
+
+    def poll(self):
+        result = super().poll()
+        self._check_session()
+        return result
+
+    def wait(self, timeout=None):
+        try:
+            return super().wait(timeout)
+        finally:
+            self._check_session()
+
+
 def popen(command, **kwargs):
     target, kwargs = _prepare(command, kwargs)
-    if target is not None:
-        log_launch(target, "popen", "off: popen", 0.0, command)
-    return _subprocess.Popen(command, **kwargs)
+    if target is None:
+        return _subprocess.Popen(command, **kwargs)
+    start = time.time()
+    process = _WatchedPopen(command, **kwargs)
+    process._session = _SessionWatch(target, command, process, start)
+    return process
 
 
 def Popen(*popenargs, **kwargs):  # noqa: N802 - mirrors subprocess.Popen
@@ -612,6 +741,10 @@ def cache_key(target, command, cwd, inputs, env, mode):
     digest = hashlib.sha256()
     digest.update(f"glider-render-cache-v{CACHE_VERSION}\0".encode("ascii"))
     digest.update(_sha256_file(target).encode("ascii"))
+    if os.environ.get(CANDIDATE_ENV, "").strip():
+        # A run against an explicitly chosen candidate keeps its own entries (see the module docstring).
+        digest.update(b"\0candidate\0")
+        digest.update((_sha256_file(candidate_exe()) or "missing").encode("ascii"))
     digest.update(b"\0cwd\0")
     digest.update(str(cwd).encode("utf-8", "surrogatepass"))
     for arg in command[1:]:

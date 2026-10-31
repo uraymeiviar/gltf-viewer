@@ -31,7 +31,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-EXE = REPO / "build" / "bin" / "Release" / "Glider.exe"
+EXE = subprocess.candidate_exe()
 OUT = REPO / "build" / "p8" / "followup"
 FIXTURE = "resources/test_models/production_passes_fixture.gltf"
 MANY = "build/p8/fixtures/many_1600.gltf"

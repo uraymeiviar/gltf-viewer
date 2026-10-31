@@ -38,7 +38,7 @@ import validate_agent_control as agent  # noqa: E402  (quad fixture with a winds
 import validate_asobo_glass as glass  # noqa: E402  (SSR fixture: a windshield_v3 pane reflecting an emissive box)
 
 REPO = Path(__file__).resolve().parents[1]
-EXE = REPO / "build" / "bin" / "Release" / "Glider.exe"
+EXE = subprocess.candidate_exe()
 OUT = REPO / "build" / "settings_scopes"
 REVIEW = REPO / "build" / "review" / "settings_layers"
 COMMON = ["--isolated", "--window-size", "1600x900", "--hide-grid", "--fixed-frame-time", "0.05", "--vsync", "off"]

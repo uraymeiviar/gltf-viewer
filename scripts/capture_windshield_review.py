@@ -13,7 +13,7 @@ from PIL import Image, ImageDraw, ImageFont
 import harness_process as subprocess
 
 REPO = Path(__file__).resolve().parents[1]
-EXE = REPO / "build" / "bin" / "Release" / "Glider.exe"
+EXE = subprocess.candidate_exe()
 BASELINE = REPO / "build" / "baselines" / "99de26c.exe"
 REVIEW_DIR = REPO / "build" / "review" / "windshield"
 REVIEW_DIR.mkdir(parents=True, exist_ok=True)

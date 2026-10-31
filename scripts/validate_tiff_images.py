@@ -21,7 +21,7 @@ import validate_asobo_windshield_layers as layers
 
 REPO = Path(__file__).resolve().parents[1]
 OUT = REPO / "build/review/tiff"
-EXE = REPO / "build/bin/Release/Glider.exe"
+EXE = harness_process.candidate_exe()
 HEADER = REPO / "OpenGL-Renderer/Tools/tools/imageformats/source/Tiff.h"
 
 

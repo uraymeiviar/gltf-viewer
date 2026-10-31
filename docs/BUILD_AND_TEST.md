@@ -55,23 +55,47 @@ python scripts/run_regression.py --tier full
 
 - **`save_baseline.py`** writes `build/baselines/<short sha>.exe`. It refuses when tracked files differ from the
   commit.
-- **`run_regression.py`** (quick tier) runs the renderer harnesses (`scripts/validate_p8_*.py`,
-  `validate_p4_exit_gate.py`; `--jobs`, default 3, at a time), then the feature and ASOBO harnesses one at a time,
-  then the built-in self-checks, against that baseline. They check byte-identical captures and identical
-  selections. Window screenshots are compared on their viewport area only, so side-panel UI changes do not fail
-  them (`validate_p4_exit_gate.py` covers the panels). The script's docstring lists what each suite covers.
-  `--only a,b` runs a subset (suite names as printed); `--no-cache` starts every baseline launch.
-  On the CPU-limited maintainer setup (12 of 24 cores, `--jobs 1`) the quick tier takes about 43 minutes (2601 s) with an empty
-  cache and about 35 minutes (2106 s) warm; the current build's launches (1,092 of 1,332) dominate.
+- **`run_regression.py`** runs the selected suites against that baseline: the renderer harnesses
+  (`scripts/validate_p8_*.py`, `validate_p4_exit_gate.py`; `--jobs`, default 3, at a time), then the feature and
+  ASOBO harnesses one at a time, then the built-in self-checks. They check byte-identical captures and identical
+  selections plus each feature's analytic checks. Window screenshots are compared on their viewport area only, so
+  side-panel UI changes do not fail them (`validate_p4_exit_gate.py` covers the panels). The script's docstring
+  lists what each suite covers. `--only a,b` runs exactly those suites of the tier (names as printed);
+  `--no-cache` starts every baseline launch.
+- **Tiers**: `--tier full` runs every suite (one full run per commit for broad changes; about 34 minutes on the
+  CPU-limited maintainer setup, 12 of 24 cores, `--jobs 1`). The **quick tier** (default) runs the **core** —
+  `p8_1`, `p4_exit_gate`, `asobo_common` and the self-checks: 139 s warm, 233 s with a cold baseline cache — plus the suites that the changed
+  files **trigger**. Changed files are `git diff --name-only HEAD` plus untracked files under `source/`, `header/`,
+  `resources/`, `OpenGL-Renderer/` and `scripts/`; `--changed a,b` replaces them (`--changed ""`: nothing changed).
+  The trigger table is `TRIGGERS` in `run_regression.py` (file-name globs per suite group: picking/instancing,
+  sun/shadows, ground/ocean, SSAO/ambient/sky occlusion, sky/sun disk/night/time of day, ASOBO/textures,
+  settings/UI/control). `docs/`, `scratch/`, `legacy/`, Markdown outside `resources/` and top-level files other than
+  `CMakeLists.txt` select nothing. A suite's own `scripts/validate_<suite>.py`, or a script it imports or names
+  (recursively; `harness_process.py` and `glider_harness.py` therefore select almost everything), triggers it; a
+  script no suite uses and `run_regression.py` itself select only the core. `BROAD` paths (`pbr.frag`,
+  `primitive.vert`, `ibl.glsl`, `brdf.glsl`, `Application.*`, `Frame.cpp`, `Scene.cpp`, CMake, `thirdparty/`,
+  `HelloCube.glb`, the default HDR) select every suite. A `resources/` file outside the shaders triggers the suites
+  whose scripts name it. **Any other file that matches no trigger selects every suite** and prints
+  `WARNING: <path> matches no trigger`, so the table can be extended.
+- **`--plan`** prints the changed files, the selected suites and why (core, triggered by which paths, full tier,
+  `--only`) and the suites left out, then exits without launching anything (no baseline or build needed):
+  `python scripts/run_regression.py --plan --changed source/imgui/SkyEnvironment.cpp`.
+- **`GLIDER_CANDIDATE_EXE=<path>`** (relative to the repository) replaces `build/bin/Release/Glider.exe` as the
+  candidate in `run_regression.py`, `glider_harness.EXE` and every script that used to hardcode it
+  (`harness_process.candidate_exe()`). Use it to prove that a known-bad binary from `build/baselines/` fails a suite.
+  The candidate has role `current`, so it is never cached; with the variable set, every cache key also holds the
+  candidate's SHA-256, so nothing stored in a run against one candidate is replayed for another.
 - **Self-checks**: revision, blend, aa-target, cache-invalidation, compute, sampler, VAO, polygon-mode,
   cull/winding and depth; all but cache-invalidation and compute also run with `--selfcheck-force-failure`, which
   must exit 1 with a report.
 - **`--tier full`** adds each feature's same-binary A/B switch, `validate_p5_1.py`, and `validate_p8_5.py`'s
   10,000-drawable and MSAA/TAA picking cases.
 - **Per-suite summary**: the run ends with each suite's wall time and Glider launches (current build, baseline,
-  baseline served from the cache, baseline started, repeated argument sets), slowest first, and writes
-  `build/regression/summary.json`. Every launch of a suite is listed in `build/regression/<suite>.launches.jsonl`
-  (`GLIDER_HARNESS_LAUNCH_LOG`).
+  baseline served from the cache, baseline started, repeated argument sets, control-pipe/follow sessions and their
+  summed seconds), slowest first, and writes `build/regression/summary.json` (with the candidate and why each suite
+  was selected). Every launch of a suite is listed in `build/regression/<suite>.launches.jsonl`
+  (`GLIDER_HARNESS_LAUNCH_LOG`); `Popen` sessions are logged when the process exits, with their real duration and
+  exit code.
 - **Baseline render cache**: a baseline binary never changes for its hash, so `scripts/harness_process.py` keeps what
   each baseline launch wrote in `build/regression_cache/<key>/` and replays it on the next run instead of starting
   the baseline. It applies to every executable under `build/baselines/` and never to the current build or to

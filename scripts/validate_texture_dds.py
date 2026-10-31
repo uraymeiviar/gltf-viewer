@@ -18,7 +18,8 @@ from pathlib import Path
 from validate_asobo_common import check, finish, render, same
 
 REPO = Path(__file__).resolve().parents[1]
-EXE = REPO / "build" / "bin" / "Release" / "Glider.exe"
+import harness_process  # noqa: E402 - candidate build (GLIDER_CANDIDATE_EXE)
+EXE = harness_process.candidate_exe()
 OUT = REPO / "build" / "texture_dds"
 EXTENSION = "MSFT_texture_dds"
 

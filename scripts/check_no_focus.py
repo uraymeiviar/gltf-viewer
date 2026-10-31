@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[0]))
 import harness_process  # noqa: E402 - shared harness launcher
 
 REPO = Path(__file__).resolve().parents[1]
-EXE = REPO / "build" / "bin" / "Release" / "Glider.exe"
+EXE = harness_process.candidate_exe()
 DEFAULT_BASELINE = REPO / "build" / "baselines" / "a9c0a29.exe"
 OUT = REPO / "build" / "check_no_focus"
 POLL_SECONDS = 0.02

@@ -28,7 +28,7 @@ from pathlib import Path
 import harness_process
 
 REPO = Path(__file__).resolve().parents[1]
-EXE = REPO / "build" / "bin" / "Release" / "Glider.exe"
+EXE = harness_process.candidate_exe()
 BASELINE_DIR = REPO / "build" / "baselines"
 
 

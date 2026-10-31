@@ -15,7 +15,7 @@ import harness_process as subprocess
 from measure_loading import GpuSampler, ROOT
 from e195_assets import COCKPIT
 
-EXE = ROOT / "build/bin/Release/Glider.exe"
+EXE = subprocess.candidate_exe()
 SETTINGS = EXE.parent / "settings.ini"
 PMDG = Path(r"F:\msfs-addons\pmdg-aircraft-77w\SimObjects\Airplanes\PMDG 777-300ER\model.300ER\PMDG773ER_VC.gltf")
 OUT = ROOT / "build/review/loading/interactive"

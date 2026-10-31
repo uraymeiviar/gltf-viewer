@@ -14,7 +14,7 @@ from PIL import Image
 
 REPO = Path(__file__).resolve().parents[1]
 OUT = REPO / 'build/review'
-EXE = REPO / 'build/bin/Release/Glider.exe'
+EXE = subprocess.candidate_exe()
 BASE = REPO / 'build/baselines/072d453.exe'
 MODEL = Path('F:/new-fss-aircraft-ejet/msfs24-projects/fss-aircraft-e195/SimObjects/Airplanes/E195/model/E195-Cockpit-LOD00.gltf')
 NODE = 'DECAL_PEDESTAL'

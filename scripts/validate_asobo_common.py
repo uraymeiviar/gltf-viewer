@@ -31,7 +31,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-EXE = REPO / "build" / "bin" / "Release" / "Glider.exe"
+EXE = subprocess.candidate_exe()
 OUT = REPO / "build" / "asobo_common"
 # The last build before ASOBO support; its default rendering hides ASOBO_material_invisible only.
 PRE_ASOBO_EXE = REPO / "build" / "baselines" / "167a5e0.exe"

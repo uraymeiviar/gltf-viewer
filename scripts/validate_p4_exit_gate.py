@@ -27,7 +27,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-EXE = REPO / "build" / "bin" / "Release" / "Glider.exe"
+EXE = subprocess.candidate_exe()
 OUT = REPO / "build" / "exitgate"
 HIER = "resources/test_models/hierarchy_animation_fixture.gltf"
 # --fixed-frame-time makes scripted runs deterministic, so they need not wait for vsync.

@@ -17,7 +17,7 @@ import harness_process as subprocess
 
 REPO = Path(__file__).resolve().parents[1]
 OUT = REPO / "build/review/da62"
-EXE = REPO / "build/bin/Release/Glider.exe"
+EXE = subprocess.candidate_exe()
 ZERO = ["--set-asobo-param", "Windshield", "ASOBO_material_windshield_v3", "detail1Opacity", "0",
         "--set-asobo-param", "Windshield", "ASOBO_material_windshield_v3", "detail2Opacity", "0"]
 

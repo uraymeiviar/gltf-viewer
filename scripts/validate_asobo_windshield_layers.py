@@ -27,7 +27,7 @@ import harness_process as subprocess
 from validate_asobo_normal import _read_png
 
 REPO = Path(__file__).resolve().parents[1]
-EXE = REPO / "build" / "bin" / "Release" / "Glider.exe"
+EXE = subprocess.candidate_exe()
 BASELINE = REPO / "build" / "baselines" / "99de26c.exe"
 OUT = REPO / "build" / "asobo_windshield"
 OUT.mkdir(parents=True, exist_ok=True)

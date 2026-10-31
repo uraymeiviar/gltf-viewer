@@ -25,7 +25,7 @@ import harness_process as subprocess
 REPO = Path(__file__).resolve().parents[1]
 OUT = REPO / "build/review"
 EMIS_DIR = OUT / "emissive"
-EXE = REPO / "build/bin/Release/Glider.exe"
+EXE = subprocess.candidate_exe()
 BASELINE = REPO / "build/baselines/44fb53e.exe"
 
 failures = []

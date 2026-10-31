@@ -26,7 +26,7 @@ from pathlib import Path
 from glider_harness import viewport_sha
 
 REPO = Path(__file__).resolve().parents[1]
-EXE = REPO / "build" / "bin" / "Release" / "Glider.exe"
+EXE = subprocess.candidate_exe()
 PRE_EXE = REPO / "build" / "p5.1" / "pre" / "Glider.exe"
 OUT = REPO / "build" / "p5.1"
 FIXTURE = "resources/test_models/production_passes_fixture.gltf"

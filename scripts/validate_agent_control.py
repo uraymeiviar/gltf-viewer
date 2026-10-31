@@ -43,7 +43,7 @@ import harness_process as subprocess  # noqa: E402
 import glider_ctl  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
-EXE = REPO / "build" / "bin" / "Release" / "Glider.exe"
+EXE = subprocess.candidate_exe()
 OUT = REPO / "build" / "agent_control"
 HIERARCHY = REPO / "resources" / "test_models" / "hierarchy_animation_fixture.gltf"
 COMMON = ["--isolated", "--window-size", "1600x900", "--aa", "none", "--hide-grid", "--fixed-frame-time", "0.05",

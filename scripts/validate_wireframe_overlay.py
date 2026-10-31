@@ -24,7 +24,7 @@ sys.modules["numpy"] = None
 from PIL import Image, ImageChops  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
-AFTER = REPO / "build" / "bin" / "Release" / "Glider.exe"
+AFTER = subprocess.candidate_exe()
 BEFORE = REPO / "build" / "wireframe_fix" / "before" / "Glider.exe"
 OUT = REPO / "build" / "wireframe_fix"
 VIEWPORT = (290, 75, 1015, 760)  # viewport image area at 1280x800 (left, top, right, bottom)

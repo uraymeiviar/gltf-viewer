@@ -17,12 +17,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 
+# GLIDER_CANDIDATE_EXE (relative to the repository) replaces the default build, as in harness_process.candidate_exe().
 DEFAULT_EXE = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "build",
-    "bin",
-    "Release",
-    "Glider.exe",
+    os.environ.get("GLIDER_CANDIDATE_EXE", "").strip().strip('"') or os.path.join("build", "bin", "Release", "Glider.exe"),
 )
 
 DEFAULT_SESSIONS_DIR = os.path.join(

@@ -19,6 +19,7 @@ Exit code 0 unless a real gap exists (undocumented flag, undocumented key, or a 
 """
 
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -26,7 +27,8 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_EXE = ROOT / "build" / "bin" / "Release" / "Glider.exe"
+# GLIDER_CANDIDATE_EXE (relative to ROOT) replaces the default build, as in harness_process.candidate_exe().
+DEFAULT_EXE = ROOT / (os.environ.get("GLIDER_CANDIDATE_EXE", "").strip().strip('"') or "build/bin/Release/Glider.exe")
 CLI_DOC = ROOT / "docs" / "CLI_REFERENCE.md"
 AGENT_GUIDE_SRC = ROOT / "resources" / "agent" / "GLIDER_AGENT_GUIDE.md"
 PARSER_FILES = sorted((ROOT / "source" / "imgui" / "application").glob("CommandLine*.cpp")) + [

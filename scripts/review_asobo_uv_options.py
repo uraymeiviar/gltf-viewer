@@ -16,7 +16,7 @@ from e195_assets import COCKPIT, TEXTURE_FOLDERS
 REPO = Path(__file__).resolve().parents[1]
 OUT = REPO / "build/review/uv_options"
 BASELINE = REPO / "build/baselines/d0761e7.exe"
-EXE = REPO / "build/bin/Release/Glider.exe"
+EXE = subprocess.candidate_exe()
 SDK = Path(r"C:\MSFS 2024 Flighting SDK\Samples\DevmodeProjects\SimObjects\Aircraft\DA62")
 ATTACHMENTS = SDK / "PackageSources/SimObjects/Airplanes/DA62_SDK/attachments/asobo"
 TEXTURES = SDK / "Sources/Art/Max/textures"

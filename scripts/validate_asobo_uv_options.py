@@ -17,7 +17,7 @@ from PIL import Image
 from validate_asobo_detail_map import Fixture, make_png, base_material, CAMERA, same
 
 REPO = Path(__file__).resolve().parents[1]
-EXE = REPO / "build/bin/Release/Glider.exe"
+EXE = subprocess.candidate_exe()
 OUT = REPO / "build/asobo_uv_options"
 EXT = "ASOBO_material_UV_options"
 DETAIL = "ASOBO_material_detail_map"

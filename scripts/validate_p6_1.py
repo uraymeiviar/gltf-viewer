@@ -23,7 +23,7 @@ from pathlib import Path
 import psutil
 
 REPO = Path(__file__).resolve().parents[1]
-EXE = REPO / "build" / "bin" / "Release" / "Glider.exe"
+EXE = subprocess.candidate_exe()
 OUT = REPO / "build" / "p6.1"
 RES = "OpenGL-Renderer/Tools/tools/operations/tests/resources"
 LARGE = "build/p6/fixtures/large/load.glb"

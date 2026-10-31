@@ -2,12 +2,32 @@
 """Renderer regression run: the current build against a saved baseline binary.
 
 Usage:
-  python scripts/run_regression.py                  # quick tier, baseline of HEAD
-  python scripts/run_regression.py --tier full      # adds each feature's A/B switch and validate_p5_1.py
+  python scripts/run_regression.py                  # quick tier (core + suites triggered by the diff), baseline of HEAD
+  python scripts/run_regression.py --tier full      # every suite, each feature's A/B switch and validate_p5_1.py
+  python scripts/run_regression.py --plan           # print the selected suites and why, launch nothing
+  python scripts/run_regression.py --plan --changed resources/shaders/ssao.glsl   # selection for these paths
   python scripts/run_regression.py --baseline build/baselines/23f61c6.exe --extra=--show-invisible-materials
   python scripts/run_regression.py --extra=--asobo --extra=off   # uncommitted work that changes ASOBO rendering
   python scripts/run_regression.py --only sun,sky                 # a subset of the tier (suite names as printed)
   python scripts/run_regression.py --no-cache                     # start every baseline launch (cold timing)
+  GLIDER_CANDIDATE_EXE=build/baselines/474b81c.exe python scripts/run_regression.py --only ocean   # other candidate
+
+Tiers. The full tier runs every suite. The quick tier runs the core suites (CORE: p8_1, p4_exit_gate,
+asobo_common and the self-checks) plus the suites the changed files trigger (TRIGGERS below). Changed
+files are `git diff --name-only HEAD` plus untracked files under source/, header/, resources/,
+OpenGL-Renderer/ and scripts/ (or the --changed list). docs/, scratch/, legacy/, Markdown outside
+resources/ and top-level files other than CMakeLists.txt are ignored. A suite also runs when its own
+scripts/validate_<suite>.py or a script it imports or names (recursively) changed; a change to
+scripts/run_regression.py itself runs the core only. BROAD paths (pbr.frag, primitive.vert, ibl.glsl,
+brdf.glsl, Application.*, Frame.cpp, Scene.cpp, CMake, thirdparty/, the default model and HDR) select
+every suite. A resources/ file outside the shaders triggers the suites whose scripts name it. Any other
+file that matches no trigger selects every suite and prints a warning naming it, so TRIGGERS can be
+extended. --only replaces the selection with the named suites of the tier.
+
+Candidate: GLIDER_CANDIDATE_EXE=<path> (relative to the repository) replaces build/bin/Release/Glider.exe
+in this script and every harness (harness_process.candidate_exe()), e.g. to prove that a known-bad binary
+from build/baselines/ fails. That binary then counts as the current build: never cached, and with the
+variable set every cache key also holds the candidate's SHA-256.
 
 Baseline render cache: scripts/harness_process.py stores what each baseline launch wrote (captures,
 reports, UI-script shots, stdout/stderr) under build/regression_cache/, keyed by the baseline's SHA-256,
@@ -18,14 +38,15 @@ gone or changed) are pruned at the start of each run. Shared helpers for harness
 scripts/glider_harness.py.
 
 At the end the run prints each suite's wall time and Glider launches (current build, baseline,
-baseline served from the cache, baseline started, repeated argument sets), slowest first, and writes
-build/regression/summary.json; each suite's launches are in build/regression/<suite>.launches.jsonl.
+baseline served from the cache, baseline started, repeated argument sets, control-pipe/follow sessions
+and their summed seconds), slowest first, and writes build/regression/summary.json; each suite's
+launches are in build/regression/<suite>.launches.jsonl.
 
 Save a baseline right after each commit with scripts/save_baseline.py. Without
 --baseline, the run uses build/baselines/<HEAD short sha>.exe, so it answers "did my
 uncommitted change alter anything since the last commit?".
 
-Quick tier (equivalence only: byte-identical viewport images, identical selections):
+Suites (equivalence against the baseline plus each feature's analytic acceptance checks):
   validate_p8_1.py     9 models x 4 AA modes, plus scripted UI cases
   validate_p8_3.py     instancing grid in 11 situations (wireframe, ortho, playback, split viewports...)
   validate_p8_5.py     --quick: picking clicks on the 1,600-drawable grid, the fixture (AA none), ortho,
@@ -71,9 +92,9 @@ Quick tier (equivalence only: byte-identical viewport images, identical selectio
   viewport image, borderless full screen and Esc, keys and menus, drops, settings.ini keeps the restored layout),
   validate_settings_scopes.py (Quality levels / scene appearance and shared ground / viewport Shaded and overlays:
   legacy flags against the baseline, CLI = pipe, migration/restart, shared ocean, UI ID conflicts)
-Full tier adds:
+Full tier: every suite above, plus
   --with-ab (each feature against its own switch), validate_p5_1.py against the baseline, and
-  validate_p8_5.py's 10,000-drawable grid and MSAA/TAA fixture copies.
+  validate_p8_5.py's 10,000-drawable grid and MSAA/TAA fixture copies (the quick tier passes --quick).
 Window screenshots (p8_1, p8_3, p8_5, p5_1) are compared byte for byte on the viewports' 3D image only
 (glider_harness.viewport_sha: below the menu bar, viewport tabs and viewport toolbar, between the side
 panels, above the status bar), so changes to the toolbar or the panels do not fail render checks; the
@@ -87,8 +108,11 @@ script.
 """
 
 import argparse
+import ast
+import fnmatch
 import json
 import os
+import re
 import harness_process as subprocess
 import sys
 import time
@@ -97,7 +121,9 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-EXE = REPO / "build" / "bin" / "Release" / "Glider.exe"
+EXE = subprocess.candidate_exe()  # build/bin/Release/Glider.exe, or $GLIDER_CANDIDATE_EXE
+if os.environ.get(subprocess.CANDIDATE_ENV, "").strip():
+    os.environ[subprocess.CANDIDATE_ENV] = str(EXE)  # harnesses resolve the same absolute path
 OUT = REPO / "build" / "regression"
 SELFCHECKS = ("revision-selfcheck", "blend-selfcheck", "aa-target-selfcheck", "cache-invalidation-selfcheck",
               "compute-selfcheck", "sampler-selfcheck", "vao-selfcheck", "polygon-mode-selfcheck",
@@ -109,6 +135,137 @@ FORCED_FAILURE = {"revision-selfcheck", "blend-selfcheck", "aa-target-selfcheck"
 FIXTURES = (("build/p8/fixtures/many_1600.gltf", "40", "none"), ("build/p8/fixtures/many_10000.gltf", "100", "none"),
             ("build/p8/fixtures/many_leaf.gltf", "40", "leaf"), ("build/p8/fixtures/many_root.gltf", "40", "root"))
 
+# ----------------------------------------------------------------------------- quick-tier selection
+# Core suites run in every quick tier: they answer "did any image change" on real assets in every AA mode
+# (p8_1), every UI producer and panel (p4_exit_gate), ASOBO on/off and per switch on the E195 (asobo_common)
+# and the GL contracts of the self-checks.
+CORE = ("p8_1", "p4_exit_gate", "asobo_common") + SELFCHECKS
+# Paths that select every suite. A pattern without "/" matches the file name, one with "/" the whole
+# repository-relative path; fnmatch, case-insensitive, "*" also crosses "/".
+BROAD = ("pbr.frag", "primitive.vert", "ibl.glsl", "brdf.glsl", "Application.cpp", "Application.h",
+         "source/imgui/application/Frame.cpp", "source/imgui/application/Scene.cpp", "CMakeLists.txt", "*.cmake",
+         "cmake/*", "thirdparty/*", "*/thirdparty/*", "HelloCube.glb", "default_hdr_env4k.hdr")
+ASOBO_SUITES = ("asobo_model", "asobo_normal", "asobo_support", "asobo_draworder", "asobo_uv_options",
+                "asobo_occlusion", "asobo_fresnel_ghost", "asobo_dither", "asobo_anisotropy", "asobo_sss",
+                "asobo_sky_portal", "asobo_packaged", "asobo_decal_modes", "emissive_units", "texture_dds",
+                "texture_ktx2")
+# (suites, path patterns), docs/BUILD_AND_TEST.md section 4.5; every pattern matches files in the tree.
+TRIGGERS = (
+    (("p8_3", "p8_5", "p8_followup", "p5_1"),
+     ("OpenGL-Renderer/renderer/*Command*", "GltfRenderLayer*", "Viewports.cpp", "DiagnosticsPicking.cpp",
+      "picking.frag", "PickingRenderLayer.*", "TransformHierarchy*", "SceneRevisions.*",
+      "generate_many_drawables_fixture.py")),
+    (("sun", "shadows"),
+     ("SunShadowMap.*", "shadow*.glsl", "shadow_caster.frag", "SceneEnvironment.*", "punctual.glsl",
+      "CascadedShadows.*", "ShadowCasterLayer.*")),
+    (("ground", "ocean", "review_fixes"),
+     ("GroundSettings.*", "ground*.frag", "ground*.vert", "ground*.glsl", "ocean*", "OceanSimulation.*", "Ocean.cpp",
+      "GridRenderer.*", "grid.frag", "grid.vert")),
+    (("ssao", "ambient", "sky_occlusion", "review_fixes"),
+     ("AmbientOcclusion.*", "Ssao*", "ssao*", "SkyOcclusion.*", "sky_occlusion*")),
+    (("sky", "sun_disk", "background_projection", "night", "time_of_day", "sun_source", "emissive_units"),
+     ("Sky*", "sky_*", "SunDisk.*", "cubemap.*", "NightSky.*", "TimeOfDay.*", "SolarPosition.*",
+      "EnvironmentState.cpp", "CommandsSettingsEnvironment.cpp", "tonemapping.glsl", "environment_block.glsl",
+      "EnvironmentMap.*", "IBLSampler.*", "*/ibl_sampler/*")),
+    (ASOBO_SUITES,
+     ("asobo_*.glsl", "decal_*", "material_info.glsl", "textures.glsl", "AsoboExtension*", "AsoboSupport.*",
+      "resources/schemas/asobo/*", "TextureUtils.*", "Decal*", "DrawOrder.h", "TextureDds.*", "Dds.*", "Ktx2*",
+      "GltfRenderLayerMaterials.cpp")),
+    (("settings_scopes", "viewport_image", "area_maximize", "agent_control", "review_fixes"),
+     ("Settings*", "ViewportOverrides.*", "source/imgui/application/Commands*", "ControlPipe.*",
+      "CommandRegistry.*", "AreaLayout.cpp", "Menus.cpp", "ViewportImage.cpp", "Panels.cpp", "AppSettings.*",
+      "CaptureSettings.*", "GltfExtensionSettings.*", "ViewportSettingsPanel.*", "ViewportToolbar.cpp",
+      "GLIDER_AGENT_GUIDE.md")),
+)
+# Never part of Glider.exe or a suite.
+IGNORED = ("docs/*", "scratch/*", "legacy/*", "licenses/*", ".git*", "*/.git*", ".clang-*", "*/.clang-*")
+UNTRACKED_ROOTS = ("source", "header", "resources", "OpenGL-Renderer", "scripts")
+
+
+def _match(path, pattern):
+    path, pattern = path.lower(), pattern.lower()
+    return fnmatch.fnmatchcase(path if "/" in pattern else path.rsplit("/", 1)[-1], pattern)
+
+
+def _ignored(path):
+    if any(_match(path, pattern) for pattern in IGNORED):
+        return True
+    if "/" not in path and path.lower() != "cmakelists.txt":
+        return True  # AGENTS.md, README.md, LICENSE, ...
+    return path.lower().endswith(".md") and not path.lower().startswith("resources/")
+
+
+def _script_closure(script):
+    """The scripts/ files a harness depends on: itself, the modules it imports and the scripts it names, recursively."""
+    seen, todo = set(), [script]
+    while todo:
+        name = todo.pop()
+        if name in seen:
+            continue
+        path = REPO / "scripts" / name
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        seen.add(name)
+        names = set()
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            tree = None
+        if tree is not None:
+            # Docstrings name other harnesses for reference only; string literals in code name scripts it runs.
+            docstrings = {id(body[0].value) for body in [tree.body] + [node.body for node in ast.walk(tree)
+                          if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))]
+                          if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant)}
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    names.update(alias.name.split(".")[0] + ".py" for alias in node.names)
+                elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+                    names.add(node.module.split(".")[0] + ".py")
+                elif isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings:
+                    names.update(re.findall(r"([A-Za-z_]\w*\.py)\b", node.value))
+        todo += [other for other in names if (REPO / "scripts" / other).is_file()]
+    return seen
+
+
+def changed_files(value):
+    """Repository-relative changed paths: the --changed list, or git diff HEAD plus untracked files."""
+    if value is not None:
+        return sorted({item.strip().replace("\\", "/") for item in value.split(",") if item.strip()})
+    tracked = subprocess.run(["git", "diff", "--name-only", "HEAD"], cwd=REPO, capture_output=True, text=True).stdout
+    untracked = subprocess.run(["git", "ls-files", "--others", "--exclude-standard", "--", *UNTRACKED_ROOTS],
+                               cwd=REPO, capture_output=True, text=True).stdout
+    return sorted({line.strip() for line in (tracked + untracked).splitlines() if line.strip()})
+
+
+def classify(path, suites, closures, texts):
+    """(suite names, reason) a changed path selects; None for suite names means every suite."""
+    if _ignored(path):
+        return set(), "ignored"
+    if any(_match(path, pattern) for pattern in BROAD):
+        return None, "broad"
+    if path.lower().startswith("scripts/"):
+        name = path.split("/", 1)[1]
+        if name == "run_regression.py":
+            return set(), "the runner itself (core only)"
+        users = {suite for suite in suites if name in closures.get(suite, ())}
+        triggered = {suite for group, patterns in TRIGGERS if any(_match(path, pattern) for pattern in patterns)
+                     for suite in group}
+        if users | triggered:
+            return (users | triggered), "suite script or helper"
+        return set(), "no suite uses it"
+    selected = {suite for group, patterns in TRIGGERS if any(_match(path, pattern) for pattern in patterns)
+                for suite in group}
+    if selected:
+        return selected, "trigger"
+    if path.lower().startswith("resources/") and "/shaders/" not in path.lower():
+        base = path.rsplit("/", 1)[-1]
+        named = {suite for suite, text in texts.items() if base in text}
+        if named:
+            return named, "named by suite scripts"
+    return None, "no trigger"
+
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 parser.add_argument("--tier", choices=["quick", "full"], default="quick")
 parser.add_argument("--baseline", help="reference binary (default: build/baselines/<HEAD short sha>.exe)")
@@ -117,6 +274,9 @@ parser.add_argument("--extra", action="append", default=[], help="extra Glider a
 parser.add_argument("--no-cache", action="store_true",
                     help="start every baseline launch (GLIDER_RENDER_CACHE=0); the cache is neither read nor written")
 parser.add_argument("--only", help="comma-separated suite names to run (default: the whole tier)")
+parser.add_argument("--plan", action="store_true", help="print the selected suites and why, then exit without launching")
+parser.add_argument("--changed", help="comma-separated repository-relative paths used instead of the git diff "
+                                      "(quick-tier selection; an empty value means nothing changed)")
 args = parser.parse_args()
 if args.no_cache:
     os.environ[subprocess.CACHE_SWITCH] = "0"
@@ -126,16 +286,6 @@ if args.baseline:
 else:
     sha = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=REPO, capture_output=True, text=True).stdout.strip()
     baseline = REPO / "build" / "baselines" / f"{sha}.exe"
-if not baseline.exists():
-    sys.exit(f"baseline {baseline} not found; save one after committing (scripts/save_baseline.py) or pass --baseline")
-if not EXE.exists():
-    sys.exit(f"no build at {EXE}")
-
-# Shared fixtures are written once, before harnesses run side by side.
-for path, size, anim in FIXTURES:
-    (REPO / path).parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run([sys.executable, str(REPO / "scripts" / "generate_many_drawables_fixture.py"), str(REPO / path), size, anim],
-                   check=True, capture_output=True)
 
 extra = [f"--extra={e}" for e in args.extra]
 ab = ["--with-ab"] if args.tier == "full" else []
@@ -188,15 +338,86 @@ serial_jobs = [
 ]
 if args.tier == "full":
     jobs.append(("p5_1", ["scripts/validate_p5_1.py", "--pre-exe", str(baseline)]))
-selfchecks = list(SELFCHECKS)
+tier_suites = [name for name, _ in jobs + serial_jobs] + list(SELFCHECKS)
+scripts = {name: command[0].split("/", 1)[1] for name, command in jobs + serial_jobs
+           + [("p5_1", ["scripts/validate_p5_1.py"])]}
+
+# Why each suite runs: "core", "full tier", "--only", or the changed paths that trigger it.
+reasons, warnings, file_rows = {}, [], []
 if args.only:
     wanted = {name.strip() for name in args.only.split(",") if name.strip()}
-    known = {name for name, _ in jobs + serial_jobs} | set(SELFCHECKS)
-    if wanted - known:
-        sys.exit(f"unknown suite(s): {', '.join(sorted(wanted - known))}")
-    jobs = [job for job in jobs if job[0] in wanted]
-    serial_jobs = [job for job in serial_jobs if job[0] in wanted]
-    selfchecks = [check for check in SELFCHECKS if check in wanted]
+    if wanted - set(tier_suites):
+        sys.exit(f"unknown suite(s): {', '.join(sorted(wanted - set(tier_suites)))}")
+    reasons = {name: ["--only"] for name in tier_suites if name in wanted}
+elif args.tier == "full":
+    reasons = {name: ["full tier"] for name in tier_suites}
+else:
+    reasons = {name: ["core"] for name in CORE}
+    closures = {suite: _script_closure(script) for suite, script in scripts.items()}
+    texts = {}
+    for suite, names in closures.items():
+        parts = []
+        for name in names:
+            try:
+                parts.append((REPO / "scripts" / name).read_text(encoding="utf-8"))
+            except OSError:
+                pass
+        texts[suite] = "\n".join(parts)
+    for path in changed_files(args.changed):
+        selected, why = classify(path, scripts, closures, texts)
+        if selected is None:
+            selected = set(tier_suites)
+            if why == "no trigger":
+                warnings.append(f"WARNING: {path} matches no trigger; every suite selected "
+                                f"(extend TRIGGERS in scripts/run_regression.py)")
+        selected &= set(tier_suites)
+        file_rows.append((path, why, selected))
+        for suite in selected:
+            reasons.setdefault(suite, []).append(path)
+    unreachable = [suite for suite in scripts if suite not in CORE
+                   and not any(suite in group for group, _ in TRIGGERS)]
+    warnings += [f"WARNING: suite {suite} has no path trigger besides its own scripts" for suite in unreachable]
+jobs = [job for job in jobs if job[0] in reasons]
+serial_jobs = [job for job in serial_jobs if job[0] in reasons]
+selfchecks = [check for check in SELFCHECKS if check in reasons]
+
+if args.plan:
+    source = "--only" if args.only else ("full tier" if args.tier == "full" else
+                                         ("--changed" if args.changed is not None else "git diff HEAD + untracked"))
+    print(f"[plan: {args.tier} tier, candidate {EXE} vs baseline {baseline.name}; selection from {source}]")
+    if file_rows:
+        print(f"changed files ({len(file_rows)}):")
+        for path, why, selected in file_rows:
+            names = "every suite" if selected == set(tier_suites) else (", ".join(sorted(selected)) or "-")
+            print(f"  {path}  [{why}] -> {names}")
+    elif args.tier == "quick" and not args.only:
+        print("changed files: none")
+    order = [name for name in tier_suites if name in reasons]
+    print(f"selected suites ({len(order)} of {len(tier_suites)}):")
+    for name in order:
+        why = reasons[name]
+        label = why[0] if why[0] in ("core", "full tier", "--only") else \
+            "triggered by " + ", ".join(why[:3]) + (f" (+{len(why) - 3} more)" if len(why) > 3 else "")
+        print(f"  {name:28s} {label}")
+    skipped = [name for name in tier_suites if name not in reasons]
+    if skipped:
+        print(f"not selected ({len(skipped)}): {', '.join(skipped)}")
+    for line in warnings:
+        print(line)
+    sys.exit(0)
+for line in warnings:
+    print(line)
+
+if not baseline.exists():
+    sys.exit(f"baseline {baseline} not found; save one after committing (scripts/save_baseline.py) or pass --baseline")
+if not EXE.exists():
+    sys.exit(f"no build at {EXE}")
+
+# Shared fixtures are written once, before harnesses run side by side.
+for path, size, anim in FIXTURES:
+    (REPO / path).parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run([sys.executable, str(REPO / "scripts" / "generate_many_drawables_fixture.py"), str(REPO / path), size, anim],
+                   check=True, capture_output=True)
 
 OUT.mkdir(parents=True, exist_ok=True)
 
@@ -218,6 +439,10 @@ def run_job(job):
     log.write_text(result.stdout + result.stderr, encoding="utf-8")
     passed = result.returncode == 0 and "RESULT: PASS" in result.stdout
     fails = [line.strip() for line in result.stdout.splitlines() if line.strip().startswith("FAIL")]
+    if not passed and not fails:
+        # A harness that stopped (traceback) or exited without FAIL lines: show where it ended.
+        tail = [line.strip() for line in (result.stdout + result.stderr).splitlines() if line.strip()]
+        fails = [f"FAIL exit {result.returncode}, no FAIL line; last output: {tail[-1][:200] if tail else '(none)'}"]
     return name, passed, time.time() - start, fails, log
 
 
@@ -255,6 +480,7 @@ def launch_summary(name):
         pass
     baseline = [r for r in records if r.get("role") == "baseline"]
     hits = sum(1 for r in baseline if r.get("cache") == "hit")
+    sessions = [r for r in records if r.get("kind") == "popen"]
     repeats = Counter((r.get("exe"), tuple(r.get("argv", ()))) for r in records)
     return {
         "current": sum(1 for r in records if r.get("role") == "current"),
@@ -264,6 +490,8 @@ def launch_summary(name):
         "other": sum(1 for r in records if r.get("role") not in ("current", "baseline")),
         "repeated": sum(count - 1 for count in repeats.values() if count > 1),
         "uncacheable": dict(Counter(str(r.get("cache"))[5:] for r in baseline if str(r.get("cache", "")).startswith("off"))),
+        "sessions": len(sessions),
+        "session_seconds": round(sum(float(r.get("seconds") or 0.0) for r in sessions), 1),
     }
 
 
@@ -271,7 +499,13 @@ cache_state = "off (--no-cache)" if args.no_cache else "on"
 if not args.no_cache:
     kept, removed = subprocess.prune_cache()
     cache_state += f", {kept} entries" + (f", {removed} stale removed" if removed else "")
-print(f"[regression: {args.tier} tier, candidate {EXE.relative_to(REPO)} vs baseline {baseline.name}, {args.jobs} jobs, "
+try:
+    candidate_name = EXE.relative_to(REPO)
+except ValueError:
+    candidate_name = EXE
+selection = "" if args.only or args.tier == "full" else \
+    f", {len(jobs) + len(serial_jobs) + len(selfchecks)} of {len(tier_suites)} suites (core + triggered)"
+print(f"[regression: {args.tier} tier{selection}, candidate {candidate_name} vs baseline {baseline.name}, {args.jobs} jobs, "
       f"baseline render cache {cache_state}]")
 start = time.time()
 with ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
@@ -285,19 +519,26 @@ for name, passed, seconds, fails, log in results:
     print(f"  {'PASS' if passed else 'FAIL'} {name:28s} {seconds:6.1f} s  ({log.relative_to(REPO)})")
     for line in fails[:8]:
         print(f"         {line}")
+    if len(fails) > 8:
+        print(f"         ... {len(fails) - 8} more FAIL line(s) in the log")
     failed |= not passed
     summary.append({"suite": name, "passed": passed, "seconds": round(seconds, 1), **launch_summary(name)})
 
 # Wall time and Glider launches per suite, slowest first (baseline: served from the cache / started).
 print("-" * 60)
-print(f"  {'suite':28s} {'time':>8s} {'current':>8s} {'baseline':>9s} {'hit':>5s} {'started':>8s} {'repeat':>7s}")
+print(f"  {'suite':28s} {'time':>8s} {'current':>8s} {'baseline':>9s} {'hit':>5s} {'started':>8s} {'repeat':>7s} "
+      f"{'sessions':>9s} {'session s':>10s}")
 for row in sorted(summary, key=lambda row: -row["seconds"]):
     print(f"  {row['suite']:28s} {row['seconds']:6.1f} s {row['current']:8d} {row['baseline']:9d} "
-          f"{row['baseline_hits']:5d} {row['baseline_started']:8d} {row['repeated']:7d}")
-totals = {key: sum(row[key] for row in summary) for key in ("current", "baseline", "baseline_hits", "baseline_started")}
+          f"{row['baseline_hits']:5d} {row['baseline_started']:8d} {row['repeated']:7d} {row['sessions']:9d} "
+          f"{row['session_seconds']:8.1f} s")
+totals = {key: sum(row[key] for row in summary)
+          for key in ("current", "baseline", "baseline_hits", "baseline_started", "sessions", "session_seconds")}
 print(f"  {'total':28s} {time.time() - start:6.0f} s {totals['current']:8d} {totals['baseline']:9d} "
-      f"{totals['baseline_hits']:5d} {totals['baseline_started']:8d}")
-(OUT / "summary.json").write_text(json.dumps({"tier": args.tier, "baseline": baseline.name, "cache": cache_state,
+      f"{totals['baseline_hits']:5d} {totals['baseline_started']:8d} {'':7s} {totals['sessions']:9d} "
+      f"{totals['session_seconds']:8.1f} s")
+(OUT / "summary.json").write_text(json.dumps({"tier": args.tier, "candidate": str(EXE), "baseline": baseline.name,
+                                              "cache": cache_state, "selected": {name: reasons[name] for name in reasons},
                                               "seconds": round(time.time() - start, 1), "suites": summary}, indent=1),
                                   encoding="utf-8")
 print("=" * 60)

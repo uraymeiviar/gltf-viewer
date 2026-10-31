@@ -17,7 +17,7 @@ import validate_asobo_glass as glass
 
 REPO = Path(__file__).resolve().parents[1]
 OUT = REPO / "build/review/pmdg"
-EXE = REPO / "build/bin/Release/Glider.exe"
+EXE = subprocess.candidate_exe()
 BASE = REPO / "build/baselines/8e932ca.exe"
 LEGACY = ("ASOBO_material_glass", "ASOBO_material_kitty_glass", "ASOBO_material_windshield")
 OVERHEAD = ["--camera-target", "0,1.8,15.5", "--camera-yaw", "0", "--camera-pitch", "-65",

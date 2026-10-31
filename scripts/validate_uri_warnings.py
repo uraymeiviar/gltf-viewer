@@ -12,7 +12,7 @@ from pathlib import Path
 import harness_process as subprocess
 
 REPO = Path(__file__).resolve().parents[1]
-EXE = REPO / "build" / "bin" / "Release" / "Glider.exe"
+EXE = subprocess.candidate_exe()
 OUT = REPO / "build" / "uri_warnings"
 
 failures = []

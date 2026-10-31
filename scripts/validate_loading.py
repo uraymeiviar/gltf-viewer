@@ -12,7 +12,7 @@ import harness_process as subprocess
 from measure_loading import ROOT, COCKPIT, run
 
 OUT = ROOT/"build/review/loading"
-EXE = ROOT/"build/bin/Release/Glider.exe"
+EXE = subprocess.candidate_exe()
 BASE = ROOT/"build/baselines/3176a16.exe"
 HEAVY = ROOT/"build/review/heavy/heavy.gltf"
 CABIN = Path(r"F:\new-fss-aircraft-ejet\msfs-projects\fss-aircraft-e195\SimObjects\Airplanes\E195\model\E195-Cabin-LOD00.gltf")

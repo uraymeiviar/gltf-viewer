@@ -118,7 +118,7 @@ def run(exe, model, label, auto="off", vram=None, without_textures=False, search
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--exe", type=Path, default=ROOT/"build/bin/Release/Glider.exe")
+    p.add_argument("--exe", type=Path, default=subprocess.candidate_exe())
     p.add_argument("--label", required=True)
     p.add_argument("--auto", choices=("on", "off", "legacy"), default="off")
     p.add_argument("--vram", type=int)

@@ -18,7 +18,7 @@ import harness_process as subprocess
 
 REPO = Path(__file__).resolve().parents[1]
 OUT = REPO / "build/review"
-EXE = REPO / "build/bin/Release/Glider.exe"
+EXE = subprocess.candidate_exe()
 BASELINE = REPO / "build/baselines/ed36dd8.exe"
 GLASS = "ASOBO_material_glass_v2"
 WINDSHIELD = "ASOBO_material_windshield_v3"

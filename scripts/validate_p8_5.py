@@ -27,7 +27,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-EXE = REPO / "build" / "bin" / "Release" / "Glider.exe"
+EXE = subprocess.candidate_exe()
 PRE_EXE = REPO / "build" / "p8" / "Glider_base.exe"
 OUT = REPO / "build" / "p8" / "p8.5"
 FIXTURE = "resources/test_models/production_passes_fixture.gltf"
