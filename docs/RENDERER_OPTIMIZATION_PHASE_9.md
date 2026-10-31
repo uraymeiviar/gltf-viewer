@@ -2,7 +2,7 @@
 
 [Journal index](RENDERER_OPTIMIZATION_JOURNAL.md) · [Reference audit](RENDERER_OPTIMIZATION_REFERENCE.md) · [Validation rules](RENDERER_OPTIMIZATION_VALIDATION.md)
 
-**Status:** Complete, uncommitted ([§12.68](#section-12-68)). Profile stages and counters were added first ([§12.63](#section-12-63)). C4 overlay-depth reuse PASS ([§12.64](#section-12-64)). C1 shadow-cascade reuse PASS ([§12.65](#section-12-65)). C13 single startup environment load PASS ([§12.66](#section-12-66)). C2 frame-value settings without a renderer sync PASS ([§12.67](#section-12-67)). Round 10 (uncommitted, against `1db382b`): C6 per-viewport transmission copy PASS ([§12.69](#section-12-69)) and C3 asynchronous exposure meter PASS ([§12.70](#section-12-70)); exit notes [§12.71](#section-12-71). Round 11 (uncommitted, against `41df669`): C5 scene-build allocations and per-material policy PASS ([§12.72](#section-12-72)), C7 exact-input atmosphere and clock caches PASS ([§12.73](#section-12-73)); C9 was measured and left out; exit notes [§12.74](#section-12-74).
+**Status:** Complete, uncommitted ([§12.68](#section-12-68)). Profile stages and counters were added first ([§12.63](#section-12-63)). C4 overlay-depth reuse PASS ([§12.64](#section-12-64)). C1 shadow-cascade reuse PASS ([§12.65](#section-12-65)). C13 single startup environment load PASS ([§12.66](#section-12-66)). C2 frame-value settings without a renderer sync PASS ([§12.67](#section-12-67)). Round 10 (uncommitted, against `1db382b`): C6 per-viewport transmission copy PASS ([§12.69](#section-12-69)) and C3 asynchronous exposure meter PASS ([§12.70](#section-12-70)); exit notes [§12.71](#section-12-71). Round 11 (uncommitted, against `41df669`): C5 scene-build allocations and per-material policy PASS ([§12.72](#section-12-72)), C7 exact-input atmosphere and clock caches PASS ([§12.73](#section-12-73)); C9 was measured and left out; exit notes [§12.74](#section-12-74). Round 12 (uncommitted, against `7236d58`): C8 equal uniform writes keep their revision PASS ([§12.75](#section-12-75)), C10 idle procedural sky without a GL state save PASS ([§12.76](#section-12-76)); both small, kept for their counters; exit notes [§12.77](#section-12-77).
 
 **Scope:** The candidates come from the 2026-10-30 audit of the three-viewport E195 use case (C1, C2, C4, C6, C13); round 10 adds C3. Every image stays byte-identical to `69cf29b` (round 10: to `1db382b`). Each cache has a same-binary A/B switch, `--disable-pass-cache`; the C3 meter has `--exposure-readback sync`.
 
@@ -411,3 +411,83 @@ The gain is small: about 0.2–0.4 ms per frame with the sky, more with a preset
   - No gain above noise.
 - **GPU-timing flake.** `sky`'s time-sliced check ("38 swaps of complete reduced-size jobs", needs 40) failed once with the GPU 100 % busy. It passed on the rerun (42 swaps), and the same suite passed on the C7 build.
 - Nothing else was reverted. Every image is byte-identical to `41df669`, and no check was changed.
+
+<a id="section-12-75"></a>
+
+### 12.75 Round 12 — C8 equal uniform writes keep their revision (2026-10-31)
+
+**Change.**
+
+- `gl::Uniform::write` (`Uniform.h`) compares the new value with the stored one before it takes a revision. When the element count and the bytes (`memcmp` against `m_bytes`) are equal, the revision is kept and nothing is copied. Otherwise the bytes are stored and a new global revision is taken, as before.
+- The §12.62 skip in `Uniform::commit` is unchanged: a program location that already holds the revision skips its `glUniform*` call. Before, every write took a new revision, so a value re-written each frame with the same bytes was committed again in every pass that drew it.
+- New cumulative statistics `gl::Uniform::stats()` (relaxed atomics). `finishFrame` (`DiagnosticsFrame.cpp`) turns them into the profile frame counters `uniformCommits` (`glUniform*` calls from `Uniform::commit`), `uniformCommitSkips`, `uniformEqualWrites` (writes that kept the revision) and `uniformChangedWrites`.
+
+**Rules.**
+
+- "Equal revision implies equal bytes" still holds. A revision is kept only for exactly the bytes and count it was taken for, and a copy keeps both as before.
+- The first write of a `Uniform` (revision 0) always takes a revision, even for an empty value.
+- A different element count with equal bytes takes a new revision, because `commit` passes the count to GL.
+- `-0.0` and `+0.0` (and NaN payloads) differ in their bytes and take a new revision. Equal bytes are what GL receives, so a kept revision never hides a change.
+- Samplers are not affected: their texture unit is compared in `Sampler::commit` (`committedUnit`), and texture binds by `CommandExecutor`. A `Uniform` replaced by assignment, or a new one, gets a new revision as before.
+
+**Measurement.** E195, three TAA viewports, steady frames (`build/measure/impl4_bench.py`), interleaved against `7236d58`, medians per frame (three viewports), pairs 1 / 2. The GPU was 99 % busy in every run.
+
+| | `7236d58` | C8 + C10 build |
+|---|---|---|
+| sky: `glCalls` | 20,566 | 20,518 |
+| sky + ocean: `glCalls` | 37,196 | 37,089 |
+| HDR: `glCalls` | 20,263 | 20,220 |
+| sky: `cpuFrameMs` (two runs, pairs 1 / 2 each) | 22.37 / 22.14, 23.24 / 22.72 | 21.77 / 22.14, 22.75 / 22.80 |
+| sky + ocean: `cpuFrameMs` | 37.20 / 37.30 | 37.33 / 36.96 |
+| HDR: `cpuFrameMs` | 11.46 / 11.86 | 11.77 / 11.41 |
+
+New counters, C8 build, per frame (identical in every run):
+
+| Arm | `uniformCommits` | `uniformCommitSkips` | `uniformEqualWrites` | `uniformChangedWrites` |
+|---|---|---|---|---|
+| sky | 6,123 | 18,659 | 146 | 4,539 |
+| sky + ocean | 10,354 | 18,757 | 287 | 6,245 |
+| HDR | 6,123 | 18,644 | 141 | 4,539 |
+
+- The win is 43–107 `glUniform*` calls per frame (0.2–0.3 % of the GL calls). The CPU frame does not change beyond noise.
+- **Where the changed writes come from** (a temporary per-name trace, removed): 4,250 of the 4,539 changed writes per frame are the seven `u_Decal*` uniforms of `DecalAccumulationLayer::applyLayer`. Each call refreshes the pooled decal material from its source (`*pooled = *material`), which drops them, and `setUniform` then writes a new `Uniform`. They are first writes, not equal writes, so C8 cannot keep them.
+  - Keeping the previous call's decal uniforms aside and reusing them was tried. It saved only 63 more `glUniform*` calls per frame (most pooled decals are not drawn), and it cost `scene.build` +1.7 ms and `commands.generate` +1.5 ms, because the moved-out vector stops `*pooled = *material` from reusing its elements' storage. It was reverted.
+- The remaining changed writes are real changes: per-viewport matrices (`u_ModelMatrix`, `u_ViewProjectionMatrix`, ...), `u_AsoboGlassCopyValid` (toggled per pass), `u_PickingColor` and the dither/SSR frame indices.
+
+**Equivalence.** See [§12.77](#section-12-77).
+
+<a id="section-12-76"></a>
+
+### 12.76 Round 12 — C10 procedural-sky update without a state save when idle (2026-10-31)
+
+**Change.**
+
+- `SkyEnvironment::update` (`SkyEnvironment.cpp`) used to save about 24 GL states with `glGet*` / `glIsEnabled`, set up its own, and restore them on every frame. Now it returns `Result::None` before the save when nothing below would run:
+  - the IBL config, the atmosphere and the sun are unchanged;
+  - no job is active;
+  - no job is due. With time slicing, the front set matches the sky version and is either the full set or still inside the `kSettleFrames` wait. Without time slicing, the front is the full set at the current version.
+- `pollTimers` and `ensurePrograms` still run first on every frame, so GPU timings are still read.
+- `GlState::kQueries` (24) names the state queries of `save()`. The new profile counters are `skyStateSavesSkipped` and `skyStateQueriesAvoided`.
+
+**Rules.**
+
+- On those frames the old path ran no pass. It saved and restored the same state, and it assigned the unchanged atmosphere and sun direction (both compared exactly). The early return is therefore the same as the old path.
+- Every other frame still runs the full path: a sun or atmosphere change, a quality change or activation, a running job, a fast job for a stale front, or a refine start after `kSettleFrames`.
+
+**Measurement.** Same runs as [§12.75](#section-12-75). With the sky converged, the counters show one skipped save and 24 avoided queries per frame. `sky.update` falls from 0.007 ms to 0.001 ms per frame in every sky run (8 of 8). With the HDR environment the sky is inactive and both counters are 0.
+
+- The CPU gain is about 6 µs per frame, far below 0.2 ms. On this machine the queries do not stall: 24 queries cost a few µs in all, so the driver does not synchronise its thread on them here.
+- The change is kept for the counter win. It removes every per-frame `glGet*` of the idle sky, a kind of call that synchronises the driver thread when threaded optimisation is on.
+
+**Equivalence.** See [§12.77](#section-12-77).
+
+<a id="section-12-77"></a>
+
+### 12.77 Round 12 Exit Notes (2026-10-31)
+
+- **Both kept.** Neither candidate saves 0.2 ms per frame on E195 ×3 with the sky; the CPU frame is unchanged within noise (GPU 99 % busy in every run). They are kept for their counter wins: C8 removes 43–107 `glUniform*` calls per frame and restores the §12.62 contract for equal writes at the cost of a `memcmp`; C10 removes the idle sky's 24 per-frame state queries. Each is a few lines and reverts on its own.
+- **Reverted:** the decal-uniform reuse in `DecalAccumulationLayer` ([§12.75](#section-12-75)): +3.2 ms CPU per frame for 63 fewer `glUniform*` calls.
+- **Images:** `--dump-frame` (`build/measure/impl4_dumps.py`) of the default view, the E195 default view, the E195 cockpit with the sky and sun, and the same with the ocean (manual and Auto exposure): 0 differing pixels against `7236d58`. The images were viewed.
+- **Suites, PASS against `7236d58`:** `settings_scopes`, `p4_exit_gate`, `sky`, `sun`, `sun_source`, `time_of_day`, `ocean`, `ground`, `review_fixes`, `viewport_image`, `p8_followup`, `asobo_decal_modes` and the ten self-checks. `sky` passed the first time (no swap-count flake).
+- **Glass / windshield scripts** (`validate_asobo_glass.py`, `validate_asobo_windshield_layers.py`, not in the runner) fail against their pinned old baselines (`ed36dd8`, `399c88b`, `99de26c`). The `7236d58` binary fails the same checks with the same MAE values, so these failures were already there and C8/C10 did not cause them.
+- No check or threshold was changed.

@@ -235,6 +235,8 @@ private:
         GLboolean depthMask = GL_TRUE;
         GLboolean scissor = GL_FALSE, blend = GL_FALSE, depth = GL_FALSE, cull = GL_FALSE, stencil = GL_FALSE;
         GLboolean colorLogic = GL_FALSE;
+        // State queries in save(): 6 bindings/rectangles, 3 x 3 per texture unit, polygon mode, 2 write masks, 6 caps.
+        static constexpr uint64_t kQueries = 6 + 3 * 3 + 1 + 2 + 6;
 
         void save()
         {

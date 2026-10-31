@@ -29,6 +29,22 @@ SkyEnvironment::Result SkyEnvironment::update(const Inputs& in)
     const bool configChanged = !m_active || !(in.ibl == m_config);
     const bool atmosphereChanged = !m_active || !(in.atmosphere == m_atmosphere);
     const bool sunChanged = !m_active || in.sunDirection != m_sunDirection;
+    // C10: the converged (or settling) unchanged sky has no work this frame. Return before the GL state save
+    // (GlState::kQueries glGet*/glIsEnabled, which sync with the driver thread) when nothing below would run:
+    // no rebuild, no running job, and no job due (a fast job for a stale front, a refine after kSettleFrames).
+    if (!configChanged && !atmosphereChanged && !sunChanged && !m_job.active && m_front != nullptr) {
+        const bool idle = in.timeSlicing
+            ? (m_front->version == m_skyVersion && (m_front->full || m_frame - m_lastChangeFrame < kSettleFrames))
+            : (m_front == &m_full && m_full.version == m_skyVersion);
+        if (idle) {
+            if (profiling::countingEnabled()) {
+                auto& counters = profiling::frameCounters();
+                ++counters.skyStateSavesSkipped;
+                counters.skyStateQueriesAvoided += GlState::kQueries;
+            }
+            return Result::None;
+        }
+    }
     GlState saved;
     saved.save();
     prepareState();

@@ -94,6 +94,16 @@ struct FrameCounters {
     uint64_t exposureSyncReadbacks = 0;
     uint64_t exposureAsyncReadbacks = 0;
     uint64_t exposureAsyncResults = 0;
+    // C8: gl::Uniform value commits (glUniform* calls) and commits skipped because the program location already held
+    // the revision; writes that kept the revision (equal bytes) and writes that took a new one.
+    uint64_t uniformCommits = 0;
+    uint64_t uniformCommitSkips = 0;
+    uint64_t uniformEqualWrites = 0;
+    uint64_t uniformChangedWrites = 0;
+    // C10: procedural-sky updates that returned before the GL state save (nothing to build or slice), and the
+    // glGet*/glIsEnabled queries that save would have made.
+    uint64_t skyStateSavesSkipped = 0;
+    uint64_t skyStateQueriesAvoided = 0;
     uint64_t wireframeMaterialCopies = 0;
     uint64_t sceneDrawables = 0;
     uint64_t sceneNodesVisited = 0;

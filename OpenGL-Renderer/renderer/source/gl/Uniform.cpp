@@ -23,15 +23,23 @@ uint64_t ux3d::renderer::gl::Uniform::nextRevision()
     return ++s_revision;
 }
 
+ux3d::renderer::gl::Uniform::Stats& ux3d::renderer::gl::Uniform::stats()
+{
+    static Stats s_stats;
+    return s_stats;
+}
+
 void ux3d::renderer::gl::Uniform::commit(GL* gl, const UniformBinding& binding) const
 {
     if (m_bytes.empty()) {
         return;
     }
     if (binding.committedRevision == m_revision) {
+        stats().commitSkips.fetch_add(1, std::memory_order_relaxed);
         return; // the program location already holds exactly these bytes
     }
     binding.committedRevision = m_revision;
+    stats().commits.fetch_add(1, std::memory_order_relaxed);
 
     const auto* floats = reinterpret_cast<const GLfloat*>(m_bytes.data());
     const auto* ints = reinterpret_cast<const GLint*>(m_bytes.data());

@@ -10,6 +10,7 @@
 #include "imgui/stb_image_write.h"
 #include "imgui/SceneHierarchyPanel.h"
 #include "renderer/Skin.h"
+#include "renderer/gl/Uniform.h"
 #include "gltf/Material.h"
 #include <algorithm>
 #include <cctype>
@@ -323,7 +324,20 @@ void Application::finishFrame(FrameContext& frame, int displayW, int displayH)
     frame.sample.cpuFrameMs = ux3d::imgui::profiling::elapsedMs(frame.start);
     frame.sample.firstFrame = (frame.number == 1);
     if (s_profilingEnabled) {
-        frame.sample.counters = ux3d::imgui::profiling::frameCounters();
+        // C8: the renderer's cumulative uniform statistics, as per-frame deltas.
+        static uint64_t s_lastUniform[4] = { 0, 0, 0, 0 };
+        const auto& uniformStats = ux3d::renderer::gl::Uniform::stats();
+        const uint64_t uniformNow[4] = { uniformStats.commits.load(std::memory_order_relaxed),
+                                         uniformStats.commitSkips.load(std::memory_order_relaxed),
+                                         uniformStats.equalWrites.load(std::memory_order_relaxed),
+                                         uniformStats.changedWrites.load(std::memory_order_relaxed) };
+        auto& counters = ux3d::imgui::profiling::frameCounters();
+        counters.uniformCommits = uniformNow[0] - s_lastUniform[0];
+        counters.uniformCommitSkips = uniformNow[1] - s_lastUniform[1];
+        counters.uniformEqualWrites = uniformNow[2] - s_lastUniform[2];
+        counters.uniformChangedWrites = uniformNow[3] - s_lastUniform[3];
+        for (int i = 0; i < 4; ++i) s_lastUniform[i] = uniformNow[i];
+        frame.sample.counters = counters;
     }
     if (frame.sample.firstFrame && (s_profilingEnabled || s_benchmarkEnabled)) {
         s_firstFrameSample = frame.sample;
