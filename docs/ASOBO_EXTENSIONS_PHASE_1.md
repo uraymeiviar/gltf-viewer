@@ -25,6 +25,8 @@ emissive and normals close to MSFS (user priority 1), and the explicit draw orde
   - **Harness:** `scripts/validate_asobo_normal.py` (quick tier). DirectX + M matches pre-inverted M' within 1
     LSB (max per-channel difference 1: the sampled UNORM value and `1.0 - g` round differently); with the switch
     off, and for `OpenGL`, a missing extension or an undeclared extension, the captures are byte-identical.
+    The captures run in the capture session; a session opening missing -> DirectX -> OpenGL must give the OpenGL
+    file's CLI capture (2026-11-01: `Gltf::reset` now clears the asset/root extensions a previous file left).
   - **Results:** `scripts/run_regression.py` PASS. E195 cockpit `SCREEN_EICAS` on/off reviewed: the panel bevels
     and knob rims read raised with the flip and inverted without it (subtle at the default exposure).
   - Every one of the 166 project files that declares it uses DirectX.

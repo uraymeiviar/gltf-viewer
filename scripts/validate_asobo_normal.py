@@ -5,7 +5,10 @@ A lit quad with a NEAREST-sampled tangent-space bump map. The asset-level Direct
 convention must flip the sampled green channel, matching a pre-inverted map, and must be
 off for missing/OpenGL/undeclared declarations or when the viewport switch is disabled.
 Bytes are compared on the viewport capture; the analytic pair reports any 1-LSB float
-rounding difference instead of hiding it.
+rounding difference instead of hiding it. The captures run in the shared capture session; a
+dedicated session also opens missing -> DirectX -> OpenGL and requires the OpenGL capture to be
+byte-identical to its own CLI launch: up to dc456a6 Gltf::reset kept the previous file's asset
+extensions, so the DirectX green flip leaked into every file opened after a DirectX one.
 """
 
 import base64
@@ -15,7 +18,7 @@ import struct
 import zlib
 from pathlib import Path
 
-from validate_asobo_common import check, finish, render, same
+from validate_asobo_common import COMMON, check, finish, render, same
 
 REPO = Path(__file__).resolve().parents[1]
 import harness_process  # noqa: E402 - candidate build (GLIDER_CANDIDATE_EXE)
@@ -216,6 +219,45 @@ def check_same(a, b, label, allow_rounding=False):
     return check(False, label)
 
 
+def leak_session(models, flags, frame=24):
+    """Opens the models one after another (open_model startup_state=true, as the capture session does) in one
+    Glider started with the first; returns each model's viewport capture (None when one is missing).
+
+    Its own session, not the shared one: the shared session starts with the second capture's model on the
+    command line, so the sequence opened through open_model would depend on the suite's capture order."""
+    import glider_harness
+    pngs = [OUT / f"leak_{index}_{Path(model).stem}.png" for index, model in enumerate(models)]
+    for png in pngs:
+        png.unlink(missing_ok=True)
+    try:
+        process, pipe = glider_harness.start_pipe_session(
+            [str(EXE), str(Path(models[0]).resolve())] + COMMON + list(flags) + ["--control-pipe"])
+    except Exception as error:  # noqa: BLE001 - reported as missing captures
+        print(f"  INFO open-sequence session did not start ({error})")
+        return [None] * len(pngs)
+    try:
+        for model, png in zip(models, pngs):
+            pipe.call("open_model", path=str(Path(model).resolve()), startup_state=True)
+            pipe.call("capture", path=str(png.resolve()),
+                      settle_frames=max(1, frame - glider_harness.OPEN_SETTLE_FRAMES))
+    except Exception as error:  # noqa: BLE001 - reported as missing captures
+        print(f"  INFO open-sequence session failed ({error})")
+    finally:
+        try:
+            pipe.call("quit")
+        except Exception:  # noqa: BLE001 - the process is waited for or killed below
+            pass
+        try:
+            pipe.close()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            process.wait(60)
+        except Exception:  # noqa: BLE001
+            process.kill()
+    return [png if png.exists() else None for png in pngs]
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     missing = write_fixture("missing")
@@ -225,16 +267,16 @@ def main():
     undeclared = write_fixture("undeclared", convention="DirectX", declare=False)
     flags = ["--select-node", "AsoboNormalMapQuad"]
 
-    # CLI launches, not the shared capture session: an OpenGL-convention file opened after a DirectX one in the
-    # same Glider renders with the green flip still applied (open_model, 2026-11-01), so each file gets its own start.
-    plain = render(EXE, missing, "missing", flags, OUT)
-    flipped = render(EXE, directx, "directx", flags, OUT)
-    inverted = render(EXE, preinverted, "preinverted", flags, OUT)
-    gl = render(EXE, opengl, "opengl", flags, OUT)
-    silent = render(EXE, undeclared, "undeclared", flags, OUT)
+    plain = render(EXE, missing, "missing", flags, OUT, session=True)
+    flipped = render(EXE, directx, "directx", flags, OUT, session=True)
+    inverted = render(EXE, preinverted, "preinverted", flags, OUT, session=True)
+    gl = render(EXE, opengl, "opengl", flags, OUT, session=True)
+    silent = render(EXE, undeclared, "undeclared", flags, OUT, session=True)
     disabled = render(EXE, directx, "directx_disabled",
-                      flags + ["--asobo-disable", EXTENSION], OUT)
-    if not all((plain, flipped, inverted, gl, silent, disabled)):
+                      flags + ["--asobo-disable", EXTENSION], OUT, session=True)
+    gl_cli = render(EXE, opengl, "opengl_cli", flags, OUT)
+    leak = leak_session((missing, directx, opengl), flags)
+    if not all((plain, flipped, inverted, gl, silent, disabled, gl_cli)) or not all(leak):
         check(False, "all renders produced a viewport capture")
         finish()
 
@@ -246,6 +288,11 @@ def main():
     check(not same(flipped, plain), "DirectX with map M differs from no extension with map M (the flip is visible)")
     check_same(gl, plain, "OpenGL with map M is byte-identical to no extension with map M")
     check_same(silent, plain, "a DirectX extension not declared in extensionsUsed changes nothing")
+
+    print("[files opened one after another]")
+    check(not same(leak[1], leak[0]), "one session, missing -> DirectX: the DirectX file shows the flip")
+    check_same(leak[2], gl_cli, "one session, missing -> DirectX -> OpenGL: the OpenGL capture is byte-identical "
+                                "to its CLI launch (no DirectX convention left over from the previous file)")
     finish()
 
 

@@ -131,8 +131,9 @@ python scripts/run_regression.py --tier full
   2026-11-01). Baseline launches, the candidate's side of every baseline comparison, captures whose profile report
   or launch log is read, and flags outside the replayable set stay CLI launches. `asobo_anisotropy` and
   `asobo_sss` are routed through the helper but keep CLI launches (`SESSIONS = False`: identical, but small `--env`
-  launches are not slower than a session); `asobo_normal` keeps CLI launches because a DirectX-convention file
-  opened before an OpenGL one in the same Glider leaves the green flip applied. `GLIDER_HARNESS_SESSIONS=0` turns
+  launches are not slower than a session). `asobo_normal` runs in sessions too and opens missing -> DirectX ->
+  OpenGL in one Glider of its own, requiring the OpenGL capture to equal its CLI launch (up to dc456a6
+  `Gltf::reset` kept the previous file's asset extensions, so the DirectX green flip leaked). `GLIDER_HARNESS_SESSIONS=0` turns
   sessions off; `GLIDER_HARNESS_SESSION_PROOF=<file>` launches each session capture's CLI argv as well when the
   harness exits and appends one JSON line per capture (session hash, CLI hash, equal) to `<file>`.
 - **GPU / CPU timing checks** never compare a measured time with an absolute limit in the regression (the machine
