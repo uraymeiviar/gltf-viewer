@@ -4,12 +4,19 @@ The viewport quality dropdown offers Auto, Low, Mid, High and Ultra. Auto is the
 
 Presets apply across viewports because uploaded textures and environment maps are shared. File → Settings contains Search Paths, Quality, glTF Extensions, Captures and Agent Control tabs. Quality presets are edited in File → Settings → Quality → Presets; the Current Settings sub-tab holds the former Viewport Settings Quality tab. Each quality definition can be edited independently, restored with Reset to default, or activated with Use this preset. Changes to the active preset apply immediately. Texture maximum changes re-decode and upload images without resetting the scene, selection, animation or edited material parameters. Raising the maximum restores retained source resolution where the memory budget allows it.
 
-| Default | Texture maximum | Geometry/post AA | Environment | SSR / bloom | Grid |
-|---|---|---|---|---|---|
-| Low | 512 | Off / None | Skybox and IBL off; textured unlit preview when no debug view is selected | Off / off | Mesh plane |
-| Med (Mid dropdown) | 1024 | 2x / None | IBL cube 512, 512 filtering samples | Off / off | Screen ray |
-| High | 4096 | 2x / TAA | Full configured IBL | Medium / on | Screen ray |
-| Ultra | Unlimited | 4x / TAA | Full configured IBL | High / on | Screen ray |
+| Default | Texture maximum | Geometry/post AA | Environment | SSR / bloom | SSAO | Grid |
+|---|---|---|---|---|---|---|
+| Low | 512 | Off / None | Skybox and IBL off; textured unlit preview when no debug view is selected | Off / off | Off | Mesh plane |
+| Med (Mid dropdown) | 1024 | 2x / None | IBL cube 512, 512 filtering samples | Off / off | Low | Screen ray |
+| High | 4096 | 2x / TAA | Full configured IBL | Medium / on | Mid | Screen ray |
+| Ultra | Unlimited | 4x / TAA | Full configured IBL | High / on | High | Screen ray |
+
+SSAO defaults (2026-10-31, maintainer's choice; before: off in every preset): Low off, Mid low (2 x 4 samples per
+side), High mid (3 x 6), Ultra high (4 x 8), full resolution. Auto targets Ultra, so interactive sessions run SSAO
+high. A saved `profileN.ssaoEnabled` / `ssaoQuality` still wins; a `settings.ini` that never wrote them gets the new
+defaults. Capture and test launches (`--isolated`, `--no-persist`, `--dump-frame`, `--capture-viewport`,
+`--capture-first-frame`, `--fixed-frame-time`, `--ui-script`) apply no profile and keep SSAO off unless `--ssao` /
+`--quality-preset` asks; their default image is unchanged.
 
 Punctual lights are enabled in these definitions. Med interprets the requested “no AA” as no post-AA alongside the explicitly requested MSAA 2x. Unlimited removes the preset texture cap and skips the estimate-based budget reduction; only the per-texture allocation fallback still protects against driver failures, so Ultra never reports a smaller clamp. Compressed KTX2 textures retain authored compressed mip levels, trimming larger levels when a smaller authored level is available. A chain without a sufficiently small authored level currently cannot guarantee the chosen cap; this edge remains recorded in the handoff journal.
 

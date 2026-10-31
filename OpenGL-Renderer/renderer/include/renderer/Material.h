@@ -96,6 +96,12 @@ public:
     // A2.2: the viewport applies ASOBO_material_geometry_decal, so decal-class draws get their
     // depth bias. Set per viewport next to drawOrderActive; off renders the file as without ASOBO.
     bool decalBiasActive = false;
+    // Draw this material first in the opaque pass (OpaquePass sorts by camera distance otherwise). Set per viewport on
+    // the background while a ground surface (A3.6 plane, A6.8 ocean) is drawn: the surface writes depth 1 beyond the
+    // far plane and the background writes depth 1, so under GL_LEQUAL the later draw wins; the background, the ground
+    // meshes and the cube all sit at the origin (equal sort keys, unspecified order), and a background drawn last
+    // replaced the far ground with the panorama below the horizon.
+    bool drawFirstInPass = false;
     // C5 (round 11): GltfRenderLayer::createScene applies the per-viewport material policy (ASOBO defines and
     // uniforms, draw order, render settings) once per material per call, not once per primitive. The marks hold
     // the serial of the createScene call that last applied each half; copies carry them, which is harmless

@@ -165,7 +165,7 @@ void Application::registerAgentViewportSettings()
                     "Slab joint spacing in scene units, 0 = none (marks the preset custom).",
                     "--ground-joints <units>", std::pair{0.0, 1000000.0}, true);
         groundFloat("ground_haze", &GS::haze,
-                    "Horizon fog visibility distance in scene units (distance of 2% contrast); 0 = automatic (0.9 x far plane).",
+                    "Horizon fog visibility distance in scene units (distance of 2% contrast); 0 = automatic (0.9 x far plane, at least 100 x the camera height above the ground).",
                     "--ground-haze <units>", std::pair{0.0, 1.0e9}, false);
 
         SettingSpec preset;

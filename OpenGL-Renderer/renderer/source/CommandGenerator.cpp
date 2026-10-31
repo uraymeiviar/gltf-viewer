@@ -325,6 +325,7 @@ void ux3d::renderer::CommandGenerator::emitCommands()
         pass[desc->pass].emplace_back(&desc->command, sortKey,
                                       covered ? material->drawOrderClass : DrawOrderClass::None,
                                       drawOrderOffset);
+        pass[desc->pass].back().drawFirst = material != nullptr && material->drawFirstInPass;
     }
 }
 

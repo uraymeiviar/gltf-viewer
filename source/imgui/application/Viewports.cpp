@@ -970,6 +970,13 @@ void Application::drawViewports(FrameContext& frame)
             commandGenerator->setAsoboAlphaDither(
                 vp->settings.asobo.applies("ASOBO_material_alphamode_dither"));
 
+            // A ground surface writes depth 1 beyond the far plane (to the horizon) and the background writes depth 1:
+            // the background must draw first or it replaces the far plane / ocean (the ocean ended at the far-plane
+            // circle, which a camera high above the sea relative to the model's far plane sees below the horizon).
+            if (auto* cubeMaterial = std::get<1>(gltfLayer->getResourceManager().getCubeMapTuple())) {
+                cubeMaterial->drawFirstInPass = groundSurface;
+            }
+
             // A3.6: the ground plane drawable, an Opaque-pass draw whose material carries this viewport's surface
             // and fog parameters (the draw reads them when it executes, viewports render one after another).
             // It is not in the reverse mapping, so the overlay depth and the picking passes never see it.
@@ -978,7 +985,7 @@ void Application::drawViewports(FrameContext& frame)
                 const auto& ground = vp->settings.ground;
                 const auto* camera = gltfLayer->getActiveCamera();
                 const float farPlane = std::max(camera->getZFarPlane(), 1.0e-3f);
-                const float visibility = ground.haze > 0.0f ? ground.haze : 0.9f * farPlane;
+                const float visibility = ground.hazeVisibility(farPlane, std::abs(cameraEye.y - groundHeight));
                 const float extinction = 3.912f / std::max(visibility, 1.0e-3f); // 98% fog at the visibility distance
                 const bool hasEnvironment = gltfLayer->getActiveEnvironmentMap() != nullptr;
                 const bool hazeFromEnvironment =

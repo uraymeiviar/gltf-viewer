@@ -176,7 +176,7 @@ void renderSceneGround(SceneEnvironmentState& env, SceneRevisions& revisions) {
                 revisions.mark(SceneChange::Environment);
             }
             if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Distance at which the plane has faded 98%% into the horizon colour. 0 = automatic (0.9 x far plane).");
+                ImGui::SetTooltip("Distance at which the plane has faded 98%% into the horizon colour. 0 = automatic (0.9 x far plane, at least 100 x the camera height).");
             }
             ImGui::TextDisabled("Lit by the environment (its own lower hemisphere) and the sun with shadows.");
         }

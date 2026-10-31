@@ -97,7 +97,7 @@ struct GroundSettings {
     float detail = groundPresets()[0].detail;
     float detailScale = groundPresets()[0].detailScale;
     float jointSpacing = groundPresets()[0].jointSpacing;
-    float haze = 0.0f;      // visibility distance of the horizon fog, scene units; 0 = automatic (0.9 x far plane)
+    float haze = 0.0f;      // visibility distance of the horizon fog, scene units; 0 = automatic (hazeVisibility)
     OceanSettings ocean;    // A6.8: used while mode is Ocean (the height fields above give its sea level)
 
     // Copies a preset's values into the surface fields (Custom leaves them as they are).
@@ -118,6 +118,19 @@ struct GroundSettings {
     // (docs/ASOBO_EXTENSIONS_PHASE_6.md) reads this as the ground albedo of its sky model.
     // A6.8: with the ocean it is the ocean's average albedo.
     glm::vec3 averageAlbedo() const { return mode == GroundMode::Ocean ? ocean.averageAlbedo() : albedo; }
+
+    // The horizon fog's visibility distance (2% contrast) for a camera cameraHeight above the surface: haze when set,
+    // else automatic: 0.9 x the far plane, but at least 100 camera heights. The plane and the ocean continue past the
+    // far plane to the horizon (depth 1), and the far plane follows the model's size (747 m for a 7 m cockpit), so a
+    // camera high above the surface saw it through a fog bank closer than the far plane: a featureless haze-coloured
+    // sea. 100 heights fogs only the last 0.6 degrees below the horizon; low cameras keep 0.9 x far.
+    float hazeVisibility(float farPlane, float cameraHeight) const
+    {
+        if (haze > 0.0f) return haze;
+        const float automatic = 0.9f * farPlane;
+        const float fromHeight = 100.0f * cameraHeight;
+        return fromHeight > automatic ? fromHeight : automatic;
+    }
 
     bool operator==(const GroundSettings&) const = default;
 };

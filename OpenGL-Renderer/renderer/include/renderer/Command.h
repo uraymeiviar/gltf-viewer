@@ -116,6 +116,8 @@ struct SortedCommand {
     // A1.4: ASOBO_material_draw_order, effective only for the transparent classes.
     DrawOrderClass drawOrderClass = DrawOrderClass::None;
     int drawOrderOffset = 0;
+    // Material::drawFirstInPass: OpaquePass moves it to the front after sorting, leaving the others in sorted order.
+    bool drawFirst = false;
 };
 
 using SortedCommands = std::vector<SortedCommand>;

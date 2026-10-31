@@ -105,7 +105,7 @@ void Application::setOceanUniforms(const ux3d::imgui::ViewportInstance& vp, ux3d
     // Horizon fog and environment as the ground plane (Viewports.cpp).
     const auto* camera = gltfLayer->getActiveCamera();
     const float farPlane = camera != nullptr ? std::max(camera->getZFarPlane(), 1.0e-3f) : 1000.0f;
-    const float visibility = ground.haze > 0.0f ? ground.haze : 0.9f * farPlane;
+    const float visibility = ground.hazeVisibility(farPlane, height); // the camera's height above the sea level
     const float extinction = 3.912f / std::max(visibility, 1.0e-3f);
     const bool hasEnvironment = gltfLayer->getActiveEnvironmentMap() != nullptr;
     const bool hazeFromEnvironment = hasEnvironment && ux3d::imgui::RenderQuality::allowSkybox(environment.showBackground);

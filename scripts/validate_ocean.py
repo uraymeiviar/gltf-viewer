@@ -24,6 +24,13 @@ Checks:
   * GPU cost: the Opaque pass with the ocean against the plane, per quality (median over 24 frames with the ocean
     animating), and the precompute time per quality (synchronous set) and the background recompute (slices against
     the 3 ms budget);
+  * runtime switching (the interactive path): a model opened without ground flags, then Ground -> Ocean, Height ->
+    Model base, Sun Source -> From HDR, HDR <-> procedural sky, the ocean sliders, Ocean -> Off, Plane -> Ocean, each
+    capture byte-identical to a fresh launch with the equivalent flags, through the pipe registry keys and through
+    the Scene Inspector widgets (--ui-script);
+  * horizon: a camera high above the sea relative to the far plane (which follows the model's size) sees the plane
+    and the ocean to the horizon (beyond the far plane they write depth 1; the background draws before them), the
+    same as with a 50 x far plane, HDR and procedural sky; the automatic haze is at least 100 camera heights;
   * zero GL errors.
 
 Run: python scripts/validate_ocean.py [--baseline-exe build/baselines/<sha>.exe] [--only a,b]
@@ -747,11 +754,229 @@ def check_ui():
     check(max((s["glErrors"] for s in snaps), default=-1) == 0, "UI script: 0 GL errors")
 
 
+# Runtime switching (the user's interactive path): a model opened without ground flags, then Ground -> Ocean, Height ->
+# Model base, Sun Source -> From HDR, HDR <-> procedural sky, ocean sliders, Ocean -> Off, Plane -> Ocean. Each step's
+# capture must be byte-identical to a fresh launch with the equivalent CLI flags, through the control pipe (registry
+# keys) and through the Scene Inspector widgets (--ui-script).
+RUNTIME_PINNED = ["--hide-grid", "--ocean-time", "5", "--ocean-quality", "high"]
+RUNTIME_SLIDERS = [("ocean_wind_speed", 10.4), ("ocean_choppiness", 0.9), ("ocean_swell", 0.2), ("ocean_foam", 0.5),
+                   ("ocean_period", 30), ("ocean_fetch", 100000)]
+
+
+def runtime_flags(state):
+    """The CLI flags of a runtime state {ground, height, sun, environment, sliders}."""
+    flags = list(RUNTIME_PINNED)
+    if state.get("ground", "off") != "off":
+        flags += ["--ground", state["ground"]]
+    if state.get("height"):
+        flags += ["--ground-height", state["height"].replace("_", "-")]
+    if state.get("sun"):
+        flags += ["--sun-source", state["sun"]]
+    if state.get("environment"):
+        flags += ["--environment", state["environment"]]
+    for key, value in state.get("sliders", []):
+        flags += ["--" + key.replace("_", "-"), str(value)]
+    return flags
+
+
+def runtime_steps():
+    """[(name, pipe edits, cumulative state)] for the pipe route."""
+    state, steps = {}, []
+    for name, edits in (("ocean", [("ground", "ocean")] + RUNTIME_SLIDERS),
+                        ("model_base", [("ground_height_mode", "model_base")]),
+                        ("sun_hdr", [("sun_source", "hdr")]),
+                        ("sky", [("environment", "sky")]),
+                        ("hdr", [("environment", "hdr")]),
+                        ("ocean_off", [("ground", "off")]),
+                        ("plane", [("ground", "plane")]),
+                        ("plane_ocean", [("ground", "ocean")])):
+        for key, value in edits:
+            if key == "ground":
+                state["ground"] = value
+            elif key == "ground_height_mode":
+                state["height"] = value
+            elif key == "sun_source":
+                state["sun"] = value
+            elif key == "environment":
+                state["environment"] = value
+            else:
+                state["sliders"] = [kv for kv in state.get("sliders", []) if kv[0] != key] + [(key, value)]
+        steps.append((name, edits, json.loads(json.dumps(state))))
+    return steps
+
+
+def check_runtime():
+    print("[Runtime switching = CLI launch: pipe registry keys and Scene Inspector widgets]")
+    model = hull_box(OUT / "hull_box.gltf")
+    # Pipe route.
+    steps = runtime_steps()
+    try:
+        session = Session(model, RUNTIME_PINNED)
+    except Exception as error:  # noqa: BLE001
+        check(False, f"pipe session started: {error}")
+        return
+    try:
+        for name, edits, _ in steps:
+            for key, value in edits:
+                try:
+                    session.set(key, value)
+                except glider_ctl.GliderError:
+                    session.call("set_environment", key=key, value=value)
+            session.call("capture", path=str(OUT / f"runtime_pipe_{name}.png"), settle_frames=24, overlays=False)
+        errors = session.close()
+        check(errors == 0, f"runtime pipe session: {errors} GL errors")
+    except Exception as error:  # noqa: BLE001
+        check(False, f"runtime pipe session failed: {error}")
+        session.process.kill()
+        return
+    for name, _, state in steps:
+        cli, _, _ = render(model, f"runtime_cli_{name}", runtime_flags(state))
+        check(cli is not None and same(cli, OUT / f"runtime_pipe_{name}.png"),
+              f"pipe {name}: runtime edits = CLI {' '.join(runtime_flags(state)[len(RUNTIME_PINNED):])} (byte-identical)")
+
+    # Scene Inspector route. Ground Type is a custom combo (keyboard navigation starts on Off); Sun Source and
+    # Environment Source are ImGui::Combo (it starts on the current item).
+    ui_common = ["--isolated", "--window-size", "1920x1080", "--fixed-frame-time", "0.05", "--vsync", "off", "--aa", "none"]
+    # Navigation starts on Off and Enter needs a navigated item: Off = down, up; Plane = down; Ocean = down, down.
+    ground = lambda index: (["clickp scene.ground.type 0", "wait 4"] + ["key down", "wait 2"] * max(index, 1) +
+                            (["key up", "wait 2"] if index == 0 else []) + ["key enter", "wait 4"])
+    combo = lambda tag, key: [f"clickp {tag} 0", "wait 4", f"key {key}", "wait 2", "key enter", "wait 4"]
+    # The wind speed slider by keyboard: from the Type combo down past Height, Enter opens its text input.
+    ui_steps = [("ocean", ground(2) + ["key down", "wait 2", "key down", "wait 2", "key enter", "wait 3", "key a ctrl",
+                                       "wait 1", "type 10.4", "wait 1", "key enter", "wait 4"],
+                 {"ground": "ocean", "sliders": [("ocean_wind_speed", 10.4)]}),
+                ("sun_hdr", combo("scene.sun.source", "down"), {"sun": "hdr"}),
+                ("sky", ["clickp scene.sun_time 0", "wait 6", "clickp scene.sky 0", "wait 6"] + combo("scene.sky.source", "down"), {"environment": "sky"}),
+                ("hdr", combo("scene.sky.source", "up"), {"environment": "hdr"}),
+                ("ocean_off", ground(0), {"ground": "off"}),
+                ("plane", ground(1), {"ground": "plane"}),
+                ("plane_ocean", ground(2), {"ground": "ocean"})]
+    commands = ["wait 24", "clickp hier.scene 0", "wait 8", "clickp scene.environment 0", "wait 6"]
+    for name, lines, _ in ui_steps:
+        commands += lines + [f"capture {(OUT / f'runtime_ui_{name}.png').as_posix()} 24", f"snap {name}"]
+    commands += [f"shot {(OUT / 'runtime_ui_final.png').as_posix()}", ""]
+    script, report = OUT / "runtime_ui.txt", OUT / "runtime_ui.json"
+    script.write_text("\n".join(commands), encoding="utf-8")
+    report.unlink(missing_ok=True)
+    for name, _, _ in ui_steps:
+        (OUT / f"runtime_ui_{name}.png").unlink(missing_ok=True)
+    result = run([EXE, model] + ui_common + RUNTIME_PINNED + ["--ui-script", script, "--ui-report", report], timeout=600)
+    (OUT / "runtime_ui.log").write_text(result.stdout + result.stderr, encoding="utf-8")
+    data = json.loads(report.read_text(encoding="utf-8")) if report.exists() else {}
+    check(result.returncode == 0 and not data.get("failed", True) and not data.get("errors"),
+          f"runtime UI script ran (exit {result.returncode}, failed {data.get('failed')}, errors {data.get('errors')})")
+    check(max((s["glErrors"] for s in data.get("snaps", [])), default=-1) == 0, "runtime UI script: 0 GL errors")
+    state = {}
+    for name, _, edits in ui_steps:
+        for key, value in edits.items():
+            state[key] = value
+        cli, _, _ = render(model, f"runtime_ui_cli_{name}", runtime_flags(state), common=ui_common)
+        ui = OUT / f"runtime_ui_{name}.png"
+        check(cli is not None and ui.exists() and same(cli, ui),
+              f"Scene Inspector {name}: UI edits = CLI {' '.join(runtime_flags(state)[len(RUNTIME_PINNED):])} "
+              f"(byte-identical)")
+
+
+def check_horizon():
+    """A camera high above the sea relative to the far plane (which follows the model's size: 100 x the fitted far
+    distance) sees the plane and the ocean to the horizon. Until the fix the background (depth 1, drawn after them in
+    the Opaque pass) replaced every ground pixel beyond the far plane, so the sea ended at the far-plane circle below the
+    horizon with the panorama's lower half (HDR) or the dark ground of the procedural sky above it, and the automatic
+    haze (0.9 x far plane) turned the whole visible sea into a featureless haze-coloured plane."""
+    print("[High camera: the ground reaches the horizon and the automatic haze is not a fog bank]")
+    import numpy as np
+    from PIL import Image
+    model = hull_box(OUT / "hull_box.gltf")
+    base = -1.0  # the hull box's lowest point: the model-base sea level
+    try:
+        # Manual exposure: the procedural sky's Auto meter counts depth < 1 as surface, so the reference far plane
+        # below would change the exposure. No sun shadows: the cascade splits follow the far plane, so the reference
+        # would also change the plane's shadow lookups in the last cascade (grazing light on the open plane).
+        session = Session(model, ["--hide-grid", "--ocean-time", "5", "--ocean-wind-speed", "10.4",
+                                  "--exposure-mode", "manual", "--shadows", "off"])
+    except Exception as error:  # noqa: BLE001
+        check(False, f"pipe session started: {error}")
+        return
+    images = {}
+    try:
+        cam = session.call("get_camera")
+        near, far = cam["near"], cam["far"]
+        height = 0.2 * far  # the far-plane circle lies 11 degrees below the horizon
+        eye = [0.0, base + height, 0.0]
+        target = [0.0, base + height - 0.1 * far, -0.3 * far]
+        session.call("set_camera", eye=eye, target=target, near=near, far=far)
+        actual = session.call("get_camera")
+        h = actual["eye"][1] - base
+        # Each surface with the model's far plane and with a reference far plane 50 x further (the band below is then
+        # inside it), the haze pinned to the same visibility: they must agree in the band beyond the model's far plane.
+        session.set("ground_haze", 100.0 * h)
+        for environment in ("hdr", "sky"):
+            session.call("set_environment", key="environment", value=environment)
+            for ground in ("plane", "ocean"):
+                session.set("ground", ground)
+                # The procedural sky's ground albedo follows the surface: wait until its cubes are re-filtered.
+                for _ in range(60):
+                    sky = session.call("get_state").get("sky") or {}
+                    if environment == "hdr" or (sky.get("refine") or {}).get("state") == "converged":
+                        break
+                    session.settle(10, "horizon_settle")
+                for name, f in (("far", far), ("reference", 50.0 * far)):
+                    session.call("set_camera", eye=eye, target=target, near=near, far=f)
+                    path = OUT / f"horizon_{environment}_{ground}_{name}.png"
+                    session.call("capture", path=str(path), settle_frames=12, overlays=False)
+                    images[(environment, ground, name)] = path
+        session.call("set_camera", eye=eye, target=target, near=near, far=far)
+        session.call("set_environment", key="environment", value="hdr")
+        session.set("ground", "ocean")
+        for name, haze in (("auto", 0.0), ("height", 100.0 * h), ("far", 0.9 * actual["far"])):
+            session.set("ground_haze", haze)
+            path = OUT / f"horizon_haze_{name}.png"
+            session.call("capture", path=str(path), settle_frames=12, overlays=False)
+            images[("haze", name)] = path
+        vp = session.call("get_state")["viewports"][0]
+        camera = Camera({"camera": {"eye": actual["eye"], "target": actual["target"], "up": actual["up"],
+                                    "fovY": actual["fovY"], "viewport": [vp["width"], vp["height"]]}})
+        errors = session.close()
+        check(errors == 0, f"horizon session: {errors} GL errors")
+    except Exception as error:  # noqa: BLE001
+        check(False, f"horizon session failed: {error}")
+        session.process.kill()
+        return
+    # The image rows of the horizon and of the far-plane circle along the centre column.
+    fh = [camera.f[0], 0.0, camera.f[2]]
+    length = math.hypot(fh[0], fh[2])
+    fh = [fh[0] / length, 0.0, fh[2] / length]
+    _, y_horizon = camera.project([camera.eye[0] + fh[0] * 1.0e7, base, camera.eye[2] + fh[2] * 1.0e7])
+    d = (actual["far"] - (base - camera.eye[1]) * camera.f[1]) / (fh[0] * camera.f[0] + fh[2] * camera.f[2])
+    _, y_far = camera.project([camera.eye[0] + fh[0] * d, base, camera.eye[2] + fh[2] * d])
+    top, bottom = int(math.ceil(y_horizon)) + 3, int(math.floor(y_far)) - 3
+    check(bottom - top >= 40, f"the band between the horizon (row {y_horizon:.0f}) and the far-plane circle "
+                              f"(row {y_far:.0f}) spans {bottom - top} rows")
+    for environment in ("hdr", "sky"):
+        for ground in ("plane", "ocean"):
+            img, ref = (np.asarray(Image.open(images[(environment, ground, n)]).convert("RGB")).astype(int)
+                        for n in ("far", "reference"))
+            w = img.shape[1]
+            band = np.abs(img[top:bottom, w // 4:3 * w // 4] - ref[top:bottom, w // 4:3 * w // 4]).max(axis=2)
+            mean = float(band.mean())
+            check(mean < 1.0, f"{environment} {ground}: beyond the far plane the surface reaches the horizon (band above "
+                              f"the far-plane circle = reference far plane x 50: mean difference {mean:.2f}, "
+                              f"{float((band > 8).mean()):.1%} of its pixels differ by more than 8)")
+    auto, by_height, by_far = (np.asarray(Image.open(images[("haze", n)]).convert("RGB")).astype(int)
+                               for n in ("auto", "height", "far"))
+    diff_height = float(np.abs(auto - by_height).mean())
+    diff_far = float(np.abs(auto - by_far).mean())
+    check(diff_height < 0.2, f"automatic haze = 100 x the camera height above the sea ({100 * h:.0f} units; mean "
+                             f"difference {diff_height:.3f})")
+    check(diff_far > 5.0, f"automatic haze is not the 0.9 x far plane fog bank of a high camera (mean difference "
+                          f"{diff_far:.1f})")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--baseline-exe", default=str(REPO / "build" / "baselines" / "7d5a091.exe"))
     parser.add_argument("--only", default=None, help="comma-separated: baseline,loop,registry,registry_b,live,energy,foam,shadow,ui,nocompute,depth,"
-                                                  "interior,cost")
+                                                  "interior,cost,runtime,horizon")
     args = parser.parse_args()
     only = set(args.only.split(",")) if args.only else None
 
@@ -785,6 +1010,10 @@ def main():
         check_interior()
     if wanted("cost"):
         check_cost()
+    if wanted("runtime"):
+        check_runtime()
+    if wanted("horizon"):
+        check_horizon()
     print("[GL errors]")
     bad = [name for name, log in gl_logs if not gl_errors_zero(log)]
     check(not bad, f"zero GL errors in {len(gl_logs)} renders {bad if bad else ''}")

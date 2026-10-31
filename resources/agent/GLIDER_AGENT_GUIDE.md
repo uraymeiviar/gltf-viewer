@@ -243,7 +243,8 @@ compatibility override. Lens intensity is Quality, default 1; modes preserve off
 
 - `set_viewport_setting ssao_level low|mid|high` enables Quality SSAO (GTAO), off disables it. The older
   `set_environment ssao true` / `set_viewport_setting ssao true` set the same global enable bit. The deprecated
-  `viewport_ssao` key warns and does nothing. Shaded omits SSAO for one view. It darkens only the sky light
+  `viewport_ssao` key warns and does nothing. Shaded omits SSAO for one view. Preset defaults: Low off, Mid low,
+  High mid, Ultra high (Auto targets Ultra); `--isolated` and capture launches apply no preset and start with it off. It darkens only the sky light
   (IBL diffuse, specular, sheen, clearcoat) of OPAQUE
   and MASK surfaces, combined with the authored occlusion maps as `min(authored, SSAO)`; the sun, punctual lights,
   emissive, BLEND / transmission surfaces, the background and the A3.6 ground plane are never changed by it.

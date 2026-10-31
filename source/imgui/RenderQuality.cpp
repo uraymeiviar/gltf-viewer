@@ -67,6 +67,10 @@ QualityProfile defaultProfile(int index)
     p.render.shadowResolution = index <= 1 ? 1024 : 2048;
     p.render.shadowCascades = index == 0 ? 2 : (index == 3 ? 4 : 3);
     p.render.shadowFilter = index == 0 ? ShadowFilter::Hard : (index == 3 ? ShadowFilter::Soft : ShadowFilter::Pcf);
+    // A3.5 SSAO (maintainer's choice, 2026-10-31): Low off, Mid low, High mid, Ultra high. Low keeps the retained
+    // budget (mid) for a later switch on. Capture and test launches do not apply a profile and keep SSAO off.
+    p.render.ssaoEnabled = index >= 1;
+    if (index >= 1) p.render.ssaoQuality = index - 1;
     if (index == 0) {
         p.render.textureMaxSize = 512; p.skybox = p.render.iblEnabled = false;
         p.render.gridMode = GridMode::PlaneMesh;

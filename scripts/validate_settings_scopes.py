@@ -192,7 +192,11 @@ def check_baseline(baseline, quads, ssr):
                                  "--sky-time-slicing", "off", "--aa", "none"]),
         "ocean": (None, ["--ground", "ocean", "--ocean-quality", "low", "--ocean-time", "3", "--aa", "none"]),
         "preset_low": (None, ["--quality-preset", "low"]),
-        "preset_ultra": (quads, QUAD_VIEW + ["--quality-preset", "ultra"]),
+        # SSAO became a preset default (2026-10-31: Low off, Mid low, High mid, Ultra high; the baseline's presets had it
+        # off): preset_ultra compares the other Ultra values with SSAO off on both sides, preset_ultra_ssao the new
+        # default against the baseline's Ultra with SSAO high asked for explicitly (BASELINE_EXTRA).
+        "preset_ultra": (quads, QUAD_VIEW + ["--quality-preset", "ultra", "--ssao", "off"]),
+        "preset_ultra_ssao": (quads, QUAD_VIEW + ["--quality-preset", "ultra"]),
         # glTF extension switches (now an app setting): the same flags render like the baseline's per-viewport switches.
         "asobo_off_ssr": (ssr, SSR_VIEW + ["--asobo", "off"]),
         "asobo_disable_ssr": (ssr, SSR_VIEW + ["--asobo-disable", "ASOBO_material_windshield_v3"]),
@@ -202,15 +206,25 @@ def check_baseline(baseline, quads, ssr):
                                                   "ASOBO_material_blend_gbuffer"]),
         "asobo_invisible": (quads, QUAD_VIEW + ["--show-invisible-materials"]),
     }
+    baseline_extra = {"preset_ultra_ssao": ["--ssao", "on", "--ssao-quality", "high"]}
+    # The SUN cases look over the ground plane to its horizon. Since the ocean/horizon fix (2026-10-31) the plane
+    # continues past the far plane (the background no longer replaces it there): a 4-row band at the plane's horizon
+    # differs from the baseline by design (validate_ocean.py horizon checks it). These cases are about sun, SSAO and
+    # shadows, so both sides draw them with the background off (clear colour; the environment still lights the scene),
+    # where both binaries draw the plane past the far plane.
+    background_off = {"sun_ground", "ssao", "ssao_default", "shadows_off", "shadow_tuning"}
     for name, (model, flags) in cases.items():
         current_flags = flags + (["--clear-color", "0.12,0.12,0.14"] if name == "preset_low" else [])
+        if name in background_off:
+            current_flags = current_flags + ["--clear-color", "0.3,0.35,0.4"]
         # The baseline is 69cf29b or later (three settings layers): same window and flags on both sides.
         window = None
         current = cli_capture(EXE, model, f"base_cur_{name}", current_flags, show_grid=name == "default_startup_grid",
                               window=window)
-        reference = cli_capture(baseline, model, f"base_ref_{name}", current_flags,
+        reference = cli_capture(baseline, model, f"base_ref_{name}", current_flags + baseline_extra.get(name, []),
                                 show_grid=name == "default_startup_grid")
-        check(current is not None and same(current, reference), f"{name}: {' '.join(flags) or '(no flags)'}")
+        extra = f" (baseline + {' '.join(baseline_extra[name])})" if name in baseline_extra else ""
+        check(current is not None and same(current, reference), f"{name}: {' '.join(flags) or '(no flags)'}{extra}")
         if name in {"default_cube", "default_startup_grid", "preset_ultra", "preset_low"}:
             REVIEW.mkdir(parents=True,exist_ok=True)
             if current: shutil.copyfile(current, REVIEW/f"{name}_after.png")
@@ -524,17 +538,19 @@ def check_persistence(quads):
         session.vset("reflections","high")
         check(ini.read_text(encoding="utf-8") == before, "session edit does not save")
         session.call("set_persist",enabled=True)
-        session.vset("ssao_level","high")
+        # SSAO is on in the presets since 2026-10-31 (Mid low; this fixture's saved profile1.ssaoQuality=2 makes it
+        # high): off is the value that overrides the selected preset now (it was high while presets had SSAO off).
+        session.vset("ssao_level","off")
         session.vset("msaa","0")
         session.vset("interior_sky_reflection",0.2)
         session.vset("decal_tolerance_mm",2.5)
         check(session.close() == 0, "migration session: zero GL errors")
         saved = ini.read_text(encoding="utf-8")
         check("msaaIdx=0" in saved, "MSAA Off is persisted when it overrides the selected preset's nonzero MSAA")
-        check("[GltfExtensions]" in saved and "decal_tolerance_mm=2.5" in saved and "ssaoEnabled=1" in saved, "only canonical non-default values saved")
+        check("[GltfExtensions]" in saved and "decal_tolerance_mm=2.5" in saved and "ssaoEnabled=0" in saved, "only canonical non-default values saved")
         session = Session(quads,QUAD_VIEW,env_extra=env,isolated=False)
         q = session.call("get_state")["quality"]["configured"]
-        check(q["reflections"] == "off" and q["ssaoLevel"] == "high" and q["shadowMap"] == 0, "restart restores persisted Quality, not session SSR edit")
+        check(q["reflections"] == "off" and q["ssaoLevel"] == "off" and q["shadowMap"] == 0, "restart restores persisted Quality, not session SSR edit")
         check(abs(session.call("get_viewport_setting",key="interior_sky_reflection")["value"]-0.2)<1e-6 and
               session.call("get_viewport_setting",key="decal_tolerance_mm")["value"] == 2.5, "ASOBO tuning survives restart")
         session.close()
@@ -548,7 +564,7 @@ def check_persistence(quads):
               session.call("get_viewport_setting",key="decal_tolerance_mm")["value"] == 2.5,
               "unrelated save never persists CLI SSR/vendor overrides")
         session.call("set_persist",enabled=True)
-        for key,value in (("ssao_level","off"),("interior_sky_reflection",0.5),("decal_tolerance_mm",1.2),("lens_flare_intensity",1)):
+        for key,value in (("ssao_level","high"),("interior_sky_reflection",0.5),("decal_tolerance_mm",1.2),("lens_flare_intensity",1)):
             session.vset(key,value)
         session.eset("ground","plane")
         session.eset("ssao_radius",0.7)

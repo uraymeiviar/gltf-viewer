@@ -16,7 +16,8 @@ Low, Mid, High and Ultra carry every cost setting. Auto targets editable Ultra a
 stages as before. Explicit AA, reflection, shadow and IBL budget edits pin their groups for the session.
 
 * Reflections (SSR) off / low / mid / high. Non-off enables the ASOBO windshield reflection too.
-* SSAO off / low / mid / high; half / full resolution shown only while enabled.
+* SSAO off / low / mid / high; half / full resolution shown only while enabled. Preset defaults: Low off, Mid low,
+  High mid, Ultra high (launches that apply no profile, such as captures and `--isolated`, keep it off).
 * Shadow map off / 1024 / 2048 / 4096. Non-off means an enabled sun casts shadows. Cascades, distance, filter,
   split lambda and biases shown only while enabled; each profile carries tuning too.
 * IBL cube off / 256 / 512 / 1024. Irradiance (32 / 64 / 128 / 256 / full cube), LUT, samples and precision shown
