@@ -95,7 +95,7 @@ void ux3d::renderer::gl::Uniform::commit(GL* gl, const UniformBinding& binding) 
 
     case gl::PrimitiveType::BoolVec4:
     case gl::PrimitiveType::UnsignedIntVec4:
-        gl->uniform3uiv(binding.location, m_count, uints);
+        gl->uniform4uiv(binding.location, m_count, uints);
         break;
 
     case gl::PrimitiveType::FloatMat2:
