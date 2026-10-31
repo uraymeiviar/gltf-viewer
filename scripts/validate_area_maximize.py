@@ -322,6 +322,8 @@ def check_pipe_maximize():
         vp1 = session.call("get_state")["viewports"][0]
         check(abs(vp1["width"] - round(dock[2] * scale)) <= 1 and vp1["width"] > vp0["width"],
               f"the viewport renders at the new size ({vp0['width']}x{vp0['height']} -> {vp1['width']}x{vp1['height']})")
+        check(vp1["height"] < round(dock[3] * scale) - 20,
+              f"the maximized viewport keeps its toolbar ({vp1['height']} px image in a {dock[3]} px area)")
         maximized = REVIEW / "pipe_maximized_viewport.png"
         cap1 = session.call("capture", path=str(maximized), settle_frames=6)
         check((cap1["width"], cap1["height"]) == (vp1["width"], vp1["height"]) and pixels(maximized)[0] == (vp1["width"], vp1["height"]),
@@ -366,6 +368,8 @@ def check_pipe_maximize():
               near(reply["targetRect"], reply["dockRect"]), "no menu or status bar, the viewport fills the screen")
         vpf = session.call("get_state")["viewports"][0]
         check(abs(vpf["width"] - round(monitor[2] * scale)) <= 1, f"the viewport renders at the screen width ({vpf['width']}x{vpf['height']})")
+        check(abs(vpf["height"] - round(monitor[3] * scale)) <= 1,
+              f"no viewport toolbar in full screen: the image is the screen height ({vpf['height']} = {monitor[3]} px)")
         session.call("capture", path=str(REVIEW / "pipe_fullscreen_viewport.png"), settle_frames=6)
         reply = session.call("toggle_fullscreen", state=False)
         check(not reply["fullscreen"] and not reply["maximized"] and reply["decorated"] and

@@ -220,8 +220,8 @@ Implemented in [`CameraActor.cpp`](file:///H:/git-repos/gltf-viewer/source/rende
     size and returns to its old size (byte-identical image) after the restore. Showing/closing a panel, closing the
     maximized window or creating a viewport while maximized restores first; Reset Layout drops the snapshot.
   - **`Ctrl + Alt + Space` — Full Screen** (Blender "Toggle Fullscreen Area"): the window becomes borderless and covers
-    the monitor it is on (largest overlap), the area under the mouse is maximized and the menu bar, status bar and tab bar
-    are hidden. `Ctrl + Alt + Space` again or `Esc` (no popup open) returns to the windowed position/size/maximized state
+    the monitor it is on (largest overlap), the area under the mouse is maximized and the menu bar, status bar, tab bar
+    and a viewport's toolbar are hidden (Maximize Area keeps the viewport toolbar). `Ctrl + Alt + Space` again or `Esc` (no popup open) returns to the windowed position/size/maximized state
     and the previous layout. Chosen over `glfwSetWindowMonitor`: no display-mode change, the GL context and ImGui backend
     are untouched, and the window does not iconify on focus loss (Alt+Tab, other monitors, no-focus harness runs).
     Maximized then full screen returns to the maximized area; `Ctrl + Space` in full screen leaves full screen and keeps the

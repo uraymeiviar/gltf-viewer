@@ -286,7 +286,8 @@ void Application::drawViewports(FrameContext& frame)
             continue;
         }
 
-        drawViewportToolbar(vp.get());
+        // Full screen shows the bare image (Esc / Ctrl+Alt+Space leave it); a maximized area keeps the toolbar.
+        if (!area.fullscreen) drawViewportToolbar(vp.get());
 
         ImVec2 viewportPos = ImGui::GetCursorScreenPos();
         ImVec2 viewportSize = ImGui::GetContentRegionAvail();

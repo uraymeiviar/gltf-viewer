@@ -233,7 +233,7 @@ Nodes are addressed by name (exact, then case-insensitive, then unique substring
 | `open_model(path, without_textures?)` | multi-frame | Open a model; replies when the first model frame is ready, with load timings. |
 | `validate` | immediate | Validation summary and issues (same engine as the Validation panel). |
 | `toggle_maximize_area(target?, state?)` | multi-frame | Maximize Area (`Ctrl+Space`): `target` = `viewport[:<id>]`, `inspector`, `hierarchy`, `resources`, `logger`, `statistics`, `validation`, `mouse` (default), `focused` or a window name; replies with `get_state.area` once applied. |
-| `toggle_fullscreen(target?, state?)` | multi-frame | Full Screen (`Ctrl+Alt+Space`): borderless window over its monitor, no menu/status/tab bar; leaving restores window and layout. |
+| `toggle_fullscreen(target?, state?)` | multi-frame | Full Screen (`Ctrl+Alt+Space`): borderless window over its monitor, no menu/status/tab bar or viewport toolbar; leaving restores window and layout. |
 | `open_dropped(paths)` | multi-frame | Simulates a file drop (the GLFW drop callback's queue): the first `.gltf`/`.glb` opens like File > Open, the rest is logged as ignored; replies after the model rendered. |
 | `get_layout` | immediate | The docking layout ini text, live and persisted (the pre-maximize layout while maximized). |
 
