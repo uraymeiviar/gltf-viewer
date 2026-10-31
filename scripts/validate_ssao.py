@@ -1,6 +1,10 @@
 # Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
 """A3.5: screen-space ambient occlusion of the sky light (docs/ASOBO_EXTENSIONS_PHASE_3.md, A3.5).
 
+The comparisons below whose baseline side is HelloCube's or an E195 reference view's default render (and their
+"settings changed while off" variants) run in validate_defaults.py, which renders those views once per binary
+and prefixes the original wording with this suite's name.
+
 GTAO from the A2.1 prepass depth and normal, computed per viewport before the opaque pass (full or half resolution,
 depth-aware denoise and upsample), applied in pbr.frag to the IBL diffuse / specular / sheen / clearcoat of OPAQUE
 and MASK surfaces as min(authored occlusion, SSAO). The debug view `ssao` shows the raw visibility (8-bit level =
@@ -207,14 +211,7 @@ def check_baseline(baseline, uniform, box):
         return
     base_box, _ = render(box, "base_box", flags, exe=baseline)
     check(base_box is not None and same(base_box, a), f"box: default is byte-identical to {baseline.stem}")
-    base_cube, _ = render(None, "base_hellocube", [], exe=baseline)
-    cur_cube, _ = render(None, "cur_hellocube", [])
-    check(base_cube is not None and same(base_cube, cur_cube), f"HelloCube: default is byte-identical to {baseline.stem}")
-    for name in ("exterior_fuselage_nose", "cockpit_main_displays"):
-        entry = view(name)
-        a = render_view(baseline, entry, f"base_{name}", folder=OUT)
-        b = render_view(EXE, entry, f"cur_{name}", folder=OUT)
-        check(a is not None and same(a, b), f"{name}: default is byte-identical to {baseline.stem}")
+    # HelloCube and the E195 reference views: validate_defaults.py (shared default views).
 
 
 def check_box(uniform, box, plane):

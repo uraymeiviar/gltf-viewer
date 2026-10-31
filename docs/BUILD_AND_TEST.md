@@ -64,7 +64,8 @@ python scripts/run_regression.py --tier full
   `--no-cache` starts every baseline launch.
 - **Tiers**: `--tier full` runs every suite (one full run per commit for broad changes; about 34 minutes on the
   CPU-limited maintainer setup, 12 of 24 cores, `--jobs 1`). The **quick tier** (default) runs the **core** —
-  `p8_1`, `p4_exit_gate`, `asobo_common` and the self-checks: 139 s warm, 233 s with a cold baseline cache — plus the suites that the changed
+  `p8_1`, `p4_exit_gate`, `asobo_common`, `defaults` (about 57 s) and the self-checks; 139 s warm before
+  `defaults` joined, 288 s measured with `p8_1`'s baseline cold — plus the suites that the changed
   files **trigger**. Changed files are `git diff --name-only HEAD` plus untracked files under `source/`, `header/`,
   `resources/`, `OpenGL-Renderer/` and `scripts/`; `--changed a,b` replaces them (`--changed ""`: nothing changed).
   The trigger table is `TRIGGERS` in `run_regression.py` (file-name globs per suite group: picking/instancing,
@@ -88,8 +89,19 @@ python scripts/run_regression.py --tier full
 - **Self-checks**: revision, blend, aa-target, cache-invalidation, compute, sampler, VAO, polygon-mode,
   cull/winding and depth; all but cache-invalidation and compute also run with `--selfcheck-force-failure`, which
   must exit 1 with a report.
-- **`--tier full`** adds each feature's same-binary A/B switch, `validate_p5_1.py`, and `validate_p8_5.py`'s
-  10,000-drawable and MSAA/TAA picking cases.
+- **`--tier full`** adds each feature's same-binary A/B switch (for `validate_p8_5.py` also `--always-pick` on the
+  former P5.1 cases) and `validate_p8_5.py`'s 10,000-drawable and MSAA/TAA picking cases.
+- **Shared defaults suite** (`validate_defaults.py`, core): renders HelloCube (1280x720, AA none) and the E195
+  `exterior_fuselage_nose` / `cockpit_main_displays` reference views once per binary and runs every comparison
+  that sun, shadows, ground, ssao, time_of_day, sky, sun_disk, night, ambient, sky_occlusion, ocean, sun_source and
+  asobo_sky_portal made against those baseline renders — including their "settings changed while the feature is
+  off" variants, rendered with the suite's own helper and flags — with the same wording prefixed by the suite name
+  (`FAIL night: HelloCube (night_settings): byte-identical to <baseline>`). Those suites no longer render them;
+  comparisons against any other baseline render (fixtures, sun or plane on, procedural sky, explicit
+  `--environment hdr` in `validate_emissive_units.py`) stay in the suite.
+- **`validate_p5_1.py` is superseded** (not registered): its candidate counters — no unserved click, one picking
+  render per viewport click, no picking render on idle frames — plus the focus double-click, resize clicks,
+  split-viewport node check and `--always-pick` A/B run in `validate_p8_5.py`.
 - **Per-suite summary**: the run ends with each suite's wall time and Glider launches (current build, baseline,
   baseline served from the cache, baseline started, repeated argument sets, control-pipe/follow sessions and their
   summed seconds), slowest first, and writes `build/regression/summary.json` (with the candidate and why each suite
@@ -100,7 +112,8 @@ python scripts/run_regression.py --tier full
   each baseline launch wrote in `build/regression_cache/<key>/` and replays it on the next run instead of starting
   the baseline. It applies to every executable under `build/baselines/` and never to the current build or to
   control-pipe sessions (`Popen`). The key is the SHA-256 of the executable, the working directory and exact
-  argument list, the content of every argument that names a file (models and every file a model names through a
+  argument list (an output path counts only by position and suffix, so the same launch writing elsewhere shares
+  the key; a replay copies the files to the new paths and rewrites the stored paths in reports and stdout), the content of every argument that names a file (models and every file a model names through a
   `uri`, HDRs, UI scripts and the files their `reload` lines load), the `GLIDER_*` and graphics-driver environment
   variables plus any variable the harness changed, the display adapters' driver versions, system DPI and screen
   size, and how stdout/stderr are captured. Any change is a miss. The value is the output files (`--capture-viewport`,
@@ -109,8 +122,19 @@ python scripts/run_regression.py --tier full
   writes something else (benchmark, idle stats, loading series, self-checks), `--search-path` or another directory
   argument, a model URI that does not resolve, UI scripts with commands outside the known set or keyboard shortcuts
   (clipboard), or uncaptured output. A result is stored only after exit code 0, with every output rewritten and the
-  executable and inputs unchanged. Entries whose executable is gone or changed are pruned at the start of each run;
-  `GLIDER_RENDER_CACHE=0` (or `--no-cache`) turns the cache off.
+  executable and inputs unchanged. Entries whose executable is gone or changed, and the entries of all but the 4
+  most recently used executables (`GLIDER_HARNESS_CACHE_EXES`), are pruned at the start of each run;
+  `GLIDER_RENDER_CACHE=0` (or `--no-cache`) turns the cache, the memo and seeding off.
+- **In-run memo** (current build): within one `run_regression.py` invocation, a candidate launch that the cache
+  rules accept (same eligibility, same key, which holds the candidate's SHA-256) is stored in
+  `build/regression_memo/run-<pid>-<time>/`; an identical launch later in the run, in any suite, replays it. The
+  directory is deleted when the run ends, so nothing crosses invocations or executables. A check that launches the
+  same arguments twice to prove determinism (ocean's clock and live runs, sun's default-HDR detection) wraps the
+  second launch in `harness_process.fresh()`. The summary's `memo` column counts replays; `--no-memo` turns it off.
+- **Baseline seeding**: each stored memo entry is also copied to `build/regression_cache/` under its key, marked
+  seeded, unless an entry exists (not with `GLIDER_CANDIDATE_EXE`). `save_baseline.py` copies the same bytes after
+  the commit, so the first run against the new baseline replays them (`seed` column, log `hit, seed`) instead of
+  starting the baseline; the entry then becomes an ordinary baseline entry. A rebuilt exe simply misses.
 - **Harness helpers**: `scripts/glider_harness.py` holds the pieces harnesses share (baseline lookup, `run`,
   `capture`, `start_pipe_session`, `gl_errors_zero`, `read_json`, `digest`/`same`, `viewport_sha`); its docstring lists
   the API. Launches go through `harness_process`, so new harnesses get the focus rules and the cache by using it.

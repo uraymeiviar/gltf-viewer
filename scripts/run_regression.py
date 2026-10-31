@@ -3,17 +3,18 @@
 
 Usage:
   python scripts/run_regression.py                  # quick tier (core + suites triggered by the diff), baseline of HEAD
-  python scripts/run_regression.py --tier full      # every suite, each feature's A/B switch and validate_p5_1.py
+  python scripts/run_regression.py --tier full      # every suite and each feature's A/B switch
   python scripts/run_regression.py --plan           # print the selected suites and why, launch nothing
   python scripts/run_regression.py --plan --changed resources/shaders/ssao.glsl   # selection for these paths
   python scripts/run_regression.py --baseline build/baselines/23f61c6.exe --extra=--show-invisible-materials
   python scripts/run_regression.py --extra=--asobo --extra=off   # uncommitted work that changes ASOBO rendering
   python scripts/run_regression.py --only sun,sky                 # a subset of the tier (suite names as printed)
-  python scripts/run_regression.py --no-cache                     # start every baseline launch (cold timing)
+  python scripts/run_regression.py --no-cache                     # start every launch (cold timing; no memo, no seeding)
+  python scripts/run_regression.py --no-memo                      # the candidate's repeated launches start again
   GLIDER_CANDIDATE_EXE=build/baselines/474b81c.exe python scripts/run_regression.py --only ocean   # other candidate
 
 Tiers. The full tier runs every suite. The quick tier runs the core suites (CORE: p8_1, p4_exit_gate,
-asobo_common and the self-checks) plus the suites the changed files trigger (TRIGGERS below). Changed
+asobo_common, defaults and the self-checks) plus the suites the changed files trigger (TRIGGERS below). Changed
 files are `git diff --name-only HEAD` plus untracked files under source/, header/, resources/,
 OpenGL-Renderer/ and scripts/ (or the --changed list). docs/, scratch/, legacy/, Markdown outside
 resources/ and top-level files other than CMakeLists.txt are ignored. A suite also runs when its own
@@ -33,9 +34,23 @@ Baseline render cache: scripts/harness_process.py stores what each baseline laun
 reports, UI-script shots, stdout/stderr) under build/regression_cache/, keyed by the baseline's SHA-256,
 the exact arguments, the content of every input file (models and the files they name, HDRs, UI
 scripts), render-relevant environment variables and the machine's display drivers/DPI. A warm run
-replays those instead of starting the baseline; the current build always renders. Stale entries (exe
-gone or changed) are pruned at the start of each run. Shared helpers for harnesses are in
-scripts/glider_harness.py.
+replays those instead of starting the baseline. Output paths are not part of the key (their position and
+suffix are); a replay writes the stored files to the launch's own paths and rewrites the stored paths in
+text outputs and stdout/stderr. Stale entries (exe gone or changed) and the entries of all but the 4 most
+recently used executables ($GLIDER_HARNESS_CACHE_EXES) are pruned at the start of each run. Shared helpers
+for harnesses are in scripts/glider_harness.py.
+
+In-run memo: within one invocation, a candidate launch whose output the cache rules call deterministic
+(the same eligibility as the baseline cache) is stored in build/regression_memo/run-<pid>-<time>/ under the
+same kind of key (it holds the candidate's SHA-256); an identical launch later in the run (another suite's
+copy of the same view) replays it ("memo hit"). The directory is deleted when the run ends, so nothing
+crosses invocations or executables. Harness checks that launch the same arguments twice to prove
+determinism wrap the second launch in harness_process.fresh(). --no-memo turns it off.
+
+Baseline seeding: each stored memo entry is also copied into build/regression_cache/ under its key
+("seeded") when no entry is there yet and GLIDER_CANDIDATE_EXE is not set. After the commit,
+save_baseline.py copies the same Glider.exe to build/baselines/<sha>.exe; the SHA-256 is the same, so the
+first run against that baseline replays the seeded entries ("hit, seed") instead of a cold baseline.
 
 At the end the run prints each suite's wall time and Glider launches (current build, baseline,
 baseline served from the cache, baseline started, repeated argument sets, control-pipe/follow sessions
@@ -53,6 +68,9 @@ Suites (equivalence against the baseline plus each feature's analytic acceptance
                        wireframe and alpha masks
   validate_p8_followup.py --only traversal: three TAA viewports sharing one scene traversal
   validate_p4_exit_gate.py  every UI producer of a scene revision
+  validate_defaults.py the shared default views (HelloCube, E195 exterior and cockpit) once per binary against the
+                       baseline, plus every suite's comparison of them (and its "settings while off" variants),
+                       prefixed with the suite name
   the built-in self-checks (last): revision, blend, aa-target, cache-invalidation, compute, sampler, vao,
   polygon-mode, cull-winding and depth; all but cache-invalidation and compute also run with
   --selfcheck-force-failure, which must exit 1 with a report (the contracts of the retired P3.x/P4.1 scripts)
@@ -93,9 +111,10 @@ Suites (equivalence against the baseline plus each feature's analytic acceptance
   validate_settings_scopes.py (Quality levels / scene appearance and shared ground / viewport Shaded and overlays:
   legacy flags against the baseline, CLI = pipe, migration/restart, shared ocean, UI ID conflicts)
 Full tier: every suite above, plus
-  --with-ab (each feature against its own switch), validate_p5_1.py against the baseline, and
-  validate_p8_5.py's 10,000-drawable grid and MSAA/TAA fixture copies (the quick tier passes --quick).
-Window screenshots (p8_1, p8_3, p8_5, p5_1) are compared byte for byte on the viewports' 3D image only
+  --with-ab (each feature against its own switch; validate_p8_5.py then also runs the P5.1 cases with
+  --always-pick) and validate_p8_5.py's 10,000-drawable grid and MSAA/TAA fixture copies (the quick tier passes
+  --quick). validate_p5_1.py is superseded: its on-demand picking counters run in validate_p8_5.py.
+Window screenshots (p8_1, p8_3, p8_5) are compared byte for byte on the viewports' 3D image only
 (glider_harness.viewport_sha: below the menu bar, viewport tabs and viewport toolbar, between the side
 panels, above the status bar), so changes to the toolbar or the panels do not fail render checks; the
 toolbar and panels are covered by validate_p4_exit_gate.py.
@@ -139,7 +158,7 @@ FIXTURES = (("build/p8/fixtures/many_1600.gltf", "40", "none"), ("build/p8/fixtu
 # Core suites run in every quick tier: they answer "did any image change" on real assets in every AA mode
 # (p8_1), every UI producer and panel (p4_exit_gate), ASOBO on/off and per switch on the E195 (asobo_common)
 # and the GL contracts of the self-checks.
-CORE = ("p8_1", "p4_exit_gate", "asobo_common") + SELFCHECKS
+CORE = ("p8_1", "p4_exit_gate", "asobo_common", "defaults") + SELFCHECKS
 # Paths that select every suite. A pattern without "/" matches the file name, one with "/" the whole
 # repository-relative path; fnmatch, case-insensitive, "*" also crosses "/".
 BROAD = ("pbr.frag", "primitive.vert", "ibl.glsl", "brdf.glsl", "Application.cpp", "Application.h",
@@ -151,7 +170,7 @@ ASOBO_SUITES = ("asobo_model", "asobo_normal", "asobo_support", "asobo_draworder
                 "texture_ktx2")
 # (suites, path patterns), docs/BUILD_AND_TEST.md section 4.5; every pattern matches files in the tree.
 TRIGGERS = (
-    (("p8_3", "p8_5", "p8_followup", "p5_1"),
+    (("p8_3", "p8_5", "p8_followup"),
      ("OpenGL-Renderer/renderer/*Command*", "GltfRenderLayer*", "Viewports.cpp", "DiagnosticsPicking.cpp",
       "picking.frag", "PickingRenderLayer.*", "TransformHierarchy*", "SceneRevisions.*",
       "generate_many_drawables_fixture.py")),
@@ -272,7 +291,10 @@ parser.add_argument("--baseline", help="reference binary (default: build/baselin
 parser.add_argument("--jobs", type=int, default=3, help="harnesses run at the same time")
 parser.add_argument("--extra", action="append", default=[], help="extra Glider argument passed to both binaries")
 parser.add_argument("--no-cache", action="store_true",
-                    help="start every baseline launch (GLIDER_RENDER_CACHE=0); the cache is neither read nor written")
+                    help="start every launch (GLIDER_RENDER_CACHE=0): the cache is neither read nor written, no memo, "
+                         "no seeding")
+parser.add_argument("--no-memo", action="store_true",
+                    help="no in-run memo of the candidate's launches (and therefore no baseline seeding)")
 parser.add_argument("--only", help="comma-separated suite names to run (default: the whole tier)")
 parser.add_argument("--plan", action="store_true", help="print the selected suites and why, then exit without launching")
 parser.add_argument("--changed", help="comma-separated repository-relative paths used instead of the git diff "
@@ -303,6 +325,7 @@ serial_jobs = [
     ("asobo_model", ["scripts/validate_asobo_model.py"]),
     ("asobo_normal", ["scripts/validate_asobo_normal.py"]),
     ("asobo_common", ["scripts/validate_asobo_common.py", "--baseline-exe", str(baseline)]),
+    ("defaults", ["scripts/validate_defaults.py", "--baseline-exe", str(baseline)]),
     ("asobo_support", ["scripts/validate_asobo_support.py"]),
     ("asobo_draworder", ["scripts/validate_asobo_draworder.py"]),
     ("asobo_uv_options", ["scripts/validate_asobo_uv_options.py"]),
@@ -336,11 +359,9 @@ serial_jobs = [
     ("area_maximize", ["scripts/validate_area_maximize.py"]),
     ("settings_scopes", ["scripts/validate_settings_scopes.py", "--baseline-exe", str(baseline)]),
 ]
-if args.tier == "full":
-    jobs.append(("p5_1", ["scripts/validate_p5_1.py", "--pre-exe", str(baseline)]))
+# validate_p5_1.py is superseded (its counter checks run in validate_p8_5.py) and no longer registered.
 tier_suites = [name for name, _ in jobs + serial_jobs] + list(SELFCHECKS)
-scripts = {name: command[0].split("/", 1)[1] for name, command in jobs + serial_jobs
-           + [("p5_1", ["scripts/validate_p5_1.py"])]}
+scripts = {name: command[0].split("/", 1)[1] for name, command in jobs + serial_jobs}
 
 # Why each suite runs: "core", "full tier", "--only", or the changed paths that trigger it.
 reasons, warnings, file_rows = {}, [], []
@@ -479,13 +500,17 @@ def launch_summary(name):
     except OSError:
         pass
     baseline = [r for r in records if r.get("role") == "baseline"]
-    hits = sum(1 for r in baseline if r.get("cache") == "hit")
+    current = [r for r in records if r.get("role") == "current"]
+    hits = sum(1 for r in baseline if str(r.get("cache", "")).startswith("hit"))
     sessions = [r for r in records if r.get("kind") == "popen"]
     repeats = Counter((r.get("exe"), tuple(r.get("argv", ()))) for r in records)
     return {
-        "current": sum(1 for r in records if r.get("role") == "current"),
+        "current": len(current),
+        "memo_hits": sum(1 for r in current if r.get("cache") == "memo hit"),
+        "seeded": sum(1 for r in current if str(r.get("cache", "")).endswith(", seeded")),
         "baseline": len(baseline),
         "baseline_hits": hits,
+        "seed_hits": sum(1 for r in baseline if r.get("cache") == "hit, seed"),
         "baseline_started": len(baseline) - hits,
         "other": sum(1 for r in records if r.get("role") not in ("current", "baseline")),
         "repeated": sum(count - 1 for count in repeats.values() if count > 1),
@@ -499,6 +524,14 @@ cache_state = "off (--no-cache)" if args.no_cache else "on"
 if not args.no_cache:
     kept, removed = subprocess.prune_cache()
     cache_state += f", {kept} entries" + (f", {removed} stale removed" if removed else "")
+memo = None
+if not args.no_cache and not args.no_memo:
+    memo = subprocess.start_memo()  # one directory for this invocation, deleted at the end
+    os.environ[subprocess.SEED_ENV] = "1"
+    cache_state += ", in-run memo on" + (", seeding" if subprocess.seeding_enabled() else
+                                          " (no seeding: GLIDER_CANDIDATE_EXE)")
+else:
+    cache_state += ", in-run memo off"
 try:
     candidate_name = EXE.relative_to(REPO)
 except ValueError:
@@ -508,10 +541,14 @@ selection = "" if args.only or args.tier == "full" else \
 print(f"[regression: {args.tier} tier{selection}, candidate {candidate_name} vs baseline {baseline.name}, {args.jobs} jobs, "
       f"baseline render cache {cache_state}]")
 start = time.time()
-with ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
-    results = list(pool.map(run_job, jobs))
-results += [run_job(job) for job in serial_jobs]
-results += [run_selfcheck(check) for check in selfchecks]
+try:
+    with ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
+        results = list(pool.map(run_job, jobs))
+    results += [run_job(job) for job in serial_jobs]
+    results += [run_selfcheck(check) for check in selfchecks]
+finally:
+    if memo is not None:
+        subprocess.end_memo(memo)
 
 failed = False
 summary = []
@@ -526,19 +563,23 @@ for name, passed, seconds, fails, log in results:
 
 # Wall time and Glider launches per suite, slowest first (baseline: served from the cache / started).
 print("-" * 60)
-print(f"  {'suite':28s} {'time':>8s} {'current':>8s} {'baseline':>9s} {'hit':>5s} {'started':>8s} {'repeat':>7s} "
-      f"{'sessions':>9s} {'session s':>10s}")
+# current: candidate launches (memo: replayed from this run's memo); baseline: hit (seed: from a seeded entry).
+print(f"  {'suite':28s} {'time':>8s} {'current':>8s} {'memo':>5s} {'baseline':>9s} {'hit':>5s} {'seed':>5s} "
+      f"{'started':>8s} {'repeat':>7s} {'sessions':>9s} {'session s':>10s}")
 for row in sorted(summary, key=lambda row: -row["seconds"]):
-    print(f"  {row['suite']:28s} {row['seconds']:6.1f} s {row['current']:8d} {row['baseline']:9d} "
-          f"{row['baseline_hits']:5d} {row['baseline_started']:8d} {row['repeated']:7d} {row['sessions']:9d} "
-          f"{row['session_seconds']:8.1f} s")
+    print(f"  {row['suite']:28s} {row['seconds']:6.1f} s {row['current']:8d} {row['memo_hits']:5d} {row['baseline']:9d} "
+          f"{row['baseline_hits']:5d} {row['seed_hits']:5d} {row['baseline_started']:8d} {row['repeated']:7d} "
+          f"{row['sessions']:9d} {row['session_seconds']:8.1f} s")
 totals = {key: sum(row[key] for row in summary)
-          for key in ("current", "baseline", "baseline_hits", "baseline_started", "sessions", "session_seconds")}
-print(f"  {'total':28s} {time.time() - start:6.0f} s {totals['current']:8d} {totals['baseline']:9d} "
-      f"{totals['baseline_hits']:5d} {totals['baseline_started']:8d} {'':7s} {totals['sessions']:9d} "
-      f"{totals['session_seconds']:8.1f} s")
+          for key in ("current", "memo_hits", "seeded", "baseline", "baseline_hits", "seed_hits", "baseline_started",
+                      "sessions", "session_seconds")}
+print(f"  {'total':28s} {time.time() - start:6.0f} s {totals['current']:8d} {totals['memo_hits']:5d} "
+      f"{totals['baseline']:9d} {totals['baseline_hits']:5d} {totals['seed_hits']:5d} {totals['baseline_started']:8d} "
+      f"{'':7s} {totals['sessions']:9d} {totals['session_seconds']:8.1f} s")
+print(f"  in-run memo: {totals['memo_hits']} of {totals['current']} candidate launches replayed; "
+      f"{totals['seeded']} seeded into the baseline cache; {totals['seed_hits']} baseline launches served from seeds")
 (OUT / "summary.json").write_text(json.dumps({"tier": args.tier, "candidate": str(EXE), "baseline": baseline.name,
-                                              "cache": cache_state, "selected": {name: reasons[name] for name in reasons},
+                                              "cache": cache_state, "totals": totals, "selected": {name: reasons[name] for name in reasons},
                                               "seconds": round(time.time() - start, 1), "suites": summary}, indent=1),
                                   encoding="utf-8")
 print("=" * 60)

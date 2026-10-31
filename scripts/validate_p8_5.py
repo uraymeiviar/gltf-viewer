@@ -13,6 +13,13 @@ Sections:
                --disable-pick-culling (the P5.2 path), and the candidate.
                Selections, cameras and screenshots must be identical and the
                candidate must cull on the large fixtures.
+               Candidate counters (moved here from validate_p5_1.py, which is
+               superseded): no unserved click, one picking render per viewport
+               click (picking renders = clicks), no picking render on idle frames
+               (the "many" and "split" scripts' idle snapshots). With --with-ab the
+               P5.1 cases (many, fixture_*, hierarchy, split) also run with
+               --always-pick (every-frame picking), which must give the same
+               selections, cameras and screenshots and never skip.
   benchmark    Click-frame cost on the 1,600- and 10,000-drawable grids:
                picking.draw CPU stage and GPU picking pass, baseline vs candidate.
 """
@@ -98,7 +105,7 @@ def run(mode, exe, name, script, extra):
     scenario, report = folder / f"{name}.txt", folder / f"{name}.json"
     scenario.write_text(text, encoding="utf-8")
     report.unlink(missing_ok=True)
-    flags = ["--disable-pick-culling"] if mode == "nocull" else []
+    flags = {"nocull": ["--disable-pick-culling"], "always": ["--always-pick"]}.get(mode, [])
     result = subprocess.run([str(exe)] + extra + COMMON + args.extra + flags + ["--ui-script", str(scenario), "--ui-report", str(report)],
                             cwd=REPO, capture_output=True, text=True, timeout=600)
     if result.returncode != 0 or not report.exists():
@@ -115,16 +122,24 @@ def wanted(name):
     return not args.case or any(name.startswith(c) for c in args.case)
 
 
-def equivalence(name, script, extra, clicks, expect_culled=False):
+# The cases validate_p5_1.py ran (with its --with-ab, against --always-pick): with --with-ab they also run with
+# --always-pick here.
+ALWAYS_PICK_CASES = ("many", "fixture_", "hierarchy", "split")
+
+
+def equivalence(name, script, extra, clicks, expect_culled=False, idle=()):
+    """clicks: viewport clicks in the script; idle: (before, after) snapshot labels with no click between them."""
     if not wanted(name):
         return None
+    with_always = args.with_ab and name.startswith(ALWAYS_PICK_CASES)
     pre = run("pre", PRE_EXE, name, script, extra)
     nocull = run("nocull", EXE, name, script, extra) if args.with_ab else None
+    always = run("always", EXE, name, script, extra) if with_always else None
     cand = run("candidate", EXE, name, script, extra)
-    if not (pre and cand and (nocull or not args.with_ab)):
+    if not (pre and cand and (nocull or not args.with_ab) and (always or not with_always)):
         return None
-    others = (pre, nocull) if args.with_ab else (pre,)
-    against = "baseline and --disable-pick-culling" if args.with_ab else "baseline"
+    others = tuple(o for o in (pre, nocull, always) if o is not None)
+    against = "baseline" + (", --disable-pick-culling" if args.with_ab else "") + (" and --always-pick" if with_always else "")
     mismatches = [label for label, snap in cand["snaps"].items()
                   if any((o["snaps"][label]["selection"], o["snaps"][label]["camera"]) != (snap["selection"], snap["camera"])
                          for o in others)]
@@ -139,6 +154,23 @@ def equivalence(name, script, extra, clicks, expect_culled=False):
     # toolbar), so the read count is compared with the baseline, not the click count.
     check(last["pickUnserved"] == 0 and last["pickReads"] == pre_last["pickReads"] and last["pickReads"] >= clicks - 2,
           f"{name}: {clicks} clicks -> {last['pickReads']} reads (baseline {pre_last['pickReads']}), {last['pickUnserved']} unserved")
+    # On-demand picking (P5.1; these counters were validate_p5_1.py's): a picking pass only on a frame whose
+    # click reaches the viewport click handler, exactly one per such click, none otherwise.
+    check(last["pickUnserved"] == 0, f"{name}: no click went unserved ({last['pickUnserved']})")
+    # Renders, not reads: a click can reach the handler and render the pass yet read nothing, as in the baseline
+    # (e195: 352 clicks, 352 picking renders, 351 reads in both binaries).
+    check(last["pickingRenders"] == clicks,
+          f"{name}: {clicks} viewport clicks -> {last['pickingRenders']} picking renders (one per click), "
+          f"{last['pickReads']} reads")
+    revisions = {label: snap["revisions"] for label, snap in cand["snaps"].items()}
+    for before, after in idle:
+        renders = revisions[after]["pickingRenders"] - revisions[before]["pickingRenders"]
+        skips = revisions[after]["pickingSkips"] - revisions[before]["pickingSkips"]
+        check(renders == 0 and skips > 0,
+              f"{name} {before}->{after}: idle frames render no picking pass ({renders} renders, {skips} skips)")
+    if with_always:
+        always_last = list(always["snaps"].values())[-1]["revisions"]
+        check(always_last["pickingSkips"] == 0, f"{name}: --always-pick never skips ({always_last['pickingSkips']})")
     if args.with_ab:
         nocull_last = list(nocull["snaps"].values())[-1]["revisions"]
         check(nocull_last.get("pickCulled", 0) == 0, f"{name}: --disable-pick-culling culls nothing")
@@ -171,8 +203,11 @@ if section("equivalence"):
         lines, n = grid(range(330, 960, 60), range(160, 720, 55), "pick")
         rows, nr = grid(range(LEFT, RIGHT + 1, 65), [TOP, BOTTOM], "row")
         cols, nc = grid([LEFT, RIGHT], range(TOP, BOTTOM + 1, 70), "col")
-        cand = equivalence("many", "\n".join(["wait 8"] + lines + rows + cols + ["shot @OUT@/many.png", "wait 2"]) + "\n",
-                           [MANY, "--aa", "none", "--camera-distance", "14"], n + nr + nc, expect_culled=True)
+        # idle0 -> idle1: 30 frames without a click render no picking pass (validate_p5_1.py's idle check).
+        cand = equivalence("many", "\n".join(["wait 8", "snap idle0", "wait 30", "snap idle1"] + lines + rows + cols
+                                             + ["shot @OUT@/many.png", "wait 2"]) + "\n",
+                           [MANY, "--aa", "none", "--camera-distance", "14"], n + nr + nc, expect_culled=True,
+                           idle=[("idle0", "idle1")])
         if cand:
             check(len(nodes_of(cand)) >= 50, f"many: {len(nodes_of(cand))} distinct selections")
 
@@ -189,8 +224,11 @@ if section("equivalence"):
             lines, n = grid(range(360, 960, 75), range(250, 600, 70), "pick")
             edge, ne = grid(list(range(480, 524, 2)) + list(range(734, 752, 1)), [450], "edge", spaced=True)
             vedge, nv = grid([600], list(range(296, 312, 1)) + list(range(570, 582, 1)), "vedge", spaced=True)
-            script = ["wait 10"] + lines + edge + vedge + ["shot @OUT@/fx_" + aa + ".png", "wait 2"]
-            cand = equivalence(f"fixture_{aa}", "\n".join(script) + "\n", [FIXTURE, "--aa", aa] + BEHIND, n + ne + nv)
+            # After the screenshot, a double-click focuses the camera (validate_p5_1.py's focus case); it queues two
+            # clicks: two picking passes and reads.
+            script = ["wait 10"] + lines + edge + vedge + ["shot @OUT@/fx_" + aa + ".png", "dclick 650 418", "wait 10",
+                                                           "snap focused", "wait 2"]
+            cand = equivalence(f"fixture_{aa}", "\n".join(script) + "\n", [FIXTURE, "--aa", aa] + BEHIND, n + ne + nv + 2)
             if cand:
                 check({"node=OpaqueQuadNode", "node=BlendQuadNode", "node=TransmissiveQuadNode", "node="} <= nodes_of(cand),
                       f"fixture_{aa}: clicks hit every quad and the background")
@@ -217,7 +255,7 @@ if section("equivalence"):
         if cand:
             check(len(nodes_of(cand)) >= 2, f"fox: {sorted(nodes_of(cand))}")
 
-        print("[animated hierarchy: clicks during playback and after wheel zoom]")
+        print("[animated hierarchy: clicks during playback, after wheel zoom and after a resize]")
         lines_a, na = grid(range(420, 860, 40), range(290, 490, 40), "play", wait=3)
         lines_b, nb = grid(range(400, 900, 125), range(250, 600, 120), "zoom", wait=3)
         zoomed = []
@@ -225,16 +263,24 @@ if section("equivalence"):
             if line.startswith("click"):
                 zoomed.append("wheel 1")
             zoomed.append(line)
-        script = ["wait 8", "animplay on", "wait 4"] + lines_a + ["animplay off", "wait 4", "move 640 400", "wait 2"] + zoomed + ["shot @OUT@/hier.png", "wait 2"]
-        cand = equivalence("hierarchy", "\n".join(script) + "\n", [HIER, "--aa", "none"], na + nb, expect_culled=True)
+        # Then the window is resized and clicked again (validate_p5_1.py's resize case).
+        lines_c, nc = grid(range(350, 850, 125), range(220, 520, 100), "resized", wait=3)
+        script = (["wait 8", "animplay on", "wait 4"] + lines_a + ["animplay off", "wait 4", "move 640 400", "wait 2"] + zoomed
+                  + ["shot @OUT@/hier.png", "resize 1100 700", "wait 10"] + lines_c + ["shot @OUT@/hier_resized.png", "wait 2"])
+        cand = equivalence("hierarchy", "\n".join(script) + "\n", [HIER, "--aa", "none"], na + nb + nc, expect_culled=True)
         if cand:
             check(bool(nodes_of(cand, "play") & {"node=AnimatedRoot", "node=ScaledChild", "node=GrandChild"}),
                   f"hierarchy: playback clicks hit animated geometry ({sorted(nodes_of(cand, 'play'))})")
 
         print("[two live viewports (viewport 2 double-sided), clicks in both]")
         lines, n = grid(range(320, 980, 40), range(260, 560, 75), "pick")
-        script = ["wait 8", "vpcreate", "aamode none 2", "wait 10", "vpsplit 2", "wait 10", "vpsetting 2 doublesided on", "wait 6"] + lines + ["shot @OUT@/split.png", "wait 2"]
-        cand = equivalence("split", "\n".join(script) + "\n", [FIXTURE, "--aa", "none"] + BEHIND, n)
+        script = (["wait 8", "vpcreate", "aamode none 2", "wait 10", "vpsplit 2", "wait 10", "vpsetting 2 doublesided on", "wait 6",
+                   "snap split_idle0", "wait 20", "snap split_idle1"] + lines + ["shot @OUT@/split.png", "wait 2"])
+        cand = equivalence("split", "\n".join(script) + "\n", [FIXTURE, "--aa", "none"] + BEHIND, n,
+                           idle=[("split_idle0", "split_idle1")])
+        if cand:
+            nodes = nodes_of(cand)
+            check(len(nodes) >= 3, f"split: clicks across both viewports hit {len(nodes)} distinct nodes/background")
 
         if E195.exists():
             print("[E195 cockpit (real asset)]")

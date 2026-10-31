@@ -1,6 +1,10 @@
 # Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
 """A3.7: ASOBO_sky_portal (docs/ASOBO_EXTENSIONS_PHASE_3.md, A3.7; semantics section 19).
 
+The comparisons below whose baseline side is HelloCube's or an E195 reference view's default render (and their
+"settings changed while off" variants) run in validate_defaults.py, which renders those views once per binary
+and prefixes the original wording with this suite's name.
+
 A portal is a disc area light at its node, facing into the cabin along the node's +Z axis, radius source_radius / 100
 (centimetres), cone falloff between outer_cone_angle / 2 and inner_cone_angle / 2. pbr.frag adds, for OPAQUE / MASK
 materials of a file with portals, (1 - occlusion) x min(strength x portal diffuse, unoccluded IBL diffuse), the portal
@@ -361,13 +365,7 @@ def check_baseline(baseline, uniform):
     a = render(plain, "cur_room_plain", flags)
     b = render(plain, "base_room_plain", flags, exe=baseline)
     check(same(a, b), f"fixture without the portal node: byte-identical to {baseline.stem}")
-    a = render(None, "cur_hellocube")
-    b = render(None, "base_hellocube", exe=baseline)
-    check(same(a, b), f"HelloCube: byte-identical to {baseline.stem}")
-    entry = view("cockpit_main_displays")
-    a = render_view(EXE, entry, "cur_e195_cockpit", folder=OUT)
-    b = render_view(baseline, entry, "base_e195_cockpit", folder=OUT)
-    check(a is not None and same(a, b), f"E195 cockpit_main_displays: byte-identical to {baseline.stem}")
+    # HelloCube and the E195 cockpit_main_displays view: validate_defaults.py (shared default views).
     if not DA62_COCKPIT.exists():
         print("  SKIP DA62 cockpit not found")
         return

@@ -12,7 +12,8 @@ prints them. They check the GPU implementation, its LUT parameterisations and re
 
 Checks:
   * the HDR source (default) is byte-identical to the baseline binary (--baseline-exe): HelloCube default and with
-    every sky setting changed while the source stays HDR, and two E195 reference views (ASOBO) with the sky settings;
+    every sky setting changed while the source stays HDR (SKY_FLAGS_HDR), and two E195 reference views (ASOBO) with
+    the sky settings; checked by validate_defaults.py, which renders the default views once per binary;
   * sky radiance (background, probed over the control pipe) for a high sun (60 degrees) and a low sun (5 degrees) at
     SKY_DIRECTIONS against the reference: luminance within SKY_LUMINANCE_TOLERANCE, every channel within
     SKY_CHANNEL_TOLERANCE (relative);
@@ -264,30 +265,10 @@ def regenerate_references():
 # Checks
 # ---------------------------------------------------------------------------------------------
 
-def check_baseline(baseline):
-    print("[HDR source: byte-identical to the baseline]")
-    if baseline is None or not baseline.exists():
-        print("  SKIP no baseline binary found")
-        return
-    print(f"  INFO baseline {baseline.name}")
-    sky_flags = ["--environment", "hdr", "--sky-mie", "3", "--sky-ozone", "off", "--sky-ground-albedo", "0.6",
+# Every sky setting changed while the source stays HDR. validate_defaults.py renders HelloCube and the two E195
+# reference views with them and checks them against the baseline's default renders (the former check_baseline).
+SKY_FLAGS_HDR = ["--environment", "hdr", "--sky-mie", "3", "--sky-ozone", "off", "--sky-ground-albedo", "0.6",
                  "--sky-time-slicing", "off", "--sky-budget-ms", "1"]
-    for name, flags in (("default", []), ("sky_settings_hdr", sky_flags)):
-        now, _ = render(None, f"base_now_hellocube_{name}", flags)
-        before, _ = render(None, f"base_ref_hellocube_{name}", [], exe=baseline)
-        check(same(now, before), f"HelloCube ({name}): byte-identical to {baseline.stem}")
-    for name in ("exterior_fuselage_nose", "cockpit_main_displays"):
-        try:
-            entry = next(v for v in views() if v["name"] == name)
-        except StopIteration:
-            print(f"  SKIP reference view {name} not found")
-            continue
-        now = render_view(EXE, entry, f"base_now_{name}", sky_flags, folder=OUT)
-        before = render_view(baseline, entry, f"base_ref_{name}", folder=OUT)
-        if now is None and before is None:
-            print(f"  SKIP {name}: E195 asset not available")
-            continue
-        check(same(now, before), f"E195 {name} (ASOBO), sky settings with the HDR source: byte-identical to {baseline.stem}")
 
 
 def check_sky_reference(session):
@@ -597,8 +578,7 @@ def main():
         return wanted is None or name in wanted
 
     OUT.mkdir(parents=True, exist_ok=True)
-    if want("baseline"):
-        check_baseline(baseline)
+    # "baseline" (the HDR source against the baseline): validate_defaults.py, with SKY_FLAGS_HDR.
     empty = empty_model()
     if wanted is None or wanted & {"reference", "behaviour", "sun"}:
         session = Session(empty, SKY)

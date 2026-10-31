@@ -1,5 +1,7 @@
 # Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
-"""A3.10 Sun Source, legacy parity, Auto ambient CLI/pipe and Manual parity. Serial only."""
+"""A3.10 Sun Source, legacy parity, Auto ambient CLI/pipe and Manual parity. Serial only.
+HelloCube "HDR defaults: byte-identical" against the baseline runs in validate_defaults.py.
+"""
 import argparse
 import ctypes
 import json
@@ -37,9 +39,7 @@ def parity(baseline):
         now, _ = night.render(model, f"manual_now_{environment}", flags)
         ref, _ = night.render(model, f"manual_ref_{environment}", flags, exe=baseline)
         check(same(now, ref), f"Manual ambient {environment}: byte-identical to {baseline.name}")
-    now, _ = night.render(None, "default_now", [])
-    ref, _ = night.render(None, "default_ref", [], exe=baseline)
-    check(same(now, ref), "HDR defaults: byte-identical")
+    # "HDR defaults: byte-identical" (HelloCube): validate_defaults.py (shared default view).
 
 
 def sources():

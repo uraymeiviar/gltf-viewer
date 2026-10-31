@@ -1,6 +1,10 @@
 # Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
 """A3.6: the ground plane (docs/ASOBO_EXTENSIONS_PHASE_3.md, A3.6).
 
+The comparisons below whose baseline side is HelloCube's or an E195 reference view's default render (and their
+"settings changed while off" variants) run in validate_defaults.py, which renders those views once per binary
+and prefixes the original wording with this suite's name.
+
 A scene's ground is off (--ground off; legacy grid alias, the default) or an infinite horizontal plane
 (--ground plane) rendered into the linear HDR scene target by per-pixel ray intersection (ground.frag), lit by
 the IBL and by the A3.1 sun with the A3.2 shadow lookup, fogged into the environment's horizon.
@@ -241,16 +245,7 @@ def check_baseline(baseline, black):
     if baseline is None or not baseline.exists():
         print("  SKIP no baseline binary")
         return
-    a, _ = render(None, "base_hellocube", exe=baseline)
-    b, _ = render(None, "cur_hellocube")
-    c, _ = render(None, "cur_hellocube_grid", ["--ground", "grid"])
-    check(a is not None and same(a, b), f"HelloCube: the default ground is byte-identical to {baseline.stem}")
-    check(b is not None and same(b, c), "HelloCube: --ground grid equals the default")
-    for name in ("exterior_fuselage_nose", "cockpit_main_displays"):
-        entry = view(name)
-        a = render_view(baseline, entry, f"base_{name}", folder=OUT)
-        b = render_view(EXE, entry, f"cur_{name}", folder=OUT)
-        check(a is not None and same(a, b), f"{name}: byte-identical to {baseline.stem}")
+    # HelloCube (default and --ground grid) and the E195 reference views: validate_defaults.py (shared default views).
     entry = view("exterior_fuselage_nose")
     a = render_view(baseline, entry, "base_exterior_sun", sun_flags(), folder=OUT)
     b = render_view(EXE, entry, "cur_exterior_sun_grid", sun_flags() + ["--ground", "grid"], folder=OUT)

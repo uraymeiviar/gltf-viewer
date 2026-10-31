@@ -1,6 +1,10 @@
 # Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
 """A6.7 sun disk and glare (docs/ASOBO_EXTENSIONS_PHASE_6.md; header/imgui/SunDisk.h).
 
+The comparisons below whose baseline side is HelloCube's or an E195 reference view's default render (and their
+"settings changed while off" variants) run in validate_defaults.py, which renders those views once per binary
+and prefixes the original wording with this suite's name.
+
 The disk is drawn in the visible background only (cubemap.frag SUN_DISK) while the sun is on: mean radiance
 E / (pi sin^2 R) (E the A3.1 sun illuminance the renderer uses, R the A3.1 angular radius x sun_disk_scale), Hestroffer &
 Magnan limb darkening mu^alpha normalised to that mean, an antialiased edge. Its glare is the existing bloom; an optional
@@ -238,30 +242,19 @@ def measure_disk(session, centre, half_axes, background=(0.0, 0.0, 0.0), margin=
 # Checks
 # ---------------------------------------------------------------------------------------------
 
+# Every disk / lens setting changed while the sun is off. validate_defaults.py renders HelloCube and the two E195
+# reference views with them and checks them against the baseline's default renders.
+DISK_FLAGS = ["--sun-disk", "on", "--sun-disk-scale", "3", "--sun-disk-limb-darkening", "off",
+              "--lens-flare", "off", "--lens-flare-intensity", "4"]
+
+
 def check_baseline(baseline):
     print("[Sun off, HDR source: byte-identical to the baseline]")
     if baseline is None or not baseline.exists():
         print("  SKIP no baseline binary found")
         return
     print(f"  INFO baseline {baseline.name}")
-    disk_flags = ["--sun-disk", "on", "--sun-disk-scale", "3", "--sun-disk-limb-darkening", "off",
-                  "--lens-flare", "off", "--lens-flare-intensity", "4"]
-    for name, flags in (("default", []), ("disk_settings", disk_flags)):
-        now, _ = render(None, f"base_now_hellocube_{name}", flags)
-        before, _ = render(None, f"base_ref_hellocube_{name}", [], exe=baseline)
-        check(same(now, before), f"HelloCube ({name}): byte-identical to {baseline.stem}")
-    for name in ("exterior_fuselage_nose", "cockpit_main_displays"):
-        try:
-            entry = next(v for v in views() if v["name"] == name)
-        except StopIteration:
-            print(f"  SKIP reference view {name} not found")
-            continue
-        now = render_view(EXE, entry, f"base_now_{name}", disk_flags, folder=OUT)
-        before = render_view(baseline, entry, f"base_ref_{name}", folder=OUT)
-        if now is None and before is None:
-            print(f"  SKIP {name}: E195 asset not available")
-            continue
-        check(same(now, before), f"E195 {name} (ASOBO), disk/lens settings with the sun off: byte-identical to {baseline.stem}")
+    # HelloCube and the E195 reference views with the sun off (default and DISK_FLAGS): validate_defaults.py.
     # Sun on (the baseline has the A3.1 sun), the disk switched off: the background is the baseline's.
     model = write("lambert", lambert())
     sun = ["--sun", "on", "--sun-dir", "196,6", "--camera-target", "0,0,0", "--camera-yaw", "0", "--camera-pitch", "0",

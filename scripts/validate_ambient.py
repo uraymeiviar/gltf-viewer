@@ -1,6 +1,10 @@
 # Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
 """A3.8 viewer ambient light (docs/ASOBO_EXTENSIONS_PHASE_3.md, A3.8; header/imgui/SceneEnvironment.h).
 
+The comparisons below whose baseline side is HelloCube's or an E195 reference view's default render (and their
+"settings changed while off" variants) run in validate_defaults.py, which renders those views once per binary
+and prefixes the original wording with this suite's name.
+
 The ambient light is a viewer light (never read from or written into the glTF): a uniform radiance
 L = colour x luminance / 12,800 cd/m^2 (environment units, both sources) from every direction, added to the IBL terms
 of pbr.frag / ground.frag before the occlusion: diffuse c_diff x L, specular L x (F0 A + B) from the BRDF LUT.
@@ -237,6 +241,8 @@ def check_baseline(baseline):
     current_only = {"hdr": [], "sky": []} # Both binaries support A3.9; pass the identical flags above.
     for source, source_flags in sources:
         for name, flags in (("default", []), ("off_settings", off_settings)):
+            if source == "hdr" and name == "default":
+                continue  # HelloCube HDR default: validate_defaults.py (shared default view)
             now, _ = render(None, f"base_now_hellocube_{source}_{name}", source_flags + flags + current_only[source], view=False)
             before, _ = render(None, f"base_ref_hellocube_{source}_{name}", source_flags + flags, exe=baseline, view=False)
             check(same(now, before), f"HelloCube {source} ({name}): byte-identical to {baseline.stem}")

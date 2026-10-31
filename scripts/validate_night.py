@@ -2,6 +2,10 @@
 """A6.4 exposure across the day, A6.5 emissive day/night blend, A6.6 night sky (docs/ASOBO_EXTENSIONS_PHASE_6.md;
 header/imgui/NightSky.h).
 
+The comparisons below whose baseline side is HelloCube's or an E195 reference view's default render (and their
+"settings changed while off" variants) run in validate_defaults.py, which renders those views once per binary
+and prefixes the original wording with this suite's name.
+
 Checks:
   * defaults (HDR source, exposure mode default = Manual, clock off), also with every new setting changed, and the HDR
     with the clock at night: byte-identical to the baseline (HelloCube, two E195 ASOBO views);
@@ -238,37 +242,26 @@ def hhmm(hours):
 # Checks
 # ---------------------------------------------------------------------------------------------
 
+# Every new setting changed while the HDR source keeps them inactive (exposure mode default = Manual).
+NIGHT_FLAGS = ["--moon", "off", "--stars", "off", "--moonlight-scale", "3", "--star-density", "2", "--sky-airglow", "4",
+               "--night-vision", "0.2", "--exposure-min-ev100", "-8", "--exposure-max-ev100", "16"]
+EXPLICIT_MANUAL = ["--exposure-mode", "manual", "--tone-mapping", "hill"]
+
+
 def check_baseline(baseline):
     print("[Defaults: byte-identical to the baseline]")
     if baseline is None or not baseline.exists():
         print("  SKIP no baseline binary found")
         return
     print(f"  INFO baseline {baseline.name}")
-    # Every new setting changed while the HDR source keeps them inactive (exposure mode default = Manual).
-    night_flags = ["--moon", "off", "--stars", "off", "--moonlight-scale", "3", "--star-density", "2", "--sky-airglow", "4",
-                   "--night-vision", "0.2", "--exposure-min-ev100", "-8", "--exposure-max-ev100", "16"]
-    for name, flags in (("default", []), ("night_settings", night_flags),
-                        ("explicit_manual", ["--exposure-mode", "manual", "--tone-mapping", "hill"])):
-        now, _ = render(None, f"base_now_hellocube_{name}", flags)
-        before, _ = render(None, f"base_ref_hellocube_{name}", [], exe=baseline)
-        check(same(now, before), f"HelloCube ({name}): byte-identical to {baseline.stem}")
+    night_flags = NIGHT_FLAGS
+    # HelloCube (default, NIGHT_FLAGS, EXPLICIT_MANUAL) and the E195 reference views with NIGHT_FLAGS against the
+    # baseline's default renders: validate_defaults.py (shared default views).
     # The baseline has the A6.1 clock: HDR source with the clock at night and Automatic day/night.
     clock = ["--time-of-day-mode", "on", "--time-preset", "night", "--time-of-day", "auto"]
     now, _ = render(None, "base_now_hellocube_clock_night", clock + night_flags)
     before, _ = render(None, "base_ref_hellocube_clock_night", clock, exe=baseline)
     check(same(now, before), f"HelloCube, HDR with the clock at night (moon/stars flags set): byte-identical to {baseline.stem}")
-    for name in ("exterior_fuselage_nose", "cockpit_main_displays"):
-        try:
-            entry = next(v for v in views() if v["name"] == name)
-        except StopIteration:
-            print(f"  SKIP reference view {name} not found")
-            continue
-        now = render_view(EXE, entry, f"base_now_{name}", night_flags, folder=OUT)
-        before = render_view(baseline, entry, f"base_ref_{name}", folder=OUT)
-        if now is None and before is None:
-            print(f"  SKIP {name}: E195 asset not available")
-            continue
-        check(same(now, before), f"E195 {name} (ASOBO), night settings with the HDR source: byte-identical to {baseline.stem}")
 
 
 def check_exposure():

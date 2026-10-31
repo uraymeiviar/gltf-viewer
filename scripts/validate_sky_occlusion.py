@@ -2,6 +2,10 @@
 """A3.9 sky occlusion inside the model (docs/ASOBO_EXTENSIONS_PHASE_3.md, A3.9; header/imgui/SkyOcclusion.h,
 resources/shaders/sky_occlusion.glsl).
 
+The comparisons below whose baseline side is HelloCube's or an E195 reference view's default render (and their
+"settings changed while off" variants) run in validate_defaults.py, which renders those views once per binary
+and prefixes the original wording with this suite's name.
+
 Checks:
   * HDR default (sky occlusion automatic = off with the HDR): byte-identical to the baseline (HelloCube, the E195
     cockpit_main_displays and exterior_fuselage_nose views, the DA62 SDK cockpit if installed, read only); the
@@ -187,12 +191,7 @@ def check_baseline(baseline):
         print("  SKIP no baseline binary found")
         return
     print(f"  INFO baseline {baseline.name}")
-    now, data = render(None, "base_now_hellocube", [])
-    before, _ = render(None, "base_ref_hellocube", [], exe=baseline)
-    check(same(now, before), f"HelloCube (HDR): byte-identical to {baseline.stem}")
-    so = (data or {}).get("skyOcclusion") or {}
-    check(so.get("setting") == "auto" and so.get("enabled") is False and so.get("active") is False and so.get("volume") is None,
-          "HDR default: sky occlusion automatic and off, nothing baked (get_state / --profile-report skyOcclusion)")
+    # HelloCube (HDR) against the baseline and its skyOcclusion report: validate_defaults.py (shared default view).
     sky = ["--environment", "sky", "--sky-time-slicing", "off"]
     parity = sky + ["--sky-occlusion", "off", "--ambient", "off"]
     now, data = render(None, "base_now_hellocube_sky_off", parity)
@@ -202,14 +201,7 @@ def check_baseline(baseline):
     so = (data or {}).get("skyOcclusion") or {}
     check(so.get("setting") == "auto" and so.get("enabled") is True and so.get("active") is True and so.get("volume"),
           "procedural sky default: sky occlusion automatic and on, the volume baked")
-    for name in ("cockpit_main_displays", "exterior_fuselage_nose"):
-        entry = view(name)
-        a = render_view(EXE, entry, f"base_now_{name}", folder=OUT)
-        b = render_view(baseline, entry, f"base_ref_{name}", folder=OUT)
-        if a is None and b is None:
-            print(f"  SKIP {name}: E195 asset not available")
-            continue
-        check(same(a, b), f"E195 {name} (HDR): byte-identical to {baseline.stem}")
+    # The E195 reference views (HDR): validate_defaults.py (shared default views).
     if DA62_COCKPIT.exists():
         a, _ = render(DA62_COCKPIT, "base_now_da62", DA62_CAMERA)
         b, _ = render(DA62_COCKPIT, "base_ref_da62", DA62_CAMERA, exe=baseline)

@@ -1,6 +1,10 @@
 # Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
 """A6.8a: the FFT ocean ground (docs/ASOBO_EXTENSIONS_PHASE_6.md, A6.8).
 
+The comparisons below whose baseline side is HelloCube's or an E195 reference view's default render (and their
+"settings changed while off" variants) run in validate_defaults.py, which renders those views once per binary
+and prefixes the original wording with this suite's name.
+
 A viewport's ground can be the animated ocean (--ground ocean, registry ground = ocean): a looping precomputed FFT
 simulation (OceanSimulation) drawn as a camera-centred polar grid (ocean.vert / ocean.frag) at the A3.6 height.
 Checks:
@@ -163,7 +167,8 @@ def check_baseline(baseline):
     # baseline 69cf29b or later) so they compare the 3D image; a separate check proves the default draws the grid.
     def grid_free(flags):
         return list(flags) + (["--hide-grid"] if "plane" in flags else [])
-    for name, flags in (("hellocube_grid", []), ("hellocube_plane", ["--ground", "plane"]),
+    # HelloCube and the E195 exterior with the default grid: validate_defaults.py (shared default views).
+    for name, flags in (("hellocube_plane", ["--ground", "plane"]),
                         ("hellocube_plane_sun", ["--ground", "plane", "--sun", "on", "--sun-dir", "40,35"])):
         a, _, _ = render(None, f"base_{name}", grid_free(flags), exe=baseline)
         b, _, _ = render(None, f"cur_{name}", grid_free(flags))
@@ -174,7 +179,7 @@ def check_baseline(baseline):
             check(c is not None and b is not None and not same(b, c),
                   "HelloCube --ground plane: the viewport grid overlay is drawn on the plane by default")
     entry = view("exterior_fuselage_nose")
-    for name, flags in (("grid", []), ("plane_sun", ["--ground", "plane", "--sun", "on", "--sun-dir", "40,35"])):
+    for name, flags in (("plane_sun", ["--ground", "plane", "--sun", "on", "--sun-dir", "40,35"]),):
         a = render_view(baseline, entry, f"base_e195_{name}", grid_free(flags), folder=OUT)
         b = render_view(EXE, entry, f"cur_e195_{name}", grid_free(flags), folder=OUT)
         check(a is not None and same(a, b), f"E195 exterior_fuselage_nose {' '.join(flags) or '(default)'}: "
@@ -216,7 +221,8 @@ def check_loop_and_determinism():
     check(c is not None and not same(c, OUT / "seam_0.png"), "ocean time 15 s differs from 0 s (the surface moves)")
     # The clock runs with --fixed-frame-time: two runs with the same flags end in the same image.
     a, _, _ = render(None, "clock_run1", OCEAN, frame=32)
-    b, _, _ = render(None, "clock_run2", OCEAN, frame=32)
+    with subprocess.fresh():  # a real second launch, never the in-run memo's replay of the first
+        b, _, _ = render(None, "clock_run2", OCEAN, frame=32)
     check(a is not None and same(a, b), "the same flags twice (ocean clock running, 32 frames): identical captures")
     d, _, _ = render(None, "clock_run_frame40", OCEAN, frame=40)
     check(d is not None and not same(a, d), "frame 40 differs from frame 32 (the clock moves the ocean)")
@@ -529,7 +535,8 @@ def check_live():
     print("[Live mode: determinism, CLI = pipe, cost]")
     live = OCEAN + ["--ocean-mode", "live"]
     a, _, _ = render(None, "live_run1", live, frame=32)
-    b, _, _ = render(None, "live_run2", live, frame=32)
+    with subprocess.fresh():  # a real second launch, never the in-run memo's replay of the first
+        b, _, _ = render(None, "live_run2", live, frame=32)
     check(a is not None and same(a, b), "live: the same flags twice (clock running, 32 frames): identical captures")
     c, _, _ = render(None, "live_run40", live, frame=40)
     check(c is not None and not same(a, c), "live: frame 40 differs from frame 32 (the per-frame FFT moves the surface)")

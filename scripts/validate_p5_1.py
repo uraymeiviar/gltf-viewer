@@ -1,5 +1,9 @@
 # Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
-"""P5.1 on-demand full-size picking validation.
+"""P5.1 on-demand full-size picking validation. SUPERSEDED: no longer run by run_regression.py (stage 2 of the
+regression slimming, 2026-10-31); its candidate counter checks (no unserved click, one picking render per viewport
+click, no picking render on idle frames), the --always-pick A/B, the focus double-click, the resize clicks and the
+split-viewport node check now run in validate_p8_5.py, whose UI scripts cover the same fixtures. Kept for reference
+and its benchmark section.
 
 The picking pass is rendered only in frames where a left click can reach the
 viewport click handler; the framebuffer size and projection are unchanged.

@@ -1,6 +1,10 @@
 # Copyright (c) 2026 UX3D GmbH / Gestaltor Contributors. All rights reserved.
 """A6.1: solar position and time of day (docs/ASOBO_EXTENSIONS_PHASE_6.md).
 
+The comparisons below whose baseline side is HelloCube's or an E195 reference view's default render (and their
+"settings changed while off" variants) run in validate_defaults.py, which renders those views once per binary
+and prefixes the original wording with this suite's name.
+
 The scene-level clock (date, local time, UTC offset, latitude, longitude, heading) gives the Sun's position (NOAA
 solar calculator equations) and the Moon's (Schlyter low-precision elements); with time_of_day_mode on the A3.1 sun
 follows it. Conventions: header/imgui/TimeOfDay.h. A compass bearing B maps to the A3.1 azimuth (around +Y from +Z
@@ -93,6 +97,9 @@ MOON_TOPOCENTRIC = [
 ]
 
 BLACK = None
+# Clock settings with the mode off (validate_defaults.py renders the E195 views with them against the baseline).
+CLOCK_FLAGS_OFF = ["--date", "2026-06-21", "--time", "03:00", "--latitude", "0", "--longitude", "10", "--heading", "123",
+                   "--utc-offset", "2", "--time-preset", "night", "--time-of-day-mode", "off", "--night-threshold", "-3"]
 
 
 def parse_clock(text):
@@ -632,8 +639,7 @@ def check_baseline(baseline):
         print("  SKIP no baseline binary found")
         return
     print(f"  INFO baseline {baseline.name}")
-    clock_flags = ["--date", "2026-06-21", "--time", "03:00", "--latitude", "0", "--longitude", "10", "--heading", "123",
-                   "--utc-offset", "2", "--time-preset", "night", "--time-of-day-mode", "off", "--night-threshold", "-3"]
+    clock_flags = CLOCK_FLAGS_OFF
 
     def shot(exe, model, name, flags):
         png = OUT / f"{name}.png"
@@ -649,18 +655,7 @@ def check_baseline(baseline):
         now = shot(EXE, None, f"base_now_hellocube_{name}", flags)
         before = shot(baseline, None, f"base_ref_hellocube_{name}", [])
         check(same(now, before), f"HelloCube ({name}): byte-identical to {baseline.stem}")
-    for name in ("exterior_fuselage_nose", "cockpit_main_displays"):
-        try:
-            entry = next(v for v in views() if v["name"] == name)
-        except StopIteration:
-            print(f"  SKIP reference view {name} not found")
-            continue
-        now = render_view(EXE, entry, f"base_now_{name}", clock_flags, folder=OUT)
-        before = render_view(baseline, entry, f"base_ref_{name}", folder=OUT)
-        if now is None and before is None:
-            print(f"  SKIP {name}: E195 asset not available")
-            continue
-        check(same(now, before), f"E195 {name} (ASOBO), clock settings with the mode off: byte-identical to {baseline.stem}")
+    # The E195 reference views with the clock settings, mode off: validate_defaults.py (shared baseline renders).
     try:
         entry = next(v for v in views() if v["name"] == "exterior_fuselage_nose")
         sun = ["--sun", "on", "--sun-dir", "45,40", "--sun-intensity", "8"]

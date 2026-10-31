@@ -10,8 +10,9 @@ colour and integrated illuminance (x HDR intensity).
 Fixtures: a unit sphere at the origin seen from +Z (camera distance 4), under a black environment map (IBL
 contributes nothing) unless stated, black clear colour, PBR Neutral tone mapping, exposure 0, no bloom/AA.
 Checks:
-  * sun off (the default) is byte-identical to the baseline binary (--baseline-exe): HelloCube, the punctual,
-    SSS and anisotropy fixtures, the Lambert sphere, and two E195 reference views (exterior and cockpit, ASOBO);
+  * sun off (the default) is byte-identical to the baseline binary (--baseline-exe): the punctual, SSS and
+    anisotropy fixtures and the Lambert sphere (HelloCube and the two E195 reference views, exterior and cockpit,
+    ASOBO: validate_defaults.py, which renders those default views once per binary);
   * Lambert sphere (white, roughness 1, KHR_materials_specular factor 0 = pure Lambert), sun at az 30 / el 20:
       - least-squares fit of the linear pixel values L = a . N over the lit pixels: direction within
         DIR_TOLERANCE_DEG of the set direction, |a| pi within NORM_TOLERANCE of the intensity;
@@ -39,6 +40,7 @@ import json
 import math
 import struct
 import base64
+import contextlib
 import sys
 from pathlib import Path
 
@@ -449,7 +451,9 @@ def check_default_hdr():
     model = write("lambert", lambert())
     results = []
     for label, flags in (("a", []), ("b", []), ("perf", ["--quality", "performance"]), ("rot", ["--hdr-rotation", "90"])):
-        _, report = render(model, f"default_hdr_{label}", ["--sun", "on", "--sun-mode", "hdr"] + flags, view=False)
+        # "b" repeats "a" to prove the detection is deterministic: a real launch, never the in-run memo's replay.
+        with (subprocess.fresh() if label == "b" else contextlib.nullcontext()):
+            _, report = render(model, f"default_hdr_{label}", ["--sun", "on", "--sun-mode", "hdr"] + flags, view=False)
         results.append(report["sun"] if report else None)
     if not all(results):
         check(False, "default HDR reports")
@@ -535,25 +539,14 @@ def check_baseline(baseline, black):
         print("  SKIP no baseline binary found")
         return
     print(f"  INFO baseline {baseline.name}")
-    cases = [("hellocube", None, [], False), ("lambert", OUT / "lambert.gltf", black, True),
+    # HelloCube and the E195 reference views with the sun off: validate_defaults.py (shared default views).
+    cases = [("lambert", OUT / "lambert.gltf", black, True),
              ("lambert_light", OUT / "lambert_light.gltf", black, True), ("sss_sphere", OUT / "sss_sphere.gltf", black, True),
              ("aniso_sphere", OUT / "aniso_sphere.gltf", [], True)]
     for name, model, flags, view in cases:
         now, _ = render(model, f"base_now_{name}", flags, view=view)
         before, _ = render(model, f"base_ref_{name}", flags, exe=baseline, view=view)
         check(same(now, before), f"{name}: sun off is byte-identical to {baseline.stem}")
-    for name in ("exterior_fuselage_nose", "cockpit_main_displays"):
-        try:
-            entry = next(v for v in views() if v["name"] == name)
-        except StopIteration:
-            print(f"  SKIP reference view {name} not found")
-            continue
-        now = render_view(EXE, entry, f"base_now_{name}", folder=OUT)
-        before = render_view(baseline, entry, f"base_ref_{name}", folder=OUT)
-        if now is None and before is None:
-            print(f"  SKIP {name}: E195 asset not available")
-            continue
-        check(same(now, before), f"E195 {name} (ASOBO): sun off is byte-identical to {baseline.stem}")
 
 
 def main():

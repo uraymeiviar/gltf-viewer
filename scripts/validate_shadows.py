@@ -5,8 +5,9 @@ Fixtures (scripts/shadow_fixtures.py): a 16 x 16 m Lambert receiver plane at y =
 environment map (IBL contributes nothing), black clear colour, PBR Neutral, exposure 0, no bloom, no AA unless
 stated. A lit plane is colour x intensity x N.L / pi, a fully shadowed one 0.
 Checks:
-  * sun off (the default) is byte-identical to the baseline binary (--baseline-exe): HelloCube, the basic
-    fixture and two E195 ASOBO reference views (cockpit and exterior); sun on with --shadows off is
+  * sun off (the default) is byte-identical to the baseline binary (--baseline-exe): the basic fixture
+    (HelloCube and the two E195 ASOBO reference views, cockpit and exterior: validate_defaults.py, the shared
+    default views); sun on with --shadows off is
     byte-identical to the baseline's sun-on render with --shadows off (HelloCube, the basic fixture, the E195 exterior);
   * edge position: a 2 x 2 m occluder quad 1.5 m above the plane; for sun az 90 / el 45 and az 0 / el 30 the
     shadow edge (the 50% crossing of the linear luminance along a line across it) lies within EDGE_TOLERANCE_PX
@@ -157,9 +158,10 @@ def check_baseline(baseline, black, basic):
                           "--camera-pitch", "60", "--camera-distance", "14"]
     sun = ["--sun", "on", "--sun-intensity", "1.8", "--sun-dir", "90,45"]
     for label, model, flags in (("hellocube", None, []), ("basic", basic, view_flags)):
-        a, _ = render(model, f"base_{label}_off", flags, exe=baseline)
-        b, _ = render(model, f"cur_{label}_off", flags)
-        check(a is not None and same(a, b), f"{label}: sun off is byte-identical to {baseline.stem}")
+        if label != "hellocube":  # HelloCube with the sun off: validate_defaults.py (shared default view)
+            a, _ = render(model, f"base_{label}_off", flags, exe=baseline)
+            b, _ = render(model, f"cur_{label}_off", flags)
+            check(a is not None and same(a, b), f"{label}: sun off is byte-identical to {baseline.stem}")
         # --shadows off on both sides: a baseline that has A3.2 renders shadows by default.
         a, _ = render(model, f"base_{label}_sun", flags + sun + ["--shadows", "off"], exe=baseline)
         b, _ = render(model, f"cur_{label}_sun_noshadow", flags + sun + ["--shadows", "off"])
@@ -167,11 +169,7 @@ def check_baseline(baseline, black, basic):
         check(a is not None and same(a, b), f"{label}: sun on, --shadows off is byte-identical to {baseline.stem}'s sun-on render")
         if label == "basic":
             check(c is not None and not same(b, c), "basic: sun on with shadows changes the image (the shadow is drawn)")
-    for name in ("cockpit_main_displays", "exterior_fuselage_nose"):
-        entry = view(name)
-        a = render_view(baseline, entry, f"base_{name}", folder=OUT)
-        b = render_view(EXE, entry, f"cur_{name}", folder=OUT)
-        check(a is not None and same(a, b), f"{name}: sun off is byte-identical to {baseline.stem}")
+    # The E195 reference views with the sun off: validate_defaults.py (shared default views).
     entry = view("exterior_fuselage_nose")
     a = render_view(baseline, entry, "base_exterior_sun", sun + ["--shadows", "off"], folder=OUT)
     b = render_view(EXE, entry, "cur_exterior_sun_noshadow", sun + ["--shadows", "off"], folder=OUT)

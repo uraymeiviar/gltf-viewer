@@ -13,13 +13,15 @@ Baseline render cache
 A binary under ``build/baselines/`` never changes for a given hash, so ``run()`` caches
 what a baseline launch wrote. It applies to every executable under ``build/baselines/``
 (the HEAD baseline passed by run_regression.py and the pinned references such as 167a5e0
-and a9c0a29), never to the candidate build (``candidate_exe()``) or any other executable,
-and never to ``Popen()`` (pipe sessions). The key (SHA-256) covers:
+and a9c0a29), never to the candidate build (``candidate_exe()``, see the in-run memo below)
+or any other executable, and never to ``Popen()`` (pipe sessions). The key (SHA-256) covers:
 
   * the SHA-256 of the executable;
   * with ``GLIDER_CANDIDATE_EXE`` set, also the SHA-256 of that candidate, so nothing
     stored during a run against one candidate is replayed in a run against another;
-  * the working directory and the exact argument list, in order;
+  * the working directory and the exact argument list, in order, except that an output
+    path argument (the value of an output flag such as ``--capture-viewport``) enters only as
+    its position and suffix: the same launch writing to another file has the same key;
   * the content (SHA-256) and resolved path of every argument that names an existing
     file, and for each .gltf/.glb among them every file it names through a ``uri``
     anywhere in its JSON (buffers, images, extensions);
@@ -31,8 +33,10 @@ and never to ``Popen()`` (pipe sessions). The key (SHA-256) covers:
   * how stdout/stderr are captured (text mode, encoding).
 
 The value is the files the command wrote (dump/capture image, report JSON), its stdout
-and stderr, stored under ``build/regression_cache/<key>/``. A hit copies the files back
-and returns the stored output with ``from_cache = True`` instead of starting the binary.
+and stderr, stored under ``build/regression_cache/<key>/``. A hit copies the files to this
+launch's output paths, replaces the stored output paths by this launch's in text outputs
+(reports name their capture) and in stdout/stderr (images are copied unchanged), and
+returns the stored output with ``from_cache = True`` instead of starting the binary.
 Any change of a key part is a miss. The cache is used only when everything is understood:
 ``--isolated``, at least one known output flag, no other output-writing or interactive
 flag, no directory argument (``--search-path``), every model URI resolving to a file, and
@@ -40,8 +44,10 @@ stdout/stderr captured or discarded. Anything else starts the binary normally. A
 stored only when the process exited with 0, every output was rewritten, and neither the
 executable nor an input changed while it ran.
 
-``GLIDER_RENDER_CACHE=0`` turns the cache off (cold runs). ``prune_cache()`` removes entries
-whose executable is gone or changed. ``GLIDER_HARNESS_LAUNCH_LOG=<file>`` appends one JSON
+``GLIDER_RENDER_CACHE=0`` turns the cache, the memo and seeding off (cold runs).
+``prune_cache()`` removes entries whose executable is gone or changed and keeps only the
+entries of the ``GLIDER_HARNESS_CACHE_EXES`` (default 4) most recently used executables
+(SHA-256; a hit refreshes its entry's time). ``GLIDER_HARNESS_LAUNCH_LOG=<file>`` appends one JSON
 line per Glider launch (role current/baseline/other, run or popen, cache hit/miss/off and
 why, seconds, argv); run_regression.py sets it per suite for its launch summary. ``run``
 launches are logged when they return; ``Popen`` sessions when the process exits (Windows:
@@ -49,15 +55,33 @@ a watcher thread waits on a duplicate of the process handle), with the real sess
 and ``exit``; a session still running when the harness ends is logged then with
 ``"exit": null`` and ``"running_at_harness_exit": true``.
 
+In-run memo and baseline seeding
+--------------------------------
+With ``GLIDER_HARNESS_MEMO_DIR=<dir>`` (run_regression.py: ``start_memo()`` makes one
+directory per invocation under ``build/regression_memo/`` and ``end_memo()`` deletes it),
+the candidate's ``run()`` launches use the same eligibility rules and key (which holds the
+candidate's SHA-256) against that directory: an identical launch later in the same
+invocation, in any suite, replays the first one's outputs (log ``memo hit``). It never
+outlives the invocation and never crosses executables. A check that launches the same
+arguments twice to prove determinism wraps the second launch in ``with fresh():``, which
+always starts the binary. With ``GLIDER_HARNESS_SEED=1`` (run_regression.py) and without
+``GLIDER_CANDIDATE_EXE``, every stored memo entry is also copied to
+``build/regression_cache/<key>/`` marked ``seeded`` unless an entry exists there: after the
+commit ``save_baseline.py`` copies the same bytes to ``build/baselines/<sha>.exe``, so the
+first baseline launch with the same key replays it (``hit, seed``) and the entry becomes an
+ordinary baseline entry. A seeded entry needs no executable on disk; it is pruned with its
+SHA-256 when that is no longer among the most recently used ones.
+
 Candidate build
 ---------------
 ``candidate_exe()`` (and ``CURRENT_EXE``) is ``build/bin/Release/Glider.exe`` unless
 ``GLIDER_CANDIDATE_EXE=<path>`` names another executable (relative paths resolve against
 the repository root). Harnesses use it as their current build, so a known-bad binary from
-``build/baselines/`` can be the candidate; it then has role ``current`` and is never served
-from or stored in the cache.
+``build/baselines/`` can be the candidate; it then has role ``current``: never served from
+the baseline cache (only from the in-run memo) and, with the variable set, never seeded.
 """
 
+import contextlib
 import functools
 import hashlib
 import json
@@ -75,10 +99,24 @@ DEFAULT_EXE = REPO / "build" / "bin" / "Release" / "Glider.exe"
 CANDIDATE_ENV = "GLIDER_CANDIDATE_EXE"
 BASELINE_DIR = REPO / "build" / "baselines"
 CACHE_DIR = REPO / "build" / "regression_cache"
-CACHE_VERSION = 2
+# v3: output paths are left out of the key (only their order and suffix count) and rewritten on replay.
+CACHE_VERSION = 3
 GLIDER_NO_FOCUS = "GLIDER_NO_FOCUS"
 CACHE_SWITCH = "GLIDER_RENDER_CACHE"
 LAUNCH_LOG = "GLIDER_HARNESS_LAUNCH_LOG"
+# In-run memo of the candidate's launches: run_regression.py points this at a fresh directory under
+# MEMO_ROOT for one invocation and deletes it at the end.
+MEMO_ENV = "GLIDER_HARNESS_MEMO_DIR"
+MEMO_ROOT = REPO / "build" / "regression_memo"
+# "1": also store the candidate's cacheable launches in the persistent cache under its SHA-256
+# (baseline seeding), so the first run against the same bytes saved as a baseline is warm.
+SEED_ENV = "GLIDER_HARNESS_SEED"
+# How many executables (by SHA-256, most recently used first) prune_cache() keeps entries for.
+CACHE_EXES_ENV = "GLIDER_HARNESS_CACHE_EXES"
+DEFAULT_CACHE_EXES = 4
+# Outputs that are images: never rewritten on replay (text outputs and stdout/stderr get the new paths).
+_BINARY_SUFFIXES = {".png", ".jpg", ".jpeg", ".exr", ".hdr", ".bmp", ".tga", ".tif", ".tiff", ".dds", ".ktx2",
+                    ".raw", ".bin"}
 SW_SHOWNOACTIVATE = 4
 
 
@@ -241,28 +279,82 @@ def log_launch(target, kind, cache, seconds, command, path=None, **extra):
         pass
 
 
+_fresh = threading.local()
+
+
+@contextlib.contextmanager
+def fresh():
+    """Launches inside this block always start the candidate, even when the in-run memo holds the same
+    launch: for checks that launch the same arguments twice to prove the result is deterministic."""
+    depth = getattr(_fresh, "depth", 0)
+    _fresh.depth = depth + 1
+    try:
+        yield
+    finally:
+        _fresh.depth = depth
+
+
+def memo_dir():
+    """The in-run memo directory ($GLIDER_HARNESS_MEMO_DIR), or None when there is none."""
+    value = os.environ.get(MEMO_ENV, "").strip()
+    return Path(value) if value else None
+
+
+def start_memo():
+    """Creates a fresh in-run memo directory and exports it to this process and its children."""
+    path = MEMO_ROOT / f"run-{os.getpid()}-{time.strftime('%Y%m%d-%H%M%S')}"
+    path.mkdir(parents=True, exist_ok=True)
+    os.environ[MEMO_ENV] = str(path)
+    return path
+
+
+def end_memo(path):
+    """Deletes an in-run memo directory made by start_memo()."""
+    os.environ.pop(MEMO_ENV, None)
+    _remove_entry(path)
+
+
+def seeding_enabled():
+    """Baseline seeding: $GLIDER_HARNESS_SEED=1, the cache on and the default candidate (no GLIDER_CANDIDATE_EXE,
+    whose keys also hold the candidate's SHA-256 and would never match a later baseline run)."""
+    return (os.environ.get(SEED_ENV, "").strip() == "1" and cache_enabled()
+            and not os.environ.get(CANDIDATE_ENV, "").strip())
+
+
 def _run(command, popenargs, kwargs):
     target, kwargs = _prepare(command, kwargs)
     if target is None:
         return _subprocess.run(*popenargs, **kwargs)
     start = time.time()
+    kind = role(target)
     plan, reason = None, "not a baseline"
     try:
-        plan, reason = _cache_plan(command, target, kwargs)
+        if kind == "current":
+            plan, reason = _memo_plan(command, target, kwargs)
+        else:
+            plan, reason = _cache_plan(command, target, kwargs)
     except Exception as error:  # noqa: BLE001 - caching must never break a harness
         plan, reason = None, f"error {type(error).__name__}"
     if plan is not None:
-        cached = _cache_apply(plan, command, kwargs)
+        cached = None
+        try:
+            cached = _cache_apply(plan, command, kwargs)
+        except Exception:  # noqa: BLE001 - caching must never break a harness
+            cached = None
         if cached is not None:
-            log_launch(target, "run", "hit", time.time() - start, command)
+            log_launch(target, "run", cached.cache_status, time.time() - start, command)
             return cached
     result = _subprocess.run(*popenargs, **kwargs)
     status = f"off: {reason}"
     if plan is not None:
-        status = "miss"
+        status = "memo miss" if plan["memo"] else "miss"
         try:
             if _cache_write(plan, result, kwargs):
-                status = "miss, stored"
+                status += ", stored"
+                if plan["memo"] and seeding_enabled():
+                    seeded = _seed(plan)
+                    if seeded:
+                        status += f", {seeded}"
         except Exception:  # noqa: BLE001 - caching must never break a harness
             pass
     log_launch(target, "run", status, time.time() - start, command)
@@ -493,9 +585,9 @@ def _ui_script_files(script, cwd):
         if command not in _UI_SCRIPT_COMMANDS:
             return None
         if command == "shot" and len(args) >= 2:
-            outputs.append(_resolve(args[1], cwd))
+            outputs.append({"path": _resolve(args[1], cwd), "text": args[1], "arg": None})
         elif command == "catch_realloc" and len(args) >= 4:
-            outputs.append(_resolve(args[2], cwd))
+            outputs.append({"path": _resolve(args[2], cwd), "text": args[2], "arg": None})
         elif command in ("reload", "reloadwithouttextures"):
             path = line.split(None, 1)[1].strip(" \t") if len(args) >= 2 else ""
             if len(path) >= 2 and path[0] == '"' and path[-1] == '"':
@@ -507,7 +599,10 @@ def _ui_script_files(script, cwd):
 
 
 def _parse_cache_arguments(command, cwd):
-    """(value tokens, outputs) for a command whose outputs are fully understood, or (None, reason)."""
+    """(value tokens, outputs) for a command whose outputs are fully understood, or (None, reason).
+
+    Each output is {"path": resolved path, "text": the argument as written, "arg": its index in command[1:]
+    (None for a UI-script shot, whose path is part of the hashed script)}."""
     tokens = []
     outputs = []
     isolated = False
@@ -520,7 +615,7 @@ def _parse_cache_arguments(command, cwd):
         if arg == "--ui-report":
             if index + 1 >= len(args):
                 return None, f"{arg} without a value"
-            outputs.append(_resolve(args[index + 1], cwd))
+            outputs.append({"path": _resolve(args[index + 1], cwd), "text": args[index + 1], "arg": index + 1})
             index += 2
             continue
         if arg == "--ui-script":
@@ -537,7 +632,7 @@ def _parse_cache_arguments(command, cwd):
         if arg in _OUTPUT_FLAGS:
             if index + 1 >= len(args):
                 return None, f"{arg} without a value"
-            outputs.append(_resolve(args[index + 1], cwd))
+            outputs.append({"path": _resolve(args[index + 1], cwd), "text": args[index + 1], "arg": index + 1})
             index += 2
             continue
         if arg.startswith("--"):
@@ -552,7 +647,7 @@ def _parse_cache_arguments(command, cwd):
         return None, "not --isolated"
     if not outputs:
         return None, "no output flag"
-    if len(set(outputs)) != len(outputs):
+    if len({str(output["path"]) for output in outputs}) != len(outputs):
         return None, "repeated output"
     return tokens, outputs
 
@@ -641,7 +736,7 @@ def _model_files(model):
 
 def _inputs(tokens, cwd, outputs):
     """[(path, sha256)] of every file argument and the files its models name, or (None, reason)."""
-    output_paths = {str(path) for path in outputs}
+    output_paths = {str(output["path"]) for output in outputs}
     files = []
     for token in tokens:
         path = _resolve(token, cwd)
@@ -736,8 +831,11 @@ def machine_signature():
     return "\n".join(parts)
 
 
-def cache_key(target, command, cwd, inputs, env, mode):
-    """The cache key of one launch (see the module docstring)."""
+def cache_key(target, command, cwd, inputs, env, mode, output_args=()):
+    """The cache key of one launch (see the module docstring).
+
+    `output_args` are the indices (in command[1:]) of output-path arguments: only their suffix enters the
+    key, so the same launch writing to other files (another suite's folder, base_ vs cur_ names) shares it."""
     digest = hashlib.sha256()
     digest.update(f"glider-render-cache-v{CACHE_VERSION}\0".encode("ascii"))
     digest.update(_sha256_file(target).encode("ascii"))
@@ -747,7 +845,12 @@ def cache_key(target, command, cwd, inputs, env, mode):
         digest.update((_sha256_file(candidate_exe()) or "missing").encode("ascii"))
     digest.update(b"\0cwd\0")
     digest.update(str(cwd).encode("utf-8", "surrogatepass"))
-    for arg in command[1:]:
+    output_args = set(output_args)
+    for index, arg in enumerate(command[1:]):
+        if index in output_args:
+            digest.update(b"\0out\0")
+            digest.update(Path(arg).suffix.lower().encode("utf-8", "surrogatepass"))
+            continue
         digest.update(b"\0arg\0")
         digest.update(arg.encode("utf-8", "surrogatepass"))
     for path, file_hash in inputs:
@@ -766,12 +869,11 @@ def cache_key(target, command, cwd, inputs, env, mode):
     return digest.hexdigest()
 
 
-def _cache_plan(command, target, kwargs):
-    """(plan, None) when this launch can be served or stored, else (None, reason)."""
-    if not cache_enabled():
-        return None, f"{CACHE_SWITCH}=0"
-    if not _cacheable_target(target):
-        return None, "not a baseline"
+def _launch_plan(command, target, kwargs, root, memo):
+    """(plan, None) when this launch's outputs are fully understood (deterministic), else (None, reason).
+
+    The same eligibility rules serve the baseline cache (root = CACHE_DIR) and the candidate's in-run memo
+    (root = the memo directory)."""
     if Path(command[0]).name.lower() in ("cmd", "cmd.exe"):
         return None, "started through cmd"
     mode = _stream_mode(kwargs)
@@ -784,23 +886,46 @@ def _cache_plan(command, target, kwargs):
     inputs, reason = _inputs(tokens, cwd, outputs)
     if inputs is None:
         return None, reason
-    if any(path.is_dir() for path in outputs):
+    if any(output["path"].is_dir() for output in outputs):
         return None, "output is a directory"
     exe_hash = _sha256_file(target)
     if exe_hash is None:
         return None, "unreadable executable"
-    key = cache_key(target, command, cwd, inputs, kwargs["env"], mode)
+    key = cache_key(target, command, cwd, inputs, kwargs["env"], mode,
+                    [output["arg"] for output in outputs if output["arg"] is not None])
     return {
         "key": key,
-        "entry": CACHE_DIR / key,
+        "entry": Path(root) / key,
+        "memo": memo,
         "target": target,
         "exe_hash": exe_hash,
         "cwd": cwd,
         "command": list(command),
         "inputs": inputs,
         "mode": mode,
-        "outputs": [{"path": path, "before": _stat_signature(path)} for path in outputs],
+        "outputs": [dict(output, before=_stat_signature(output["path"])) for output in outputs],
     }, None
+
+
+def _cache_plan(command, target, kwargs):
+    """Baseline render cache: (plan, None) when this launch can be served or stored, else (None, reason)."""
+    if not cache_enabled():
+        return None, f"{CACHE_SWITCH}=0"
+    if not _cacheable_target(target):
+        return None, "not a baseline"
+    return _launch_plan(command, target, kwargs, CACHE_DIR, memo=False)
+
+
+def _memo_plan(command, target, kwargs):
+    """In-run memo of the candidate: (plan, None) when this launch can be replayed or stored, else (None, reason)."""
+    folder = memo_dir()
+    if folder is None:
+        return None, "not a baseline"
+    if not cache_enabled():
+        return None, f"{CACHE_SWITCH}=0"
+    if getattr(_fresh, "depth", 0):
+        return None, "fresh launch (determinism check)"
+    return _launch_plan(command, target, kwargs, folder, memo=True)
 
 
 def _stat_signature(path):
@@ -823,7 +948,43 @@ def _decode_stream(data, mode):
     return data.decode("utf-8", "surrogatepass") if mode["text"] else data
 
 
+def _path_forms(path, text):
+    """The spellings of one output path that can appear in a report or in stdout: as resolved and as written,
+    each with backslashes, forward slashes and JSON-escaped backslashes."""
+    forms = []
+    for value in (str(path) if path else "", str(text) if text else ""):
+        forms += [value, value.replace("\\", "/"), value.replace("\\", "\\\\")]
+    return forms
+
+
+def _rewrites(stored, outputs):
+    """[(old bytes, new bytes)], longest first: the stored entry's output paths -> this launch's output paths."""
+    pairs = {}
+    for item, output in zip(stored, outputs):
+        old = _path_forms(item.get("path"), item.get("text"))
+        new = _path_forms(output["path"], output.get("text"))
+        for before, after in zip(old, new):
+            if before and after and before != after:
+                pairs.setdefault(before.encode("utf-8", "surrogatepass"), after.encode("utf-8", "surrogatepass"))
+    return sorted(pairs.items(), key=lambda pair: -len(pair[0]))
+
+
+def _rewrite(data, pairs):
+    for before, after in pairs:
+        if before in data:
+            data = data.replace(before, after)
+    return data
+
+
+def _write_manifest(entry, manifest):
+    temporary = entry / f"entry.json.{os.getpid()}.tmp"
+    temporary.write_text(json.dumps(manifest, indent=1), encoding="utf-8")
+    os.replace(temporary, entry / "entry.json")
+
+
 def _cache_apply(plan, command, kwargs):
+    """Replays a stored entry: copies its outputs to this launch's output paths (text outputs and stdout/stderr
+    with the stored output paths rewritten to this launch's) and returns the CompletedProcess, or None."""
     entry = plan["entry"]
     manifest_path = entry / "entry.json"
     try:
@@ -841,7 +1002,10 @@ def _cache_apply(plan, command, kwargs):
 
     files = []
     for item, output in zip(stored, plan["outputs"]):
-        if not isinstance(item, dict) or item.get("path") != str(output["path"]):
+        # The key holds each output argument's position and suffix; UI-script shot paths are in the script.
+        if (not isinstance(item, dict) or item.get("arg") != output["arg"]
+                or Path(str(item.get("path", ""))).suffix.lower() != output["path"].suffix.lower()
+                or (output["arg"] is None and item.get("path") != str(output["path"]))):
             _remove_entry(entry)
             return None
         source = entry / str(item.get("file", ""))
@@ -849,6 +1013,7 @@ def _cache_apply(plan, command, kwargs):
             _remove_entry(entry)
             return None
         files.append((source, output["path"]))
+    pairs = _rewrites(stored, plan["outputs"])
     streams = {}
     for name in ("stdout", "stderr"):
         item = manifest.get(name)
@@ -859,19 +1024,37 @@ def _cache_apply(plan, command, kwargs):
         if not source.is_file() or _sha256_file(source) != item.get("sha256"):
             _remove_entry(entry)
             return None
-        streams[name] = _decode_stream(source.read_bytes(), plan["mode"])
+        streams[name] = _decode_stream(_rewrite(source.read_bytes(), pairs), plan["mode"])
 
     try:
         for source, destination in files:
             destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(source, destination)
+            if pairs and destination.suffix.lower() not in _BINARY_SUFFIXES:
+                destination.write_bytes(_rewrite(source.read_bytes(), pairs))
+            else:
+                shutil.copyfile(source, destination)
     except OSError:
         return None
+    status = "memo hit" if plan["memo"] else "hit"
+    try:
+        if manifest.get("seeded") and not plan["memo"]:
+            # A baseline with the candidate's bytes: the seeded entry becomes an ordinary baseline entry.
+            manifest["seeded"] = False
+            manifest["seeded_from"] = manifest.get("exe", {}).get("path")
+            manifest["exe"] = {"path": str(plan["target"]), "sha256": plan["exe_hash"]}
+            _write_manifest(entry, manifest)
+            status = "hit, seed"
+        else:
+            os.utime(manifest_path)  # last use, for prune_cache()'s most recently used executables
+    except OSError:
+        pass
     result = _subprocess.CompletedProcess(command, int(manifest.get("returncode", 0)),
                                           stdout=streams["stdout"], stderr=streams["stderr"])
     result.from_cache = True
-    print(f"harness_process: render cache hit {plan['target'].name}: "
-          f"{entry.relative_to(REPO)} ({len(files)} output(s))", file=sys.stderr)
+    result.cache_status = status
+    where = entry.relative_to(REPO) if _inside(entry, REPO) else entry
+    print(f"harness_process: render {'memo' if plan['memo'] else 'cache'} hit {plan['target'].name}: "
+          f"{where} ({len(files)} output(s))", file=sys.stderr)
     return result
 
 
@@ -893,10 +1076,11 @@ def _cache_write(plan, result, kwargs):
         current = _stat_signature(path)
         if current is None or current == output["before"]:
             return False
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    root = entry.parent
+    root.mkdir(parents=True, exist_ok=True)
     # Not tempfile.mkdtemp: its 0700 mode gives the directory an ACL the sandboxed
     # process cannot write to under Windows. A normally inherited directory works.
-    temporary = CACHE_DIR / f".tmp-{os.getpid()}-{os.urandom(4).hex()}"
+    temporary = root / f".tmp-{os.getpid()}-{os.urandom(4).hex()}"
     try:
         temporary.mkdir()
     except OSError:
@@ -912,7 +1096,8 @@ def _cache_write(plan, result, kwargs):
             if digest is None:
                 _remove_entry(temporary)
                 return False
-            stored.append({"path": str(output["path"]), "file": name, "sha256": digest})
+            stored.append({"path": str(output["path"]), "text": output.get("text"), "arg": output["arg"],
+                           "file": name, "sha256": digest})
         streams = {}
         for name in ("stdout", "stderr"):
             data = _encode_stream(getattr(result, name, None))
@@ -925,6 +1110,7 @@ def _cache_write(plan, result, kwargs):
             "version": CACHE_VERSION,
             "key": plan["key"],
             "exe": {"path": str(plan["target"]), "sha256": plan["exe_hash"]},
+            "seeded": False,
             "cwd": str(plan["cwd"]),
             "argv": plan["command"],
             "inputs": [{"path": str(path), "sha256": digest} for path, digest in plan["inputs"]],
@@ -947,6 +1133,29 @@ def _cache_write(plan, result, kwargs):
         return False
 
 
+def _seed(plan):
+    """Copies a just-stored memo entry of the candidate into the persistent cache under the same key (it holds
+    the candidate's SHA-256) unless an entry is already there. Returns "seeded", "seed present" or None."""
+    destination = CACHE_DIR / plan["key"]
+    if (destination / "entry.json").is_file():
+        return "seed present"
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    temporary = CACHE_DIR / f".tmp-{os.getpid()}-{os.urandom(4).hex()}"
+    try:
+        shutil.copytree(plan["entry"], temporary)
+        manifest = json.loads((temporary / "entry.json").read_text(encoding="utf-8"))
+        manifest["seeded"] = True
+        manifest["seeded_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        (temporary / "entry.json").write_text(json.dumps(manifest, indent=1), encoding="utf-8")
+        if destination.exists():
+            _remove_entry(destination)
+        os.replace(temporary, destination)
+        return "seeded"
+    except (OSError, ValueError):
+        _remove_entry(temporary)
+        return None
+
+
 def _remove_entry(entry):
     try:
         shutil.rmtree(entry)
@@ -954,14 +1163,34 @@ def _remove_entry(entry):
         pass
 
 
-def prune_cache(max_temporary_age_s=86400):
-    """Removes entries of older cache versions and entries whose executable is gone or changed.
+def cache_exes_limit():
+    """How many executables prune_cache() keeps entries for ($GLIDER_HARNESS_CACHE_EXES, default 4)."""
+    try:
+        return max(1, int(os.environ.get(CACHE_EXES_ENV, DEFAULT_CACHE_EXES)))
+    except ValueError:
+        return DEFAULT_CACHE_EXES
+
+
+def prune_cache(max_temporary_age_s=86400, max_exes=None):
+    """Removes entries of older cache versions, entries whose executable is gone or changed (a seeded entry
+    needs no executable on disk: its bytes become a baseline only after the commit), and the entries of every
+    executable but the `max_exes` (cache_exes_limit()) most recently used ones, ranked by the newest stored or
+    replayed entry of each SHA-256. Also deletes in-run memo directories older than a day.
 
     Returns (kept, removed)."""
+    max_exes = max_exes or cache_exes_limit()
     kept = removed = 0
+    now = time.time()
+    if MEMO_ROOT.is_dir():
+        for folder in MEMO_ROOT.iterdir():
+            try:
+                if now - folder.stat().st_mtime > max_temporary_age_s:
+                    _remove_entry(folder)
+            except OSError:
+                pass
     if not CACHE_DIR.is_dir():
         return kept, removed
-    now = time.time()
+    valid_entries = []
     for entry in CACHE_DIR.iterdir():
         if not entry.is_dir():
             continue
@@ -974,13 +1203,26 @@ def prune_cache(max_temporary_age_s=86400):
                 pass
             continue
         try:
-            manifest = json.loads((entry / "entry.json").read_text(encoding="utf-8"))
+            manifest_path = entry / "entry.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             exe = manifest["exe"]
-            valid = (manifest.get("version") == CACHE_VERSION and Path(exe["path"]).is_file()
-                     and _sha256_file(Path(exe["path"])) == exe["sha256"])
-        except (OSError, ValueError, KeyError, TypeError):
+            valid = manifest.get("version") == CACHE_VERSION and isinstance(exe.get("sha256"), str) and bool(
+                manifest.get("seeded") or (Path(exe["path"]).is_file()
+                                           and _sha256_file(Path(exe["path"])) == exe["sha256"]))
+            used = manifest_path.stat().st_mtime
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
             valid = False
         if valid:
+            valid_entries.append((entry, exe["sha256"], used))
+        else:
+            _remove_entry(entry)
+            removed += 1
+    last_use = {}
+    for _, sha, used in valid_entries:
+        last_use[sha] = max(last_use.get(sha, 0.0), used)
+    keep = set(sorted(last_use, key=lambda sha: -last_use[sha])[:max_exes])
+    for entry, sha, _ in valid_entries:
+        if sha in keep:
             kept += 1
         else:
             _remove_entry(entry)
