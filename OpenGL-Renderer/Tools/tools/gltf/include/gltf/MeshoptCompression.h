@@ -39,8 +39,9 @@ inline constexpr std::string_view ExtName = "EXT_meshopt_compression";
 inline constexpr std::string_view KhrName = "KHR_meshopt_compression";
 inline bool isMeshoptExtension(std::string_view name) { return name == ExtName || name == KhrName; }
 
-// Test hook: GLIDER_TEST_DISABLE_MESHOPT=1 reads files as a loader without the extension would (the
-// compressed bufferViews are left undecoded), so a file that requires it must fail with a clear error.
+// Test hook alias: GLIDER_TEST_DISABLE_MESHOPT=1 switches both meshopt extensions off for every load, as their
+// switches in File > Settings > glTF Extensions do (GltfFromJson: a file that requires one is not loaded, one that
+// only uses it is read from its fallback buffers).
 bool decodingDisabled();
 
 // Decodes every compressed bufferView of a loaded model into its buffer range. Buffers whose

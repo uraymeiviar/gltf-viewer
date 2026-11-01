@@ -539,9 +539,14 @@ def main():
     for case in ("grid", "anim", "blend"):
         before, _, _ = render(baseline, files[(case, "plain")], f"base_{case}_plain")
         check(same(before, images[(case, "plain")]), f"{case}_plain: byte-identical to the baseline {baseline.name}")
+    # A baseline from before 9551e7c has no instancing (it draws the grid once, like the single node); once the
+    # baseline instances, the instanced grid must stay byte-identical to it.
     before, _, _ = render(baseline, files[("grid", "inst")], "base_grid_inst")
-    check(same(before, images[("grid", "single")]) and not same(before, images[("grid", "plain")]),
-          f"the baseline {baseline.name} draws the instanced grid once (like the single node, not like the twin)")
+    if same(before, images[("grid", "plain")]):
+        check(same(before, images[("grid", "inst")]), f"grid_inst: byte-identical to the baseline {baseline.name}")
+    else:
+        check(same(before, images[("grid", "single")]),
+              f"the baseline {baseline.name} draws the instanced grid once (like the single node, not like the twin)")
 
 
 if __name__ == "__main__":

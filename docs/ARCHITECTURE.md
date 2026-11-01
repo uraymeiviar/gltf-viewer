@@ -192,9 +192,10 @@ flowchart TD
   `AllocationFailure` like other buffer reads. A stream that fails to decode logs
   `[Loading] EXT_meshopt_compression: bufferView N cannot be decoded: (reason)`, zeroes the range and returns
   `GltfError::MeshoptDecodingError`, so the load fails ("Failed to load", the scene is replaced by an empty one)
-  instead of showing broken geometry. `GLIDER_TEST_DISABLE_MESHOPT=1` reads files as a loader without the extension
-  (views left undecoded, fallback buffers read normally): a file that lists the extension in `extensionsRequired` is
-  refused with an error naming it; one that only uses it renders from its uncompressed fallback.
+  instead of showing broken geometry. Switching the extension off (File > Settings > glTF Extensions, or the test-hook
+  alias `GLIDER_TEST_DISABLE_MESHOPT=1` for both meshopt names) reads files as a loader without it (see "Extension
+  switches" below): a file that lists it in `extensionsRequired` is refused with an error naming it; one that only
+  uses it renders from its uncompressed fallback.
 - **Library**: meshoptimizer `v1.3` (MIT), fetched in `cmake/standalone_dependencies.cmake`; only its codec sources
   (`vertexcodec.cpp`, `indexcodec.cpp`, `vertexfilter.cpp`) are compiled into the static `meshopt_codec` library,
   linked by the `Gltf` library (Glider calls only the decoders). The dev-only `meshopt_fixture_gen`
@@ -209,6 +210,20 @@ flowchart TD
 - **Unsupported extensions**: the loader reads only the extensions it knows and does not refuse a file for an unknown
   required one; `gltf::isExtensionSupported` (`gltf/Extensions.h`) is the one support list and the validator reports
   what it does not contain (section 3.7).
+- **Extension switches**: `gltf::supportedExtensions()` (`gltf/Extensions.h`, `source/Extensions.cpp`) is the table
+  behind `isExtensionSupported`: per extension its vendor, support status, description, what off means, whether it
+  is applied while rendering (the ASOBO rendering switches) or at load, and whether it can be ignored at all
+  (`refuseWhenOff`: KHR_mesh_quantization). `GltfExtensionSettings` builds the File > Settings > glTF Extensions
+  groups, the registry keys and `get_state.gltfExtensions` from it (docs/SETTINGS_SCOPES.md, "Extension switches").
+  At load, `Scene.cpp` passes `GltfExtensionSettings::loaderDisabled()` as `ImportOptions::disabledExtensions`;
+  `GltfFromJson::applyExtensionSwitches` (also for GLB: `GltfFromBinary` passes its options on) records the file's
+  declared and switched-off names on the `Gltf` (`getFileExtensions`, `getSwitchedOffExtensions`), refuses a file
+  that requires a switched-off extension (`InvalidGltf`, "Failed to load"), and otherwise removes the switched-off
+  names from `extensionsUsed` / `extensionsRequired`, from every `extensions` object (not `extras`) and, for
+  KHR_animation_pointer, its `pointer` channels, before anything is converted: the document is the file without
+  that extension, so every core fallback applies with no per-extension code. `Application::reloadForExtensionSwitches`
+  (start of `runFrame`) compares the switch set with the one the last load (or refused load) was read with and,
+  when a changed extension is declared by that file, queues the same path again (no recent-files change).
 
 ### 3.2b GPU Instancing (EXT_mesh_gpu_instancing)
 
@@ -220,8 +235,8 @@ flowchart TD
   divided as the specification says (`max(c / 127, -1)`, ...), other integers (KHR_mesh_quantization) as their
   value; bufferView strides and dense sparse accessors are honoured; quaternions are not renormalized (like node
   rotations). Custom `_NAME` attributes are listed, not used. The node is drawn once (as before) when the file does
-  not declare the extension in `extensionsUsed`, `ImportOptions::skipExtensions` names it,
-  `GLIDER_TEST_DISABLE_GPU_INSTANCING=1` is set, the node has no mesh, the node is skinned
+  not declare the extension in `extensionsUsed`, `ImportOptions::skipExtensions` names it, it is switched off (File >
+  Settings > glTF Extensions: read as absent, section 3.2a), `GLIDER_TEST_DISABLE_GPU_INSTANCING=1` is set, the node has no mesh, the node is skinned
   (`[Loading] EXT_mesh_gpu_instancing: node N 'name' is skinned; instancing is not applied, the mesh is drawn once`),
   or the attributes are invalid (different counts, wrong type: logged with the reason). `getGpuInstancingStatus()`
   says which ("applied" otherwise). `gltf::isExtensionSupported` lists the extension.
@@ -336,7 +351,7 @@ Implemented in [`CameraActor.cpp`](file:///H:/git-repos/gltf-viewer/source/rende
   no-ops. `GltfExtensionSettings` owns switches plus ASOBO interior sky reflection and decal tolerance, saved in
   `[GltfExtensions]` with independent effective / saved values. Old-scope registry keys forward to their new owners.
   Resolved viewport mirrors keep renderer reads centralized in `Application::resolveAllViewportSettings`.
-- **Single Portable Settings File**: Every persisted preference lives in one `settings.ini` next to `Glider.exe`: window state `[Window]`, recent files `[RecentFiles]`, search paths `[SearchPaths]`, hierarchy/resource display `[SceneHierarchy]`/`[Resources]`, render quality `[RenderQuality]`, the glTF extension switches `[GltfExtensions]` (one key per switched-off extension name, value `0`; `ASOBO=0` is the group's master switch; see `docs/SETTINGS_SCOPES.md`), the viewport capture folder `[Captures]` (`folder`, stored only when set; see §3.8), the four quality presets `[QualityProfiles]` (`profile0.*` … `profile3.*`, `selection`; 0 = Auto, 1–4 = profiles; besides AA, SSR quality and the IBL / shadow fields also `ssaoQuality`, `ssaoResolution`, `skyOcclusionQuality`, `oceanQuality`) and the ImGui docking layout `[Layout]`. No settings folder (no `GliderData/`) is created next to the executable, so `Glider.exe` still runs as a single file.
+- **Single Portable Settings File**: Every persisted preference lives in one `settings.ini` next to `Glider.exe`: window state `[Window]`, recent files `[RecentFiles]`, search paths `[SearchPaths]`, hierarchy/resource display `[SceneHierarchy]`/`[Resources]`, render quality `[RenderQuality]`, the glTF extension switches `[GltfExtensions]` (one key per switched-off extension name of any vendor, value `0`; `ASOBO=0` is the ASOBO group's master switch; see `docs/SETTINGS_SCOPES.md`), the viewport capture folder `[Captures]` (`folder`, stored only when set; see §3.8), the four quality presets `[QualityProfiles]` (`profile0.*` … `profile3.*`, `selection`; 0 = Auto, 1–4 = profiles; besides AA, SSR quality and the IBL / shadow fields also `ssaoQuality`, `ssaoResolution`, `skyOcclusionQuality`, `oceanQuality`) and the ImGui docking layout `[Layout]`. No settings folder (no `GliderData/`) is created next to the executable, so `Glider.exe` still runs as a single file.
   - **Only Non-Default Values**: writers compare every value with its built-in default and skip equal ones, empty sections are not serialized, and a pristine run creates no file at all. `SettingsFile::save()` compares the serialized content and never rewrites an unchanged file; a file whose values all match the defaults is removed.
   - **Fallback**: If the executable directory is not writable (e.g. under Program Files), Glider writes `%APPDATA%/Glider/settings.ini` (or `%TEMP%/Glider/settings.ini`), logging the fallback once. If every location is unwritable, changes are kept in memory for the session without crashing.
   - **One-Time Migration**: On first launch without a new-format file, existing state from `<exeDir>/GliderData/` (or legacy `<exeDir>/settings.ini`, `%APPDATA%/Glider/`, `%APPDATA%/Gestaltor/`) is merged in memory: list sections (`[SearchPaths]`, `[RecentFiles]`, `[Layout]`, `[QualityProfiles]`) come from the newest source as a whole, scalar sections fill only missing keys. The first save writes the consolidated file with a `; Glider settings file (schema 1)` marker; once that file exists, legacy files are never consulted again, so values the user resets to their defaults are not resurrected.
@@ -363,7 +378,10 @@ Replaces the legacy external `gltf_validator.exe` subprocess with a native, 100%
     ASOBO support-table rows that are not "Not yet supported") is a warning `EXTENSION_REQUIRED_UNSUPPORTED` ("Required extension X is not
     supported; the file may not display correctly."); an unsupported `extensionsUsed` entry that is not required is an
     info `EXTENSION_USED_UNSUPPORTED` (ASOBO extensions keep their own "not rendered" info,
-    `ASOBO_EXTENSIONS_NOT_RENDERED`).
+    `ASOBO_EXTENSIONS_NOT_RENDERED`). A supported extension that is switched off in File > Settings > glTF
+    Extensions is reported the same way with "switched off" in the message: warning
+    `EXTENSION_REQUIRED_SWITCHED_OFF`, info `EXTENSION_USED_SWITCHED_OFF` (`GltfValidator::s_switchedOff`, set
+    before each validation).
 - **Interactive UI (`ValidationPanel`)**:
   - Filterable issues table with Errors (🔴), Warnings (🟡), and Infos (🔵).
   - Quick-search filter by code, JSON pointer, or message.

@@ -148,15 +148,10 @@ std::string decodeView(BufferView& view)
 
 GltfResult ux3d::gltf::meshopt::decodeBufferViews(Gltf& gltf)
 {
+    // A switched-off meshopt extension (File > Settings > glTF Extensions, or the GLIDER_TEST_DISABLE_MESHOPT alias)
+    // never reaches this point: GltfFromJson refuses a file that requires it and removes it from one that only uses
+    // it, so no bufferView carries compression and the fallback buffers are read.
     GltfResult result;
-    const auto& required = gltf.getRequiredUnknownExtensions();
-    for (const std::string_view name : { ExtName, KhrName }) {
-        if (decodingDisabled() && required.count(std::string(name)) != 0) {
-            core::logError("[Loading] the file requires %s, which is switched off (GLIDER_TEST_DISABLE_MESHOPT): its "
-                           "compressed geometry cannot be read", std::string(name).c_str());
-            result = core::Max(GltfResult(GltfError::MeshoptDecodingError), result);
-        }
-    }
 
     uint32_t index = 0;
     uint32_t failures = 0;

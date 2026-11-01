@@ -4,6 +4,7 @@
 #include "core/LoadProgress.h"
 #include "imgui/AppSettings.h"
 #include "imgui/ElementInspector.h"
+#include "imgui/GltfExtensionSettings.h"
 #include "imgui/StatisticsPanel.h"
 #include "imgui/GltfValidator.h"
 #include "imgui/MemoryInfo.h"
@@ -300,6 +301,8 @@ bool Application::loadGltfModel(const std::string& filePath, ux3d::gltf::Gltf& g
     ux3d::imgui::AppSettings::instance().setCurrentModelPath(filePath);
     ux3d::gltf::ImportOptions importOptions;
     importOptions.loadImages = !withoutTextures;
+    // File > Settings > glTF Extensions: the switched-off extensions applied at load are read as absent.
+    importOptions.disabledExtensions = ux3d::imgui::GltfExtensionSettings::instance().loaderDisabled();
     if (withoutTextures) logMessage("[Loading] opening without textures: image reads, decode and GPU texture uploads skipped");
     auto& startupProfile = ux3d::imgui::profiling::startupProfile();
     const auto loadStart = ux3d::imgui::profiling::Clock::now();
@@ -336,6 +339,17 @@ bool Application::loadGltfModel(const std::string& filePath, ux3d::gltf::Gltf& g
     });
     while (parsing.wait_for(std::chrono::milliseconds(4)) != std::future_status::ready) pump();
     const auto result = parsing.get();
+    if (!texturesOnly) {
+        // reloadForExtensionSwitches: this file and the switch set it was read with (kept when the load is refused).
+        ++modelLoadAttempts;
+        extensionLoadPath = filePath;
+        extensionLoadWithoutTextures = withoutTextures;
+        extensionLoadDeclared.clear();
+        for (const auto& name : gltfModel.getFileExtensions()) extensionLoadDeclared.insert(name);
+        extensionLoadDisabled = importOptions.disabledExtensions;
+        extensionLoadSwitchedOff.assign(gltfModel.getSwitchedOffExtensions().begin(), gltfModel.getSwitchedOffExtensions().end());
+        std::sort(extensionLoadSwitchedOff.begin(), extensionLoadSwitchedOff.end());
+    }
     if (glfwWindowShouldClose(window)) return false;
     if (texturesOnly && result == ux3d::gltf::GltfFromFileResult::Success) {
         ux3d::core::loading::begin(ux3d::core::loading::Upload, static_cast<uint32_t>(gltfModel.getImages().size()));
@@ -455,6 +469,7 @@ bool Application::loadGltfModel(const std::string& filePath, ux3d::gltf::Gltf& g
         // Auto-run glTF 2.0 validation
         const auto validationStart = ux3d::imgui::profiling::Clock::now();
         ux3d::core::loading::begin(ux3d::core::loading::Validation, 1);
+        ux3d::imgui::GltfValidator::s_switchedOff = ux3d::imgui::GltfExtensionSettings::instance().switchedOff();
         auto validation = std::async(std::launch::async, [&]() {
             return ux3d::imgui::GltfValidator::instance().validate(filePath, gltfModel);
         });
@@ -521,6 +536,32 @@ bool Application::loadGltfModel(const std::string& filePath, ux3d::gltf::Gltf& g
         }
         return false;
     }
+}
+
+void Application::reloadForExtensionSwitches()
+{
+    if (extensionLoadPath.empty() || !queuedLoadPath.empty() || loadingActive) return;
+    const auto now = ux3d::imgui::GltfExtensionSettings::instance().loaderDisabled();
+    if (now == extensionLoadDisabled) return;
+    std::vector<std::string> changed;
+    for (const auto& name : extensionLoadDeclared) {
+        if ((now.count(name) != 0) != (extensionLoadDisabled.count(name) != 0)) changed.push_back(name);
+    }
+    if (changed.empty()) {
+        // The file does not declare the extension: it reads the same with the new set, nothing to reload.
+        extensionLoadDisabled = now;
+        return;
+    }
+    std::sort(changed.begin(), changed.end());
+    std::string names;
+    for (const auto& name : changed) names += (names.empty() ? "" : ", ") + name + (now.count(name) ? " off" : " on");
+    logMessage("[Loading] glTF extension switch changed (" + names + "): reopening " + extensionLoadPath);
+    ++extensionReloads;
+    queuedLoadPath = extensionLoadPath;
+    queuedLoadWithoutTextures = extensionLoadWithoutTextures;
+    queuedLoadNoPersist = true; // the same file again: no recent-files change
+    // Never retried in a loop: the next attempt records the set it was read with, also when it is refused.
+    extensionLoadDisabled = now;
 }
 
 void Application::newEmptyGltf(ux3d::gltf::Gltf& gltfModel, ux3d::gltf::Scene*& activeScene,

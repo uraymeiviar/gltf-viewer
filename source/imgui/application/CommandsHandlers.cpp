@@ -716,6 +716,10 @@ void Application::registerAgentCommands()
             if (!std::filesystem::is_regular_file(std::filesystem::u8path(path), error)) {
                 return CommandReply::failure("file_not_found", "failed to open: " + path);
             }
+            // The startup glTF extension switches before the load (a switch applied at load must not reload it).
+            if (args.value("startup_state", false)) {
+                ux3d::imgui::GltfExtensionSettings::instance().restore(agentStartupGltfExtensions);
+            }
             // Inside a frame the load is queued; the next frame runs it (as File > Open does).
             loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(),
                           animationPlayer, sceneRevisions, sceneEnvironments, false, args.value("without_textures", false));
@@ -767,6 +771,8 @@ void Application::registerAgentCommands()
                     "viewport settings and environment as at startup, fresh TAA/exposure history.";
         spec.run = [this](const json&, const CommandContext&) -> CommandOutcome {
             const std::string path = currentFilePath.empty() ? resolveSampleModelPath() : currentFilePath;
+            // The startup glTF extension switches before the reload, which reads the file with them.
+            ux3d::imgui::GltfExtensionSettings::instance().restore(agentStartupGltfExtensions);
             // The reload is queued for the next frame; the reset state is applied after it.
             loadGltfModel(path, gltfModel, activeScene, selection, currentFilePath, viewports, gltfLayer.get(),
                           animationPlayer, sceneRevisions, sceneEnvironments);

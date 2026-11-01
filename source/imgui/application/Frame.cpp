@@ -25,6 +25,7 @@ void Application::runFrame()
         }
         releaseTextureRefreshSnapshot();
     }
+    reloadForExtensionSwitches();
     if (!queuedLoadPath.empty()) {
         const std::string path = std::exchange(queuedLoadPath, {});
         const bool withoutTextures = std::exchange(queuedLoadWithoutTextures, false);

@@ -68,6 +68,10 @@ class Gltf : public GltfObject {
     // Every name in the loaded file's extensionsUsed, known or not. Vendor extensions
     // (ASOBO_*) are only honoured when declared here.
     std::unordered_set<core::string> m_declaredExtensions;
+    // The file's own extensionsUsed and extensionsRequired names, before switched-off extensions were removed, and
+    // the switched-off ones among them (ImportOptions::disabledExtensions).
+    std::unordered_set<core::string> m_fileExtensions;
+    std::unordered_set<core::string> m_switchedOffExtensions;
 
     // Monotonic revision for UI caches. It changes whenever the model is reset
     // or an element is created, so cached pointers and labels can be rejected
@@ -260,6 +264,10 @@ public:
     void addDeclaredExtension(const core::string& _extensionName) { m_declaredExtensions.insert(_extensionName); }
     bool isExtensionDeclared(const core::string& _extensionName) const { return m_declaredExtensions.count(_extensionName) != 0; }
     const std::unordered_set<core::string>& getDeclaredExtensions() const { return m_declaredExtensions; }
+    void setFileExtensions(std::unordered_set<core::string> _names) { m_fileExtensions = std::move(_names); }
+    const std::unordered_set<core::string>& getFileExtensions() const { return m_fileExtensions; }
+    void setSwitchedOffExtensions(std::unordered_set<core::string> _names) { m_switchedOffExtensions = std::move(_names); }
+    const std::unordered_set<core::string>& getSwitchedOffExtensions() const { return m_switchedOffExtensions; }
 
     core::Vector<TextureInfo*> getTextureInfos();
 

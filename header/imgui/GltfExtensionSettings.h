@@ -12,25 +12,31 @@
 #include <map>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 #include <vector>
 
 namespace ux3d::imgui {
 
-// One extension with a switch in File > Settings > glTF Extensions.
+// One extension with a switch in File > Settings > glTF Extensions (a row of gltf::supportedExtensions()).
 struct GltfExtensionEntry {
-    std::string name;  // the glTF extension name, e.g. "ASOBO_material_detail_map"; also the registry key
-    std::string label; // display name
-    std::string note;  // tooltip
+    std::string name;     // the glTF extension name, e.g. "ASOBO_material_detail_map"; also the registry key
+    std::string label;    // display name
+    std::string note;     // what Glider does with it (tooltip)
+    std::string status;   // "Rendered", "Partial", "Read", "Metadata", "Not applicable"
+    std::string offMeans; // what switching it off does (tooltip)
+    // Applied by the renderer (the ASOBO viewport switches, also off with the group's master switch); every other
+    // switch is applied when the file is read, so changing it reloads the open file.
+    bool renderTime = false;
 };
 
-// The extensions of one vendor (the name prefix before the first '_'), listed under one heading with a master
-// switch for the whole group. This table is the one place to add another vendor (KHR_, EXT_, ...): give it a group
-// here and the settings tab, the registry keys and get_state follow.
+// The extensions of one vendor (the name prefix before the first '_'), listed under one collapsible heading. The
+// groups are built from gltf::supportedExtensions(), the one support table: a supported extension gets its switch,
+// registry key and get_state entry from there. Only the ASOBO group has a master switch.
 struct GltfExtensionGroup {
-    std::string vendor;      // "ASOBO"
+    std::string vendor;      // "ASOBO", "KHR", "EXT", "MSFT", "ux3d"
     std::string title;       // "MSFS (ASOBO)"
-    std::string masterLabel; // "Apply MSFS (ASOBO) extensions"
-    std::string masterKey;   // the registry key of the master switch ("asobo")
+    std::string masterLabel; // "Apply MSFS (ASOBO) extensions" (empty: no master switch)
+    std::string masterKey;   // the registry key of the master switch ("asobo"; empty: none)
     std::string description; // one line under the heading
     std::vector<GltfExtensionEntry> extensions;
 };
@@ -56,6 +62,12 @@ public:
     bool enabled(std::string_view key) const;
     // Group and extension: true when the extension is applied.
     bool applies(std::string_view extension) const;
+    // The state of one switch: applies() for a render-time (ASOBO) switch, enabled() for one applied at load.
+    bool isOn(const GltfExtensionEntry& entry) const;
+    // The extensions switched off that are applied at load (gltf::ImportOptions::disabledExtensions).
+    std::unordered_set<std::string> loaderDisabled() const;
+    // Every supported extension whose switch is off, sorted (the validator's "switched off" notices).
+    std::vector<std::string> switchedOff() const;
     // The viewport mirror (ViewportSettingsState::asobo) of the ASOBO group.
     ux3d::renderer::AsoboOptions asoboOptions() const;
     // Effective set (disabled keys) and saved set.
@@ -100,6 +112,7 @@ private:
     std::map<std::string, float> m_tuning{{"interior_sky_reflection", 0.5f}, {"decal_tolerance_mm", 1.2f}};
     std::map<std::string, float> m_savedTuning = m_tuning;
     uint64_t m_revision = 0;
+    std::string m_filter; // the tab's search filter
 };
 
 } // namespace ux3d::imgui

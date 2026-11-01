@@ -123,6 +123,12 @@ One ocean simulation / clock belongs to each scene and is shared by every viewpo
 carry every cost setting and read old gate / budget keys without losing retained budgets. `set_persist(true)`
 commits only the requested Quality key; CLI / ordinary script overrides stay session-only through unrelated saves.
 
+Every supported glTF extension has a renderer-scope switch keyed by its name (`set_viewport_setting KHR_lights_punctual
+false` falls back to it; `--disable-extension <name>` at startup). Off = Glider reads the file as if the extension
+were absent; a file that requires it is not loaded. Except the ASOBO rendering switches, a change reloads the open
+file when it declares the extension: wait until `get_state.gltfExtensions.openFile.reloads` counts up and
+`loadPending` is false before capturing.
+
 ASOBO app tuning (`interior_sky_reflection`, `decal_tolerance_mm`) lives with extension switches in
 `[GltfExtensions]`; effective / saved values are independent. Sky portals are implicit with either source at
 default 0.35; disable ASOBO_sky_portal to remove them. `sky_portal_strength` / `--sky-portal-strength` stays a hidden

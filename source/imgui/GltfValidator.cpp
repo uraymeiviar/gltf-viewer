@@ -847,7 +847,8 @@ ValidationReport GltfValidator::validate(const std::string& filePath, ux3d::gltf
 
     // 3.8a Extensions Glider does not read (gltf::isExtensionSupported, the one support list): a warning for each
     // extensionsRequired entry, an info for each extensionsUsed entry that is not required. ASOBO extensions that are
-    // only used are left to the "not rendered" notice below.
+    // only used are left to the "not rendered" notice below. A supported extension that is switched off in File >
+    // Settings > glTF Extensions (s_switchedOff) is reported the same way, with "switched off" in the message.
     {
         std::vector<std::string> requiredNames;
         if (jsonDoc.contains("extensionsRequired") && jsonDoc["extensionsRequired"].is_array()) {
@@ -855,10 +856,19 @@ ValidationReport GltfValidator::validate(const std::string& filePath, ux3d::gltf
                 if (r.is_string()) requiredNames.push_back(r.get<std::string>());
             }
         }
+        const auto switchedOff = [](const std::string& name) {
+            return std::find(GltfValidator::s_switchedOff.begin(), GltfValidator::s_switchedOff.end(), name) !=
+                   GltfValidator::s_switchedOff.end();
+        };
         for (size_t i = 0; i < requiredNames.size(); ++i) {
             const std::string& name = requiredNames[i];
             if (std::find(requiredNames.begin(), requiredNames.begin() + i, name) != requiredNames.begin() + i) continue;
-            if (!ux3d::gltf::isExtensionSupported(name)) {
+            if (ux3d::gltf::isExtensionSupported(name) && switchedOff(name)) {
+                report.addIssue(ValidationSeverity::Warning, "EXTENSION_REQUIRED_SWITCHED_OFF",
+                                "Required extension " + name + " is switched off (File > Settings > glTF Extensions); "
+                                "the file may not display correctly.",
+                                "/extensionsRequired/" + std::to_string(i));
+            } else if (!ux3d::gltf::isExtensionSupported(name)) {
                 report.addIssue(ValidationSeverity::Warning, "EXTENSION_REQUIRED_UNSUPPORTED",
                                 "Required extension " + name + " is not supported; the file may not display correctly.",
                                 "/extensionsRequired/" + std::to_string(i));
@@ -872,6 +882,13 @@ ValidationReport GltfValidator::validate(const std::string& filePath, ux3d::gltf
                 const std::string name = usedNames[i].get<std::string>();
                 if (!seen.insert(name).second) continue;
                 if (std::find(requiredNames.begin(), requiredNames.end(), name) != requiredNames.end()) continue;
+                if (ux3d::gltf::isExtensionSupported(name) && switchedOff(name)) {
+                    report.addIssue(ValidationSeverity::Info, "EXTENSION_USED_SWITCHED_OFF",
+                                    "Extension " + name + " is switched off (File > Settings > glTF Extensions) and is "
+                                    "ignored.",
+                                    "/extensionsUsed/" + std::to_string(i));
+                    continue;
+                }
                 if (ux3d::gltf::asobo::isAsoboExtension(name) || ux3d::gltf::isExtensionSupported(name)) continue;
                 report.addIssue(ValidationSeverity::Info, "EXTENSION_USED_UNSUPPORTED",
                                 "Extension " + name + " is not supported by Glider and is ignored.",

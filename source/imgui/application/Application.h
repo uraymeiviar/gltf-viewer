@@ -46,6 +46,7 @@
 #include <memory>
 #include <mutex>
 #include <set>
+#include <unordered_set>
 #include <optional>
 #include <string>
 #include <utility>
@@ -491,6 +492,9 @@ private:
     // Settings scopes (docs/SETTINGS_SCOPES.md): writes every viewport's resolved mirrors from the global quality and
     // the active scene's effects (RenderQuality::resolveViewport); resets a viewport's TAA history when its AA changed.
     void resolveAllViewportSettings();
+    // File > Settings > glTF Extensions: a switch applied at load changed and the open (or last refused) file declares
+    // that extension, so the file is opened again with the new set (queued like File > Open, before the frame).
+    void reloadForExtensionSwitches();
     // get_state: the global quality, the scene's effects and each viewport's overrides with the effective values.
     nlohmann::json qualityStateJson() const;
     nlohmann::json effectsStateJson(const ux3d::imgui::SceneEnvironmentState& environment) const;
@@ -834,6 +838,15 @@ private:
     ux3d::imgui::SceneEnvironmentState agentStartupEnvironment;
     ux3d::imgui::RenderQualitySettings agentStartupQuality; // reset restores the AA / effect quality fields
     uint64_t lastGltfExtensionRevision = ~0ull;             // resolveAllViewportSettings marks a change of the set
+    // The last model load (also one refused because a switch is off): its path, how it was opened, the extensions
+    // the file declares and the switched-off set it was read with (reloadForExtensionSwitches).
+    std::string extensionLoadPath;
+    bool extensionLoadWithoutTextures = false;
+    std::unordered_set<std::string> extensionLoadDeclared;
+    std::unordered_set<std::string> extensionLoadDisabled;
+    std::vector<std::string> extensionLoadSwitchedOff;
+    uint64_t extensionReloads = 0;
+    uint64_t modelLoadAttempts = 0;
     std::map<std::string, float> agentStartupVendorTuning;
     std::set<std::string> agentStartupGltfExtensions;       // reset restores the glTF extension switches (effective set)
     // The model-dependent startup flags (--select-node, --camera-*), kept so that open_model(startup_state=true)

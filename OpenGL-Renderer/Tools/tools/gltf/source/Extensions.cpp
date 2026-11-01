@@ -2,6 +2,7 @@
 #include "core/Algorithms.h"
 #include "core/Logger.h"
 #include "gltf/MeshoptCompression.h"
+#include "gltf/extensions/AsoboExtensions.h"
 #include "gltf/extensions/AsoboSupport.h"
 
 ux3d::core::Vector<ux3d::gltf::Extension> ux3d::gltf::getAllExtensions()
@@ -213,21 +214,131 @@ bool ux3d::gltf::isExtensionRequired(Extension _extension)
     return true;
 }
 
+namespace {
+
+using ux3d::gltf::ExtensionSupport;
+
+ExtensionSupport row(const char* name, const char* vendor, const char* status, const char* description,
+    const char* offMeans, bool refuseWhenOff = false)
+{
+    ExtensionSupport info;
+    info.name = name;
+    info.vendor = vendor;
+    info.status = status;
+    info.description = description;
+    info.offMeans = offMeans;
+    info.refuseWhenOff = refuseWhenOff;
+    return info;
+}
+
+std::vector<ExtensionSupport> buildSupportTable()
+{
+    constexpr const char* materialOff = "Read as absent: its parameters are ignored and the material renders as its "
+                                        "core glTF material.";
+    constexpr const char* textureOff = "Read as absent: each texture uses its core source image; a texture without "
+                                       "one has no image. A file that requires it is not loaded.";
+    std::vector<ExtensionSupport> table = {
+        // Khronos
+        row("KHR_animation_pointer", "KHR", "Rendered", "Animates material, light, camera and node properties "
+            "through JSON pointers.", "Channels that target a JSON pointer are skipped; node channels still play."),
+        row("KHR_audio", "KHR", "Metadata", "Audio sources and emitters are read (Inspector); Glider plays no sound.",
+            "Not read: no audio sources or emitters."),
+        row("KHR_draco_mesh_compression", "KHR", "Read", "Draco-compressed primitives are decoded at load.",
+            "Primitives use their uncompressed fallback accessors (most Draco files have none and require the "
+            "extension). A file that requires it is not loaded."),
+        row("KHR_lights_punctual", "KHR", "Rendered", "Point, spot and directional lights.",
+            "Read as absent: no lights are created from the file."),
+        row("KHR_materials_anisotropy", "KHR", "Rendered", "Anisotropic specular lobe.", materialOff),
+        row("KHR_materials_clearcoat", "KHR", "Rendered", "Clear coat layer.", materialOff),
+        row("KHR_materials_emissive_strength", "KHR", "Rendered", "Emissive strength above 1 (HDR, bloom).",
+            materialOff),
+        row("KHR_materials_ior", "KHR", "Rendered", "Index of refraction.", materialOff),
+        row("KHR_materials_iridescence", "KHR", "Rendered", "Thin-film iridescence.", materialOff),
+        row("KHR_materials_pbrSpecularGlossiness", "KHR", "Rendered", "Specular-glossiness materials (archived "
+            "extension).", "Read as absent: the materials use their core metallic-roughness values."),
+        row("KHR_materials_sheen", "KHR", "Rendered", "Sheen (cloth) layer.", materialOff),
+        row("KHR_materials_specular", "KHR", "Rendered", "Specular strength and colour.", materialOff),
+        row("KHR_materials_transmission", "KHR", "Rendered", "Transmission (thin transparent surfaces).", materialOff),
+        row("KHR_materials_unlit", "KHR", "Rendered", "Unlit (constant colour) materials.",
+            "Read as absent: the materials are shaded as core PBR materials."),
+        row("KHR_materials_variants", "KHR", "Rendered", "Material variants, selectable in Viewport Settings.",
+            "Read as absent: no variants; every primitive shows its default material."),
+        row("KHR_materials_volume", "KHR", "Rendered", "Volume attenuation and thickness (with transmission).",
+            materialOff),
+        row("KHR_mesh_quantization", "KHR", "Read", "Quantized (integer) vertex attributes.",
+            "Cannot be ignored: quantized attributes cannot be read without it, so a file that declares it is not "
+            "loaded.", true),
+        row("KHR_meshopt_compression", "KHR", "Read", "meshoptimizer-compressed bufferViews are decoded at load "
+            "(the Khronos name of EXT_meshopt_compression).", "Compressed bufferViews are not decoded; the "
+            "uncompressed fallback buffers are read. A file that requires it is not loaded."),
+        row("KHR_texture_basisu", "KHR", "Rendered", "KTX2 / Basis Universal textures.", textureOff),
+        row("KHR_texture_transform", "KHR", "Rendered", "Texture coordinate offset, rotation and scale.",
+            "Read as absent: texture coordinates are used untransformed. A file that requires it is not loaded."),
+        row("KHR_xmp_json_ld", "KHR", "Metadata", "XMP metadata packets (Inspector).", "Not read: no XMP metadata."),
+        // EXT
+        row("EXT_mesh_gpu_instancing", "EXT", "Rendered", "One mesh drawn per instance (GPU instancing).",
+            "Read as absent: each instanced node draws its mesh once, with the node's own transform."),
+        row("EXT_meshopt_compression", "EXT", "Read", "meshoptimizer-compressed bufferViews are decoded at load.",
+            "Compressed bufferViews are not decoded; the uncompressed fallback buffers are read. A file that "
+            "requires it is not loaded."),
+        row("EXT_texture_webp", "EXT", "Rendered", "WebP textures.", textureOff),
+        // Microsoft
+        row("MSFT_texture_dds", "MSFT", "Rendered", "DDS textures (preferred over the core source, with automatic "
+            "fallback).", textureOff),
+        // Other vendors
+        row("ux3d_gestaltor", "ux3d", "Metadata", "UX3D Gestaltor's own storage hints (for example an animation's "
+            "playing state).", "Not read: the hints are ignored (animations use their default playing state)."),
+    };
+    namespace asobo = ux3d::gltf::asobo;
+    for (const asobo::SupportInfo& info : asobo::supportTable()) {
+        if (!asobo::isAsoboExtension(info.name) || info.status == asobo::Support::NotYetSupported) {
+            continue;
+        }
+        ExtensionSupport entry;
+        entry.name = std::string(info.name);
+        entry.vendor = "ASOBO";
+        entry.status = asobo::supportLabel(info.status);
+        entry.description = info.note.empty() ? std::string("Microsoft Flight Simulator extension.")
+                                              : std::string(info.note);
+        // The ASOBO viewport switches (A0.2) keep their meaning: applied by the renderer, the file is not reloaded.
+        entry.renderTime = (info.status == asobo::Support::Rendered || info.status == asobo::Support::Partial)
+            && info.viewportSwitch;
+        if (entry.renderTime) {
+            entry.offMeans = "Rendered as if the file had no " + entry.name + " (applied while rendering; the file "
+                             "is not reloaded). The MSFS (ASOBO) master switch turns it off too.";
+        } else if (!info.viewportSwitch) {
+            // ASOBO_asset_optimized: how the package stores its vertex data (winding, packed attributes). Reading the
+            // file without it would read other geometry, and --asobo-disable keeps it applied (A1.9).
+            entry.switchable = false;
+            entry.offMeans = "No switch: it describes how the file stores its data and is always read.";
+        } else {
+            entry.offMeans = "Not read: the Inspector does not list it. Applied at load: switching it reloads the "
+                             "open file.";
+        }
+        table.push_back(std::move(entry));
+    }
+    return table;
+}
+
+} // namespace
+
+const std::vector<ux3d::gltf::ExtensionSupport>& ux3d::gltf::supportedExtensions()
+{
+    static const std::vector<ExtensionSupport> table = buildSupportTable();
+    return table;
+}
+
+const ux3d::gltf::ExtensionSupport* ux3d::gltf::findExtensionSupport(std::string_view _extensionName)
+{
+    for (const ExtensionSupport& info : supportedExtensions()) {
+        if (info.name == _extensionName) {
+            return &info;
+        }
+    }
+    return nullptr;
+}
+
 bool ux3d::gltf::isExtensionSupported(std::string_view _extensionName)
 {
-    if (meshopt::isMeshoptExtension(_extensionName) || _extensionName == "ux3d_gestaltor"
-        || _extensionName == "EXT_mesh_gpu_instancing") {
-        return true;
-    }
-    for (const core::string& name : getAllExtensionNames()) {
-        if (name == _extensionName) {
-            return true;
-        }
-    }
-    for (const asobo::SupportInfo& info : asobo::supportTable()) {
-        if (info.name == _extensionName) {
-            return info.status != asobo::Support::NotYetSupported;
-        }
-    }
-    return false;
+    return findExtensionSupport(_extensionName) != nullptr;
 }

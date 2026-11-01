@@ -132,7 +132,11 @@ Suites (equivalence against the baseline plus each feature's analytic acceptance
   validate_gpu_instancing.py (EXT_mesh_gpu_instancing: generated instanced fixtures render byte-identical to plain
   twins with one child node per instance, quantized accessors, parent transform and animation, BLEND, morph,
   shadows, SSAO, wireframe; framing, window clicks and pick select the instanced node, Statistics summary, 10,000
-  instances in as many draw calls as 100, fallbacks drawn once, validator; plain twins against the baseline)
+  instances in as many draw calls as 100, fallbacks drawn once, validator; plain twins against the baseline),
+  validate_extension_switches.py (File > Settings > glTF Extensions: per representative extension off renders
+  byte-identical to the file without it and on byte-identical to the baseline; required + off refuses the load with
+  the reason; validator "switched off" notices; a switch change reloads the open file like a fresh open; ASOBO
+  rendering switches without a reload; settings.ini [GltfExtensions] persistence, --isolated, CLI never saved)
 Full tier: every suite above except the on-demand suites (see above), plus
   --with-ab (each feature against its own switch; validate_p8_5.py then also runs the P5.1 cases with
   --always-pick) and validate_p8_5.py's 10,000-drawable grid and MSAA/TAA fixture copies (the quick tier passes
@@ -231,6 +235,16 @@ TRIGGERS = (
       "OpenGL-Renderer/renderer/include/renderer/gl/Attribute.h", "OpenGL-Renderer/renderer/source/gl/Program.cpp",
       "OpenGL-Renderer/renderer/*Command*", "GltfRenderLayer*", "PickingRenderLayer.*", "ShadowCasterLayer.*",
       "Bounds.cpp", "ElementInspector.cpp", "StatisticsPanel.cpp", "source/imgui/application/CommandsHandlers.cpp")),
+    # glTF extension switches (File > Settings > glTF Extensions): the support table, the loader's switched-off
+    # handling, the settings class and its registry keys, the reload on a switch change, the validator notices.
+    (("extension_switches",),
+     ("OpenGL-Renderer/Tools/tools/gltf/source/Extensions.cpp", "OpenGL-Renderer/Tools/tools/gltf/include/gltf/Extensions.h",
+      "GltfFromJson.*", "GltfFromBinary.*", "ImportOptions.h", "GltfExtensionSettings.*", "GltfValidator.*",
+      "MeshoptCompression.*", "AsoboSupport.*", "OpenGL-Renderer/Tools/tools/gltf/source/Gltf.cpp",
+      "OpenGL-Renderer/Tools/tools/gltf/include/gltf/Gltf.h", "source/imgui/application/Scene.cpp",
+      "source/imgui/application/Frame.cpp", "source/imgui/application/CommandsSettings.cpp",
+      "source/imgui/application/CommandsState.cpp", "source/imgui/application/CommandsHandlers.cpp",
+      "source/imgui/application/CommandLine.cpp", "validate_extension_switches.py")),
     (("settings_scopes", "viewport_image", "area_maximize", "agent_control", "review_fixes"),
      ("Settings*", "ViewportOverrides.*", "source/imgui/application/Commands*", "ControlPipe.*",
       "CommandRegistry.*", "AreaLayout.cpp", "Menus.cpp", "ViewportImage.cpp", "Panels.cpp", "AppSettings.*",
@@ -421,6 +435,7 @@ serial_jobs = [
     ("settings_scopes", ["scripts/validate_settings_scopes.py", "--baseline-exe", str(baseline)]),
     ("meshopt", ["scripts/validate_meshopt.py", "--baseline-exe", str(baseline)]),
     ("gpu_instancing", ["scripts/validate_gpu_instancing.py", "--baseline-exe", str(baseline)]),
+    ("extension_switches", ["scripts/validate_extension_switches.py", "--baseline-exe", str(baseline)]),
 ]
 # validate_p5_1.py is superseded (its counter checks run in validate_p8_5.py) and no longer registered.
 tier_suites = [name for name, _ in jobs + serial_jobs] + list(SELFCHECKS)

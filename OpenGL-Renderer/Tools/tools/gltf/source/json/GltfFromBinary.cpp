@@ -107,7 +107,7 @@ ux3d::gltf::ConversionResult ux3d::gltf::GltfFromBinary::extractJsonString(core:
 ux3d::gltf::ConversionResult ux3d::gltf::GltfFromBinary::createObjects(const core::string& _jsonChunk)
 {
     GltfFromJson converter(m_gltf);
-    return converter.convert(_jsonChunk);
+    return converter.convert(_jsonChunk, m_importOptions);
 }
 
 ux3d::gltf::ConversionResult ux3d::gltf::GltfFromBinary::setBufferData(core::BinaryStreamRead& _stream)

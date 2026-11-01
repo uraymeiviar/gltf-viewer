@@ -61,12 +61,78 @@ switches remain view settings. Scene / Off / On controls are removed.
 
 ## glTF extensions and ASOBO tuning
 
-`GltfExtensionSettings::groups()` lists vendors and rendered extensions. An extension applies unless either its
-vendor or its own name is disabled. The ASOBO group also contains interior sky reflection (default 0.5) and decal
+`GltfExtensionSettings::groups()` lists the vendors and every supported extension (from `gltf::supportedExtensions()`).
+An ASOBO rendering extension applies unless either its vendor (`ASOBO`) or its own name is disabled; every other
+extension is read unless its own name is disabled (see the table below). The ASOBO group also contains interior sky reflection (default 0.5) and decal
 depth tolerance (default 1.2 mm). Switches and tuning have separate effective and saved values. UI edits save only
 the changed key; pipe edits commit only that key under `set_persist(true)`. CLI and ordinary script edits stay
 session-only, including through an unrelated save. `[GltfExtensions]` contains disabled `name=0` switches and
 non-default numeric tuning. Unknown future switch names are retained; invalid tuning warns and uses defaults.
+
+### Extension switches (File > Settings > glTF Extensions)
+
+Every extension Glider supports has a switch keyed by its name (registry key, `settings.ini` key, `get_state`
+`gltfExtensions.extensions.<name>`), grouped by vendor: MSFS (ASOBO) first (its long-standing layout and master
+switch), then Khronos (KHR), multi-vendor (EXT), Microsoft (MSFT) and any other vendor (`ux3d`). The one source is
+`gltf::supportedExtensions()` next to `gltf::isExtensionSupported` (`gltf/Extensions.h`): vendor, support status,
+description and what off means. Each group is collapsible, has *Enable all*, and the tab has a search filter; a row
+shows the switch (name), its support (Rendered / Partial / Read / Metadata / Not applicable) and its description,
+and the tooltip says what off means.
+
+Off means Glider behaves as a loader without the extension. Two kinds of switch:
+
+- **Applied while rendering** (the ASOBO rendering switches, unchanged): the file is rendered as if it had no such
+  extension; the master switch `ASOBO` turns all of them off; a change redraws at once, the file is not reloaded.
+- **Applied at load** (every other switch): `GltfFromJson` reads the file as if the extension were absent: it is
+  removed from `extensionsUsed` / `extensionsRequired` and from every `extensions` object of the document (not from
+  `extras`), so the core fallbacks are used. A file that lists it in `extensionsRequired` is not loaded:
+  `[Loading] the file requires X, which is switched off (File > Settings > glTF Extensions): the file is not loaded`,
+  then "Failed to load". An extension that cannot be ignored (KHR_mesh_quantization) refuses a file that declares it
+  at all. A change of such a switch reloads the open file when the file declares the extension (queued like File >
+  Open: the view is a fresh open with the new switch, framed again); a file refused because of a switch is opened
+  again when that switch is turned back on. A file that does not declare it is not reloaded. The log line
+  `[Loading] switched off in File > Settings > glTF Extensions, read as absent: X` names what was skipped.
+
+The validator reports a switched-off extension a file declares like an unsupported one: warning
+`EXTENSION_REQUIRED_SWITCHED_OFF` for a required one, info `EXTENSION_USED_SWITCHED_OFF` for a used one.
+
+| Extension | Vendor | Support | Off |
+|---|---|---|---|
+| `KHR_animation_pointer` | KHR | Rendered | Channels with target path `pointer` are skipped; node channels still play. |
+| `KHR_audio` | KHR | Metadata | Not read: no audio sources or emitters (Glider plays no sound). |
+| `KHR_draco_mesh_compression` | KHR | Read | Primitives use their uncompressed fallback accessors (most Draco files have none and require it); required: not loaded. |
+| `KHR_lights_punctual` | KHR | Rendered | No lights are created from the file. |
+| `KHR_materials_anisotropy` | KHR | Rendered | Ignored: core material. |
+| `KHR_materials_clearcoat` | KHR | Rendered | Ignored: core material. |
+| `KHR_materials_emissive_strength` | KHR | Rendered | Ignored: core material (emissive at strength 1). |
+| `KHR_materials_ior` | KHR | Rendered | Ignored: core material. |
+| `KHR_materials_iridescence` | KHR | Rendered | Ignored: core material. |
+| `KHR_materials_pbrSpecularGlossiness` | KHR | Rendered | The materials use their core metallic-roughness values. |
+| `KHR_materials_sheen` | KHR | Rendered | Ignored: core material. |
+| `KHR_materials_specular` | KHR | Rendered | Ignored: core material. |
+| `KHR_materials_transmission` | KHR | Rendered | Ignored: core material. |
+| `KHR_materials_unlit` | KHR | Rendered | Shaded as core PBR materials. |
+| `KHR_materials_variants` | KHR | Rendered | No variants: every primitive shows its default material. |
+| `KHR_materials_volume` | KHR | Rendered | Ignored: core material. |
+| `KHR_mesh_quantization` | KHR | Read | Cannot be ignored: a file that declares it is not loaded. |
+| `KHR_meshopt_compression` | KHR | Read | Compressed bufferViews not decoded, fallback buffers read; required: not loaded. |
+| `KHR_texture_basisu` | KHR | Rendered | Textures use their core source; none: no image; required: not loaded. |
+| `KHR_texture_transform` | KHR | Rendered | Texture coordinates untransformed; required: not loaded. |
+| `KHR_xmp_json_ld` | KHR | Metadata | Not read: no XMP metadata. |
+| `EXT_mesh_gpu_instancing` | EXT | Rendered | Each instanced node draws its mesh once (the node's own transform). |
+| `EXT_meshopt_compression` | EXT | Read | Compressed bufferViews not decoded, fallback buffers read; required: not loaded. |
+| `EXT_texture_webp` | EXT | Rendered | Textures use their core source; none: no image; required: not loaded. |
+| `MSFT_texture_dds` | MSFT | Rendered | Textures use their core source; none: no image; required: not loaded. |
+| `ux3d_gestaltor` | ux3d | Metadata | Gestaltor's storage hints ignored (animations use their default playing state). |
+| `ASOBO_*` rendering switches | ASOBO | Rendered / Partial | Rendered as if the file had no such extension (no reload; also off with `ASOBO`). |
+| `ASOBO_animation_retargeting`, `ASOBO_softbody_mesh`, `ASOBO_tags`, `ASOBO_unique_id` | ASOBO | Metadata | Not read (not listed in the Inspector); applied at load, not by the master switch. |
+| `ASOBO_material_disable_motion_blur`, `ASOBO_material_fake_terrain` | ASOBO | Not applicable | Not read; nothing visible changes. |
+| `ASOBO_asset_optimized` | ASOBO | Rendered | No switch: it describes how the file stores its vertex data and is always read (`--asobo-disable` keeps it applied, A1.9). |
+
+Persistence is unchanged: `[GltfExtensions]` holds only switched-off names (`name=0`) and non-default vendor tuning,
+written only by `GltfExtensionSettings`; unchanged content is never rewritten; `--isolated` reads and writes nothing;
+`--disable-extension` / `--asobo-disable` / `--asobo` apply to the run only. Verified by
+`scripts/validate_extension_switches.py`.
 
 Sky portals are implicit with either environment source, at default strength **0.35**. Disable `ASOBO_sky_portal`
 or ASOBO to remove them. The slider is gone. `sky_portal_strength` / `--sky-portal-strength` remain hidden

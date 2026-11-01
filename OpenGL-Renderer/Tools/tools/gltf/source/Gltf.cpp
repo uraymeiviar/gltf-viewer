@@ -565,6 +565,8 @@ void Gltf::reset()
     m_pDefaultScene = nullptr;
     m_materialVariantsArrayObject.reset();
     m_declaredExtensions.clear();
+    m_fileExtensions.clear();
+    m_switchedOffExtensions.clear();
 
     // Document-level state: the loader adds to it (addUnknownExtension keeps an existing entry), so a reset that
     // kept it let the previous file's asset extensions, e.g. ASOBO_normal_map_convention "DirectX", win over the

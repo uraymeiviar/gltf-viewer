@@ -7,6 +7,8 @@
 #include "gltf/ImportOptions.h"
 #include "nlohmann/json.hpp"
 #include <optional>
+#include <string>
+#include <unordered_set>
 
 namespace ux3d::gltf {
 class Gltf;
@@ -23,6 +25,7 @@ public:
     ConversionResult convert(const core::string& _gltfString, std::optional<ImportOptions> importOptions = std::nullopt);
 
 private:
+    ConversionResult applyExtensionSwitches(const std::unordered_set<std::string>& _disabled);
     ConversionResult createObjects();
     ConversionResult resolveDependencies();
     void convertRootExtensions();

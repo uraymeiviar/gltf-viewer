@@ -188,7 +188,7 @@ Nodes are addressed by name (exact, then case-insensitive, then unique substring
 | Command | Kind | Description |
 |---|---|---|
 | `describe` | immediate | List commands, argument schemas and the guide version. |
-| `get_state` | immediate | Model path, scene/node counts, selection, isolation, active viewport, camera, render mode, validation summary, loading state. |
+| `get_state` | immediate | Model path, scene/node counts, selection, isolation, active viewport, camera, render mode, validation summary, loading state. `gltfExtensions`: every extension switch keyed by name (`extensions`), vendor groups, `appliedAtLoad`, `loaderDisabled`, `switchedOff`, and `openFile` (the last load: `declared`, `switchedOff`, `reloads`, `loadPending`, ...). The switches are registry keys (no separate command): a change of one applied at load reloads the open file when it declares the extension. |
 | `list_nodes(filter?, limit?)` | immediate | Node names, indices, parents, mesh/material names, visibility. |
 | `log_tail(lines?, level?)` | immediate | Recent logger lines. |
 | `reset` | multi-frame | Return to a known state (§3.6). |

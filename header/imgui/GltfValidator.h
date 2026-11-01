@@ -94,6 +94,11 @@ public:
     // whole. true restores the whole-file read as a same-binary reference.
     static inline bool s_fullFileRead = false;
 
+    // The extensions switched off in File > Settings > glTF Extensions when the validation starts (set on the main
+    // thread before validate runs): a switched-off extension the file declares is reported like an unsupported one,
+    // with "switched off" in the message (warning EXTENSION_REQUIRED_SWITCHED_OFF, info EXTENSION_USED_SWITCHED_OFF).
+    static inline std::vector<std::string> s_switchedOff;
+
     // Writes the report without timings, as JSON, for byte-for-byte comparisons.
     static bool writeReportJson(const ValidationReport& report, const std::string& path);
 

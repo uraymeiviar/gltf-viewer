@@ -173,6 +173,23 @@ python scripts/run_regression.py --tier full
   validator (no notice) and the plain twins against the baseline. The renderer's `Mesh.*`, `gl/Attribute.h` and
   `gl/Program.cpp` also trigger the picking/instancing group (`p8_3`, `p8_5`, `p8_followup`), `NodesFromJson.*`
   the `meshopt` group.
+- **`extension_switches` suite** (`validate_extension_switches.py`; triggers: `Extensions.*`, `GltfFromJson.*`,
+  `GltfFromBinary.*`, `ImportOptions.h`, `GltfExtensionSettings.*`, `GltfValidator.*`, `MeshoptCompression.*`,
+  `AsoboSupport.*`, the glTF library's `Gltf.*`, the application's `Scene.cpp`, `Frame.cpp`, `CommandsSettings.cpp`,
+  `CommandsState.cpp`, `CommandsHandlers.cpp`, `CommandLine.cpp`, and itself): writes small `.gltf` fixtures into
+  `build/extension_switches/fixtures` (data URIs, a PNG and a DDS checker; about 200 KB, never committed; the meshopt
+  cases reuse `build/meshopt/fixtures`, the instancing case `validate_gpu_instancing.py`'s writer). Each case has a
+  plain twin (the JSON with the extension removed). For KHR_materials_emissive_strength, KHR_texture_transform,
+  MSFT_texture_dds (texture fallback), KHR_lights_punctual, KHR_materials_variants, KHR_animation_pointer
+  (`--anim-time 0.8`), ASOBO_material_invisible, EXT_mesh_gpu_instancing and EXT_meshopt_compression (used) the
+  switch off renders byte-identical to the twin and on byte-identical to the baseline (and differs from off, except
+  variants and meshopt whose images are the same either way). Required + off (emissive, meshopt) is refused with the
+  reason; KHR_mesh_quantization off refuses a file that uses it; `GLIDER_TEST_DISABLE_MESHOPT=1` still works; the
+  validator's switched-off notices; runtime pipe sessions (a switch change reloads the file and equals the fresh open,
+  off and back on; undeclared extensions and ASOBO rendering switches reload nothing; a refused file opens when its
+  switch is turned back on; the variant count follows the switch); persistence in `GLIDER_DATA_DIR` temp folders
+  (pristine run: no file; `set_persist` writes exactly `name=0`; restart keeps it; on again removes the section;
+  `--isolated` reads and writes nothing; `--disable-extension` is never saved).
 - **Per-suite summary**: the run ends with each suite's wall time and Glider launches (current build, baseline,
   baseline served from the cache, baseline started, repeated argument sets, control-pipe/follow sessions and their
   summed seconds), slowest first, and writes `build/regression/summary.json` (with the candidate and why each suite

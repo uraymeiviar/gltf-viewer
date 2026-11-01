@@ -97,6 +97,21 @@ json Application::agentStateJson()
     // Settings scopes: renderer-wide quality, the active scene's effects.
     st["quality"] = qualityStateJson();
     st["gltfExtensions"] = ux3d::imgui::GltfExtensionSettings::instance().stateJson();
+    // The last model load and the switches it was read with: declared = the file's extensionsUsed/Required, switchedOff
+    // = those read as absent (or that refused the file); reloads counts reopenings after a switch change.
+    {
+        std::vector<std::string> declared(extensionLoadDeclared.begin(), extensionLoadDeclared.end());
+        std::sort(declared.begin(), declared.end());
+        st["gltfExtensions"]["openFile"] = {{"path", extensionLoadPath},
+                                            {"loaded", modelLoaded},
+                                            {"declared", declared},
+                                            {"switchedOff", extensionLoadSwitchedOff},
+                                            {"materialVariants", gltfModel.getMaterialVariants().size()},
+                                            {"lights", gltfModel.getLights().size()},
+                                            {"loadAttempts", modelLoadAttempts},
+                                            {"reloads", extensionReloads},
+                                            {"loadPending", !queuedLoadPath.empty() || loadingActive}};
+    }
     st["environment"] = {{"effects", effectsStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene))}};
     st["skyOcclusion"] = skyOcclusionStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene));
     if (activeViewport != nullptr) {

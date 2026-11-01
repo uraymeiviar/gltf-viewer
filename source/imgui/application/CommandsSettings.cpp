@@ -113,13 +113,19 @@ void Application::registerAgentSceneEffectSettings()
             addSetting(std::move(spec));
         };
         for (const ux3d::imgui::GltfExtensionGroup& group : GES::groups()) {
-            extensionSwitch(group.masterKey, group.vendor,
-                            "Master switch of the " + group.title + " glTF extensions (app setting, every viewport; "
-                            "saved with set_persist(true)).", group.vendor == "ASOBO" ? "--asobo <on|off>" : "");
+            if (!group.masterKey.empty()) {
+                extensionSwitch(group.masterKey, group.vendor,
+                                "Master switch of the " + group.title + " glTF extensions (app setting, every viewport; "
+                                "saved with set_persist(true)).", group.vendor == "ASOBO" ? "--asobo <on|off>" : "");
+            }
             for (const ux3d::imgui::GltfExtensionEntry& entry : group.extensions) {
+                // A switch applied at load reloads the open file when it changes and the file declares the extension.
                 extensionSwitch(entry.name, entry.name,
-                                "Apply " + entry.name + " (app setting, every viewport; saved with set_persist(true)).",
-                                group.vendor == "ASOBO" ? "--asobo-disable " + entry.name : "");
+                                "Apply " + entry.name + " (app setting, every viewport; saved with set_persist(true)). " +
+                                    (entry.renderTime ? std::string("Applied while rendering.")
+                                                      : std::string("Applied at load: a change reloads the open file.")) +
+                                    " Off: " + entry.offMeans,
+                                entry.renderTime ? "--asobo-disable " + entry.name : "--disable-extension " + entry.name);
             }
         }
         SettingSpec spec;
@@ -187,7 +193,10 @@ void Application::registerAgentCompatibilitySettings()
     forward("asobo", V, R);
     forward("show_invisible_materials", V, R);
     for (const ux3d::imgui::GltfExtensionGroup& group : ux3d::imgui::GltfExtensionSettings::groups()) {
-        for (const ux3d::imgui::GltfExtensionEntry& entry : group.extensions) forward(entry.name, V, R);
+        // Only the rendering switches had viewport keys; the switches applied at load are app keys only.
+        for (const ux3d::imgui::GltfExtensionEntry& entry : group.extensions) {
+            if (entry.renderTime) forward(entry.name, V, R);
+        }
     }
     for (const char* key : {"shadows", "ssr", "ssao", "bloom", "ibl", "punctual_lights", "sky_occlusion",
                             "interior_sky_reflection", "decal_tolerance_mm"}) forward(key, E, R);

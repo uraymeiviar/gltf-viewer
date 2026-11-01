@@ -365,8 +365,10 @@ std::optional<int> Application::configure(int argc, char** argv)
             const bool on = toLowerAscii(argv[++i]) != "off";
             // An app setting for this run only (never saved): the command line does not write settings.ini.
             if (!applyCliSetting(SettingScope::Renderer, "asobo", on ? "on" : "off", "--asobo")) return 1;
-        } else if (arg == "--asobo-disable" && i + 1 < argc) {
-            // Any extension name works, also one without a registry key (no switch in the Settings tab).
+        } else if ((arg == "--asobo-disable" || arg == "--disable-extension") && i + 1 < argc) {
+            // Any extension name works, also one without a registry key (no switch in the Settings tab). For this run
+            // only: the command line never writes settings.ini. --disable-extension is the general spelling (a KHR_,
+            // EXT_, MSFT_ or ASOBO_ name); both switch the named extension off.
             ux3d::imgui::GltfExtensionSettings::instance().setEnabled(argv[++i], false, false);
         } else if (arg == "--set-asobo-param" && i + 4 < argc) {
             AsoboParamEditArg edit;
@@ -863,8 +865,13 @@ std::optional<int> Application::configure(int argc, char** argv)
         // after a load only ever sees files the loader accepted. A file the loader accepts is
         // validated with its model too, so the model-based checks (ASOBO extensions) run.
         ux3d::gltf::Gltf model;
+        // The glTF extension switches (settings.ini, --disable-extension) apply here as in a load: a switched-off
+        // extension is read as absent and reported as switched off.
+        ux3d::gltf::ImportOptions validateOptions;
+        validateOptions.disabledExtensions = ux3d::imgui::GltfExtensionSettings::instance().loaderDisabled();
+        ux3d::imgui::GltfValidator::s_switchedOff = ux3d::imgui::GltfExtensionSettings::instance().switchedOff();
         const auto loaded = ux3d::gltf::GltfParsing::fromFile(model, ux3d::imgui::StdFileSystem::instance().toFile(validateFileArg.c_str()),
-                                                             ux3d::gltf::ImportOptions{});
+                                                             validateOptions);
         if (loaded.derived != ux3d::gltf::GltfFromFileResult::Success) {
             model.reset();
         }
