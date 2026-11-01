@@ -44,6 +44,8 @@ Node::Node(uint32_t _id, const Node& _source)
     , m_gpuInstancingAttributes(_source.m_gpuInstancingAttributes)
     , m_gpuInstances(_source.m_gpuInstances)
     , m_gpuInstancingStatus(_source.m_gpuInstancingStatus)
+    , m_fileVisible(_source.m_fileVisible)
+    , m_fileVisibleNow(_source.m_fileVisibleNow)
     , weights(_source.weights)
 {
     // we can't copy the children because Nodes can only have one parent
@@ -647,6 +649,21 @@ ux3d::gltf::gpu_instancing::Summary ux3d::gltf::gpu_instancing::summarize(const 
         ++summary.nodes;
         summary.instances += node.getGpuInstances().size();
         summary.triangles += meshTriangles(*node.getMesh()) * node.getGpuInstances().size();
+    }
+    return summary;
+}
+
+ux3d::gltf::node_visibility::Summary ux3d::gltf::node_visibility::summarize(const Gltf& gltf)
+{
+    Summary summary;
+    for (const Node& node : gltf.getNodes()) {
+        if (!node.hasNodeVisibility()) {
+            continue;
+        }
+        ++summary.nodes;
+        if (!node.getAuthoredFileVisible()) {
+            ++summary.hidden;
+        }
     }
     return summary;
 }

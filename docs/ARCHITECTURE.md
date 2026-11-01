@@ -165,7 +165,7 @@ flowchart TD
 
 - **Profile**: OpenGL 4.6 Core Profile (via GLAD and GLFW). `Application::run` requests 4.6 and, if context creation fails, 4.5, then 4.3, then 4.1, and logs which version it obtained. Compute shaders, SSBOs and image load/store need 4.3+; query `ux3d::imgui::glCaps()` (`header/imgui/GlCaps.h`: `major`, `minor`, `compute`, `maxComputeWorkGroupInvocations`) before using them. The profile and benchmark reports carry the same values in their `gl` object. The vendored loader in `thirdparty/glad` is glad 0.1.36 generated for `gl=4.6` core with all extensions (command in `thirdparty/glad/README.md`). Every existing shader (and the ImGui backend) deliberately stays at `#version 410`, so the 4.6 context changes no rendered pixel (`scripts/validate_gl46.py` compares captures byte for byte with the baseline).
 - **Core Pipeline**:
-  - `ux3d::renderer::GltfRenderLayer`: Manages the active scene, geometry buffers, skins, and reverse mapping from drawables to glTF nodes. Its traversal applies local-view isolation (one node plus optional descendants) and inherited visibility (hiding a node hides its whole subtree) without changing the glTF visibility flags. All scene materials and the background skybox render in linear HDR space (`LINEAR_OUTPUT=1`) into a multisample-capable `GL_RGBA16F` target (`vp->sceneFbo`).
+  - `ux3d::renderer::GltfRenderLayer`: Manages the active scene, geometry buffers, skins, and reverse mapping from drawables to glTF nodes. Its traversal applies local-view isolation (one node plus optional descendants) and inherited visibility (hiding a node hides its whole subtree) without changing the glTF visibility flags, and the file's own KHR_node_visibility value the same inherited way (section 3.2c). All scene materials and the background skybox render in linear HDR space (`LINEAR_OUTPUT=1`) into a multisample-capable `GL_RGBA16F` target (`vp->sceneFbo`).
   - `ux3d::renderer::CommandGenerator`: Manages PBR material uniforms, punctual lights, IBL parameters, and pass bucketing (`DecalPrepass`, `DecalAccumulation`, `Opaque`, `Grid`, `Transparent2`, `TransmissiveBlit`, `Transmissive`, `Transparent`). The glass refraction copy (`TransmissionTarget`, `GL_RGBA16F` with regenerated mip chain) and windshield SSR capture directly from `vp->sceneFbo` without duplicate linear material passes.
   - `ux3d::imgui::AntiAliasing`: Executes the per-viewport HDR and LDR post-processing chain:
     `scene (HDR, MSAA) -> resolve -> TAA in HDR (reversible Karis luminance weighting c/(1+luma) before neighborhood clamp/blend and c/(1-luma) after) -> auto-exposure metering (64x64 centre-weighted log-average luminance with outlier rejection; read back asynchronously interactively, synchronously in capture runs) -> physically based bloom (Jimenez 2014 13-tap Karis downsample + 3x3 tent additive upsample) -> post tone mapping (exposure * Khronos PBR Neutral / ACES Hill / ACES Narkowicz + linear-to-sRGB) -> FXAA (LDR) -> unjittered overlays & wireframe (vp->overlayFbo) -> ImGui`. Debug Render Modes (`--debug-view`) bypass bloom and tone mapping. Both Wireframe shading mode and Wireframe Overlay draw lines after tone mapping into the LDR `vp->overlayFbo` without feeding bloom, auto-exposure, or TAA history.
@@ -207,6 +207,7 @@ flowchart TD
 - **Draco** (`KHR_draco_mesh_compression`): decoded per primitive after the images (`DracoDecoder`).
 - **EXT_mesh_gpu_instancing** (a node draws its mesh once per instance, at the node's world matrix x the instance's
   T * R * S): see section 3.2b.
+- **KHR_node_visibility** (a node the file hides is not rendered, with its subtree): see section 3.2c.
 - **Unsupported extensions**: the loader reads only the extensions it knows and does not refuse a file for an unknown
   required one; `gltf::isExtensionSupported` (`gltf/Extensions.h`) is the one support list and the validator reports
   what it does not contain (section 3.7).
@@ -272,6 +273,46 @@ flowchart TD
   are recomputed on the CPU only when the node's transform changes.
 - Checked by `scripts/validate_gpu_instancing.py` (renders byte-identical to plain twins with one child node per
   instance; see [BUILD_AND_TEST.md](BUILD_AND_TEST.md#45-regression-testing)).
+
+### 3.2c Node Visibility (KHR_node_visibility)
+
+- **Reading**: `NodesFromJson::resolve` reads `nodes[i].extensions.KHR_node_visibility.visible` (boolean, default
+  true) into `gltf::Node` (`gltf/Node.h`, `node_visibility`): `hasNodeVisibility()`, `getAuthoredFileVisible()` (the
+  file's value) and `isFileVisible()` (the current value: authored, or as an animation set it). Only when the file
+  declares the extension in `extensionsUsed` (otherwise one `[Loading]` warning per node, the node is visible);
+  `ImportOptions::skipExtensions` and the switch (File > Settings > glTF Extensions, section 3.2a: read as absent,
+  every node visible; required: the file is not loaded) leave it unread. A non-boolean `visible` or a non-object
+  extension is logged and read as visible. The extension is not kept as an unknown extension
+  (`GltfObjectFromJson::convertUnknownExtensions` skips it), so the Inspector shows the value read, not an editor.
+  The value is the file's: the viewer's Hide (`HelperVisible`, the hierarchy eye, `H`) is a separate flag and neither
+  ever writes the other; Glider has no toggle for the file's value.
+- **Rendering**: `GltfRenderLayer::traverseScene` inherits the file's value down the subtree like the viewer's Hide
+  (effective visibility = AND along the ancestor chain) and, unlike Hide, isolation does not override it: a hidden
+  node's primitives, its KHR_lights_punctual light and its ASOBO sky portal are left out of the traversal every pass
+  builds its scene from (opaque, BLEND, transmission, shadow casters and the sky-occlusion bake, the decal / SSAO
+  depth-normal prepass, picking, Wireframe shading and the Wireframe Overlay), so a hidden instanced node draws none
+  of its instances and a hidden node is never picked (a click falls through to what is behind it). Cameras keep
+  working (the camera list ignores the value; the hierarchy does not grey camera rows for it).
+- **Animation**: `fromAnimationPointer` keeps the whole node-relative path, so
+  `/nodes/{i}/extensions/KHR_node_visibility/visible` is the target `{node, "extensions/KHR_node_visibility/visible"}`
+  of `m_animationPointerTargets`, registered for every node that carries the extension (a `float` callback: the
+  unsigned byte 0 / 1 of the STEP sampler, non-zero = visible). Each animation apply sets the node's current value
+  (a mutable flag); a renderer sync restores the authored one. The traversal reads it every frame, so a toggle
+  rebuilds nothing; caches keyed on the pose generation (sun shadow maps) redraw like for an animated transform.
+- **Bounds**: `gltf::utils::getExtends` (startup framing, frame all, Focus / `frame_node`, clipping planes) leaves out
+  nodes the file hides below the nodes it is given (current values); when every node is hidden (Focus on a hidden
+  node selected in the hierarchy) they count after all, so the camera still frames it. The ground's model base
+  (`ModelBaseScan`) skips nodes whose authored value hides them. The selection OBB of a selected node still covers
+  its hidden descendants (selection, not rendering).
+- **UI and reports**: the Scene Hierarchy greys a hidden node's subtree and shows an orange file marker
+  (`ICON_MDI_FILE_HIDDEN`, tooltip, UI probe `hier.node_file_hidden`) left of the eye of the node the file hides; the
+  node Inspector shows `Visible (KHR_node_visibility): false` (or true, plus `Animated now: ...` while an animation
+  differs); Statistics adds `Hidden Nodes (KHR_node_visibility)` (`hidden of nodes`, authored) for a model with such
+  a node, and the per-frame renderer draw calls leave hidden nodes out; `list_nodes` gives `nodeVisibility` (authored)
+  and `nodeVisibilityNow` for those nodes. The validator reports a non-object extension or a non-boolean `visible` as
+  error `KHR_NODE_VISIBILITY_INVALID_TYPE` (no extension schema is applied to node extensions).
+- Checked by `scripts/validate_node_visibility.py` (renders byte-identical to the same JSON with the hidden nodes
+  removed; see [BUILD_AND_TEST.md](BUILD_AND_TEST.md#45-regression-testing)).
 
 ### 3.3 GPU Color Picking & Oriented Bounding Boxes (OBB)
 
@@ -374,7 +415,7 @@ Replaces the legacy external `gltf_validator.exe` subprocess with a native, 100%
   - Scene hierarchy cycle detection (DFS loop checking) and multi-parent rule checks.
   - External resource URI portability checks (warnings for absolute paths, infos for external URLs).
   - Extension support: every `extensionsRequired` entry outside `gltf::isExtensionSupported` (the KHR/EXT/MSFT names
-    of `getAllExtensionNames()`, EXT/KHR_meshopt_compression, EXT_mesh_gpu_instancing, `ux3d_gestaltor`, and the
+    of `getAllExtensionNames()`, EXT/KHR_meshopt_compression, KHR_node_visibility, EXT_mesh_gpu_instancing, `ux3d_gestaltor`, and the
     ASOBO support-table rows that are not "Not yet supported") is a warning `EXTENSION_REQUIRED_UNSUPPORTED` ("Required extension X is not
     supported; the file may not display correctly."); an unsupported `extensionsUsed` entry that is not required is an
     info `EXTENSION_USED_UNSUPPORTED` (ASOBO extensions keep their own "not rendered" info,
@@ -382,6 +423,8 @@ Replaces the legacy external `gltf_validator.exe` subprocess with a native, 100%
     Extensions is reported the same way with "switched off" in the message: warning
     `EXTENSION_REQUIRED_SWITCHED_OFF`, info `EXTENSION_USED_SWITCHED_OFF` (`GltfValidator::s_switchedOff`, set
     before each validation).
+  - KHR_node_visibility types: a non-object extension or a non-boolean `visible` is an error
+    `KHR_NODE_VISIBILITY_INVALID_TYPE` at the node (section 3.2c).
 - **Interactive UI (`ValidationPanel`)**:
   - Filterable issues table with Errors (🔴), Warnings (🟡), and Infos (🔵).
   - Quick-search filter by code, JSON pointer, or message.
@@ -400,7 +443,7 @@ Replaces the legacy external `gltf_validator.exe` subprocess with a native, 100%
   - **Save Viewport View...** opens the native Save As dialog (PNG filter, the proposed name above, starting in the capture folder) and writes the PNG there; a name without `.png` gets it appended. Scripted runs answer the dialog through `GLIDER_TEST_SAVE_FILE` (empty cancels), like `GLIDER_TEST_OPEN_FILE` for File → Open.
   - **Copy Viewport View** puts a 24-bit bottom-up `CF_DIB` on the Windows clipboard (alpha dropped) plus the registered `PNG` format (full quality, alpha kept) and logs one line.
   - **Capture folder:** **File → Settings → Captures** edits it (text field, Browse..., Reset to default; the default `<Pictures>\Glider` from `SHGetKnownFolderPath(FOLDERID_Pictures)` is shown). It is stored in `settings.ini` as `[Captures] folder=` only when it differs from the default (`ux3d::imgui::CaptureSettings`); an unset value means the default. `--isolated` never reads or writes it: edits stay in memory for the session. `get_state` reports `captures.default/configured/effective`. `scripts/validate_viewport_image.py` covers it.
-- **Isolation** is a render filter in `GltfRenderLayer::traverseScene`: only the root node and, optionally, its descendants are collected (lights included), and the hierarchy list is filtered to that isolated node (+ descendants when isolating with children). It never writes node visibility flags, so Exit Isolate restores the scene exactly; loading a model clears it. The Scene Hierarchy shows an **Exit Isolate** button above the list while isolation is active.
+- **Isolation** is a render filter in `GltfRenderLayer::traverseScene`: only the root node and, optionally, its descendants are collected (lights included), and the hierarchy list is filtered to that isolated node (+ descendants when isolating with children). It never writes node visibility flags, so Exit Isolate restores the scene exactly; loading a model clears it. Nodes the file hides (KHR_node_visibility, section 3.2c) stay hidden inside an isolated subtree. The Scene Hierarchy shows an **Exit Isolate** button above the list while isolation is active.
 - **Hierarchy rows:** hiding a node greys its whole subtree (the renderer inherits visibility the same way); the selected row is light green. Long labels scroll horizontally (the list has a horizontal scrollbar), and the pinned eye buttons have an opaque background and reserved space so they never overlap the label.
 - The **Camera & Helpers** tab keeps two camera-preset buttons per row and edits Zoom, Rotation, Look Target, FoV and the Near/Far clipping planes with drag fields; the camera actions are disabled while attached to a glTF camera.
 - **Node inspector:** the object name is read-only (renaming is disabled in the viewer). The Transform header has **Local** and **Global** tabs; Global shows world-space translation/rotation/scale and converts edits back into local TRS through the parent's inverse world transform.

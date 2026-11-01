@@ -181,7 +181,8 @@ struct ModelBaseScan {
 
     void visit(const ux3d::gltf::Node* node, const ux3d::math::dmat4& parent)
     {
-        if (node == nullptr || !node->getVisible()) return;
+        // KHR_node_visibility: the file's (authored) value hides the subtree like the viewer's Hide.
+        if (node == nullptr || !node->getVisible() || !node->getAuthoredFileVisible()) return;
         const ux3d::math::dmat4 world = parent * node->getTransformMatrix();
         if (const auto* mesh = node->getMesh()) {
             for (const auto& primitive : mesh->getPrimitives()) {

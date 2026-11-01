@@ -176,6 +176,35 @@ ConversionResult NodesFromJson::resolve(const nlohmann::json& _jsonNode, Node& _
                                 }
                             }
                         }
+                    } else if (extensionName == node_visibility::ExtensionName) {
+                        // KHR_node_visibility: visible (boolean, default true). Read only when the file declares the
+                        // extension (ImportOptions::skipExtensions and its switch read it as absent); not kept as an
+                        // unknown extension (GltfObjectFromJson), so the Inspector shows the value read, not an editor.
+                        const bool skipped = GltfObjectFromJson::g_importOptions.has_value()
+                            && GltfObjectFromJson::g_importOptions->skipExtensions.has_value()
+                            && GltfObjectFromJson::g_importOptions->skipExtensions->count(extensionName) != 0;
+                        if (skipped) {
+                        } else if (!m_gltf.isExtensionDeclared(extensionName)) {
+                            core::logWarning("[Loading] KHR_node_visibility: node %u uses the extension, but the file does "
+                                             "not declare it in extensionsUsed; it is ignored (the node is visible)",
+                                             _node.m_ID);
+                        } else if (!extension.is_object()) {
+                            core::logWarning("node.%s.%s with value '%s' has invalid type", key.c_str(), extensionName.c_str(), extension.dump().c_str());
+                            containsErrors = true;
+                            _node.setNodeVisibility(true);
+                        } else {
+                            const auto visible = extension.find("visible");
+                            if (visible == extension.end()) {
+                                _node.setNodeVisibility(true);
+                            } else if (visible->is_boolean()) {
+                                _node.setNodeVisibility(visible->get<bool>());
+                            } else {
+                                core::logWarning("node.%s.%s.visible with value '%s' is not a boolean; the node is visible",
+                                                 key.c_str(), extensionName.c_str(), visible->dump().c_str());
+                                containsErrors = true;
+                                _node.setNodeVisibility(true);
+                            }
+                        }
                     } else if (extensionName == "KHR_audio") {
                         if (extension.is_object()) {
                             GltfObject& audioEmitterPointerObject = _node.createAudioEmitterPointerObject();

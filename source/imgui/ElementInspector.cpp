@@ -276,6 +276,24 @@ void ElementInspector::render(SelectionState& selection,
             }
         }
 
+        // KHR_node_visibility: the file's value, read-only (the viewer's Hide is the eye button, separate from it).
+        if (node->hasNodeVisibility()) {
+            ImGui::Separator();
+            const bool authored = node->getAuthoredFileVisible();
+            const bool now = node->isFileVisible();
+            if (!authored) {
+                ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.30f, 1.0f), "Visible (KHR_node_visibility): false");
+            } else {
+                ImGui::Text("Visible (KHR_node_visibility): true");
+            }
+            if (now != authored) {
+                ImGui::TextDisabled("Animated now: %s", now ? "true" : "false");
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("The file's value; a hidden node and its subtree are not rendered, picked or framed.");
+            }
+        }
+
         if (node->getCamera() != nullptr) {
             ImGui::Separator();
             if (ImGui::Button("Inspect Attached Camera")) {

@@ -897,6 +897,30 @@ ValidationReport GltfValidator::validate(const std::string& filePath, ux3d::gltf
         }
     }
 
+    // 3.8a' KHR_node_visibility (no extension schema is applied to node extensions): the extension is an object and
+    // visible, when present, a boolean. The loader reads anything else as visible.
+    if (jsonDoc.contains("nodes") && jsonDoc["nodes"].is_array()) {
+        const auto& nodes = jsonDoc["nodes"];
+        for (size_t i = 0; i < nodes.size(); ++i) {
+            const auto& node = nodes[i];
+            if (!node.is_object() || !node.contains("extensions") || !node["extensions"].is_object()) continue;
+            const auto& extensions = node["extensions"];
+            const auto it = extensions.find("KHR_node_visibility");
+            if (it == extensions.end()) continue;
+            const std::string pointer = "/nodes/" + std::to_string(i) + "/extensions/KHR_node_visibility";
+            if (!it->is_object()) {
+                report.addIssue(ValidationSeverity::Error, "KHR_NODE_VISIBILITY_INVALID_TYPE",
+                                "KHR_node_visibility must be an object; the node is rendered as visible.", pointer,
+                                SelectionType::Node, static_cast<int>(i));
+            } else if (it->contains("visible") && !(*it)["visible"].is_boolean()) {
+                report.addIssue(ValidationSeverity::Error, "KHR_NODE_VISIBILITY_INVALID_TYPE",
+                                "KHR_node_visibility.visible must be a boolean (found " + (*it)["visible"].dump() +
+                                    "); the node is rendered as visible.",
+                                pointer + "/visible", SelectionType::Node, static_cast<int>(i));
+            }
+        }
+    }
+
     // 3.8b A1.7: the MSFS exporter writes its "DITHER" alpha mode verbatim into the core field. It is not
     // a glTF 2.0 value; Glider renders it as ASOBO_material_alphamode_dither, so it is reported as an info.
     if (jsonDoc.contains("materials") && jsonDoc["materials"].is_array()) {

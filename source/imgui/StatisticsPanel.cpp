@@ -243,6 +243,14 @@ StatisticsSnapshot buildSnapshot(const ux3d::gltf::Gltf& gltfModel, const std::s
         snapshot.rows.push_back({ "GPU Instances", std::to_string(instancing.instances) });
         snapshot.rows.push_back({ "Instanced Triangles", std::to_string(instancing.triangles) });
     }
+    // KHR_node_visibility: how many nodes the file hides (their own authored value; their subtrees are not drawn
+    // either). Only for models with a node that carries it. The per-frame draw calls of the profile report already
+    // leave hidden nodes out (the traversal skips them).
+    const auto nodeVisibility = ux3d::gltf::node_visibility::summarize(gltfModel);
+    if (nodeVisibility.nodes != 0) {
+        snapshot.rows.push_back({ "Hidden Nodes (KHR_node_visibility)",
+                                  std::to_string(nodeVisibility.hidden) + " of " + std::to_string(nodeVisibility.nodes) });
+    }
     // A2.1: one shared decal buffer, so these rows are counted once for all viewports.
     // Files without a decal buffer keep the panel exactly as it was before A2.1.
     if (buffers.decalBufferActive) {
@@ -275,6 +283,9 @@ StatisticsSnapshot buildSnapshot(const ux3d::gltf::Gltf& gltfModel, const std::s
         copy << "Instanced Nodes: " << instancedNodesText << "\n";
         copy << "GPU Instances: " << instancing.instances << "\n";
         copy << "Instanced Triangles: " << instancing.triangles << "\n";
+    }
+    if (nodeVisibility.nodes != 0) {
+        copy << "Hidden Nodes (KHR_node_visibility): " << nodeVisibility.hidden << " of " << nodeVisibility.nodes << "\n";
     }
     if (buffers.decalBufferActive) {
         copy << "Decal Buffer: Active (shared)\n";

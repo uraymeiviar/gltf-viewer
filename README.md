@@ -75,6 +75,7 @@
   - Compressed geometry: KHR_draco_mesh_compression and EXT_meshopt_compression / KHR_meshopt_compression (decoded at load).
   - Every supported extension (Khronos, EXT, MSFT, ASOBO) can be switched off in File → Settings → glTF Extensions: Glider then reads the file as a viewer without that extension (core fallbacks; a file that requires it is not loaded), and the open file is reloaded to match.
   - GPU instancing: EXT_mesh_gpu_instancing (every instance in one instanced draw per pass; picking, framing, shadows and Statistics include all instances).
+  - Node visibility: KHR_node_visibility (a node the file hides is not drawn, lit, picked or framed, with its whole subtree; animatable through KHR_animation_pointer; the Scene Hierarchy marks it and the Inspector shows the file's value, separate from the viewer's own Hide).
   - Real-time Image-Based Lighting (IBL) with spherical harmonics and environment radiance filtering supporting both Radiance HDR (`.hdr`) and OpenEXR (`.exr`) panoramic environment maps.
   - Infinite fading ground grid and 30+ render debug modes (Wireframe, Normal, Roughness, Metallic, Base Color, UV, Clearcoat, Sheen, etc.).
   - Window state and recent file history persistence across sessions.

@@ -49,8 +49,8 @@ bool isExtensionRequired(Extension _extension);
 // The one list of glTF extensions Glider reads or renders (validator: unsupported extensionsRequired /
 // extensionsUsed entries): true when supportedExtensions() has a row for the name. The rows are every name of
 // getAllExtensionNames() (KHR_*, EXT_texture_webp, MSFT_texture_dds), EXT_meshopt_compression and
-// KHR_meshopt_compression (decoded at load), EXT_mesh_gpu_instancing (drawn instanced), ux3d_gestaltor (Gestaltor's
-// own storage hints), and every row of asobo::supportTable() (ASOBO_*) that is not "Not yet supported".
+// KHR_meshopt_compression (decoded at load), KHR_node_visibility (hidden nodes), EXT_mesh_gpu_instancing (drawn
+// instanced), ux3d_gestaltor (Gestaltor's own storage hints), and every row of asobo::supportTable() (ASOBO_*) that is not "Not yet supported".
 bool isExtensionSupported(std::string_view _extensionName);
 
 // One extension Glider supports, with what its switch in File > Settings > glTF Extensions does. The table

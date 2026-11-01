@@ -184,15 +184,20 @@ const GltfRenderLayer::SceneTraversal& GltfRenderLayer::traverseScene(const gltf
     const bool hideInvisible = asoboOptions.applies("ASOBO_material_invisible");
     const bool hideOccluders = asoboOptions.applies("ASOBO_material_environment_occluder");
 
-    std::function<void(const gltf::Node*, bool, bool)> addMeshMaterialRecursive;
-    addMeshMaterialRecursive = [&](const gltf::Node* gltfNode, bool insideIsolation, bool parentHidden) {
+    std::function<void(const gltf::Node*, bool, bool, bool)> addMeshMaterialRecursive;
+    addMeshMaterialRecursive = [&](const gltf::Node* gltfNode, bool insideIsolation, bool parentHidden, bool parentFileHidden) {
         ++t.nodesVisited;
         const bool isIsolationRoot = (gltfNode == m_isolationRoot);
         const bool insideIsolatedSubtree = (m_isolationRoot == nullptr) || insideIsolation || isIsolationRoot;
         // Visibility is inherited: hiding a node hides every descendant. Isolation is
         // explicit, so the isolated root ignores hidden ancestors but still respects its
         // own visible flag.
-        const bool hidden = (isIsolationRoot ? false : parentHidden) || !gltfNode->getVisible();
+        const bool viewerHidden = (isIsolationRoot ? false : parentHidden) || !gltfNode->getVisible();
+        // KHR_node_visibility: the file's value (authored or animated, read every frame) is inherited the same way
+        // (effective visibility = AND along the ancestor chain), and isolation does not override it: the file says
+        // the node is not rendered. The node's mesh, its light and sky portal go with it; cameras keep working.
+        const bool fileHidden = parentFileHidden || !gltfNode->isFileVisible();
+        const bool hidden = viewerHidden || fileHidden;
 
         // Keep walking children of nodes outside the isolated subtree: the isolated node
         // can be nested at any depth below a scene root. Collection is gated below.
@@ -200,7 +205,7 @@ const GltfRenderLayer::SceneTraversal& GltfRenderLayer::traverseScene(const gltf
             ? false
             : (isIsolationRoot ? m_isolationIncludeChildren : insideIsolation);
         for (const auto* child : gltfNode->getChildren()) {
-            addMeshMaterialRecursive(child, childInsideIsolation, hidden);
+            addMeshMaterialRecursive(child, childInsideIsolation, viewerHidden, fileHidden);
         }
 
         // A3.7: a portal is part of the environment of whatever is drawn, so isolating a part of the cabin
@@ -295,7 +300,7 @@ const GltfRenderLayer::SceneTraversal& GltfRenderLayer::traverseScene(const gltf
 
     if (gltfScene != nullptr) {
         for (const gltf::Node* gltfNode : gltfScene->getNodes()) {
-            addMeshMaterialRecursive(gltfNode, false, false);
+            addMeshMaterialRecursive(gltfNode, false, false, false);
         }
     }
     return t;

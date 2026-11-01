@@ -133,6 +133,11 @@ Suites (equivalence against the baseline plus each feature's analytic acceptance
   twins with one child node per instance, quantized accessors, parent transform and animation, BLEND, morph,
   shadows, SSAO, wireframe; framing, window clicks and pick select the instanced node, Statistics summary, 10,000
   instances in as many draw calls as 100, fallbacks drawn once, validator; plain twins against the baseline),
+  validate_node_visibility.py (KHR_node_visibility: generated scenes with hidden nodes render byte-identical to the
+  same JSON with those nodes removed, plain / sun + shadows + ground / SSAO / wireframe / overlay, hidden BLEND,
+  instanced node and light; all visible, undeclared and switched off = the file without it; required + off
+  refused; framing, frame all, pick and draw calls as the removed twin; KHR_animation_pointer visibility at on / off
+  times = the static twins; list_nodes, validator type error; twins against the baseline),
   validate_extension_switches.py (File > Settings > glTF Extensions: per representative extension off renders
   byte-identical to the file without it and on byte-identical to the baseline; required + off refuses the load with
   the reason; validator "switched off" notices; a switch change reloads the open file like a fresh open; ASOBO
@@ -245,6 +250,16 @@ TRIGGERS = (
       "source/imgui/application/Frame.cpp", "source/imgui/application/CommandsSettings.cpp",
       "source/imgui/application/CommandsState.cpp", "source/imgui/application/CommandsHandlers.cpp",
       "source/imgui/application/CommandLine.cpp", "validate_extension_switches.py")),
+    # KHR_node_visibility: node parsing, the switch row, pointer targets, the traversal, framing extents, model base,
+    # hierarchy marker, Inspector, Statistics, list_nodes and the validator check.
+    (("node_visibility",),
+     ("OpenGL-Renderer/Tools/tools/gltf/source/Node.cpp", "OpenGL-Renderer/Tools/tools/gltf/include/gltf/Node.h",
+      "NodesFromJson.*", "GltfObjectFromJson.*", "OpenGL-Renderer/Tools/tools/gltf/source/Utils.cpp",
+      "Extensions.cpp", "Extensions.h", "GltfFromJson.*", "AnimationChannelTarget.*", "AnimationsFromJson.*",
+      "GltfRenderLayer*", "OpenGL-Renderer/renderer/*Command*", "PickingRenderLayer.*", "ShadowCasterLayer.*",
+      "KHRAnimationPointerTarget.h", "Bounds.cpp", "SceneHierarchy*", "ElementInspector.cpp", "StatisticsPanel.cpp",
+      "GltfValidator.*", "source/imgui/application/CommandsHandlers.cpp", "DiagnosticsPicking.cpp",
+      "validate_node_visibility.py")),
     (("settings_scopes", "viewport_image", "area_maximize", "agent_control", "review_fixes"),
      ("Settings*", "ViewportOverrides.*", "source/imgui/application/Commands*", "ControlPipe.*",
       "CommandRegistry.*", "AreaLayout.cpp", "Menus.cpp", "ViewportImage.cpp", "Panels.cpp", "AppSettings.*",
@@ -436,6 +451,7 @@ serial_jobs = [
     ("meshopt", ["scripts/validate_meshopt.py", "--baseline-exe", str(baseline)]),
     ("gpu_instancing", ["scripts/validate_gpu_instancing.py", "--baseline-exe", str(baseline)]),
     ("extension_switches", ["scripts/validate_extension_switches.py", "--baseline-exe", str(baseline)]),
+    ("node_visibility", ["scripts/validate_node_visibility.py", "--baseline-exe", str(baseline)]),
 ]
 # validate_p5_1.py is superseded (its counter checks run in validate_p8_5.py) and no longer registered.
 tier_suites = [name for name, _ in jobs + serial_jobs] + list(SELFCHECKS)

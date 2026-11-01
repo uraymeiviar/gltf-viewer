@@ -101,7 +101,10 @@ std::tuple<ChildOfRoot*, std::string> AnimationChannelTarget::fromAnimationPoint
             core::logError("Invalid animation target pointer %s", globalPointer.data());
         }
         gltfObject = pointerLookup.Nodes[objectID];
-        localPath = tokens[3];
+        localPath = tokens[3]; // E.g. translation
+        for (size_t i = 4; i < tokens.size(); i++) {
+            localPath += "/" + tokens[i]; // E.g. extensions/KHR_node_visibility/visible
+        }
     } else if (tokens[1] == "cameras") {
         uint32_t objectID = static_cast<uint32_t>(std::stoi(tokens[2]));
         if (objectID >= pointerLookup.Cameras.size()) {

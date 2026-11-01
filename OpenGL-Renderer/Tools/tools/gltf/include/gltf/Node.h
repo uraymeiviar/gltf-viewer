@@ -60,6 +60,22 @@ struct Summary {
 Summary summarize(const Gltf& gltf);
 }
 
+// KHR_node_visibility (https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Khronos/KHR_node_visibility):
+// node.extensions.KHR_node_visibility.visible (boolean, default true). A node that is not visible is not rendered and
+// neither are its descendants, whatever their own value; the value is animatable through KHR_animation_pointer
+// (PointerPath below, relative to /nodes/{i}/). It is read only when the file declares the extension in
+// extensionsUsed. The file's value is separate from the viewer's Hide (HelperVisible), which it never changes.
+namespace node_visibility {
+inline constexpr const char* ExtensionName = "KHR_node_visibility";
+inline constexpr const char* PointerPath = "extensions/KHR_node_visibility/visible";
+// Statistics / profile report: nodes carrying the extension and how many of them the file hides (authored value).
+struct Summary {
+    uint32_t nodes = 0;
+    uint32_t hidden = 0;
+};
+Summary summarize(const Gltf& gltf);
+}
+
 class Node : public ChildOfRoot, public HelperVisible {
     class LightPointerObject : public GltfObject {
     public:
@@ -97,6 +113,12 @@ private:
     std::vector<GpuInstancingAttribute> m_gpuInstancingAttributes;
     std::vector<GpuInstance> m_gpuInstances;
     std::string m_gpuInstancingStatus;
+
+    // KHR_node_visibility: the authored value (nullopt: the node does not carry the extension, it is visible) and the
+    // current value, which KHR_animation_pointer channels set every animation apply (mutable: the renderer holds
+    // const nodes; it is a per-frame flag like an animated transform, not a model edit).
+    std::optional<bool> m_fileVisible;
+    mutable bool m_fileVisibleNow = true;
 
 public:
     Node(uint32_t _id); // regular constructor
@@ -158,6 +180,20 @@ public:
         m_gpuInstancingStatus = _status;
     }
     const std::string& getGpuInstancingStatus() const { return m_gpuInstancingStatus; }
+
+    // KHR_node_visibility (see node_visibility). hasNodeVisibility(): the node carries the extension (read);
+    // getAuthoredFileVisible(): the file's value; isFileVisible(): the current value (authored, or as an animation set
+    // it). Only the node's own value: the renderer and the hierarchy inherit it down the subtree.
+    bool hasNodeVisibility() const { return m_fileVisible.has_value(); }
+    bool getAuthoredFileVisible() const { return m_fileVisible.value_or(true); }
+    void setNodeVisibility(std::optional<bool> _visible)
+    {
+        m_fileVisible = _visible;
+        m_fileVisibleNow = _visible.value_or(true);
+    }
+    bool isFileVisible() const { return m_fileVisibleNow; }
+    void setAnimatedFileVisible(bool _visible) const { m_fileVisibleNow = _visible; }
+    void resetAnimatedFileVisible() const { m_fileVisibleNow = m_fileVisible.value_or(true); }
 
     GltfResult getChildrenRecursively(core::Vector<Node*>& _recursiveChildren);
     GltfResult addChild(Node& _child, const Gltf& _root);

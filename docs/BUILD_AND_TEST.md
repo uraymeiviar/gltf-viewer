@@ -173,6 +173,24 @@ python scripts/run_regression.py --tier full
   validator (no notice) and the plain twins against the baseline. The renderer's `Mesh.*`, `gl/Attribute.h` and
   `gl/Program.cpp` also trigger the picking/instancing group (`p8_3`, `p8_5`, `p8_followup`), `NodesFromJson.*`
   the `meshopt` group.
+- **`node_visibility` suite** (`validate_node_visibility.py`; triggers: `Node.cpp` / `Node.h` / `NodesFromJson.*` /
+  `GltfObjectFromJson.*` / `Utils.cpp` / `Extensions.*` / `GltfFromJson.*` / `AnimationChannelTarget.*` /
+  `AnimationsFromJson.*` of the glTF library, `GltfRenderLayer*`, the renderer's `*Command*`,
+  `PickingRenderLayer.*`, `ShadowCasterLayer.*`, `KHRAnimationPointerTarget.h`, `Bounds.cpp`, `SceneHierarchy*`,
+  `ElementInspector.cpp`, `StatisticsPanel.cpp`, `GltfValidator.*`, `CommandsHandlers.cpp`, `DiagnosticsPicking.cpp`):
+  writes ten small `.gltf` fixtures (data URIs, generated into `build/node_visibility/fixtures`, never committed). A
+  scene with a hidden child of a visible parent, a hidden parent with an explicitly visible child, a hidden BLEND
+  plate in front of a visible node, a hidden instanced node (also below the model, so it would lower the ground's
+  model base) and a hidden point light renders byte-identical to the same JSON with the hidden nodes removed (plain,
+  sun + shadows + ground plane, SSAO, Wireframe shading, Wireframe Overlay; each differs from the file without the
+  extension); every node visible = true, the extension not declared, and `--disable-extension KHR_node_visibility`
+  equal the file without it; required equals the removed twin, required + switched off is not loaded with the reason.
+  It also checks the startup framing and clipping planes, `frame_node` without a node and the renderer draw calls
+  against the removed twin, `frame_node` on a hidden node (still framed), pipe `pick` at each hidden node's screen
+  centre (what the removed twin picks there; on the file without the extension the hidden node), `list_nodes`
+  `nodeVisibility`, a KHR_animation_pointer channel on `visible` (STEP, unsigned byte) at times where it is on / off
+  against static twins (and switched off: visible), the validator (no notice; `KHR_NODE_VISIBILITY_INVALID_TYPE` for
+  a string `visible`), and the removed / no-extension twins against the baseline.
 - **`extension_switches` suite** (`validate_extension_switches.py`; triggers: `Extensions.*`, `GltfFromJson.*`,
   `GltfFromBinary.*`, `ImportOptions.h`, `GltfExtensionSettings.*`, `GltfValidator.*`, `MeshoptCompression.*`,
   `AsoboSupport.*`, the glTF library's `Gltf.*`, the application's `Scene.cpp`, `Frame.cpp`, `CommandsSettings.cpp`,

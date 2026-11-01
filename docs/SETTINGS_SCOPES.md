@@ -116,6 +116,7 @@ The validator reports a switched-off extension a file declares like an unsupport
 | `KHR_materials_volume` | KHR | Rendered | Ignored: core material. |
 | `KHR_mesh_quantization` | KHR | Read | Cannot be ignored: a file that declares it is not loaded. |
 | `KHR_meshopt_compression` | KHR | Read | Compressed bufferViews not decoded, fallback buffers read; required: not loaded. |
+| `KHR_node_visibility` | KHR | Rendered | Every node is visible (its pointer channels are skipped); required: not loaded. |
 | `KHR_texture_basisu` | KHR | Rendered | Textures use their core source; none: no image; required: not loaded. |
 | `KHR_texture_transform` | KHR | Rendered | Texture coordinates untransformed; required: not loaded. |
 | `KHR_xmp_json_ld` | KHR | Metadata | Not read: no XMP metadata. |

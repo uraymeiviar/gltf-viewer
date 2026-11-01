@@ -28,8 +28,34 @@ static void endVisibilityToggle()
     ImGui::PopStyleColor(3);
 }
 
+// KHR_node_visibility: the file hides this node (its own value, as authored or animated now). A marker left of the
+// eye button, not a switch: the viewer never changes the file's value, and the eye (Hide) stays separate from it.
+static void renderFileVisibilityMarker(const ux3d::gltf::Node* node)
+{
+    if (node->isFileVisible()) {
+        return;
+    }
+    ImGui::SameLine();
+    ImGui::Dummy(ImVec2(kEyeButtonWidth, 0.0f));
+    ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - 2.0f * kEyeButtonWidth - ImGui::GetStyle().ItemSpacing.x);
+    ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_FrameBg));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_FrameBg));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImGui::GetStyleColorVec4(ImGuiCol_FrameBg));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.70f, 0.30f, 0.9f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f));
+    const std::string label = std::string(ICON_MDI_FILE_HIDDEN) + "##filevis_n_" + std::to_string(node->m_ID);
+    ImGui::Button(label.c_str(), ImVec2(kEyeButtonWidth, ImGui::GetFrameHeight()));
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor(4);
+    ux3d::imgui::UiProbe::item("hier.node_file_hidden", static_cast<long long>(node->m_ID));
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Hidden by the file (KHR_node_visibility: visible = false); its subtree is not rendered");
+    }
+}
+
 static void renderNodeVisibilityToggle(ux3d::gltf::Node* node, SceneRevisions& revisions)
 {
+    renderFileVisibilityMarker(node);
     beginVisibilityToggle();
 
     bool isVisible = node->getVisible();
@@ -128,10 +154,12 @@ static void focusCameraOnNode(ux3d::gltf::Node* node,
 
 // A node is effectively hidden when its own flag or any ancestor's flag is false: the
 // renderer applies the same inherited rule, so the hierarchy can grey the whole subtree.
-static bool hierarchyNodeHidden(const ux3d::gltf::Node* node)
+// The file's KHR_node_visibility value counts the same way, except for camera rows (a camera on a
+// node the file hides keeps working).
+static bool hierarchyNodeHidden(const ux3d::gltf::Node* node, bool includeFileVisibility = true)
 {
     while (node != nullptr) {
-        if (!node->getVisible()) {
+        if (!node->getVisible() || (includeFileVisibility && !node->isFileVisible())) {
             return true;
         }
         const auto it = s_hierarchyCache.parentOfNode.find(node);
@@ -151,6 +179,7 @@ static bool hierarchyRowHidden(const HierarchyRow& row)
                 || hierarchyNodeHidden(static_cast<const ux3d::gltf::Node*>(row.parentObject));
         }
         case HierarchyRowType::Camera:
+            return hierarchyNodeHidden(static_cast<const ux3d::gltf::Node*>(row.parentObject), false);
         case HierarchyRowType::Light:
             return hierarchyNodeHidden(static_cast<const ux3d::gltf::Node*>(row.parentObject));
         default:

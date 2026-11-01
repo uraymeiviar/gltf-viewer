@@ -125,6 +125,10 @@ void Application::registerAgentCommands()
                     entry["materials"] = materials;
                 }
                 if (node.getCamera() != nullptr) entry["camera"] = true;
+                if (node.hasNodeVisibility()) { // KHR_node_visibility: the file's value (own, not inherited)
+                    entry["nodeVisibility"] = node.getAuthoredFileVisible();
+                    entry["nodeVisibilityNow"] = node.isFileVisible();
+                }
                 if (node.hasGpuInstancing()) { // EXT_mesh_gpu_instancing
                     entry["gpuInstances"] = node.getGpuInstances().size();
                     entry["gpuInstancing"] = node.getGpuInstancingStatus();

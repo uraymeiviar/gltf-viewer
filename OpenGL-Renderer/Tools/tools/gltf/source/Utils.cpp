@@ -11,6 +11,9 @@
 #include "gltf/Scene.h"
 #include "gltf/Skin.h"
 
+#include <functional>
+#include <unordered_set>
+
 using namespace ux3d;
 using namespace ux3d::gltf;
 
@@ -40,57 +43,84 @@ Extends utils::getExtends(const core::Vector<Node*>& _nodes, const Gltf* _pGltf,
     NodeTransforms nodeTransforms;
     fillNodeTransforms(_nodes, nodeTransforms, _rootTransform);
 
+    // KHR_node_visibility: a node the file hides (its own value or an ancestor's below _nodes, current values) does
+    // not count, so the framing and the clipping planes ignore what is not rendered. When every node is hidden (Focus
+    // on a hidden node selected in the hierarchy), the hidden nodes count after all, so the camera still frames it.
+    std::unordered_set<const Node*> fileHidden;
+    std::function<void(const Node*, bool)> collectHidden = [&](const Node* node, bool parentHidden) {
+        const bool hidden = parentHidden || !node->isFileVisible();
+        if (hidden) {
+            fileHidden.insert(node);
+        }
+        for (const Node* child : node->getChildren()) {
+            collectHidden(child, hidden);
+        }
+    };
+    for (const Node* node : _nodes) {
+        collectHidden(node, false);
+    }
+
     math::dvec3 min(std::numeric_limits<double>::max());
     math::dvec3 max(std::numeric_limits<double>::lowest());
 
-    for (auto& [pNode, transform] : nodeTransforms) {
-        const Mesh* pMesh = pNode->getMesh();
-        // if node has no mesh attached but has a light or camera consider it in the extends calculation
-        if (pMesh == nullptr) {
-            if (pNode->getCamera() != nullptr || pNode->getLight() != nullptr || isNodeUsedAsJointInSkin(_pGltf, pNode)) {
-                auto nodePos = transform * math::vec4(0, 0, 0, 1);
-                min = math::min(min, { nodePos.x, nodePos.y, nodePos.z });
-                max = math::max(max, { nodePos.x, nodePos.y, nodePos.z });
+    const auto accumulate = [&](bool includeHidden) {
+        for (auto& [pNode, transform] : nodeTransforms) {
+            if (!includeHidden && fileHidden.count(pNode) != 0) {
+                continue;
             }
-            continue;
-        }
-
-        for (const Primitive& primitive : pMesh->getPrimitives()) {
-            for (const Attribute& attribute : primitive.getAttributes()) {
-                constexpr auto name = "POSITION";
-                if (attribute.getName() != name) {
-                    continue;
+            const Mesh* pMesh = pNode->getMesh();
+            // if node has no mesh attached but has a light or camera consider it in the extends calculation
+            if (pMesh == nullptr) {
+                if (pNode->getCamera() != nullptr || pNode->getLight() != nullptr || isNodeUsedAsJointInSkin(_pGltf, pNode)) {
+                    auto nodePos = transform * math::vec4(0, 0, 0, 1);
+                    min = math::min(min, { nodePos.x, nodePos.y, nodePos.z });
+                    max = math::max(max, { nodePos.x, nodePos.y, nodePos.z });
                 }
+                continue;
+            }
 
-                const Accessor* pAccessoor = attribute.getAccessor();
-                if (pAccessoor == nullptr) {
-                    continue;
-                }
-                if (pAccessoor->getMin().size() != 3 || pAccessoor->getMax().size() != 3) {
-                    continue;
-                }
+            for (const Primitive& primitive : pMesh->getPrimitives()) {
+                for (const Attribute& attribute : primitive.getAttributes()) {
+                    constexpr auto name = "POSITION";
+                    if (attribute.getName() != name) {
+                        continue;
+                    }
 
-                const auto add = [&](const math::dmat4& instanceTransform) {
-                    Extends accessorExtends = getAccessorExtends(*pAccessoor, instanceTransform);
+                    const Accessor* pAccessoor = attribute.getAccessor();
+                    if (pAccessoor == nullptr) {
+                        continue;
+                    }
+                    if (pAccessoor->getMin().size() != 3 || pAccessoor->getMax().size() != 3) {
+                        continue;
+                    }
 
-                    min.x = math::min(min.x, accessorExtends.min.x);
-                    min.y = math::min(min.y, accessorExtends.min.y);
-                    min.z = math::min(min.z, accessorExtends.min.z);
+                    const auto add = [&](const math::dmat4& instanceTransform) {
+                        Extends accessorExtends = getAccessorExtends(*pAccessoor, instanceTransform);
 
-                    max.x = math::max(max.x, accessorExtends.max.x);
-                    max.y = math::max(max.y, accessorExtends.max.y);
-                    max.z = math::max(max.z, accessorExtends.max.z);
-                };
-                // EXT_mesh_gpu_instancing: every instance, like a child node with the instance's TRS.
-                if (pNode->getGpuInstances().empty()) {
-                    add(transform);
-                } else {
-                    for (const GpuInstance& instance : pNode->getGpuInstances()) {
-                        add(transform * gpu_instancing::localMatrix(instance));
+                        min.x = math::min(min.x, accessorExtends.min.x);
+                        min.y = math::min(min.y, accessorExtends.min.y);
+                        min.z = math::min(min.z, accessorExtends.min.z);
+
+                        max.x = math::max(max.x, accessorExtends.max.x);
+                        max.y = math::max(max.y, accessorExtends.max.y);
+                        max.z = math::max(max.z, accessorExtends.max.z);
+                    };
+                    // EXT_mesh_gpu_instancing: every instance, like a child node with the instance's TRS.
+                    if (pNode->getGpuInstances().empty()) {
+                        add(transform);
+                    } else {
+                        for (const GpuInstance& instance : pNode->getGpuInstances()) {
+                            add(transform * gpu_instancing::localMatrix(instance));
+                        }
                     }
                 }
             }
         }
+    };
+    accumulate(false);
+    if (!fileHidden.empty() && min == math::dvec3(std::numeric_limits<double>::max())
+        && max == math::dvec3(std::numeric_limits<double>::lowest())) {
+        accumulate(true);
     }
 
     if (min == math::dvec3(std::numeric_limits<double>::max()) && max == math::dvec3(std::numeric_limits<double>::lowest())) {

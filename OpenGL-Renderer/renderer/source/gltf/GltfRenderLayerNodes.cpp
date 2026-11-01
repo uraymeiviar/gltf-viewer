@@ -230,6 +230,21 @@ void GltfRenderLayer::initNodeMappings(gl::GL* gl)
             }
         };
 
+        // KHR_node_visibility: a sync restores the file's value; a KHR_animation_pointer channel (boolean: unsigned
+        // byte 0 / 1, STEP) sets the node's current value on each animation apply. The traversal reads it every frame,
+        // so a toggle rebuilds nothing. Only a node that carries the extension is a target (switched off: read as
+        // absent, the channel is skipped and the node stays visible).
+        gltfNode->resetAnimatedFileVisible();
+        if (gltfNode->hasNodeVisibility()) {
+            m_animationPointerTargets[{ gltfNode, gltf::node_visibility::PointerPath }].callback = KHRAnimationPointerTarget::Callback<float> {
+                [gltfNode](const float& value) -> void {
+                    gltfNode->setAnimatedFileVisible(value != 0.0f);
+                }
+            };
+        } else {
+            m_animationPointerTargets.erase({ gltfNode, gltf::node_visibility::PointerPath });
+        }
+
         return true;
     };
     m_transformHierarchyMapping.createRendererObjectFromGltf = [this](const gltf::Node* gltfNode) -> renderer::TransformHierarchyNode* {
@@ -260,6 +275,7 @@ void GltfRenderLayer::initNodeMappings(gl::GL* gl)
         m_animationPointerTargets.erase({ gltfNode, "rotation" });
         m_animationPointerTargets.erase({ gltfNode, "scale" });
         m_animationPointerTargets.erase({ gltfNode, "weights" });
+        m_animationPointerTargets.erase({ gltfNode, gltf::node_visibility::PointerPath });
         recalculateBones = true;
     };
 

@@ -3,6 +3,7 @@
 #include "gltf/Extensions.h"
 #include "gltf/GltfObject.h"
 #include "gltf/MeshoptCompression.h"
+#include "gltf/Node.h"
 
 using namespace ux3d;
 using namespace ux3d::gltf;
@@ -21,6 +22,11 @@ ConversionResult GltfObjectFromJson::convertUnknownExtensions(const nlohmann::js
                 // EXT/KHR_meshopt_compression is read by BufferViewsFromJson / BuffersFromJson and decoded at load; the
                 // decoded model has plain bufferViews, so the extension is not kept for writing back.
                 if (meshopt::isMeshoptExtension(extensionName)) {
+                    continue;
+                }
+                // KHR_node_visibility is read by NodesFromJson into Node::hasNodeVisibility(); the Inspector shows that
+                // value (read-only), so it is not kept as an editable unknown extension.
+                if (extensionName == node_visibility::ExtensionName) {
                     continue;
                 }
                 if (core::find(extensionNames.begin(), extensionNames.end(), extensionName) == extensionNames.end()) {

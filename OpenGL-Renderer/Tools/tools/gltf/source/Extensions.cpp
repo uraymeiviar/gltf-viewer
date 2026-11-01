@@ -271,6 +271,9 @@ std::vector<ExtensionSupport> buildSupportTable()
         row("KHR_meshopt_compression", "KHR", "Read", "meshoptimizer-compressed bufferViews are decoded at load "
             "(the Khronos name of EXT_meshopt_compression).", "Compressed bufferViews are not decoded; the "
             "uncompressed fallback buffers are read. A file that requires it is not loaded."),
+        row("KHR_node_visibility", "KHR", "Rendered", "Nodes the file hides (visible: false), with their subtrees, "
+            "are not drawn, picked or framed; animatable through KHR_animation_pointer.",
+            "Read as absent: every node is visible. A file that requires it is not loaded."),
         row("KHR_texture_basisu", "KHR", "Rendered", "KTX2 / Basis Universal textures.", textureOff),
         row("KHR_texture_transform", "KHR", "Rendered", "Texture coordinate offset, rotation and scale.",
             "Read as absent: texture coordinates are used untransformed. A file that requires it is not loaded."),
