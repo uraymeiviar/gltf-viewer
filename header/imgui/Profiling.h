@@ -572,6 +572,7 @@ struct ProfileReport {
     nlohmann::json effects; // settings scopes: the active scene's effects (get_state "environment.effects")
     nlohmann::json skyOcclusion; // A3.9: the sky-visibility volume, its bake and cost (get_state "skyOcclusion")
     nlohmann::json ground; // A3.6/A6.8: the active viewport's ground (get_state "ground"); only while it is the ocean
+    nlohmann::json gpuInstancing; // EXT_mesh_gpu_instancing summary (Statistics rows); only when a node carries it
 };
 
 struct BenchmarkReport {

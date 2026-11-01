@@ -128,6 +128,8 @@ CommandMapping::CommandSignature CommandMapping::makeSignature(const Mesh& mesh,
     sig.depthBias = material.depthBiasEnabled;
     sig.depthBiasSlope = material.depthBiasEnabled ? material.depthBiasSlope : 0.0f;
     sig.depthBiasUnits = material.depthBiasEnabled ? material.depthBiasUnits : 0.0f;
+    sig.instanceBuffer = mesh.getInstanceBuffer();
+    sig.instanceCount = mesh.getInstanceCount();
     return sig;
 }
 
@@ -458,7 +460,8 @@ CommandMapping::ProgramKey CommandMapping::makeProgramKey(const Mesh& mesh, cons
     key.lightCount = static_cast<uint32_t>(m_scene.m_lights.getLightCount());
     key.useIBL = m_scene.m_useIBL;
     key.usePunctualLights = m_scene.m_usePunctualLights;
-    key.instanced = m_selectInstanced;
+    // P8.3 merged draws and EXT_mesh_gpu_instancing meshes compile the same USE_INSTANCING vertex shader.
+    key.instanced = m_selectInstanced || mesh.isInstanced();
     return key;
 }
 
@@ -621,7 +624,7 @@ gl::Program* CommandMapping::buildProgram(const Mesh& meshRef, const Material& m
     fragmentDefines.defineIf(uploadPunctualLights, "LIGHT_COUNT", m_scene.m_lights.getLightCount());
     GLuint fragmentShaderID = m_shaderCache.selectShader(material->fragmentShader, fragmentDefines);
     GLuint vertexShaderID = gl::invalid;
-    if (m_selectInstanced) {
+    if (m_selectInstanced || mesh->isInstanced()) {
         Defines vertexDefines = mesh->defines;
         vertexDefines.define("USE_INSTANCING");
         vertexShaderID = m_shaderCache.selectShader(mesh->vertexShader, vertexDefines);
@@ -701,6 +704,10 @@ std::optional<CmdDesc> CommandMapping::makeCommand(MeshMaterialTuple meshMat)
         command->polygonOffsetFactor = material->depthBiasSlope;
         command->polygonOffsetUnits = material->depthBiasUnits;
     }
+
+    // EXT_mesh_gpu_instancing: every instance in one draw, whatever the pass (the VAO holds the instance stream).
+    // A non-zero count also keeps the command out of the P8.3 merge (prepareInstancing).
+    command->instanceCount = static_cast<GLsizei>(mesh->getInstanceCount());
 
     if (mesh->indexBuffer != nullptr) {
         command->indexBuffer = mesh->indexBuffer;

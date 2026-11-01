@@ -128,7 +128,11 @@ Suites (equivalence against the baseline plus each feature's analytic acceptance
   legacy flags against the baseline, CLI = pipe, migration/restart, shared ocean, UI ID conflicts),
   validate_meshopt.py (EXT/KHR_meshopt_compression: compressed fixtures written by build/tools meshopt_fixture_gen
   render byte-identical to their plain twins, fallback buffers, decode failure / extension off refuse the load,
-  validator notices for unsupported required / used extensions; plain twins against the baseline)
+  validator notices for unsupported required / used extensions; plain twins against the baseline),
+  validate_gpu_instancing.py (EXT_mesh_gpu_instancing: generated instanced fixtures render byte-identical to plain
+  twins with one child node per instance, quantized accessors, parent transform and animation, BLEND, morph,
+  shadows, SSAO, wireframe; framing, window clicks and pick select the instanced node, Statistics summary, 10,000
+  instances in as many draw calls as 100, fallbacks drawn once, validator; plain twins against the baseline)
 Full tier: every suite above except the on-demand suites (see above), plus
   --with-ab (each feature against its own switch; validate_p8_5.py then also runs the P5.1 cases with
   --always-pick) and validate_p8_5.py's 10,000-drawable grid and MSAA/TAA fixture copies (the quick tier passes
@@ -192,7 +196,9 @@ TRIGGERS = (
     (("p8_3", "p8_5", "p8_followup"),
      ("OpenGL-Renderer/renderer/*Command*", "GltfRenderLayer*", "Viewports.cpp", "DiagnosticsPicking.cpp",
       "picking.frag", "PickingRenderLayer.*", "TransformHierarchy*", "SceneRevisions.*",
-      "generate_many_drawables_fixture.py")),
+      "generate_many_drawables_fixture.py", "OpenGL-Renderer/renderer/source/Mesh.cpp",
+      "OpenGL-Renderer/renderer/include/renderer/Mesh.h", "OpenGL-Renderer/renderer/include/renderer/gl/Attribute.h",
+      "OpenGL-Renderer/renderer/source/gl/Program.cpp")),
     (("sun", "shadows"),
      ("SunShadowMap.*", "shadow*.glsl", "shadow_caster.frag", "SceneEnvironment.*", "punctual.glsl",
       "CascadedShadows.*", "ShadowCasterLayer.*")),
@@ -214,7 +220,17 @@ TRIGGERS = (
      ("MeshoptCompression.*", "meshopt_*", "Buffer.cpp", "Buffer.h", "BufferView.cpp", "BufferView.h",
       "BuffersFromJson.*", "BufferViewsFromJson.*", "GltfObjectFromJson.*", "GltfFromJson.*", "GltfFromBinary.*",
       "GltfParsing.*", "OpenGL-Renderer/Tools/tools/gltf/source/Gltf.cpp", "GltfResult.h", "Extensions.cpp",
-      "Extensions.h", "GltfValidator.*")),
+      "Extensions.h", "GltfValidator.*", "NodesFromJson.*")),
+    # EXT_mesh_gpu_instancing: node parsing and decode, instance bounds, instanced meshes and their vertex layout,
+    # command building, traversal / culling, picking, Inspector and Statistics rows.
+    (("gpu_instancing",),
+     ("OpenGL-Renderer/Tools/tools/gltf/source/Node.cpp", "OpenGL-Renderer/Tools/tools/gltf/include/gltf/Node.h",
+      "NodesFromJson.*", "OpenGL-Renderer/Tools/tools/gltf/source/Utils.cpp",
+      "OpenGL-Renderer/Tools/tools/gltf/source/Gltf.cpp", "Extensions.cpp", "Extensions.h",
+      "OpenGL-Renderer/renderer/source/Mesh.cpp", "OpenGL-Renderer/renderer/include/renderer/Mesh.h",
+      "OpenGL-Renderer/renderer/include/renderer/gl/Attribute.h", "OpenGL-Renderer/renderer/source/gl/Program.cpp",
+      "OpenGL-Renderer/renderer/*Command*", "GltfRenderLayer*", "PickingRenderLayer.*", "ShadowCasterLayer.*",
+      "Bounds.cpp", "ElementInspector.cpp", "StatisticsPanel.cpp", "source/imgui/application/CommandsHandlers.cpp")),
     (("settings_scopes", "viewport_image", "area_maximize", "agent_control", "review_fixes"),
      ("Settings*", "ViewportOverrides.*", "source/imgui/application/Commands*", "ControlPipe.*",
       "CommandRegistry.*", "AreaLayout.cpp", "Menus.cpp", "ViewportImage.cpp", "Panels.cpp", "AppSettings.*",
@@ -404,6 +420,7 @@ serial_jobs = [
     ("area_maximize", ["scripts/validate_area_maximize.py"]),
     ("settings_scopes", ["scripts/validate_settings_scopes.py", "--baseline-exe", str(baseline)]),
     ("meshopt", ["scripts/validate_meshopt.py", "--baseline-exe", str(baseline)]),
+    ("gpu_instancing", ["scripts/validate_gpu_instancing.py", "--baseline-exe", str(baseline)]),
 ]
 # validate_p5_1.py is superseded (its counter checks run in validate_p8_5.py) and no longer registered.
 tier_suites = [name for name, _ in jobs + serial_jobs] + list(SELFCHECKS)

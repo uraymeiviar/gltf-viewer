@@ -70,15 +70,25 @@ Extends utils::getExtends(const core::Vector<Node*>& _nodes, const Gltf* _pGltf,
                     continue;
                 }
 
-                Extends accessorExtends = getAccessorExtends(*pAccessoor, transform);
+                const auto add = [&](const math::dmat4& instanceTransform) {
+                    Extends accessorExtends = getAccessorExtends(*pAccessoor, instanceTransform);
 
-                min.x = math::min(min.x, accessorExtends.min.x);
-                min.y = math::min(min.y, accessorExtends.min.y);
-                min.z = math::min(min.z, accessorExtends.min.z);
+                    min.x = math::min(min.x, accessorExtends.min.x);
+                    min.y = math::min(min.y, accessorExtends.min.y);
+                    min.z = math::min(min.z, accessorExtends.min.z);
 
-                max.x = math::max(max.x, accessorExtends.max.x);
-                max.y = math::max(max.y, accessorExtends.max.y);
-                max.z = math::max(max.z, accessorExtends.max.z);
+                    max.x = math::max(max.x, accessorExtends.max.x);
+                    max.y = math::max(max.y, accessorExtends.max.y);
+                    max.z = math::max(max.z, accessorExtends.max.z);
+                };
+                // EXT_mesh_gpu_instancing: every instance, like a child node with the instance's TRS.
+                if (pNode->getGpuInstances().empty()) {
+                    add(transform);
+                } else {
+                    for (const GpuInstance& instance : pNode->getGpuInstances()) {
+                        add(transform * gpu_instancing::localMatrix(instance));
+                    }
+                }
             }
         }
     }

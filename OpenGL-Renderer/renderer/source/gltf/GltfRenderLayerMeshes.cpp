@@ -673,6 +673,41 @@ void GltfRenderLayer::initMeshMapping()
         mesh->polygonMode = gl::PolygonMode::Fill;
         mesh->defines.define("DEBUG", static_cast<int>(RenderMode::None));
 
+        // EXT_mesh_gpu_instancing: the node's decoded instances (gltf::gpu_instancing::decodeNodes leaves them empty
+        // when the file does not declare the extension, the test hook switches it off, the node is skinned or its
+        // attributes are invalid). The mesh then draws every instance in every pass; without instances it is drawn
+        // once, exactly as before.
+        const std::vector<gltf::GpuInstance>& gpuInstances = gltfNode->getGpuInstances();
+        constexpr size_t kInstanceAttributeLocations = 8; // two mat4 streams
+        if (gpuInstances.empty()) {
+            mesh->clearInstances();
+        } else if (mesh->attributes.size() + kInstanceAttributeLocations > 16) {
+            mesh->clearInstances();
+            core::logWarning("[EXT_mesh_gpu_instancing] node %u: %zu vertex attributes leave no room for the instance "
+                             "matrices; the mesh is drawn once", gltfNode->m_ID, mesh->attributes.size());
+        } else {
+            std::vector<Mesh::Instance> instances;
+            instances.reserve(gpuInstances.size());
+            for (const gltf::GpuInstance& instance : gpuInstances) {
+                // toMat4 like TransformHierarchyNode::getRotation, so an instance matches a plain child node.
+                instances.push_back({ instance.translation, math::toMat4(instance.rotation), instance.scale });
+            }
+            // The static POSITION box (the traversal's getStaticPositionBounds rule) for the instances' world bounds.
+            bool boxValid = false;
+            math::vec3 boxLo(0.0f), boxHi(0.0f);
+            const gltf::Accessor* positions = gltf::GltfUtils::getAttributeAccessor(*gltfPrimitive, "POSITION");
+            if (gltfPrimitive->getTargets().empty() && positions != nullptr
+                && positions->getComponentType() == gltf::ComponentType::Float
+                && positions->getMin().size() == 3 && positions->getMax().size() == 3) {
+                boxValid = true;
+                boxLo = math::vec3(static_cast<float>(positions->getMin()[0]), static_cast<float>(positions->getMin()[1]),
+                                   static_cast<float>(positions->getMin()[2]));
+                boxHi = math::vec3(static_cast<float>(positions->getMax()[0]), static_cast<float>(positions->getMax()[1]),
+                                   static_cast<float>(positions->getMax()[2]));
+            }
+            mesh->setInstances(std::move(instances), boxValid, boxLo, boxHi);
+        }
+
         if (nodeIt != m_transformHierarchyMapping.map.end()) {
             // from the spec: If the determinant of the transform is a negative value, the winding order of the mesh triangle faces should be reversed. This supports negative scales for mirroring geometry.
             // Mesh::effectiveFrontFace() applies the asset-optimized (clockwise) convention

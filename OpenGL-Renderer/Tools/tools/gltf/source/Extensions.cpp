@@ -215,7 +215,8 @@ bool ux3d::gltf::isExtensionRequired(Extension _extension)
 
 bool ux3d::gltf::isExtensionSupported(std::string_view _extensionName)
 {
-    if (meshopt::isMeshoptExtension(_extensionName) || _extensionName == "ux3d_gestaltor") {
+    if (meshopt::isMeshoptExtension(_extensionName) || _extensionName == "ux3d_gestaltor"
+        || _extensionName == "EXT_mesh_gpu_instancing") {
         return true;
     }
     for (const core::string& name : getAllExtensionNames()) {

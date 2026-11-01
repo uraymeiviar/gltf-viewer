@@ -442,6 +442,11 @@ void Application::finishFrame(FrameContext& frame, int displayW, int displayH)
         report.sceneEnvironment = layers.at("environment");
         report.viewportSettings = layers.at("viewports");
         report.skyOcclusion = skyOcclusionStateJson(activeEnvironment);
+        // EXT_mesh_gpu_instancing: the Statistics rows (only for a model with a node that carries the extension).
+        if (const auto summary = ux3d::gltf::gpu_instancing::summarize(gltfModel); summary.nodes + summary.notApplied != 0) {
+            report.gpuInstancing = {{"nodes", summary.nodes}, {"instances", summary.instances},
+                                    {"instancedTriangles", summary.triangles}, {"notApplied", summary.notApplied}};
+        }
         // A6.8: the ocean's settings, cascades, memory, precompute and live GPU cost (only while the ground is the ocean).
         if (activeViewport != nullptr && activeViewport->settings.ground.mode == ux3d::imgui::GroundMode::Ocean) {
             report.ground = groundStateJson(*activeViewport);

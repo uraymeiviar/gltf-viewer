@@ -154,6 +154,9 @@ protected:
         // A3.2: the shadow caster copies' depth bias (Material::depthBias*).
         float depthBiasSlope = 0.0f;
         float depthBiasUnits = 0.0f;
+        // EXT_mesh_gpu_instancing: the instance count and stream (the VAO and the draw call depend on them).
+        const void* instanceBuffer = nullptr;
+        uint32_t instanceCount = 0;
         bool depthBias = false;
         bool useIBL = false;
         bool usePunctualLights = false;

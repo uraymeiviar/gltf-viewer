@@ -125,6 +125,10 @@ void Application::registerAgentCommands()
                     entry["materials"] = materials;
                 }
                 if (node.getCamera() != nullptr) entry["camera"] = true;
+                if (node.hasGpuInstancing()) { // EXT_mesh_gpu_instancing
+                    entry["gpuInstances"] = node.getGpuInstances().size();
+                    entry["gpuInstancing"] = node.getGpuInstancingStatus();
+                }
                 nodes.push_back(std::move(entry));
             }
             return CommandReply::success({{"total", gltfModel.getNodes().size()}, {"matched", matched}, {"nodes", nodes}});

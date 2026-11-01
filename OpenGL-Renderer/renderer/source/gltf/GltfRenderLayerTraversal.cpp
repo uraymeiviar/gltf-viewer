@@ -34,6 +34,22 @@ bool getStaticPositionBounds(const gltf::Primitive& primitive, const Mesh& mesh,
     return false;
 }
 
+// The static box of what the primitive draws and the matrix from the box to world space: the primitive's model-space
+// POSITION box and the mesh's model matrix, or for an EXT_mesh_gpu_instancing mesh the world-space union of every
+// instance's box (Mesh::getInstanceWorldBounds) and the identity. False when the box is not static.
+bool getStaticWorldBox(const gltf::Primitive& primitive, const Mesh& mesh, math::vec3& lo, math::vec3& hi, math::mat4x4& toWorld)
+{
+    if (!getStaticPositionBounds(primitive, mesh, lo, hi)) {
+        return false;
+    }
+    if (mesh.isInstanced()) {
+        toWorld = math::mat4x4(1.0f);
+        return mesh.getInstanceWorldBounds(lo, hi);
+    }
+    toWorld = mesh.getTransform();
+    return true;
+}
+
 // True when all eight corners of the box, in clip space, lie strictly outside one of
 // the six clip half-spaces (-w <= x, y, z <= w). Each half-space is linear in
 // homogeneous coordinates, so this holds for the whole box, including corners behind
@@ -81,8 +97,9 @@ size_t GltfRenderLayer::cullToClip(core::LinkedList<std::tuple<Mesh*, Material*>
                 }
                 math::vec3 lo;
                 math::vec3 hi;
-                outside = getStaticPositionBounds(gltfPrimitive, *mesh, lo, hi)
-                    && boxOutsideClip(clipFromWorld * mesh->getTransform(), lo, hi);
+                math::mat4x4 toWorld;
+                outside = getStaticWorldBox(gltfPrimitive, *mesh, lo, hi, toWorld)
+                    && boxOutsideClip(clipFromWorld * toWorld, lo, hi);
                 break;
             }
         }
@@ -118,9 +135,9 @@ size_t GltfRenderLayer::boundDrawables(const core::LinkedList<std::tuple<Mesh*, 
                 }
                 math::vec3 boxLo;
                 math::vec3 boxHi;
-                if (getStaticPositionBounds(gltfPrimitive, *mesh, boxLo, boxHi)) {
+                math::mat4x4 transform;
+                if (getStaticWorldBox(gltfPrimitive, *mesh, boxLo, boxHi, transform)) {
                     found = true;
-                    const math::mat4x4& transform = mesh->getTransform();
                     for (int corner = 0; corner < 8; ++corner) {
                         const math::vec3 point(transform * math::vec4((corner & 1) ? boxHi.x : boxLo.x,
                                                                       (corner & 2) ? boxHi.y : boxLo.y,
@@ -246,9 +263,10 @@ const GltfRenderLayer::SceneTraversal& GltfRenderLayer::traverseScene(const gltf
             auto* material = matIt->second;
             if (material != nullptr && material->environmentOccluder) {
                 math::vec3 lo, hi;
-                if (getStaticPositionBounds(gltfPrimitive, *mesh, lo, hi)) {
+                math::mat4x4 toWorld;
+                if (getStaticWorldBox(gltfPrimitive, *mesh, lo, hi, toWorld)) {
                     for (int corner = 0; corner < 8; ++corner) {
-                        const math::vec3 point(mesh->getTransform() * math::vec4(
+                        const math::vec3 point(toWorld * math::vec4(
                             (corner & 1) ? hi.x : lo.x, (corner & 2) ? hi.y : lo.y,
                             (corner & 4) ? hi.z : lo.z, 1.0f));
                         if (!t.hasInteriorVolume) {
@@ -344,23 +362,40 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
     // be bounded statically, so they keep the pivot as the fallback. (C5: loop-invariant, evaluated once.)
     const bool drawOrderActive = m_assetDrawOrderDeclared
         && asoboOptions.applies("ASOBO_material_draw_order");
+    // EXT_mesh_gpu_instancing: an instanced mesh is culled and sorted by the world-space union of its instances.
+    const auto worldBox = [](const SceneTraversal::Primitive& entry, math::vec3& lo, math::vec3& hi, math::mat4x4& toWorld) {
+        if (!entry.bounded) {
+            return false;
+        }
+        if (entry.mesh->isInstanced()) {
+            toWorld = math::mat4x4(1.0f);
+            return entry.mesh->getInstanceWorldBounds(lo, hi);
+        }
+        lo = entry.lo;
+        hi = entry.hi;
+        toWorld = entry.mesh->getTransform();
+        return true;
+    };
+    const auto boundingCenter = [&worldBox](const SceneTraversal::Primitive& entry) {
+        math::vec3 lo, hi;
+        math::mat4x4 toWorld;
+        return worldBox(entry, lo, hi, toWorld) ? math::vec3(toWorld * math::vec4((lo + hi) * 0.5f, 1.0f))
+                                                : entry.mesh->getPosition();
+    };
     for (const SceneTraversal::Primitive& entry : traversal.primitives) {
         if (cull) {
-            if (!entry.bounded) {
+            math::vec3 lo, hi;
+            math::mat4x4 toWorld;
+            if (!worldBox(entry, lo, hi, toWorld)) {
                 ++m_lastSceneStats.uncullable;
-            } else if (boxOutsideClip(clipFromWorld * entry.mesh->getTransform(), entry.lo, entry.hi)) {
+            } else if (boxOutsideClip(clipFromWorld * toWorld, lo, hi)) {
                 ++m_lastSceneStats.culled;
                 continue;
             }
         }
         if (entry.material != nullptr && entry.material->scenePolicyMark == sceneBuildSerial) {
             if (drawOrderActive && entry.material->drawOrderClass != DrawOrderClass::None) {
-                if (entry.bounded) {
-                    const math::vec3 localCenter = (entry.lo + entry.hi) * 0.5f;
-                    entry.mesh->setBoundingCenter(math::vec3(entry.mesh->getTransform() * math::vec4(localCenter, 1.0f)));
-                } else {
-                    entry.mesh->setBoundingCenter(entry.mesh->getPosition());
-                }
+                entry.mesh->setBoundingCenter(boundingCenter(entry));
             }
         } else if (entry.material != nullptr) {
             entry.material->scenePolicyMark = sceneBuildSerial;
@@ -445,12 +480,7 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
                 && (entry.material->drawOrderClass != DrawOrderClass::Glass || oldGlassClass || reflect);
             entry.material->decalBiasActive = asoboOptions.applies("ASOBO_material_geometry_decal");
             if (drawOrderActive && entry.material->drawOrderClass != DrawOrderClass::None) {
-                if (entry.bounded) {
-                    const math::vec3 localCenter = (entry.lo + entry.hi) * 0.5f;
-                    entry.mesh->setBoundingCenter(math::vec3(entry.mesh->getTransform() * math::vec4(localCenter, 1.0f)));
-                } else {
-                    entry.mesh->setBoundingCenter(entry.mesh->getPosition());
-                }
+                entry.mesh->setBoundingCenter(boundingCenter(entry));
             }
         }
         scene.drawables.emplace_back(entry.mesh, entry.material);

@@ -145,7 +145,7 @@ auto ux3d::renderer::gl::Program::createVertexLayout(const std::vector<Attribute
     for (const auto& attribute : attributes) {
         GLuint location;
         if (auto it = m_attributeLocations.find(attribute.name); it != m_attributeLocations.end()) {
-            location = it->second;
+            location = it->second + attribute.locationOffset;
         } else {
             continue;
         }
@@ -162,6 +162,9 @@ auto ux3d::renderer::gl::Program::createVertexLayout(const std::vector<Attribute
             attribute.normalized,
             attribute.stride,
             reinterpret_cast<const void*>(static_cast<size_t>(attribute.offset)));
+        if (attribute.divisor != 0) {
+            m_gl->vertexAttribDivisor(location, attribute.divisor);
+        }
     }
 
     if (indexBuffer != nullptr) {

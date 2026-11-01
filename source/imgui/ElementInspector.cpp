@@ -248,6 +248,34 @@ void ElementInspector::render(SelectionState& selection,
             }
         }
 
+        // EXT_mesh_gpu_instancing: how many instances the node draws, or why the extension is not applied, and the
+        // instance attributes (each opens its Accessor inspector).
+        if (node->hasGpuInstancing()) {
+            ImGui::Separator();
+            const size_t instanceCount = node->getGpuInstances().size();
+            if (instanceCount != 0) {
+                ImGui::Text("GPU Instances: %zu", instanceCount);
+            } else {
+                ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "EXT_mesh_gpu_instancing %s",
+                                   node->getGpuInstancingStatus().empty() ? "not applied"
+                                                                          : node->getGpuInstancingStatus().c_str());
+            }
+            int attributeIndex = 0;
+            for (const auto& attribute : node->getGpuInstancingAttributes()) {
+                ImGui::PushID(attributeIndex++);
+                if (attribute.accessor != nullptr) {
+                    const std::string label = "Instance " + attribute.name + ": Accessor "
+                        + std::to_string(attribute.accessor->m_ID);
+                    if (ImGui::SmallButton(label.c_str())) {
+                        selection.selectAccessor(attribute.accessor);
+                    }
+                } else {
+                    ImGui::Text("Instance %s: invalid accessor", attribute.name.c_str());
+                }
+                ImGui::PopID();
+            }
+        }
+
         if (node->getCamera() != nullptr) {
             ImGui::Separator();
             if (ImGui::Button("Inspect Attached Camera")) {

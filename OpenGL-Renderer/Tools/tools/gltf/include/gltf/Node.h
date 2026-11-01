@@ -9,6 +9,7 @@
 #include "math/VectorTypes.h"
 
 #include <optional>
+#include <string>
 #include <vector>
 
 // See https://github.com/KhronosGroup/glTF/tree/master/specification/2.0#node
@@ -20,6 +21,44 @@ class Camera;
 class Light;
 class AudioEmitter;
 class Skin;
+class Accessor;
+
+// EXT_mesh_gpu_instancing (https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Vendor/EXT_mesh_gpu_instancing):
+// one instance of a node's mesh. It is drawn with the node's world matrix x T * R * S of the instance; the values are
+// the dequantized accessor values (normalized integers as the specification divides them, not renormalized).
+struct GpuInstance {
+    math::vec3 translation = math::vec3(0.0f);
+    math::quat rotation = math::quat(1.0f, 0.0f, 0.0f, 0.0f);
+    math::vec3 scale = math::vec3(1.0f);
+};
+
+// One entry of the node's EXT_mesh_gpu_instancing.attributes (TRANSLATION, ROTATION, SCALE or a custom "_NAME").
+struct GpuInstancingAttribute {
+    std::string name;
+    Accessor* accessor = nullptr;
+};
+
+namespace gpu_instancing {
+inline constexpr const char* ExtensionName = "EXT_mesh_gpu_instancing";
+// Test hook GLIDER_TEST_DISABLE_GPU_INSTANCING=1: read files as a loader without the extension (every node drawn once).
+bool disabledByTestHook();
+// After the buffers are in memory (Gltf::loadBinaryDataToMemory): decodes every node's instance attributes into
+// Node::getGpuInstances(). Nodes stay empty (drawn once, as without the extension) when the file does not declare
+// the extension, the test hook switches it off, the node is skinned (logged) or the attributes are invalid (logged).
+void decodeNodes(Gltf& gltf);
+// T * R * S of one instance in double precision, composed like Node::getTransformMatrix().
+math::dmat4 localMatrix(const GpuInstance& instance);
+// Statistics / profile report: nodes with applied instances, their instance total and the triangles they draw
+// (triangles of the node's mesh x instances, counted like Statistics' Total Triangles), and nodes whose extension is
+// present but not applied.
+struct Summary {
+    uint32_t nodes = 0;
+    uint64_t instances = 0;
+    uint64_t triangles = 0;
+    uint32_t notApplied = 0;
+};
+Summary summarize(const Gltf& gltf);
+}
 
 class Node : public ChildOfRoot, public HelperVisible {
     class LightPointerObject : public GltfObject {
@@ -52,6 +91,12 @@ private:
 
     // extensions
     std::optional<PacketContainer> m_xmpPacket = std::nullopt;
+
+    // EXT_mesh_gpu_instancing: the attributes as read (the extension JSON itself stays an unknown extension) and the
+    // decoded instances (empty: the node's mesh is drawn once).
+    std::vector<GpuInstancingAttribute> m_gpuInstancingAttributes;
+    std::vector<GpuInstance> m_gpuInstances;
+    std::string m_gpuInstancingStatus;
 
 public:
     Node(uint32_t _id); // regular constructor
@@ -100,6 +145,19 @@ public:
     const std::optional<PacketContainer>& getXMPPacket() const { return m_xmpPacket; }
     GltfResult setXMPPacket(Packet* _xmpPacket);
     GltfResult unsetXMPPacket();
+
+    // EXT_mesh_gpu_instancing (see GpuInstance). hasGpuInstancing(): the node carries the extension's attributes;
+    // getGpuInstances() is empty unless they were decoded and applied; getGpuInstancingStatus() says why not.
+    bool hasGpuInstancing() const { return !m_gpuInstancingAttributes.empty(); }
+    const std::vector<GpuInstancingAttribute>& getGpuInstancingAttributes() const { return m_gpuInstancingAttributes; }
+    void addGpuInstancingAttribute(const std::string& _name, Accessor* _accessor) { m_gpuInstancingAttributes.push_back({ _name, _accessor }); }
+    const std::vector<GpuInstance>& getGpuInstances() const { return m_gpuInstances; }
+    void setGpuInstances(std::vector<GpuInstance> _instances, const std::string& _status)
+    {
+        m_gpuInstances = std::move(_instances);
+        m_gpuInstancingStatus = _status;
+    }
+    const std::string& getGpuInstancingStatus() const { return m_gpuInstancingStatus; }
 
     GltfResult getChildrenRecursively(core::Vector<Node*>& _recursiveChildren);
     GltfResult addChild(Node& _child, const Gltf& _root);

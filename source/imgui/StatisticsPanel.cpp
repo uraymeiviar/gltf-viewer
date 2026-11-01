@@ -231,6 +231,18 @@ StatisticsSnapshot buildSnapshot(const ux3d::gltf::Gltf& gltfModel, const std::s
         { "Buffer Views", std::to_string(bufferViewCount) },
         { "Buffers", std::to_string(bufferCount) },
     };
+    // EXT_mesh_gpu_instancing: instanced nodes, their instances and the triangles they draw (mesh triangles x
+    // instances; Total Triangles above counts each mesh once). Only for models with a node that carries it.
+    const auto instancing = ux3d::gltf::gpu_instancing::summarize(gltfModel);
+    const bool hasInstancing = instancing.nodes + instancing.notApplied != 0;
+    std::string instancedNodesText;
+    if (hasInstancing) {
+        instancedNodesText = std::to_string(instancing.nodes);
+        if (instancing.notApplied != 0) instancedNodesText += " (" + std::to_string(instancing.notApplied) + " not applied)";
+        snapshot.rows.push_back({ "Instanced Nodes", instancedNodesText });
+        snapshot.rows.push_back({ "GPU Instances", std::to_string(instancing.instances) });
+        snapshot.rows.push_back({ "Instanced Triangles", std::to_string(instancing.triangles) });
+    }
     // A2.1: one shared decal buffer, so these rows are counted once for all viewports.
     // Files without a decal buffer keep the panel exactly as it was before A2.1.
     if (buffers.decalBufferActive) {
@@ -259,6 +271,11 @@ StatisticsSnapshot buildSnapshot(const ux3d::gltf::Gltf& gltfModel, const std::s
     copy << "Accessors: " << accessorCount << "\n";
     copy << "Buffer Views: " << bufferViewCount << "\n";
     copy << "Buffers: " << bufferCount << " (" << bufferText << ")\n";
+    if (hasInstancing) {
+        copy << "Instanced Nodes: " << instancedNodesText << "\n";
+        copy << "GPU Instances: " << instancing.instances << "\n";
+        copy << "Instanced Triangles: " << instancing.triangles << "\n";
+    }
     if (buffers.decalBufferActive) {
         copy << "Decal Buffer: Active (shared)\n";
         copy << "Decal Buffer Resolution: " << decalResolution << "\n";

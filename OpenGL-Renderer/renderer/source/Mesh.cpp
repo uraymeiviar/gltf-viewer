@@ -1,6 +1,8 @@
 // Copyright (c) 2019 UX3D GmbH. All rights reserved.
 
 #include "renderer/Mesh.h"
+#include "math/MatrixFunctions.h"
+#include "renderer/gl/GL.h"
 #include "renderer/gl/Texture.h"
 
 #include <algorithm>
@@ -94,6 +96,7 @@ Mesh::Mesh(Mesh&& other)
     , jointsSampler(other.jointsSampler)
     , m_id(other.m_id)
     , m_generation(other.m_generation)
+    , m_instancing(std::move(other.m_instancing))
 {
     other.jointsSampler = nullptr;
     other.m_morphTargetTexture = nullptr;
@@ -128,6 +131,7 @@ Mesh::Mesh(const Mesh& other)
     , jointsSampler(other.jointsSampler)
     , m_id(s_nextMeshId++)
     , m_generation(1)
+    , m_instancing(other.m_instancing)
 {
 }
 
@@ -143,6 +147,107 @@ void Mesh::updateTransform(const math::mat4x4& transform)
     m_transform = transform;
     setUniform("u_ModelMatrix", transform);
     setUniform("u_NormalMatrix", math::transpose(math::inverse(transform)));
+    if (m_instancing != nullptr) {
+        updateInstances();
+    }
+}
+
+void Mesh::setInstances(std::vector<Instance> instances, bool boxValid, const math::vec3& boxLo, const math::vec3& boxHi)
+{
+    clearInstances();
+    if (instances.empty()) {
+        return;
+    }
+    auto instancing = std::make_shared<Instancing>();
+    instancing->instances = std::move(instances);
+    instancing->buffer = std::make_unique<gl::Buffer>(m_gl);
+    instancing->boxValid = boxValid;
+    instancing->boxLo = boxLo;
+    instancing->boxHi = boxHi;
+    m_instancing = std::move(instancing);
+
+    // Two mat4 per-instance attributes, one gl::Attribute per column (four locations each).
+    constexpr GLsizei kStride = static_cast<GLsizei>(2 * sizeof(math::mat4x4));
+    const char* names[2] = { "a_instanceModelMatrix", "a_instanceNormalMatrix" };
+    for (GLsizei matrix = 0; matrix < 2; ++matrix) {
+        for (GLuint column = 0; column < 4; ++column) {
+            gl::Attribute attribute(names[matrix]);
+            attribute.buffer = m_instancing->buffer.get();
+            attribute.dimension = 4;
+            attribute.type = gl::ComponentType::Float;
+            attribute.stride = kStride;
+            attribute.offset = matrix * static_cast<GLsizei>(sizeof(math::mat4x4)) + static_cast<GLsizei>(column * sizeof(math::vec4));
+            attribute.divisor = 1;
+            attribute.locationOffset = column;
+            attributes.emplace_back(attribute);
+        }
+    }
+    updateInstances();
+}
+
+void Mesh::clearInstances()
+{
+    if (m_instancing == nullptr) {
+        return;
+    }
+    m_instancing.reset();
+    // gl::Attribute is not assignable (const name), so the vertex attributes are copied into a new list.
+    std::vector<gl::Attribute> vertexAttributes;
+    vertexAttributes.reserve(attributes.size());
+    for (const gl::Attribute& attribute : attributes) {
+        if (attribute.divisor == 0) {
+            vertexAttributes.push_back(attribute);
+        }
+    }
+    if (vertexAttributes.size() != attributes.size()) {
+        attributes.clear();
+        for (const gl::Attribute& attribute : vertexAttributes) {
+            attributes.push_back(attribute);
+        }
+    }
+}
+
+void Mesh::updateInstances()
+{
+    Instancing& instancing = *m_instancing;
+    const size_t count = instancing.instances.size();
+    instancing.data.resize(count * 2);
+    instancing.worldValid = false;
+    for (size_t i = 0; i < count; ++i) {
+        const Instance& instance = instancing.instances[i];
+        // The same expressions as TransformHierarchyNode::traverse (a child node) and updateTransform, so an instance
+        // gets the bytes that a plain child node with the instance TRS gets.
+        const math::mat4x4 translateMatrix = math::translate(m_transform, instance.translation);
+        const math::mat4x4 rotateMatrix = translateMatrix * instance.rotation;
+        const math::mat4x4 world = math::scale(rotateMatrix, instance.scale);
+        instancing.data[i * 2] = world;
+        instancing.data[i * 2 + 1] = math::transpose(math::inverse(world));
+        if (instancing.boxValid) {
+            for (int corner = 0; corner < 8; ++corner) {
+                const math::vec3 point(world * math::vec4((corner & 1) ? instancing.boxHi.x : instancing.boxLo.x,
+                                                          (corner & 2) ? instancing.boxHi.y : instancing.boxLo.y,
+                                                          (corner & 4) ? instancing.boxHi.z : instancing.boxLo.z, 1.0f));
+                instancing.worldLo = instancing.worldValid ? math::min(instancing.worldLo, point) : point;
+                instancing.worldHi = instancing.worldValid ? math::max(instancing.worldHi, point) : point;
+                instancing.worldValid = true;
+            }
+        }
+    }
+    // Not gl::Buffer::write: that one reports load progress, and this runs on every transform change.
+    m_gl->bindBuffer(GL_ARRAY_BUFFER, instancing.buffer->handle);
+    m_gl->bufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(instancing.data.size() * sizeof(math::mat4x4)),
+                     instancing.data.data(), GL_DYNAMIC_DRAW);
+    instancing.buffer->residentBytes = instancing.data.size() * sizeof(math::mat4x4);
+}
+
+bool Mesh::getInstanceWorldBounds(math::vec3& lo, math::vec3& hi) const
+{
+    if (!isInstanced() || !m_instancing->worldValid) {
+        return false;
+    }
+    lo = m_instancing->worldLo;
+    hi = m_instancing->worldHi;
+    return true;
 }
 
 void Mesh::resetWeightsUpdated()

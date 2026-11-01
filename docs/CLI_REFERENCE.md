@@ -264,6 +264,11 @@ Short forms of flags whose longer documentation lives in the phase documents (`R
   EXT_meshopt_compression, which is switched off ...`; a file that only uses it renders from its fallback data.
   Used by `scripts/validate_meshopt.py`; unset, empty or `0`: the extension is decoded.
 
+- `GLIDER_TEST_DISABLE_GPU_INSTANCING=1` (environment, read once): the loader ignores EXT_mesh_gpu_instancing, like a
+  loader without the extension: every node that carries it draws its mesh once. The profile report's `gpuInstancing`
+  then counts those nodes as `notApplied`, and `list_nodes` reports their status as switched off. Used by
+  `scripts/validate_gpu_instancing.py`; unset, empty or `0`: instances are drawn.
+
 - `GLIDER_NO_FOCUS=1` (environment): shows and renders the window normally but creates it without keyboard focus (`GLFW_FOCUSED` / `GLFW_FOCUS_ON_SHOW` false); unset behaviour is unchanged.
 
 ## Invocation example

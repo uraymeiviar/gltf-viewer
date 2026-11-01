@@ -6,6 +6,7 @@
 #include "gltf/DracoDecoder.h"
 #include "gltf/Merger.h"
 #include "gltf/MeshoptCompression.h"
+#include "gltf/Node.h"
 
 #include <future>
 #include <thread>
@@ -694,6 +695,11 @@ GltfResult Gltf::loadBinaryDataToMemory(const std::optional<filesystem::Dir>& gl
         }
         if (!imagesOnly && (meshoptViews != 0 || !m_requiredUnknownExtensions.empty())) {
             result = core::Max(meshopt::decodeBufferViews(*this), result);
+        }
+        // EXT_mesh_gpu_instancing: the instance attributes are plain accessors, readable once the buffers are in memory
+        // (and decoded, should they be meshopt-compressed).
+        if (!imagesOnly) {
+            gpu_instancing::decodeNodes(*this);
         }
 
         {

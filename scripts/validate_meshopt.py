@@ -185,9 +185,13 @@ def main():
     for name in ("ext_plain", "khr_plain"):
         before, _ = render(baseline, FIXTURES / f"{name}.glb", f"base_{name}")
         check(same(before, images[name]), f"{name}.glb: byte-identical to the baseline {baseline.name}")
+    # A baseline from before d24305f has no decoder (its ext.glb render differs from the plain twin); once the
+    # baseline decodes, the compressed render must stay byte-identical to it.
     before, _ = render(baseline, FIXTURES / "ext.glb", "base_ext")
-    check(not same(before, images["ext_plain"]),
-          f"the baseline {baseline.name} (no decoder) does not render ext.glb like its plain twin")
+    if same(before, images["ext_plain"]):
+        check(same(before, images["ext"]), f"ext.glb: byte-identical to the baseline {baseline.name}")
+    else:
+        print(f"  INFO the baseline {baseline.name} has no meshopt decoder (ext.glb differs from its plain twin)")
 
 
 if __name__ == "__main__":

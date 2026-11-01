@@ -8,9 +8,17 @@
 #include "gltf/Mesh.h"
 #include "gltf/Scene.h"
 #include "gltf/Skin.h"
+#include "gltf/Accessor.h"
+#include "gltf/BufferView.h"
+#include "core/Logger.h"
 
 #include "math/MatrixFunctions.h"
 #include "math/VectorFunctions.h"
+
+#include <algorithm>
+#include <cstdlib>
+#include <cstring>
+#include <string>
 
 using namespace ux3d;
 using namespace ux3d::gltf;
@@ -33,6 +41,9 @@ Node::Node(uint32_t _id, const Node& _source)
     , m_Rotation(_source.m_Rotation)
     , m_Translation(_source.m_Translation)
     , m_xmpPacket(_source.m_xmpPacket)
+    , m_gpuInstancingAttributes(_source.m_gpuInstancingAttributes)
+    , m_gpuInstances(_source.m_gpuInstances)
+    , m_gpuInstancingStatus(_source.m_gpuInstancingStatus)
     , weights(_source.weights)
 {
     // we can't copy the children because Nodes can only have one parent
@@ -400,4 +411,242 @@ bool Node::isValid() const
 GltfResult Node::getInvalidProperties(core::Vector<core::string>&) const
 {
     return GltfResult::Success;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// EXT_mesh_gpu_instancing
+
+bool ux3d::gltf::gpu_instancing::disabledByTestHook()
+{
+    static const bool disabled = [] {
+        const char* value = std::getenv("GLIDER_TEST_DISABLE_GPU_INSTANCING");
+        return value != nullptr && value[0] != '\0' && std::string(value) != "0";
+    }();
+    return disabled;
+}
+
+namespace {
+
+// One accessor as floats, `components` per element: float as stored, normalized integers as the glTF specification
+// (and the renderer's attribute conversion) divides them, other integers (KHR_mesh_quantization) as their value.
+// Returns an empty string on success, otherwise why the accessor cannot be read.
+std::string readFloats(const Accessor& accessor, uint32_t components, std::vector<float>& out)
+{
+    if (Accessor::getComponentCountFrom(accessor.getType()) != components) {
+        return "has " + std::to_string(Accessor::getComponentCountFrom(accessor.getType())) + " components, expected "
+            + std::to_string(components);
+    }
+    const ComponentType type = accessor.getComponentType();
+    const size_t componentSize = Accessor::getByteLengthFrom(type);
+    if (componentSize == 0 || type == ComponentType::UnsignedInt) {
+        return "has an unsupported component type";
+    }
+    const size_t elementSize = componentSize * components;
+    size_t stride = elementSize;
+    core::MemoryRange<const uint8_t> range;
+    core::Slice<uint8_t> sparseData;
+    if (accessor.getSparse().has_value()) {
+        if (accessor.getBufferView() != nullptr && accessor.getBufferView()->getByteStride().has_value()
+            && *accessor.getBufferView()->getByteStride() != elementSize) {
+            return "is sparse with an interleaved bufferView";
+        }
+        if (core::Failed(accessor.getSparseDataAs(sparseData))) {
+            return "sparse data cannot be read";
+        }
+        const auto memory = sparseData.getMemoryRange();
+        range = core::makeRange(static_cast<const uint8_t*>(memory.data()), memory.size());
+    } else {
+        if (core::Failed(accessor.getData(range))) {
+            return "data cannot be read";
+        }
+        if (accessor.getBufferView() != nullptr) {
+            stride = accessor.getBufferView()->getByteStride().value_or(static_cast<uint32_t>(elementSize));
+        }
+    }
+    const size_t count = accessor.getCount();
+    if (count == 0 || stride < elementSize || (count - 1) * stride + elementSize > range.size()) {
+        return "data is shorter than its count";
+    }
+    const bool normalized = accessor.isNormalized();
+    out.resize(count * components);
+    const uint8_t* data = range.data();
+    for (size_t i = 0; i < count; ++i) {
+        for (uint32_t c = 0; c < components; ++c) {
+            const uint8_t* p = data + i * stride + c * componentSize;
+            float value = 0.0f;
+            switch (type) {
+            case ComponentType::Float: {
+                std::memcpy(&value, p, sizeof(float));
+                break;
+            }
+            case ComponentType::Byte: {
+                int8_t v;
+                std::memcpy(&v, p, 1);
+                value = normalized ? std::max(static_cast<float>(v) / 127.f, -1.f) : static_cast<float>(v);
+                break;
+            }
+            case ComponentType::UnsignedByte: {
+                uint8_t v;
+                std::memcpy(&v, p, 1);
+                value = normalized ? static_cast<float>(v) / 255.f : static_cast<float>(v);
+                break;
+            }
+            case ComponentType::Short: {
+                int16_t v;
+                std::memcpy(&v, p, 2);
+                value = normalized ? std::max(static_cast<float>(v) / 32767.f, -1.f) : static_cast<float>(v);
+                break;
+            }
+            case ComponentType::UnsignedShort: {
+                uint16_t v;
+                std::memcpy(&v, p, 2);
+                value = normalized ? static_cast<float>(v) / 65535.f : static_cast<float>(v);
+                break;
+            }
+            default:
+                return "has an unsupported component type";
+            }
+            out[i * components + c] = value;
+        }
+    }
+    return {};
+}
+
+// The instances of one node, or why they are not applied (empty instances).
+std::string decodeNode(const Node& node, std::vector<GpuInstance>& instances)
+{
+    const Accessor* translation = nullptr;
+    const Accessor* rotation = nullptr;
+    const Accessor* scale = nullptr;
+    std::optional<uint32_t> count;
+    for (const GpuInstancingAttribute& attribute : node.getGpuInstancingAttributes()) {
+        if (attribute.accessor == nullptr) {
+            return "attribute " + attribute.name + " has no valid accessor";
+        }
+        if (count.has_value() && *count != attribute.accessor->getCount()) {
+            return "the attribute accessors have different counts";
+        }
+        count = attribute.accessor->getCount();
+        if (attribute.name == "TRANSLATION") {
+            translation = attribute.accessor;
+        } else if (attribute.name == "ROTATION") {
+            rotation = attribute.accessor;
+        } else if (attribute.name == "SCALE") {
+            scale = attribute.accessor;
+        }
+        // Custom attributes ("_NAME") are application data; other names are not defined by the extension. Both
+        // are listed in the Inspector and do not change the drawing.
+    }
+    if (!count.has_value() || *count == 0) {
+        return "no instance attribute with a count";
+    }
+    std::vector<float> t, r, s;
+    if (translation != nullptr) {
+        if (std::string why = readFloats(*translation, 3, t); !why.empty()) return "TRANSLATION " + why;
+    }
+    if (rotation != nullptr) {
+        if (std::string why = readFloats(*rotation, 4, r); !why.empty()) return "ROTATION " + why;
+    }
+    if (scale != nullptr) {
+        if (std::string why = readFloats(*scale, 3, s); !why.empty()) return "SCALE " + why;
+    }
+    instances.assign(*count, GpuInstance());
+    for (size_t i = 0; i < instances.size(); ++i) {
+        if (!t.empty()) instances[i].translation = math::vec3(t[i * 3], t[i * 3 + 1], t[i * 3 + 2]);
+        // glTF stores x, y, z, w; glm's constructor takes w first.
+        if (!r.empty()) instances[i].rotation = math::quat(r[i * 4 + 3], r[i * 4], r[i * 4 + 1], r[i * 4 + 2]);
+        if (!s.empty()) instances[i].scale = math::vec3(s[i * 3], s[i * 3 + 1], s[i * 3 + 2]);
+    }
+    return {};
+}
+
+uint64_t meshTriangles(const Mesh& mesh)
+{
+    uint64_t triangles = 0;
+    for (const Primitive& primitive : mesh.getPrimitives()) {
+        if (primitive.getIndicesAccessor() != nullptr) {
+            triangles += primitive.getIndicesAccessor()->getCount() / 3;
+            continue;
+        }
+        for (const Attribute& attribute : primitive.getAttributes()) {
+            if (attribute.getName() == "POSITION" && attribute.getAccessor() != nullptr) {
+                triangles += attribute.getAccessor()->getCount() / 3;
+                break;
+            }
+        }
+    }
+    return triangles;
+}
+
+std::string nodeLabel(const Node& node)
+{
+    return "node " + std::to_string(node.m_ID) + (node.hasName() ? " '" + node.getName() + "'" : std::string());
+}
+
+} // namespace
+
+void ux3d::gltf::gpu_instancing::decodeNodes(Gltf& gltf)
+{
+    const bool declared = gltf.isExtensionDeclared(ExtensionName);
+    uint32_t applied = 0;
+    uint64_t total = 0;
+    for (Node& node : gltf.getNodes()) {
+        if (!node.hasGpuInstancing()) {
+            continue;
+        }
+        std::vector<GpuInstance> instances;
+        std::string status;
+        if (!declared) {
+            status = "not applied: the file does not declare EXT_mesh_gpu_instancing in extensionsUsed";
+        } else if (disabledByTestHook()) {
+            status = "not applied: switched off (GLIDER_TEST_DISABLE_GPU_INSTANCING)";
+        } else if (node.getMesh() == nullptr) {
+            status = "not applied: the node has no mesh";
+        } else if (node.getSkin() != nullptr) {
+            status = "not applied: skinned node, the mesh is drawn once";
+            core::logWarning("[Loading] EXT_mesh_gpu_instancing: %s is skinned; instancing is not applied, the mesh "
+                             "is drawn once", nodeLabel(node).c_str());
+        } else if (std::string why = decodeNode(node, instances); !why.empty()) {
+            instances.clear();
+            status = "not applied: " + why;
+            core::logWarning("[Loading] EXT_mesh_gpu_instancing: %s cannot be instanced: %s; the mesh is drawn once",
+                             nodeLabel(node).c_str(), why.c_str());
+        } else {
+            status = "applied";
+            ++applied;
+            total += instances.size();
+        }
+        node.setGpuInstances(std::move(instances), status);
+    }
+    if (applied != 0) {
+        core::logInfo("[Loading] EXT_mesh_gpu_instancing: %u node(s), %llu instance(s)", applied,
+                      static_cast<unsigned long long>(total));
+    }
+}
+
+math::dmat4 ux3d::gltf::gpu_instancing::localMatrix(const GpuInstance& instance)
+{
+    constexpr math::dmat4 identity = math::identity<math::dmat4>();
+    const math::dmat4 scale = math::scale(identity, math::dvec3(instance.scale));
+    const math::dmat4 rotation = math::mat4_cast(math::dquat(instance.rotation));
+    const math::dmat4 translation = math::translate(identity, math::dvec3(instance.translation));
+    return translation * rotation * scale;
+}
+
+ux3d::gltf::gpu_instancing::Summary ux3d::gltf::gpu_instancing::summarize(const Gltf& gltf)
+{
+    Summary summary;
+    for (const Node& node : gltf.getNodes()) {
+        if (!node.hasGpuInstancing()) {
+            continue;
+        }
+        if (node.getGpuInstances().empty() || node.getMesh() == nullptr) {
+            ++summary.notApplied;
+            continue;
+        }
+        ++summary.nodes;
+        summary.instances += node.getGpuInstances().size();
+        summary.triangles += meshTriangles(*node.getMesh()) * node.getGpuInstances().size();
+    }
+    return summary;
 }

@@ -21,5 +21,9 @@ struct Attribute {
     Buffer* buffer = nullptr;
     GLint dimension = 3;
     ComponentType type = ComponentType::Float;
+    // EXT_mesh_gpu_instancing: a per-instance stream (glVertexAttribDivisor) and, for one column of a matrix
+    // attribute, the column's location after the attribute's own (a mat4 occupies four locations).
+    GLuint divisor = 0;
+    GLuint locationOffset = 0;
 };
 }

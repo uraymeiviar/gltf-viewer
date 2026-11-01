@@ -60,11 +60,19 @@ void Application::accumulateNodeOBB(const ux3d::gltf::Node* node, const glm::mat
                                         {pMin.x, pMin.y, pMax.z}, {pMin.x, pMax.y, pMin.z}, {pMax.x, pMax.y, pMin.z},
                                         {pMax.x, pMax.y, pMax.z}, {pMin.x, pMax.y, pMax.z}};
 
-                for (const auto& c : corners) {
-                    glm::vec4 pt = toRootLocal * glm::vec4(c, 1.0f);
-                    obb.localMin = glm::min(obb.localMin, glm::vec3(pt));
-                    obb.localMax = glm::max(obb.localMax, glm::vec3(pt));
-                    obb.valid = true;
+                // EXT_mesh_gpu_instancing: the box holds every instance.
+                const auto& instances = node->getGpuInstances();
+                const size_t passes = instances.empty() ? 1 : instances.size();
+                for (size_t i = 0; i < passes; ++i) {
+                    const glm::mat4 toBox = instances.empty()
+                        ? toRootLocal
+                        : toRootLocal * glm::mat4(ux3d::gltf::gpu_instancing::localMatrix(instances[i]));
+                    for (const auto& c : corners) {
+                        glm::vec4 pt = toBox * glm::vec4(c, 1.0f);
+                        obb.localMin = glm::min(obb.localMin, glm::vec3(pt));
+                        obb.localMax = glm::max(obb.localMax, glm::vec3(pt));
+                        obb.valid = true;
+                    }
                 }
             }
         }
@@ -190,11 +198,17 @@ struct ModelBaseScan {
                         lo /= minValue != 0.0 ? minValue : maxValue;
                         if (maxValue != 0.0) hi /= maxValue;
                     }
-                    for (int corner = 0; corner < 8; ++corner) {
-                        const ux3d::math::dvec4 point(corner & 1 ? hi.x : lo.x, corner & 2 ? hi.y : lo.y,
-                                                      corner & 4 ? hi.z : lo.z, 1.0);
-                        lowest = std::min(lowest, (world * point).y);
-                        found = true;
+                    const auto& instances = node->getGpuInstances(); // EXT_mesh_gpu_instancing
+                    const size_t passes = instances.empty() ? 1 : instances.size();
+                    for (size_t i = 0; i < passes; ++i) {
+                        const ux3d::math::dmat4 toWorld =
+                            instances.empty() ? world : world * ux3d::gltf::gpu_instancing::localMatrix(instances[i]);
+                        for (int corner = 0; corner < 8; ++corner) {
+                            const ux3d::math::dvec4 point(corner & 1 ? hi.x : lo.x, corner & 2 ? hi.y : lo.y,
+                                                          corner & 4 ? hi.z : lo.z, 1.0);
+                            lowest = std::min(lowest, (toWorld * point).y);
+                            found = true;
+                        }
                     }
                 }
             }

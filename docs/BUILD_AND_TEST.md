@@ -157,6 +157,22 @@ python scripts/run_regression.py --tier full
   compressed file to render byte-identical to its plain twin (same decoded bytes, no extension), the damaged and
   the `GLIDER_TEST_DISABLE_MESHOPT=1` required files to be refused with their error, the validator notices for
   unsupported required/used extensions, and the plain twins to equal the baseline.
+- **`gpu_instancing` suite** (`validate_gpu_instancing.py`; triggers: `Node.cpp` / `Node.h` / `NodesFromJson.*` /
+  `Utils.cpp` / `Gltf.cpp` / `Extensions.*` of the glTF library, the renderer's `Mesh.*`, `gl/Attribute.h`,
+  `gl/Program.cpp`, `*Command*`, `GltfRenderLayer*`, `PickingRenderLayer.*`, `ShadowCasterLayer.*`, `Bounds.cpp`,
+  `ElementInspector.cpp`, `StatisticsPanel.cpp`, `CommandsHandlers.cpp`): writes about 30 `.gltf` fixtures (data
+  URIs, about 5 MB, generated into `build/gpu_instancing/fixtures`, never committed). Each instanced file has a plain
+  twin with one child node per instance whose TRS is the instance's float32 value (dequantized like the loader), so
+  renders are compared byte for byte: float TRS, quantized ROTATION / SCALE / TRANSLATION, a parent transform with a
+  node animation, BLEND (instances that do not overlap on screen, since one instanced draw has no back-to-front
+  order between its instances), a morphed mesh, sun + shadows + ground plane, SSAO, Wireframe mode and Overlay. It
+  also checks startup framing and `frame_node` against the twin, 399 window clicks (the instanced node wherever the
+  twin selects an instance node) and pipe `pick`, the profile report's `gpuInstancing` summary and `list_nodes`,
+  10,000 instances in the same renderer draw calls as 100 (opaque and BLEND; plain twins' draws and CPU frame times
+  printed), the fallbacks (undeclared, `GLIDER_TEST_DISABLE_GPU_INSTANCING=1`, skinned: drawn once, logged), the
+  validator (no notice) and the plain twins against the baseline. The renderer's `Mesh.*`, `gl/Attribute.h` and
+  `gl/Program.cpp` also trigger the picking/instancing group (`p8_3`, `p8_5`, `p8_followup`), `NodesFromJson.*`
+  the `meshopt` group.
 - **Per-suite summary**: the run ends with each suite's wall time and Glider launches (current build, baseline,
   baseline served from the cache, baseline started, repeated argument sets, control-pipe/follow sessions and their
   summed seconds), slowest first, and writes `build/regression/summary.json` (with the candidate and why each suite

@@ -154,6 +154,28 @@ ConversionResult NodesFromJson::resolve(const nlohmann::json& _jsonNode, Node& _
                             core::logWarning("node.%s.%s with value '%s' has invalid type", key.c_str(), extensionName.c_str(), extension.dump().c_str());
                             containsErrors = true;
                         }
+                    } else if (extensionName == gpu_instancing::ExtensionName) {
+                        // EXT_mesh_gpu_instancing: the attribute accessors; their values are decoded after the buffers
+                        // are loaded (gpu_instancing::decodeNodes). The JSON also stays an unknown extension (convert),
+                        // so it is listed and written back unchanged. ImportOptions::skipExtensions reads it as absent.
+                        const bool skipped = GltfObjectFromJson::g_importOptions.has_value()
+                            && GltfObjectFromJson::g_importOptions->skipExtensions.has_value()
+                            && GltfObjectFromJson::g_importOptions->skipExtensions->count(extensionName) != 0;
+                        const auto attributes = extension.is_object() ? extension.find("attributes") : extension.end();
+                        if (skipped) {
+                        } else if (!extension.is_object() || attributes == extension.end() || !attributes->is_object()) {
+                            core::logWarning("node.%s.%s with value '%s' has no attributes object", key.c_str(), extensionName.c_str(), extension.dump().c_str());
+                            containsErrors = true;
+                        } else {
+                            for (const auto& [attributeName, accessorIndex] : attributes->items()) {
+                                if (checkIndex(accessorIndex, m_pointerLookup.Accessors.size(), "node.extensions.EXT_mesh_gpu_instancing.attributes")) {
+                                    _node.addGpuInstancingAttribute(attributeName, m_pointerLookup.Accessors[accessorIndex.get<uint32_t>()]);
+                                } else {
+                                    _node.addGpuInstancingAttribute(attributeName, nullptr);
+                                    containsErrors = true;
+                                }
+                            }
+                        }
                     } else if (extensionName == "KHR_audio") {
                         if (extension.is_object()) {
                             GltfObject& audioEmitterPointerObject = _node.createAudioEmitterPointerObject();

@@ -204,9 +204,59 @@ flowchart TD
   bufferViews (the compressed buffer, used by no bufferView, is dropped; the fallback buffer is stored like a loaded
   file buffer). Glider has no Save command wired to it today (`Application::saveGltfModel` has no caller).
 - **Draco** (`KHR_draco_mesh_compression`): decoded per primitive after the images (`DracoDecoder`).
+- **EXT_mesh_gpu_instancing** (a node draws its mesh once per instance, at the node's world matrix x the instance's
+  T * R * S): see section 3.2b.
 - **Unsupported extensions**: the loader reads only the extensions it knows and does not refuse a file for an unknown
   required one; `gltf::isExtensionSupported` (`gltf/Extensions.h`) is the one support list and the validator reports
   what it does not contain (section 3.7).
+
+### 3.2b GPU Instancing (EXT_mesh_gpu_instancing)
+
+- **Reading**: `NodesFromJson::resolve` stores the node's `EXT_mesh_gpu_instancing.attributes` (name, accessor) in
+  `gltf::Node::getGpuInstancingAttributes()`; the extension JSON also stays an unknown extension (listed in the
+  Inspector, written back unchanged). After the buffers (and the meshopt decode), `gpu_instancing::decodeNodes`
+  (`gltf/Node.h`, `source/Node.cpp`) reads TRANSLATION (VEC3), ROTATION (VEC4, x y z w) and SCALE (VEC3) into
+  `Node::getGpuInstances()` (`GpuInstance`: float TRS): float as stored, normalized BYTE / UBYTE / SHORT / USHORT
+  divided as the specification says (`max(c / 127, -1)`, ...), other integers (KHR_mesh_quantization) as their
+  value; bufferView strides and dense sparse accessors are honoured; quaternions are not renormalized (like node
+  rotations). Custom `_NAME` attributes are listed, not used. The node is drawn once (as before) when the file does
+  not declare the extension in `extensionsUsed`, `ImportOptions::skipExtensions` names it,
+  `GLIDER_TEST_DISABLE_GPU_INSTANCING=1` is set, the node has no mesh, the node is skinned
+  (`[Loading] EXT_mesh_gpu_instancing: node N 'name' is skinned; instancing is not applied, the mesh is drawn once`),
+  or the attributes are invalid (different counts, wrong type: logged with the reason). `getGpuInstancingStatus()`
+  says which ("applied" otherwise). `gltf::isExtensionSupported` lists the extension.
+- **Drawing**: the mesh mapping (`GltfRenderLayerMeshes.cpp`) hands the instances to `renderer::Mesh::setInstances`
+  with the primitive's static POSITION box. The mesh appends two per-instance mat4 streams (`a_instanceModelMatrix`,
+  `a_instanceNormalMatrix`: eight `gl::Attribute` columns with `divisor = 1` and `locationOffset`, laid out like the
+  P8.3 instanced draws, 128 bytes per instance) to its vertex attributes, so every VAO built for the mesh
+  (`Program::createVertexLayout`) carries them. `Mesh::updateTransform` recomputes each instance's model matrix with
+  the expressions of a child node's world matrix (`TransformHierarchyNode::traverse`: `scale(translate(world, t) *
+  toMat4(q), s)`) and its normal matrix like the mesh's own, then re-uploads the buffer: node animation moves every
+  instance, and an instance gets exactly the bytes a plain child node with the same TRS would. `CommandMapping`
+  compiles `primitive.vert` with `USE_INSTANCING` for an instanced mesh (the P8.3 shader path, same program key) and
+  sets `Command::instanceCount`, so every pass that builds commands from the scene drawables — opaque, BLEND
+  (one draw, no back-to-front order between the instances), transmission, shadow casters and the sky-occlusion
+  bake, the decal / SSAO depth-normal prepass, picking, Wireframe shading and the Wireframe Overlay — draws all
+  instances in one `glDraw*Instanced` call; such a command is never merged again by P8.3. More than eight vertex
+  attributes leave no room for the streams: the mesh is drawn once with a warning. Morphed meshes are instanced
+  (the morph is applied before the instance matrix); skinned ones fall back (above).
+- **Bounds**: the mesh also keeps the world-space union of every instance's box. The traversal's frustum culling,
+  the draw-order bounding centre, `cullToClip` (picking and shadow cascades), `boundDrawables` (cascade fit,
+  sky-occlusion volume) and the interior volume use it (`getStaticWorldBox`). On the application side
+  `gltf::utils::getExtends` (startup framing, Focus / `frame_node`, near/far), the selection OBB
+  (`accumulateNodeOBB`) and the ground's model-base height include every instance (`gpu_instancing::localMatrix`,
+  T * R * S in double like `Node::getTransformMatrix`).
+- **Picking**: the instanced mesh has one picking id, so a click on any instance selects the node (no instance
+  index).
+- **UI and reports**: the node Inspector shows `GPU Instances: N` (or why the extension is not applied) and one
+  button per instance attribute (opens its Accessor). Statistics adds `Instanced Nodes`, `GPU Instances` and
+  `Instanced Triangles` (mesh triangles x instances; `Total Triangles` still counts each mesh once) for a model with
+  such a node; the profile report carries the same as `gpuInstancing` {nodes, instances, instancedTriangles,
+  notApplied}, and `list_nodes` gives `gpuInstances` / `gpuInstancing` (status) for those nodes.
+- **Cost**: 10,000 instances draw in as many calls as 100 (`validate_gpu_instancing.py`); the per-instance matrices
+  are recomputed on the CPU only when the node's transform changes.
+- Checked by `scripts/validate_gpu_instancing.py` (renders byte-identical to plain twins with one child node per
+  instance; see [BUILD_AND_TEST.md](BUILD_AND_TEST.md#45-regression-testing)).
 
 ### 3.3 GPU Color Picking & Oriented Bounding Boxes (OBB)
 
@@ -309,8 +359,8 @@ Replaces the legacy external `gltf_validator.exe` subprocess with a native, 100%
   - Scene hierarchy cycle detection (DFS loop checking) and multi-parent rule checks.
   - External resource URI portability checks (warnings for absolute paths, infos for external URLs).
   - Extension support: every `extensionsRequired` entry outside `gltf::isExtensionSupported` (the KHR/EXT/MSFT names
-    of `getAllExtensionNames()`, EXT/KHR_meshopt_compression, `ux3d_gestaltor`, and the ASOBO support-table rows that
-    are not "Not yet supported") is a warning `EXTENSION_REQUIRED_UNSUPPORTED` ("Required extension X is not
+    of `getAllExtensionNames()`, EXT/KHR_meshopt_compression, EXT_mesh_gpu_instancing, `ux3d_gestaltor`, and the
+    ASOBO support-table rows that are not "Not yet supported") is a warning `EXTENSION_REQUIRED_UNSUPPORTED` ("Required extension X is not
     supported; the file may not display correctly."); an unsupported `extensionsUsed` entry that is not required is an
     info `EXTENSION_USED_UNSUPPORTED` (ASOBO extensions keep their own "not rendered" info,
     `ASOBO_EXTENSIONS_NOT_RENDERED`).

@@ -689,6 +689,9 @@ bool writeProfileReport(const std::string& path, const ProfileReport& report)
     if (!report.picks.empty()) {
         document["picks"] = report.picks;
     }
+    if (!report.gpuInstancing.is_null()) {
+        document["gpuInstancing"] = report.gpuInstancing;
+    }
 
     return writeJsonFile(path, document);
 }
