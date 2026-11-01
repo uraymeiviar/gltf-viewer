@@ -465,6 +465,20 @@ Replaces the legacy external `gltf_validator.exe` subprocess with a native, 100%
 - **Active** opens a submenu with the same checklist as the status-bar animation popup — `AnimationPlayer::renderActiveAnimationsContent` is shared by both, including Select all non-conflicting and the Skinning/Morphing settings.
 - All items are disabled when the model has no animations; the shortcuts are ignored while typing or while a menu/popup is open.
 
+**Sampling** (`OpenGL-Renderer/Tools/Runtime/runtime/animation/include/animation/Channel.h`, `Channel<T>::update`;
+the interpolation functions in `Sampler.h`; channel creation in `GltfRenderLayerNodes.cpp` `createChannel`). Each clip
+clamps the timeline time to its own duration (`Animation::updateChannels`, the largest last key of its samplers).
+A channel finds the first key with time > t; the interval starts at the key before it (glTF: the last key with
+time <= t). Before the first key the first value holds, at or after the last key the last value, exactly on a key
+its value (STEP returns that key's output, not the previous one; LINEAR / CUBICSPLINE return the key value without
+interpolation rounding); between keys STEP keeps the lower key, LINEAR mixes (slerp for rotations) and CUBICSPLINE
+evaluates the Hermite spline with the tangents scaled by the interval (`scaleTangent`: m = (t_k+1 - t_k) x
+tangent). A CUBICSPLINE morph-weights output holds per key all N in-tangents, then the N values, then the N
+out-tangents. The timeline (`AnimationPlayer::update`) wraps only past the end (`fmod` with Loop on; Loop off stops
+at the end), so a tick that lands exactly on the duration, and Jump to end, sample the last keys. The pipe's
+`set_animation_time` (seek like the scrubber, or `advance` like a playback tick) and `get_node_pose` (the live local
+TRS, weights and KHR_node_visibility value) expose this; `validate_animation_keys.py` checks it.
+
 ### 3.10 Ground Plane (A3.6)
 
 **Scene Inspector → Ground** chooses **Off** (default), **Plane**, or **Ocean** (OpenGL 4.3+). The

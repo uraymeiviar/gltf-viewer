@@ -13,7 +13,7 @@ also lower the ground's model base) and a hidden red point light (KHR_lights_pun
   "required"    the hidden scene with the extension also in extensionsRequired;
   "badtype"     visible = "no" on one node (validator).
 The animated file ("anim_ptr") has a small "Blinker" cube whose visible is animated through KHR_animation_pointer
-(unsigned byte 1, 0, 1, 1 at 0, 1, 2, 3 s, STEP; the captures sample between keys); its static twins carry visible = true / false and no animation. The
+(unsigned byte 1, 0, 1, 1 at 0, 1, 2, 3 s, STEP; the captures sample between keys and exactly on keys); its static twins carry visible = true / false and no animation. The
 Blinker lies inside the bounds of the other nodes, so the startup framing does not depend on its value.
 
 Checks (isolated, 1280x720, AA none, frame 24 of a fixed 0.05 s clock; byte for byte):
@@ -28,7 +28,8 @@ Checks (isolated, 1280x720, AA none, frame 24 of a fixed 0.05 s clock; byte for 
   * draw calls of the profile report: hidden = removed < noext;
   * list_nodes: nodeVisibility false for the nodes the file hides, true for the explicit ones;
   * animation: anim_ptr at --anim-time 0.5 = the static visible twin, at 1.5 = the static hidden twin, with the
-    switch off at 1.5 = the visible twin;
+    switch off at 1.5 = the visible twin; exactly on keys (STEP: that key's value) at 1.0 = hidden, at 2.0 and at
+    3.0 (the clip end) = visible;
   * validator: no error and no extension notice for the hidden scene; KHR_NODE_VISIBILITY_INVALID_TYPE for badtype;
   * with a baseline: removed and noext render byte-identical to it; the baseline draws the hidden scene like noext.
 
@@ -356,6 +357,11 @@ def main():
     check(same(b, off) and gl_errors_zero(log), "anim_ptr at 1.5 s (visible = 0): byte-identical to the hidden twin")
     c, _, log = render(EXE, files["anim_ptr"], "anim_ptr_2.5", ["--anim-time", "2.5"])
     check(same(c, on), "anim_ptr at 2.5 s (visible = 1 again): byte-identical to the visible twin")
+    for t, twin, label in (("1.0", off, "key 1, visible = 0: the hidden twin"),
+                           ("2.0", on, "key 2, visible = 1: the visible twin"),
+                           ("3.0", on, "key 3, the clip end, visible = 1: the visible twin")):
+        e, _, log = render(EXE, files["anim_ptr"], f"anim_ptr_{t}", ["--anim-time", t])
+        check(same(e, twin) and gl_errors_zero(log), f"anim_ptr exactly at {t} s ({label}): byte-identical")
     d, _, log = render(EXE, files["anim_ptr"], "anim_ptr_1.5_off", ["--anim-time", "1.5", *OFF])
     check(same(d, on), "anim_ptr at 1.5 s with the switch off: the channel is skipped, the Blinker is visible")
 

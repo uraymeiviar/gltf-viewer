@@ -69,18 +69,19 @@ bool createChannel(Sampler func, animation::IAnimationTarget<std::vector<T>>& an
     auto outputValues = reinterpret_cast<const T*>(outputData.data());
 
     for (uint32_t i = 0; i < keyCount; ++i) {
-        auto offset = i * valueCount;
-
         if (interpolation != gltf::AnimationInterpolation::CubicSpline) {
+            const auto offset = i * valueCount;
             for (uint32_t v = 0u; v < valueCount; ++v) {
                 values[v] = outputValues[offset + v];
             }
             channel.addKeyframe(keys[i], values);
         } else {
+            // glTF: per key all in-tangents, then all values, then all out-tangents (valueCount each)
+            const auto offset = i * valueCount * 3u;
             for (uint32_t v = 0u; v < valueCount; ++v) {
                 inTangents[v] = outputValues[offset + v];
-                values[v] = outputValues[offset + v + 1];
-                outTangents[v] = outputValues[offset + v + 2];
+                values[v] = outputValues[offset + valueCount + v];
+                outTangents[v] = outputValues[offset + 2u * valueCount + v];
             }
             channel.addKeyframe(keys[i], inTangents, values, outTangents);
         }

@@ -191,6 +191,8 @@ Nodes are addressed by name (exact, then case-insensitive, then unique substring
 | `get_state` | immediate | Model path, scene/node counts, selection, isolation, active viewport, camera, render mode, validation summary, loading state. `gltfExtensions`: every extension switch keyed by name (`extensions`), vendor groups, `appliedAtLoad`, `loaderDisabled`, `switchedOff`, and `openFile` (the last load: `declared`, `switchedOff`, `reloads`, `loadPending`, ...). The switches are registry keys (no separate command): a change of one applied at load reloads the open file when it declares the extension. |
 | `list_nodes(filter?, limit?)` | immediate | Node names, indices, parents, mesh/material names, visibility. |
 | `log_tail(lines?, level?)` | immediate | Recent logger lines. |
+| `set_animation_time(time?, advance?, loop?)` | immediate | Seek the timeline like the scrubber, or advance it like a playback tick (loop wrap / stop at the end); returns time, duration, playing, looping. |
+| `get_node_pose(node)` | immediate | A node's live local translation, rotation, scale, morph weights (float32 as stored) and KHR_node_visibility value. |
 | `reset` | multi-frame | Return to a known state (§3.6). |
 | `set_persist(enabled)` | immediate | Allow commands to save settings. |
 
@@ -339,7 +341,7 @@ Commands (the generated reference is in `Glider.exe --agent-guide`): `describe`,
 (`exitisolate`), `frame_node` (`frame`), `set_view` (`view`), `get_camera`, `set_camera` (`camera`), `capture`,
 `node_screen_rect` (`noderect`), `pick`, `probe`, `probe_region`, `set_render_mode` (`debugview`), `open_model`
 (`open`), `reset`, `set_viewport_setting`, `get_viewport_setting`, `set_environment`, `get_environment`,
-`list_settings`, `set_material_param`, `get_material_param`. Names in brackets are the Phase 0 script names; they
+`list_settings`, `set_material_param`, `get_material_param`, `set_animation_time`, `get_node_pose`. Names in brackets are the Phase 0 script names; they
 keep their Phase 0 argument syntax and JSONL result shapes.
 
 Settings: viewport `aa`, `msaa`, `post_aa`, `render_mode` (alias `debug_view`), `grid`, `scene_bounding_box`,

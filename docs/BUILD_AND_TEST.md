@@ -189,8 +189,24 @@ python scripts/run_regression.py --tier full
   against the removed twin, `frame_node` on a hidden node (still framed), pipe `pick` at each hidden node's screen
   centre (what the removed twin picks there; on the file without the extension the hidden node), `list_nodes`
   `nodeVisibility`, a KHR_animation_pointer channel on `visible` (STEP, unsigned byte) at times where it is on / off
-  against static twins (and switched off: visible), the validator (no notice; `KHR_NODE_VISIBILITY_INVALID_TYPE` for
+  against static twins, also exactly on keys (STEP: that key's value, including the clip end; switched off: visible), the validator (no notice; `KHR_NODE_VISIBILITY_INVALID_TYPE` for
   a string `visible`), and the removed / no-extension twins against the baseline.
+- **`animation_keys` suite** (`validate_animation_keys.py`; triggers: the runtime animation library
+  `OpenGL-Renderer/Tools/Runtime/runtime/animation/*` (`Channel.h`, `Sampler.h`, `Animation.*`),
+  `GltfRenderLayerNodes.cpp`, `AnimationPlayer.*`, `TransformAnimationTarget.h`, `KHRAnimationPointerTarget.h`,
+  `AnimationChannelTarget.*`, `AnimationsFromJson.*`, `CommandsHandlers.cpp`, and itself): writes one clip (keys at
+  0, 0.5, 1.0 s) into `build/animation_keys/fixtures` (data URIs, never committed) with STEP, LINEAR and CUBICSPLINE
+  translation, a LINEAR rotation, a KHR_animation_pointer STEP channel on KHR_node_visibility `visible`, STEP and
+  CUBICSPLINE morph weights (two targets) and a channel whose keys (0.25, 0.5) start after and end before the clip.
+  Through the pipe (`set_animation_time`, `get_node_pose`) every channel at t = 0, 0.25, 0.5, 0.75, 1.0 (the clip
+  end), 1.5 and -0.5 equals the glTF value: exactly (`==`) on a key, before the first and at / after the last key,
+  LINEAR between keys with the float32 formula (1e-6), CUBICSPLINE with the float64 spec formula including the
+  interval-scaled tangents (1e-5, and the unscaled result must differ by more than 1e-2). All times are binary
+  fractions, exact in float32 and in the JSON doubles; poses are the stored float32 values. The timeline: Jump to end
+  (time = duration) holds the last keys, playback that lands on the end does not wrap, playback past it wraps with
+  Loop on (1.25 -> 0.25) and stops at the end with Loop off. Renders: `--anim-time 0.5` / `1.0` / `0.75` of a STEP
+  translation + visibility file are byte-identical to static twins with the node at key 1 / key 2 / key 1, and the
+  twins render byte-identical to the baseline.
 - **`extension_switches` suite** (`validate_extension_switches.py`; triggers: `Extensions.*`, `GltfFromJson.*`,
   `GltfFromBinary.*`, `ImportOptions.h`, `GltfExtensionSettings.*`, `GltfValidator.*`, `MeshoptCompression.*`,
   `AsoboSupport.*`, the glTF library's `Gltf.*`, the application's `Scene.cpp`, `Frame.cpp`, `CommandsSettings.cpp`,

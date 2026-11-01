@@ -138,6 +138,10 @@ Suites (equivalence against the baseline plus each feature's analytic acceptance
   instanced node and light; all visible, undeclared and switched off = the file without it; required + off
   refused; framing, frame all, pick and draw calls as the removed twin; KHR_animation_pointer visibility at on / off
   times = the static twins; list_nodes, validator type error; twins against the baseline),
+  validate_animation_keys.py (animation sampling against the glTF rules: STEP / LINEAR / CUBICSPLINE translation,
+  LINEAR rotation, KHR_animation_pointer visibility, STEP and CUBICSPLINE morph weights at t = 0, exactly on each
+  key, between keys, the clip end, past the end and before the first key through the pipe; the timeline's end,
+  loop wrap and stop; --anim-time renders on a key = static twins; twins against the baseline),
   validate_extension_switches.py (File > Settings > glTF Extensions: per representative extension off renders
   byte-identical to the file without it and on byte-identical to the baseline; required + off refuses the load with
   the reason; validator "switched off" notices; a switch change reloads the open file like a fresh open; ASOBO
@@ -260,6 +264,12 @@ TRIGGERS = (
       "KHRAnimationPointerTarget.h", "Bounds.cpp", "SceneHierarchy*", "ElementInspector.cpp", "StatisticsPanel.cpp",
       "GltfValidator.*", "source/imgui/application/CommandsHandlers.cpp", "DiagnosticsPicking.cpp",
       "validate_node_visibility.py")),
+    # Animation sampling: the runtime channels and samplers, glTF channel creation, the timeline player and the
+    # set_animation_time / get_node_pose pipe commands.
+    (("animation_keys",),
+     ("OpenGL-Renderer/Tools/Runtime/runtime/animation/*", "GltfRenderLayerNodes.cpp", "AnimationPlayer.*",
+      "TransformAnimationTarget.h", "KHRAnimationPointerTarget.h", "AnimationChannelTarget.*", "AnimationsFromJson.*",
+      "source/imgui/application/CommandsHandlers.cpp", "validate_animation_keys.py")),
     (("settings_scopes", "viewport_image", "area_maximize", "agent_control", "review_fixes"),
      ("Settings*", "ViewportOverrides.*", "source/imgui/application/Commands*", "ControlPipe.*",
       "CommandRegistry.*", "AreaLayout.cpp", "Menus.cpp", "ViewportImage.cpp", "Panels.cpp", "AppSettings.*",
@@ -452,6 +462,7 @@ serial_jobs = [
     ("gpu_instancing", ["scripts/validate_gpu_instancing.py", "--baseline-exe", str(baseline)]),
     ("extension_switches", ["scripts/validate_extension_switches.py", "--baseline-exe", str(baseline)]),
     ("node_visibility", ["scripts/validate_node_visibility.py", "--baseline-exe", str(baseline)]),
+    ("animation_keys", ["scripts/validate_animation_keys.py", "--baseline-exe", str(baseline)]),
 ]
 # validate_p5_1.py is superseded (its counter checks run in validate_p8_5.py) and no longer registered.
 tier_suites = [name for name, _ in jobs + serial_jobs] + list(SELFCHECKS)

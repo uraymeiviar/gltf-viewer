@@ -4,6 +4,7 @@
 // visibility, camera, inspection and capture, settings commands).
 
 #include "CommandsInternal.h"
+#include "renderer/TransformHierarchyNode.h"
 
 namespace ux3d::imgui::application {
 
@@ -136,6 +137,71 @@ void Application::registerAgentCommands()
                 nodes.push_back(std::move(entry));
             }
             return CommandReply::success({{"total", gltfModel.getNodes().size()}, {"matched", matched}, {"nodes", nodes}});
+        };
+        agentRegistry.add(std::move(spec));
+    }
+    {
+        CommandSpec spec;
+        spec.name = "set_animation_time";
+        spec.help = "Seek the animation timeline like the scrubber (time, seconds; the clips clamp it to their duration), "
+                    "or advance it like playback by advance seconds (the player's speed, loop and end handling: past the "
+                    "end it wraps with Loop on, else stops at the end). Returns the timeline state.";
+        spec.args = objectSchema({{"time", prop("number", "Timeline time in seconds.")},
+                                  {"advance", prop("number", "Playback step in seconds, applied after time.")},
+                                  {"loop", prop("boolean", "Sets the Loop checkbox first.")}});
+        spec.positional = {"time"};
+        spec.run = [this](const json& args, const CommandContext&) -> CommandOutcome {
+            if (!gltfLayer) return CommandReply::failure("no_scene", "no render layer");
+            if (args.contains("loop") && args["loop"].is_boolean()) animationPlayer.setLooping(args["loop"].get<bool>());
+            if (args.contains("time") && args["time"].is_number()) {
+                animationPlayer.setCurrentTime(args["time"].get<float>(), gltfLayer.get());
+            }
+            if (args.contains("advance") && args["advance"].is_number()) {
+                const bool wasPlaying = animationPlayer.isPlaying();
+                animationPlayer.setPlaying(true);
+                animationPlayer.update(args["advance"].get<float>(), gltfLayer.get());
+                if (!wasPlaying) animationPlayer.setPlaying(false);
+            }
+            for (auto& vp : viewports) {
+                if (vp) vp->antiAliasing.resetHistory();
+            }
+            sceneRevisions.mark(ux3d::imgui::SceneChange::AnimationTime);
+            return CommandReply::success({{"time", animationPlayer.getCurrentTime()},
+                                          {"duration", animationPlayer.getMaxDuration()},
+                                          {"playing", animationPlayer.isPlaying()},
+                                          {"looping", animationPlayer.isLooping()}});
+        };
+        agentRegistry.add(std::move(spec));
+    }
+    {
+        CommandSpec spec;
+        spec.name = "get_node_pose";
+        spec.help = "A node's current local pose as the animation set it: translation, rotation (x, y, z, w), scale, "
+                    "morph weights and, with KHR_node_visibility, its current visible value; float32 values as stored.";
+        spec.args = objectSchema({{"node", prop("string", "Node name or #index.")}}, {"node"});
+        spec.positional = {"node"};
+        spec.run = [this, resolveNode](const json& args, const CommandContext&) -> CommandOutcome {
+            std::optional<CommandReply> failure;
+            auto* node = resolveNode(args, "node", failure);
+            if (failure) return *failure;
+            if (!gltfLayer) return CommandReply::failure("no_scene", "no render layer");
+            const auto& map = gltfLayer->getTransformHierarchy().map;
+            const auto it = map.find(node);
+            if (it == map.end() || it->second == nullptr) {
+                return CommandReply::failure("no_pose", "node has no transform hierarchy entry");
+            }
+            const auto* pose = it->second;
+            const auto& t = pose->translationTarget.getValue();
+            const auto& r = pose->rotationTarget.getValue();
+            const auto& sc = pose->scaleTarget.getValue();
+            json result = {{"node", nodeRef(node)},
+                           {"time", animationPlayer.getCurrentTime()},
+                           {"translation", {t.x, t.y, t.z}},
+                           {"rotation", {r.x, r.y, r.z, r.w}},
+                           {"scale", {sc.x, sc.y, sc.z}},
+                           {"weights", pose->weightTarget.getValue()}};
+            if (node->hasNodeVisibility()) result["visibleNow"] = node->isFileVisible();
+            return CommandReply::success(result);
         };
         agentRegistry.add(std::move(spec));
     }
