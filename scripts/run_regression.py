@@ -138,6 +138,11 @@ Suites (equivalence against the baseline plus each feature's analytic acceptance
   instanced node and light; all visible, undeclared and switched off = the file without it; required + off
   refused; framing, frame all, pick and draw calls as the removed twin; KHR_animation_pointer visibility at on / off
   times = the static twins; list_nodes, validator type error; twins against the baseline),
+  validate_trivial_extensions.py (KHR_materials_dispersion: dispersion 0 / switched off = no extension, 10 = colour
+  fringes with red / blue edge shifts matching the IOR twins, animated and pipe-edited; KHR_node_selectability:
+  renders unchanged, pick and window clicks pass through to what is behind (= the removed twin), hierarchy select,
+  inherited, animated; KHR_node_hoverability listed; 3D Tiles / Cesium extensions render = plain twin, required
+  loads, no notice, get_state.tiles3d metadata; Khronos dispersion samples when present; twins against the baseline),
   validate_animation_keys.py (animation sampling against the glTF rules: STEP / LINEAR / CUBICSPLINE translation,
   LINEAR rotation, KHR_animation_pointer visibility, STEP and CUBICSPLINE morph weights at t = 0, exactly on each
   key, between keys, the clip end, past the end and before the first key through the pipe; the timeline's end,
@@ -264,6 +269,18 @@ TRIGGERS = (
       "KHRAnimationPointerTarget.h", "Bounds.cpp", "SceneHierarchy*", "ElementInspector.cpp", "StatisticsPanel.cpp",
       "GltfValidator.*", "source/imgui/application/CommandsHandlers.cpp", "DiagnosticsPicking.cpp",
       "validate_node_visibility.py")),
+    # KHR_materials_dispersion, KHR_node_selectability / hoverability, 3D Tiles / Cesium extensions: material and node
+    # parsing, the support rows, the dispersion shader path, picking, Inspector / Statistics / get_state, validator.
+    (("trivial_extensions",),
+     ("OpenGL-Renderer/Tools/tools/gltf/source/Node.cpp", "OpenGL-Renderer/Tools/tools/gltf/include/gltf/Node.h",
+      "NodesFromJson.*", "MaterialsFromJson.*", "MaterialsToJson.*", "GltfObjectFromJson.*", "Extensions.cpp",
+      "Extensions.h", "TilesExtensions.h", "Dispersion.h", "OpenGL-Renderer/Tools/tools/gltf/include/gltf/Material.h",
+      "OpenGL-Renderer/Tools/tools/gltf/source/Material.cpp", "GltfRenderLayer*", "OpenGL-Renderer/renderer/*Command*",
+      "OpenGL-Renderer/renderer/include/renderer/Material.h", "PickingRenderLayer.*", "resources/shaders/ibl.glsl",
+      "resources/shaders/pbr.frag", "SceneHierarchy*", "ElementInspector.cpp", "MaterialInspector.cpp",
+      "StatisticsPanel.cpp", "GltfValidator.*", "GltfExtensionSettings.*", "source/imgui/application/Commands*",
+      "source/imgui/application/Application.cpp", "DiagnosticsPicking.cpp", "Viewports.cpp",
+      "validate_trivial_extensions.py")),
     # Animation sampling: the runtime channels and samplers, glTF channel creation, the timeline player and the
     # set_animation_time / get_node_pose pipe commands.
     (("animation_keys",),
@@ -463,6 +480,7 @@ serial_jobs = [
     ("extension_switches", ["scripts/validate_extension_switches.py", "--baseline-exe", str(baseline)]),
     ("node_visibility", ["scripts/validate_node_visibility.py", "--baseline-exe", str(baseline)]),
     ("animation_keys", ["scripts/validate_animation_keys.py", "--baseline-exe", str(baseline)]),
+    ("trivial_extensions", ["scripts/validate_trivial_extensions.py", "--baseline-exe", str(baseline)]),
 ]
 # validate_p5_1.py is superseded (its counter checks run in validate_p8_5.py) and no longer registered.
 tier_suites = [name for name, _ in jobs + serial_jobs] + list(SELFCHECKS)

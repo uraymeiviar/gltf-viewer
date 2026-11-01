@@ -8,6 +8,7 @@
 #include "XMP.h"
 #include "material/Anisotropy.h"
 #include "material/Clearcoat.h"
+#include "material/Dispersion.h"
 #include "material/EmissiveStrength.h"
 #include "material/Ior.h"
 #include "material/Iridescence.h"
@@ -51,6 +52,7 @@ private:
     std::optional<Volume> m_volume;
     std::optional<Iridescence> m_iridescence;
     std::optional<Anisotropy> m_anisotropy;
+    std::optional<Dispersion> m_dispersion;
 
     // extensions
     std::optional<PacketContainer> m_xmpPacket = std::nullopt;
@@ -157,6 +159,11 @@ public:
     void destroyAnisotropy() { m_anisotropy.reset(); }
     std::optional<Anisotropy>& getAnisotropy() { return m_anisotropy; }
     const std::optional<Anisotropy>& getAnisotropy() const { return m_anisotropy; }
+
+    GltfResult createDispersion();
+    void destroyDispersion() { m_dispersion.reset(); }
+    std::optional<Dispersion>& getDispersion() { return m_dispersion; }
+    const std::optional<Dispersion>& getDispersion() const { return m_dispersion; }
 
     GltfResult createUnlit();
     void destroyUnlit() { m_unlit.reset(); }

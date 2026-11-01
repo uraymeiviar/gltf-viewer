@@ -19,6 +19,7 @@
 #include "gltf/Material.h"
 #include "gltf/extensions/AsoboExtensions.h"
 #include "gltf/extensions/AsoboSupport.h"
+#include "gltf/extensions/TilesExtensions.h"
 #include <glm/gtc/type_ptr.hpp>
 #include <algorithm>
 #include <cmath>

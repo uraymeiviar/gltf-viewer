@@ -17,6 +17,7 @@
 #include "gltf/Material.h"
 #include "gltf/Mesh.h"
 #include "gltf/Node.h"
+#include "gltf/extensions/TilesExtensions.h"
 #include "gltf/Sampler.h"
 #include "gltf/Scene.h"
 #include "gltf/Skin.h"
@@ -251,6 +252,56 @@ StatisticsSnapshot buildSnapshot(const ux3d::gltf::Gltf& gltfModel, const std::s
         snapshot.rows.push_back({ "Hidden Nodes (KHR_node_visibility)",
                                   std::to_string(nodeVisibility.hidden) + " of " + std::to_string(nodeVisibility.nodes) });
     }
+    // KHR_node_selectability / KHR_node_hoverability: nodes the file sets to false (own authored values).
+    const auto nodeInteraction = ux3d::gltf::node_interaction::summarize(gltfModel);
+    if (nodeInteraction.selectabilityNodes != 0) {
+        snapshot.rows.push_back({ "Non-selectable Nodes (KHR_node_selectability)",
+                                  std::to_string(nodeInteraction.unselectable) + " of " + std::to_string(nodeInteraction.selectabilityNodes) });
+    }
+    if (nodeInteraction.hoverabilityNodes != 0) {
+        snapshot.rows.push_back({ "Non-hoverable Nodes (KHR_node_hoverability)",
+                                  std::to_string(nodeInteraction.unhoverable) + " of " + std::to_string(nodeInteraction.hoverabilityNodes) });
+    }
+    // 3D Tiles / Cesium extensions (gltf/extensions/TilesExtensions.h): read-only metadata; only for files using them.
+    const auto tiles = ux3d::gltf::tiles::summarize(gltfModel);
+    std::vector<std::pair<std::string, std::string>> tilesRows;
+    if (tiles.rtcCenter.has_value()) {
+        char center[160];
+        std::snprintf(center, sizeof(center), "%.3f, %.3f, %.3f (not added: rendered relative to it)",
+                      tiles.rtcCenter->x, tiles.rtcCenter->y, tiles.rtcCenter->z);
+        tilesRows.push_back({ "RTC Center (CESIUM_RTC)", center });
+    }
+    if (tiles.structuralMetadata) {
+        std::string schema = tiles.schemaId.empty() ? (tiles.schemaUri.empty() ? std::string("-") : "uri " + tiles.schemaUri)
+                                                    : tiles.schemaId;
+        schema += ", " + std::to_string(tiles.classNames.size()) + " classes, " + std::to_string(tiles.enums) + " enums";
+        tilesRows.push_back({ "Metadata Schema (EXT_structural_metadata)", schema });
+        tilesRows.push_back({ "Property Tables", std::to_string(tiles.propertyTables.size()) });
+        for (size_t i = 0; i < tiles.propertyTables.size(); ++i) {
+            const auto& table = tiles.propertyTables[i];
+            tilesRows.push_back({ "  Table " + std::to_string(i) + (table.name.empty() ? "" : " " + table.name),
+                                  "class " + table.className + ", " + std::to_string(table.count) + " rows, "
+                                      + std::to_string(table.properties.size()) + " properties" });
+        }
+        tilesRows.push_back({ "Property Textures / Attributes",
+                              std::to_string(tiles.propertyTextures) + " / " + std::to_string(tiles.propertyAttributes) });
+    }
+    if (tiles.meshFeaturePrimitives != 0) {
+        tilesRows.push_back({ "Feature ID Primitives (EXT_mesh_features)", std::to_string(tiles.meshFeaturePrimitives) });
+        tilesRows.push_back({ "Feature ID Sets (attribute / texture / implicit)",
+                              std::to_string(tiles.featureIdAttributes) + " / " + std::to_string(tiles.featureIdTextures)
+                                  + " / " + std::to_string(tiles.featureIdImplicit) });
+    }
+    if (tiles.instanceFeatureNodes != 0) {
+        tilesRows.push_back({ "Instance Feature Nodes (EXT_instance_features)",
+                              std::to_string(tiles.instanceFeatureNodes) + " (" + std::to_string(tiles.instanceFeatureIdSets) + " sets)" });
+    }
+    if (tiles.outlinePrimitives != 0) {
+        tilesRows.push_back({ "Outlined Primitives (CESIUM_primitive_outline, not drawn)", std::to_string(tiles.outlinePrimitives) });
+    }
+    for (const auto& [label, value] : tilesRows) {
+        snapshot.rows.push_back({ label, value });
+    }
     // A2.1: one shared decal buffer, so these rows are counted once for all viewports.
     // Files without a decal buffer keep the panel exactly as it was before A2.1.
     if (buffers.decalBufferActive) {
@@ -286,6 +337,15 @@ StatisticsSnapshot buildSnapshot(const ux3d::gltf::Gltf& gltfModel, const std::s
     }
     if (nodeVisibility.nodes != 0) {
         copy << "Hidden Nodes (KHR_node_visibility): " << nodeVisibility.hidden << " of " << nodeVisibility.nodes << "\n";
+    }
+    for (const auto& [label, value] : tilesRows) {
+        copy << label << ": " << value << "\n";
+    }
+    if (nodeInteraction.selectabilityNodes != 0) {
+        copy << "Non-selectable Nodes (KHR_node_selectability): " << nodeInteraction.unselectable << " of " << nodeInteraction.selectabilityNodes << "\n";
+    }
+    if (nodeInteraction.hoverabilityNodes != 0) {
+        copy << "Non-hoverable Nodes (KHR_node_hoverability): " << nodeInteraction.unhoverable << " of " << nodeInteraction.hoverabilityNodes << "\n";
     }
     if (buffers.decalBufferActive) {
         copy << "Decal Buffer: Active (shared)\n";

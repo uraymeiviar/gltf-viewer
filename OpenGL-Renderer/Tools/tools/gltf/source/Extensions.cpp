@@ -4,6 +4,9 @@
 #include "gltf/MeshoptCompression.h"
 #include "gltf/extensions/AsoboExtensions.h"
 #include "gltf/extensions/AsoboSupport.h"
+#include "gltf/Gltf.h"
+#include "gltf/extensions/TilesExtensions.h"
+#include <nlohmann/json.hpp>
 
 ux3d::core::Vector<ux3d::gltf::Extension> ux3d::gltf::getAllExtensions()
 {
@@ -30,6 +33,7 @@ ux3d::core::Vector<ux3d::gltf::Extension> ux3d::gltf::getAllExtensions()
         Extension::WebP,
         Extension::TextureDDS,
         Extension::Anisotropy,
+        Extension::Dispersion,
     };
 }
 
@@ -58,6 +62,7 @@ ux3d::core::Vector<ux3d::core::string> ux3d::gltf::getAllExtensionNames()
         extensionToString(Extension::WebP),
         extensionToString(Extension::TextureDDS),
         extensionToString(Extension::Anisotropy),
+        extensionToString(Extension::Dispersion),
     };
 }
 
@@ -110,6 +115,8 @@ ux3d::core::string ux3d::gltf::extensionToString(Extension _extension)
         return "KHR_audio";
     case Extension::Anisotropy:
         return "KHR_materials_anisotropy";
+    case Extension::Dispersion:
+        return "KHR_materials_dispersion";
     }
 
     core::logError("%u is not a valid extension value, it might contain multiple extension flags",
@@ -179,6 +186,9 @@ ux3d::gltf::Extension ux3d::gltf::stringToExtension(core::string& _extensionStr)
     if (_extensionStr == "KHR_materials_anisotropy") {
         return Extension::Anisotropy;
     }
+    if (_extensionStr == "KHR_materials_dispersion") {
+        return Extension::Dispersion;
+    }
     if (_extensionStr == "KHR_animation_pointer") {
         return Extension::AnimationPointer;
     }
@@ -203,7 +213,7 @@ bool ux3d::gltf::extensionStringKnown(core::string& _extensionStr)
 
 bool ux3d::gltf::isExtensionRequired(Extension _extension)
 {
-    if (_extension == Extension::Audio || _extension == Extension::PunctualLights || _extension == Extension::MaterialsVariants || _extension == Extension::XMP || _extension == Extension::PbrSpecularGlossinessMaterial || _extension == Extension::UnlitMaterial || _extension == Extension::Clearcoat || _extension == Extension::Specular || _extension == Extension::Sheen || _extension == Extension::Ior || _extension == Extension::Transmission || _extension == Extension::Volume || _extension == Extension::EmissiveStrength || _extension == Extension::WebP || _extension == Extension::TextureDDS || _extension == Extension::Anisotropy) {
+    if (_extension == Extension::Audio || _extension == Extension::PunctualLights || _extension == Extension::MaterialsVariants || _extension == Extension::XMP || _extension == Extension::PbrSpecularGlossinessMaterial || _extension == Extension::UnlitMaterial || _extension == Extension::Clearcoat || _extension == Extension::Specular || _extension == Extension::Sheen || _extension == Extension::Ior || _extension == Extension::Transmission || _extension == Extension::Volume || _extension == Extension::EmissiveStrength || _extension == Extension::WebP || _extension == Extension::TextureDDS || _extension == Extension::Anisotropy || _extension == Extension::Dispersion) {
         return false;
     }
 
@@ -250,6 +260,8 @@ std::vector<ExtensionSupport> buildSupportTable()
             "Read as absent: no lights are created from the file."),
         row("KHR_materials_anisotropy", "KHR", "Rendered", "Anisotropic specular lobe.", materialOff),
         row("KHR_materials_clearcoat", "KHR", "Rendered", "Clear coat layer.", materialOff),
+        row("KHR_materials_dispersion", "KHR", "Rendered", "Chromatic dispersion of volumetric refraction "
+            "(transmission with volume): one IOR per colour channel.", materialOff),
         row("KHR_materials_emissive_strength", "KHR", "Rendered", "Emissive strength above 1 (HDR, bloom).",
             materialOff),
         row("KHR_materials_ior", "KHR", "Rendered", "Index of refraction.", materialOff),
@@ -274,20 +286,42 @@ std::vector<ExtensionSupport> buildSupportTable()
         row("KHR_node_visibility", "KHR", "Rendered", "Nodes the file hides (visible: false), with their subtrees, "
             "are not drawn, picked or framed; animatable through KHR_animation_pointer.",
             "Read as absent: every node is visible. A file that requires it is not loaded."),
+        row("KHR_node_hoverability", "KHR", "Metadata", "Nodes the file marks hoverable: false are listed (Inspector, "
+            "hierarchy); Glider has no viewport hover highlight to disable.", "Read as absent: every node is hoverable."),
+        row("KHR_node_selectability", "KHR", "Rendered", "Nodes the file marks selectable: false (with their "
+            "subtrees) are not picked by a viewport click (it selects what is behind); the Scene Hierarchy still "
+            "selects them. Animatable through KHR_animation_pointer.",
+            "Read as absent: every node is selectable. A file that requires it is not loaded."),
         row("KHR_texture_basisu", "KHR", "Rendered", "KTX2 / Basis Universal textures.", textureOff),
         row("KHR_texture_transform", "KHR", "Rendered", "Texture coordinate offset, rotation and scale.",
             "Read as absent: texture coordinates are used untransformed. A file that requires it is not loaded."),
         row("KHR_xmp_json_ld", "KHR", "Metadata", "XMP metadata packets (Inspector).", "Not read: no XMP metadata."),
         // EXT
+        row("EXT_instance_features", "EXT", "Metadata", "3D Tiles: feature IDs of GPU instances (Inspector: counts, "
+            "labels, property tables); not rendered.", "Not read: the Inspector does not list the instance feature IDs. "
+            "A file that requires it is not loaded."),
+        row("EXT_mesh_features", "EXT", "Metadata", "3D Tiles: feature ID attributes / textures of primitives "
+            "(Inspector: counts, sources, property tables); the geometry renders as plain glTF.",
+            "Not read: the Inspector does not list the feature IDs. A file that requires it is not loaded."),
         row("EXT_mesh_gpu_instancing", "EXT", "Rendered", "One mesh drawn per instance (GPU instancing).",
             "Read as absent: each instanced node draws its mesh once, with the node's own transform."),
         row("EXT_meshopt_compression", "EXT", "Read", "meshoptimizer-compressed bufferViews are decoded at load.",
             "Compressed bufferViews are not decoded; the uncompressed fallback buffers are read. A file that "
             "requires it is not loaded."),
+        row("EXT_structural_metadata", "EXT", "Metadata", "3D Tiles: metadata schema, property tables, textures and "
+            "attributes (Statistics / Inspector: names and counts); not rendered.",
+            "Not read: no metadata is listed. A file that requires it is not loaded."),
         row("EXT_texture_webp", "EXT", "Rendered", "WebP textures.", textureOff),
         // Microsoft
         row("MSFT_texture_dds", "MSFT", "Rendered", "DDS textures (preferred over the core source, with automatic "
             "fallback).", textureOff),
+        // Cesium (3D Tiles glb payloads)
+        row("CESIUM_RTC", "CESIUM", "Partial", "Positions relative to a center (ECEF): the scene is rendered in that "
+            "relative-to-center frame, near the origin; the center is shown (Statistics) but not added.",
+            "Not read: the center is not shown (rendering is unchanged). A file that requires it is not loaded."),
+        row("CESIUM_primitive_outline", "CESIUM", "Metadata", "Outline edge indices of primitives are recognised and "
+            "counted; the outline edges are not drawn.", "Not read: outlines are not counted. A file that requires it "
+            "is not loaded."),
         // Other vendors
         row("ux3d_gestaltor", "ux3d", "Metadata", "UX3D Gestaltor's own storage hints (for example an animation's "
             "playing state).", "Not read: the hints are ignored (animations use their default playing state)."),
@@ -344,4 +378,153 @@ const ux3d::gltf::ExtensionSupport* ux3d::gltf::findExtensionSupport(std::string
 bool ux3d::gltf::isExtensionSupported(std::string_view _extensionName)
 {
     return findExtensionSupport(_extensionName) != nullptr;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// 3D Tiles / Cesium extensions (gltf/extensions/TilesExtensions.h): read-only summaries of the unknown-extension JSON
+// the loader keeps on the root, primitives and nodes.
+// ---------------------------------------------------------------------------------------------------------------------
+
+namespace {
+
+nlohmann::json parseOrNull(const std::string& text)
+{
+    try {
+        return nlohmann::json::parse(text);
+    } catch (...) {
+        return nlohmann::json();
+    }
+}
+
+const std::string* findUnknown(const ux3d::gltf::GltfObject& object, const char* name)
+{
+    const auto& extensions = object.getUnknownExtensions();
+    const auto it = extensions.find(name);
+    return it == extensions.end() ? nullptr : &it->second;
+}
+
+}
+
+bool ux3d::gltf::tiles::isTilesExtension(std::string_view name)
+{
+    return name == StructuralMetadata || name == MeshFeatures || name == InstanceFeatures || name == PrimitiveOutline
+        || name == Rtc;
+}
+
+std::vector<ux3d::gltf::tiles::FeatureIdSet> ux3d::gltf::tiles::parseFeatureIds(const std::string& extensionJson, bool instances)
+{
+    std::vector<FeatureIdSet> sets;
+    const nlohmann::json json = parseOrNull(extensionJson);
+    if (!json.is_object() || !json.contains("featureIds") || !json["featureIds"].is_array()) {
+        return sets;
+    }
+    for (const nlohmann::json& entry : json["featureIds"]) {
+        if (!entry.is_object()) {
+            continue;
+        }
+        FeatureIdSet set;
+        if (entry.contains("featureCount") && entry["featureCount"].is_number_unsigned()) {
+            set.featureCount = entry["featureCount"].get<uint64_t>();
+        }
+        if (entry.contains("attribute") && entry["attribute"].is_number_integer()) {
+            set.source = std::string("attribute _FEATURE_ID_") + std::to_string(entry["attribute"].get<int64_t>());
+        } else if (!instances && entry.contains("texture") && entry["texture"].is_object()) {
+            const nlohmann::json& texture = entry["texture"];
+            set.source = "texture " + (texture.contains("index") && texture["index"].is_number_integer()
+                                              ? std::to_string(texture["index"].get<int64_t>())
+                                              : std::string("?"));
+        } else {
+            set.source = instances ? "implicit (instance index)" : "implicit (vertex index)";
+        }
+        if (entry.contains("propertyTable") && entry["propertyTable"].is_number_integer()) {
+            set.propertyTable = entry["propertyTable"].get<int64_t>();
+        }
+        if (entry.contains("label") && entry["label"].is_string()) {
+            set.label = entry["label"].get<std::string>();
+        }
+        if (entry.contains("nullFeatureId") && entry["nullFeatureId"].is_number_integer()) {
+            set.nullFeatureId = entry["nullFeatureId"].get<int64_t>();
+        }
+        sets.push_back(std::move(set));
+    }
+    return sets;
+}
+
+ux3d::gltf::tiles::Summary ux3d::gltf::tiles::summarize(const Gltf& gltf)
+{
+    Summary summary;
+    if (const std::string* text = findUnknown(gltf, Rtc)) {
+        const nlohmann::json json = parseOrNull(*text);
+        if (json.is_object() && json.contains("center") && json["center"].is_array() && json["center"].size() == 3
+            && json["center"][0].is_number() && json["center"][1].is_number() && json["center"][2].is_number()) {
+            summary.rtcCenter = math::dvec3(json["center"][0].get<double>(), json["center"][1].get<double>(),
+                json["center"][2].get<double>());
+        }
+    }
+    if (const std::string* text = findUnknown(gltf, StructuralMetadata)) {
+        summary.structuralMetadata = true;
+        const nlohmann::json json = parseOrNull(*text);
+        if (json.is_object()) {
+            if (json.contains("schemaUri") && json["schemaUri"].is_string()) {
+                summary.schemaUri = json["schemaUri"].get<std::string>();
+            }
+            if (json.contains("schema") && json["schema"].is_object()) {
+                const nlohmann::json& schema = json["schema"];
+                if (schema.contains("id") && schema["id"].is_string()) summary.schemaId = schema["id"].get<std::string>();
+                if (schema.contains("name") && schema["name"].is_string()) summary.schemaName = schema["name"].get<std::string>();
+                if (schema.contains("classes") && schema["classes"].is_object()) {
+                    for (const auto& [name, value] : schema["classes"].items()) {
+                        summary.classNames.push_back(name);
+                    }
+                }
+                if (schema.contains("enums") && schema["enums"].is_object()) {
+                    summary.enums = static_cast<uint32_t>(schema["enums"].size());
+                }
+            }
+            if (json.contains("propertyTables") && json["propertyTables"].is_array()) {
+                for (const nlohmann::json& table : json["propertyTables"]) {
+                    PropertyTable entry;
+                    if (table.is_object()) {
+                        if (table.contains("name") && table["name"].is_string()) entry.name = table["name"].get<std::string>();
+                        if (table.contains("class") && table["class"].is_string()) entry.className = table["class"].get<std::string>();
+                        if (table.contains("count") && table["count"].is_number_unsigned()) entry.count = table["count"].get<uint64_t>();
+                        if (table.contains("properties") && table["properties"].is_object()) {
+                            for (const auto& [name, value] : table["properties"].items()) {
+                                entry.properties.push_back(name);
+                            }
+                        }
+                    }
+                    summary.propertyTables.push_back(std::move(entry));
+                }
+            }
+            if (json.contains("propertyTextures") && json["propertyTextures"].is_array()) {
+                summary.propertyTextures = static_cast<uint32_t>(json["propertyTextures"].size());
+            }
+            if (json.contains("propertyAttributes") && json["propertyAttributes"].is_array()) {
+                summary.propertyAttributes = static_cast<uint32_t>(json["propertyAttributes"].size());
+            }
+        }
+    }
+    for (const Mesh& mesh : gltf.getMeshes()) {
+        for (const Primitive& primitive : mesh.getPrimitives()) {
+            if (const std::string* text = findUnknown(primitive, MeshFeatures)) {
+                ++summary.meshFeaturePrimitives;
+                for (const FeatureIdSet& set : parseFeatureIds(*text, false)) {
+                    ++summary.featureIdSets;
+                    if (set.source.rfind("attribute", 0) == 0) ++summary.featureIdAttributes;
+                    else if (set.source.rfind("texture", 0) == 0) ++summary.featureIdTextures;
+                    else ++summary.featureIdImplicit;
+                }
+            }
+            if (findUnknown(primitive, StructuralMetadata) != nullptr) ++summary.metadataPrimitives;
+            if (findUnknown(primitive, PrimitiveOutline) != nullptr) ++summary.outlinePrimitives;
+        }
+    }
+    for (const Node& node : gltf.getNodes()) {
+        if (const std::string* text = findUnknown(node, InstanceFeatures)) {
+            ++summary.instanceFeatureNodes;
+            summary.instanceFeatureIdSets += static_cast<uint32_t>(parseFeatureIds(*text, true).size());
+        }
+    }
+    return summary;
 }

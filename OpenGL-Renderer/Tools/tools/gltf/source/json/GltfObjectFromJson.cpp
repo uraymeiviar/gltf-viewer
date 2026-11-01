@@ -24,9 +24,10 @@ ConversionResult GltfObjectFromJson::convertUnknownExtensions(const nlohmann::js
                 if (meshopt::isMeshoptExtension(extensionName)) {
                     continue;
                 }
-                // KHR_node_visibility is read by NodesFromJson into Node::hasNodeVisibility(); the Inspector shows that
-                // value (read-only), so it is not kept as an editable unknown extension.
-                if (extensionName == node_visibility::ExtensionName) {
+                // KHR_node_visibility / _selectability / _hoverability are read by NodesFromJson into the Node; the
+                // Inspector shows those values (read-only), so they are not kept as editable unknown extensions.
+                if (extensionName == node_visibility::ExtensionName || extensionName == node_interaction::SelectabilityName
+                    || extensionName == node_interaction::HoverabilityName) {
                     continue;
                 }
                 if (core::find(extensionNames.begin(), extensionNames.end(), extensionName) == extensionNames.end()) {

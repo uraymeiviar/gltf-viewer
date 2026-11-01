@@ -547,7 +547,8 @@ bool MaterialInspector::render(ux3d::gltf::Material* material,
                          material->getSpecular().has_value() ||
                          material->getSheen().has_value() ||
                          material->getIridescence().has_value() ||
-                         material->getAnisotropy().has_value();
+                         material->getAnisotropy().has_value() ||
+                         material->getDispersion().has_value();
 
     std::string khronosHeader = "Khronos Extensions" + std::string(hasKhronosExt ? " (Active)" : "");
     if (ImGui::CollapsingHeader(khronosHeader.c_str(), hasKhronosExt ? ImGuiTreeNodeFlags_DefaultOpen : 0)) {
@@ -627,6 +628,30 @@ bool MaterialInspector::render(ux3d::gltf::Material* material,
                 modified = true;
             }
             ImGui::TextDisabled("Common presets: Air 1.0, Water 1.33, Glass 1.5, Diamond 2.4");
+            ImGui::Unindent(15.0f);
+        }
+
+        // KHR_materials_dispersion: 20 / Abbe number; only volumetric refraction (transmission + volume) disperses.
+        if (material->getDispersion().has_value()) {
+            extensionHeader("KHR_materials_dispersion");
+            ImGui::Indent(15.0f);
+            auto& disp = material->getDispersion().value();
+            float dispersion = static_cast<float>(disp.getDispersionOrDefault());
+            if (ImGui::DragFloat("Dispersion", &dispersion, 0.01f, 0.0f, 20.0f, "%.3f")) {
+                disp.setDispersion(static_cast<double>(std::max(dispersion, 0.0f)));
+                modified = true;
+            }
+            UiProbe::item("khr.KHR_materials_dispersion.dispersion", material->m_ID);
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("20 / Abbe number (0 = no dispersion). Splits the refracted image into colours.");
+            }
+            if (disp.getDispersionOrDefault() > 0.0) {
+                ImGui::TextDisabled("Abbe number: %.1f", 20.0 / disp.getDispersionOrDefault());
+            }
+            if (!material->getTransmission().has_value() || !material->getVolume().has_value()) {
+                ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.30f, 1.0f),
+                                   "No effect: needs KHR_materials_transmission and KHR_materials_volume.");
+            }
             ImGui::Unindent(15.0f);
         }
 

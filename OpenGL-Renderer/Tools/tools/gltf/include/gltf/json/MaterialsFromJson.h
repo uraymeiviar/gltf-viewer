@@ -18,6 +18,7 @@ class Transmission;
 class Volume;
 class Iridescence;
 class Anisotropy;
+class Dispersion;
 class EmissiveStrength;
 
 class MaterialsFromJson : public ChildOfRootFromJson {
@@ -43,6 +44,7 @@ private:
     ConversionResult convertVolume(const nlohmann::json& _jsonvolume, Volume& _volume) const;
     ConversionResult convertIridescence(const nlohmann::json& _json, Iridescence& _iridescence) const;
     ConversionResult convertAnisotropy(const nlohmann::json& _json, Anisotropy& _anisotropy) const;
+    ConversionResult convertDispersion(const nlohmann::json& _json, Dispersion& _dispersion) const;
     ConversionResult convertEmissiveStrength(const nlohmann::json&, EmissiveStrength&) const;
 
     ConversionResult resolveMetallicRoughness(const nlohmann::json& _jsonMetallicRoughness, PbrMetallicRoughness& _metallicRoughness);

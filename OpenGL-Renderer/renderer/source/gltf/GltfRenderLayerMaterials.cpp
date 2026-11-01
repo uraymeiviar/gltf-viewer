@@ -762,6 +762,19 @@ void GltfRenderLayer::initMaterialMapping(gl::GL* gl)
             setUniformAsAnimationPointerTarget<glm::vec3>(gltfMaterial, "extensions/KHR_materials_volume/attenuationColor", material, "u_AttenuationColor");
         }
 
+        // KHR_materials_dispersion: only volumetric refraction disperses (transmission with volume). The define is set
+        // for every such material that carries the extension, so an animated value (KHR_animation_pointer) can move
+        // away from 0; the shader keeps the single-sample refraction for u_Dispersion == 0 (byte-identical to the
+        // material without the extension). Without transmission or volume nothing is compiled or bound.
+        const auto& dispersion = gltfMaterial->getDispersion();
+        const bool dispersive = dispersion.has_value() && transmission.has_value() && volume.has_value();
+        if (dispersive) {
+            material->setUniform<float>("u_Dispersion", static_cast<float>(dispersion->getDispersionOrDefault()));
+            setUniformAsAnimationPointerTarget<float>(gltfMaterial, gltf::Dispersion::PointerPath, material, "u_Dispersion");
+        } else {
+            m_animationPointerTargets.erase({ gltfMaterial, gltf::Dispersion::PointerPath });
+        }
+
         const auto& iridescence = gltfMaterial->getIridescence();
         if (iridescence.has_value()) {
             createSampler("Iridescence", iridescence->getIridescenceTextureInfo(), "extensions/KHR_materials_iridescence/iridescenceTexture");
@@ -866,6 +879,7 @@ void GltfRenderLayer::initMaterialMapping(gl::GL* gl)
         material->defines.defineIf(ior.has_value(), "MATERIAL_IOR");
         material->defines.defineIf(transmission.has_value(), "MATERIAL_TRANSMISSION");
         material->defines.defineIf(volume.has_value(), "MATERIAL_VOLUME");
+        material->defines.defineIf(dispersive, "MATERIAL_DISPERSION");
         material->defines.defineIf(iridescence.has_value(), "MATERIAL_IRIDESCENCE");
         material->defines.defineIf(material->khrAnisotropy, "MATERIAL_ANISOTROPY");
 
@@ -934,6 +948,7 @@ void GltfRenderLayer::initMaterialMapping(gl::GL* gl)
         m_animationPointerTargets.erase({ gltfMaterial, "extensions/KHR_materials_sheen/sheenRoughnessTexture/extensions/KHR_texture_transform/scale" });
 
         m_animationPointerTargets.erase({ gltfMaterial, "extensions/KHR_materials_ior/ior" });
+        m_animationPointerTargets.erase({ gltfMaterial, gltf::Dispersion::PointerPath });
 
         m_animationPointerTargets.erase({ gltfMaterial, "extensions/KHR_materials_transmission/transmissionFactor" });
         m_animationPointerTargets.erase({ gltfMaterial, "extensions/KHR_materials_transmission/transmissionTexture/extensions/KHR_texture_transform/offset" });

@@ -83,6 +83,7 @@ std::vector<GltfExtensionGroup> buildGroups()
         if (vendor == "EXT") return {"Multi-vendor (EXT)", "Extensions shared by several vendors."};
         if (vendor == "MSFT") return {"Microsoft (MSFT)", "Microsoft extensions."};
         if (vendor == "ux3d") return {"UX3D (ux3d)", "UX3D Gestaltor's own extension."};
+        if (vendor == "CESIUM") return {"Cesium (CESIUM)", "Cesium / 3D Tiles extensions; the geometry renders as plain glTF."};
         return {vendor, vendor + " extensions."};
     };
     std::vector<std::string> vendors = {"KHR", "EXT", "MSFT"};

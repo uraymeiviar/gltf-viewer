@@ -104,6 +104,7 @@ The validator reports a switched-off extension a file declares like an unsupport
 | `KHR_lights_punctual` | KHR | Rendered | No lights are created from the file. |
 | `KHR_materials_anisotropy` | KHR | Rendered | Ignored: core material. |
 | `KHR_materials_clearcoat` | KHR | Rendered | Ignored: core material. |
+| `KHR_materials_dispersion` | KHR | Rendered | Ignored: no dispersion (single-IOR refraction). |
 | `KHR_materials_emissive_strength` | KHR | Rendered | Ignored: core material (emissive at strength 1). |
 | `KHR_materials_ior` | KHR | Rendered | Ignored: core material. |
 | `KHR_materials_iridescence` | KHR | Rendered | Ignored: core material. |
@@ -116,14 +117,21 @@ The validator reports a switched-off extension a file declares like an unsupport
 | `KHR_materials_volume` | KHR | Rendered | Ignored: core material. |
 | `KHR_mesh_quantization` | KHR | Read | Cannot be ignored: a file that declares it is not loaded. |
 | `KHR_meshopt_compression` | KHR | Read | Compressed bufferViews not decoded, fallback buffers read; required: not loaded. |
+| `KHR_node_hoverability` | KHR | Metadata | Not read: every node is hoverable (Glider has no hover highlight). |
+| `KHR_node_selectability` | KHR | Rendered | Every node is selectable by a viewport click (its pointer channels are skipped); required: not loaded. |
 | `KHR_node_visibility` | KHR | Rendered | Every node is visible (its pointer channels are skipped); required: not loaded. |
 | `KHR_texture_basisu` | KHR | Rendered | Textures use their core source; none: no image; required: not loaded. |
 | `KHR_texture_transform` | KHR | Rendered | Texture coordinates untransformed; required: not loaded. |
 | `KHR_xmp_json_ld` | KHR | Metadata | Not read: no XMP metadata. |
+| `EXT_instance_features` | EXT | Metadata | Not read: no instance feature IDs listed; required: not loaded. |
+| `EXT_mesh_features` | EXT | Metadata | Not read: no feature IDs listed; required: not loaded. |
 | `EXT_mesh_gpu_instancing` | EXT | Rendered | Each instanced node draws its mesh once (the node's own transform). |
 | `EXT_meshopt_compression` | EXT | Read | Compressed bufferViews not decoded, fallback buffers read; required: not loaded. |
+| `EXT_structural_metadata` | EXT | Metadata | Not read: no metadata listed; required: not loaded. |
 | `EXT_texture_webp` | EXT | Rendered | Textures use their core source; none: no image; required: not loaded. |
 | `MSFT_texture_dds` | MSFT | Rendered | Textures use their core source; none: no image; required: not loaded. |
+| `CESIUM_RTC` | CESIUM | Partial | Not read: the center is not shown (rendering is unchanged: Glider renders relative to it either way); required: not loaded. |
+| `CESIUM_primitive_outline` | CESIUM | Metadata | Not read: outlines not counted (never drawn); required: not loaded. |
 | `ux3d_gestaltor` | ux3d | Metadata | Gestaltor's storage hints ignored (animations use their default playing state). |
 | `ASOBO_*` rendering switches | ASOBO | Rendered / Partial | Rendered as if the file had no such extension (no reload; also off with `ASOBO`). |
 | `ASOBO_animation_retargeting`, `ASOBO_softbody_mesh`, `ASOBO_tags`, `ASOBO_unique_id` | ASOBO | Metadata | Not read (not listed in the Inspector); applied at load, not by the master switch. |

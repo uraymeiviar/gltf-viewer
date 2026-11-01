@@ -439,7 +439,7 @@ uint32_t renderSettingsBits(const RenderSettings& rs)
     const bool flags[] = { rs.enableSkinning, rs.enableMorphing, rs.enableSpecularGlossiness, rs.enableUnlit,
                            rs.enableClearCoat, rs.enableSheen, rs.enableTransmission, rs.enableVolume,
                            rs.enableIridescence, rs.enableIOR, rs.enableSpecular, rs.enableEmissiveStrength,
-                           rs.enableAnisotropy };
+                           rs.enableAnisotropy, rs.enableDispersion };
     uint32_t bits = 0;
     for (size_t i = 0; i < std::size(flags); ++i) {
         bits |= (flags[i] ? 1u : 0u) << i;
@@ -594,6 +594,9 @@ gl::Program* CommandMapping::buildProgram(const Mesh& meshRef, const Material& m
     }
     if (!material->renderSettings.enableEmissiveStrength) {
         fragmentDefines.undefine("MATERIAL_EMISSIVE_STRENGTH");
+    }
+    if (!material->renderSettings.enableDispersion) {
+        fragmentDefines.undefine("MATERIAL_DISPERSION");
     }
     if (!material->renderSettings.enableAnisotropy && !fragmentDefines.isDefined("ASOBO_ANISOTROPY")) {
         // KHR_materials_anisotropy display switch. The ASOBO mapping (ASOBO_ANISOTROPY) shares the

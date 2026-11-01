@@ -208,6 +208,9 @@ flowchart TD
 - **EXT_mesh_gpu_instancing** (a node draws its mesh once per instance, at the node's world matrix x the instance's
   T * R * S): see section 3.2b.
 - **KHR_node_visibility** (a node the file hides is not rendered, with its subtree): see section 3.2c.
+- **KHR_materials_dispersion, KHR_node_selectability / KHR_node_hoverability, 3D Tiles / Cesium extensions**
+  (EXT_structural_metadata, EXT_mesh_features, EXT_instance_features, CESIUM_primitive_outline, CESIUM_RTC): see
+  section 3.2d.
 - **Unsupported extensions**: the loader reads only the extensions it knows and does not refuse a file for an unknown
   required one; `gltf::isExtensionSupported` (`gltf/Extensions.h`) is the one support list and the validator reports
   what it does not contain (section 3.7).
@@ -314,6 +317,57 @@ flowchart TD
 - Checked by `scripts/validate_node_visibility.py` (renders byte-identical to the same JSON with the hidden nodes
   removed; see [BUILD_AND_TEST.md](BUILD_AND_TEST.md#45-regression-testing)).
 
+### 3.2d Dispersion, Selectability / Hoverability and 3D Tiles extensions
+
+- **KHR_materials_dispersion** (`gltf/material/Dispersion.h`, `Material::getDispersion`, `Extension::Dispersion`):
+  `MaterialsFromJson::convertDispersion` reads `dispersion` (>= 0, default 0; 20 / Abbe number; a negative value is
+  logged and left at 0); `MaterialsToJson` writes it back. The renderer sets `MATERIAL_DISPERSION` and the uniform
+  `u_Dispersion` only for a material with the extension *and* KHR_materials_transmission *and* KHR_materials_volume
+  (`GltfRenderLayerMaterials.cpp`); `getIBLVolumeRefraction` (`resources/shaders/ibl.glsl`) then refracts once per
+  colour channel with `halfSpread = (ior - 1) * 0.025 * dispersion` and the IORs `ior - halfSpread`, `ior`,
+  `ior + halfSpread` (red bends least, blue most; the attenuation uses the last, blue, ray length), as the Khronos
+  sample viewer does. `u_Dispersion == 0` takes the unchanged single-sample code, and a material without the define
+  compiles the original source, so dispersion 0, an absent extension or its switch off render byte-identically to
+  before. Only the IBL / scene refraction disperses; punctual-light and sun transmission keep the single IOR (as the
+  sample viewer). The value is animatable (`extensions/KHR_materials_dispersion/dispersion` pointer target) and
+  editable: the Material Inspector's Dispersion field (with the Abbe number and a "No effect" note without
+  transmission / volume), `set_material_param <material> KHR_materials_dispersion dispersion <v>` /
+  `get_material_param`; the per-material display switch (`RenderSettings::enableDispersion`) undefines
+  `MATERIAL_DISPERSION`.
+- **KHR_node_selectability / KHR_node_hoverability** (`gltf/Node.h`, `node_interaction`): `NodesFromJson` reads
+  `selectable` / `hoverable` (booleans, default true) like KHR_node_visibility (declared only; non-boolean or
+  non-object: logged, read as true; not kept as unknown extensions); `hasNodeSelectability()`,
+  `getAuthoredSelectable()`, `isFileSelectable()` (current value; the same trio for hoverable). Both are animatable
+  (`extensions/KHR_node_selectability/selectable`, `extensions/KHR_node_hoverability/hoverable` pointer targets,
+  per-frame mutable flags like visibility). `traverseScene` inherits selectability (a false ancestor makes the
+  subtree non-selectable) into `SceneTraversal::unselectableNodes`; `GltfRenderLayer::isNodeSelectable` answers for
+  the last traversal, and `PickingRenderLayer::isPickable` (set in `Application.cpp` through
+  `currentReverseMapping`) skips those drawables' picking draws (ids are still consumed). So a viewport click, the
+  full-size picking path and the pipe `pick` select what is behind (or nothing); the node is still drawn and still
+  selectable from the Scene Hierarchy (`select`). Glider has no viewport hover highlight, so hoverable is read and
+  shown only. UI: a blue hierarchy marker one slot left of the file-visibility marker (`ICON_MDI_SELECTION_OFF` for
+  not selectable, `ICON_MDI_MOUSE_OFF` for only not hoverable; probes `hier.node_file_unselectable` /
+  `hier.node_file_unhoverable`), Inspector lines `Selectable (KHR_node_selectability)` / `Hoverable
+  (KHR_node_hoverability)` (+ `Animated now`), Statistics `Non-selectable Nodes` / `Non-hoverable Nodes`,
+  `list_nodes` `selectable` / `selectableNow` / `hoverable` / `hoverableNow`, validator errors
+  `KHR_NODE_SELECTABILITY_INVALID_TYPE` / `KHR_NODE_HOVERABILITY_INVALID_TYPE`.
+- **3D Tiles / Cesium** (`gltf/extensions/TilesExtensions.h`, implementation at the end of `source/Extensions.cpp`):
+  EXT_structural_metadata, EXT_mesh_features, EXT_instance_features, CESIUM_primitive_outline and CESIUM_RTC have
+  support rows (switches) so files using them, optional or required, open without an unsupported notice and render as
+  plain glTF. The loader keeps them as unknown extensions (root, primitives, nodes); `tiles::summarize(gltf)` reads
+  that JSON into read-only counts and names: the RTC center, the metadata schema (id, classes, enums), property
+  tables (name, class, count, property names), property textures / attributes, feature ID sets per source
+  (attribute / texture / implicit), instance feature ID sets and outlined primitives. Shown in Statistics (rows only
+  for files that use them), the primitive section of the Mesh Inspector ("3D Tiles (read-only)"), the node Inspector
+  (instance feature IDs) and `get_state.tiles3d`. **CESIUM_RTC** rule: the positions are relative to `center`
+  (ECEF, ~6.4e6 m); Glider renders the scene in that relative-to-center frame (the center is subtracted, i.e. not
+  added to the scene root), so the geometry stays near the origin, where float32 positions, startup framing, frame
+  all and the clipping planes behave like for any small model, and the center is only shown. A render therefore
+  equals the file without CESIUM_RTC; georeferenced placement (and Y-up / ECEF orientation) is not applied.
+  CESIUM_primitive_outline edges are counted but not drawn (the Wireframe paths draw triangles only).
+- Checked by `scripts/validate_trivial_extensions.py` (see
+  [BUILD_AND_TEST.md](BUILD_AND_TEST.md#45-regression-testing)).
+
 ### 3.3 GPU Color Picking & Oriented Bounding Boxes (OBB)
 
 - **Picking FBO**: An offscreen `GL_RGBA8` framebuffer rendered by `ux3d::renderer::PickingRenderLayer`. Each drawable mesh receives a unique 24-bit integer ID encoded as `(R << 16) | (G << 8) | B`.
@@ -415,7 +469,7 @@ Replaces the legacy external `gltf_validator.exe` subprocess with a native, 100%
   - Scene hierarchy cycle detection (DFS loop checking) and multi-parent rule checks.
   - External resource URI portability checks (warnings for absolute paths, infos for external URLs).
   - Extension support: every `extensionsRequired` entry outside `gltf::isExtensionSupported` (the KHR/EXT/MSFT names
-    of `getAllExtensionNames()`, EXT/KHR_meshopt_compression, KHR_node_visibility, EXT_mesh_gpu_instancing, `ux3d_gestaltor`, and the
+    of `getAllExtensionNames()` (now with KHR_materials_dispersion), EXT/KHR_meshopt_compression, KHR_node_visibility, KHR_node_selectability, KHR_node_hoverability, EXT_mesh_gpu_instancing, the 3D Tiles / Cesium rows (section 3.2d), `ux3d_gestaltor`, and the
     ASOBO support-table rows that are not "Not yet supported") is a warning `EXTENSION_REQUIRED_UNSUPPORTED` ("Required extension X is not
     supported; the file may not display correctly."); an unsupported `extensionsUsed` entry that is not required is an
     info `EXTENSION_USED_UNSUPPORTED` (ASOBO extensions keep their own "not rendered" info,
@@ -424,7 +478,8 @@ Replaces the legacy external `gltf_validator.exe` subprocess with a native, 100%
     `EXTENSION_REQUIRED_SWITCHED_OFF`, info `EXTENSION_USED_SWITCHED_OFF` (`GltfValidator::s_switchedOff`, set
     before each validation).
   - KHR_node_visibility types: a non-object extension or a non-boolean `visible` is an error
-    `KHR_NODE_VISIBILITY_INVALID_TYPE` at the node (section 3.2c).
+    `KHR_NODE_VISIBILITY_INVALID_TYPE` at the node (section 3.2c); KHR_node_selectability / KHR_node_hoverability
+    the same: `KHR_NODE_SELECTABILITY_INVALID_TYPE` / `KHR_NODE_HOVERABILITY_INVALID_TYPE` (section 3.2d).
 - **Interactive UI (`ValidationPanel`)**:
   - Filterable issues table with Errors (🔴), Warnings (🟡), and Infos (🔵).
   - Quick-search filter by code, JSON pointer, or message.

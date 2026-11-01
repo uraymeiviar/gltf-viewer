@@ -205,6 +205,44 @@ ConversionResult NodesFromJson::resolve(const nlohmann::json& _jsonNode, Node& _
                                 _node.setNodeVisibility(true);
                             }
                         }
+                    } else if (extensionName == node_interaction::SelectabilityName
+                               || extensionName == node_interaction::HoverabilityName) {
+                        // KHR_node_selectability (selectable) / KHR_node_hoverability (hoverable): booleans, default
+                        // true; read like KHR_node_visibility (declared only, skipExtensions / switch read as absent).
+                        const bool selectability = extensionName == node_interaction::SelectabilityName;
+                        const char* property = selectability ? "selectable" : "hoverable";
+                        const auto store = [&](bool value) {
+                            if (selectability) {
+                                _node.setNodeSelectability(value);
+                            } else {
+                                _node.setNodeHoverability(value);
+                            }
+                        };
+                        const bool skipped = GltfObjectFromJson::g_importOptions.has_value()
+                            && GltfObjectFromJson::g_importOptions->skipExtensions.has_value()
+                            && GltfObjectFromJson::g_importOptions->skipExtensions->count(extensionName) != 0;
+                        if (skipped) {
+                        } else if (!m_gltf.isExtensionDeclared(extensionName)) {
+                            core::logWarning("[Loading] %s: node %u uses the extension, but the file does not declare it "
+                                             "in extensionsUsed; it is ignored (%s = true)",
+                                             extensionName.c_str(), _node.m_ID, property);
+                        } else if (!extension.is_object()) {
+                            core::logWarning("node.%s.%s with value '%s' has invalid type", key.c_str(), extensionName.c_str(), extension.dump().c_str());
+                            containsErrors = true;
+                            store(true);
+                        } else {
+                            const auto value = extension.find(property);
+                            if (value == extension.end()) {
+                                store(true);
+                            } else if (value->is_boolean()) {
+                                store(value->get<bool>());
+                            } else {
+                                core::logWarning("node.%s.%s.%s with value '%s' is not a boolean; it is read as true",
+                                                 key.c_str(), extensionName.c_str(), property, value->dump().c_str());
+                                containsErrors = true;
+                                store(true);
+                            }
+                        }
                     } else if (extensionName == "KHR_audio") {
                         if (extension.is_object()) {
                             GltfObject& audioEmitterPointerObject = _node.createAudioEmitterPointerObject();

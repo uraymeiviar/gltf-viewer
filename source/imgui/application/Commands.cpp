@@ -56,6 +56,25 @@ bool Application::setMaterialParamAction(const std::string& material, const std:
         error = "material not found: " + material;
         return false;
     }
+    // KHR_materials_dispersion is a typed material extension (Material::getDispersion), edited like the Inspector's
+    // Dispersion field: existing extension only, a number >= 0.
+    if (extension == ux3d::gltf::Dispersion::ExtensionName) {
+        if (!target->getDispersion().has_value()) {
+            error = "material '" + material + "' has no " + extension + " (extensions are never added)";
+            return false;
+        }
+        json parsed = value;
+        if (value.is_string()) {
+            try { parsed = json::parse(value.get<std::string>()); } catch (...) { parsed = value; }
+        }
+        if (param != "dispersion" || !parsed.is_number()
+            || target->getDispersion()->setDispersion(parsed.get<double>()) != ux3d::gltf::GltfResult::Success) {
+            error = "cannot set " + extension + "." + param + " = " + raw + " (only dispersion, a number >= 0)";
+            return false;
+        }
+        sceneRevisions.mark(ux3d::imgui::SceneChange::Material);
+        return true;
+    }
     bool present = false;
     for (const auto& [name, text] : target->getUnknownExtensions()) {
         present = present || std::string(name.c_str()) == extension;

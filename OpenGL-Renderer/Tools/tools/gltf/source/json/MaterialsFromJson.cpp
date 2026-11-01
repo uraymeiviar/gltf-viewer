@@ -220,6 +220,28 @@ ConversionResult MaterialsFromJson::convert(const nlohmann::json& _jsonMaterial)
                 }
             }
 
+            // KHR_materials_dispersion: one number (dispersion >= 0, default 0); rendered only with transmission
+            // and volume (the renderer's MATERIAL_DISPERSION).
+            extensionName = "KHR_materials_dispersion";
+            extension = extensions->find(extensionName);
+            if (extension != extensions->end()) {
+                if (!exclusiveExtension.isSet(ExtensionCategory::Unlit) && !exclusiveExtension.isSet(ExtensionCategory::PBRSpecularGlossiness)) {
+                    if (extension->is_object()) {
+                        pMaterial->createDispersion();
+                        exclusiveExtension |= ExtensionCategory::PBRNext;
+                        if (!convertDispersion(*extension, pMaterial->getDispersion().value())) {
+                            containsErrors = true;
+                        }
+                    } else {
+                        core::logWarning("material.%s.%s with value '%s' has invalid type", key.c_str(), extensionName.c_str(), extension->dump().c_str());
+                        containsErrors = true;
+                    }
+                } else {
+                    // The conflicting extensions have to be put in manually
+                    core::logWarning("Conflicting extensions in material: %s conflicts with Unlit and is discarded. Discarded Content: %s", extensionName.c_str(), extension->dump().c_str());
+                }
+            }
+
             extensionName = "KHR_materials_pbrSpecularGlossiness";
             extension = extensions->find(extensionName);
             if (extension != extensions->end()) {
@@ -849,6 +871,35 @@ ConversionResult MaterialsFromJson::convertSheen(const nlohmann::json& _jsonShee
         return ConversionError::SuccessWithErrors;
     }
 
+    return ConversionResult::Success;
+}
+
+ConversionResult MaterialsFromJson::convertDispersion(const nlohmann::json& _json, Dispersion& _dispersion) const
+{
+    bool containsErrors = false;
+
+    for (const auto& [key, value] : _json.items()) {
+        if (key == "dispersion") {
+            if (value.is_number()) {
+                if (_dispersion.setDispersion(value.get<double>()) != GltfResult::Success) {
+                    core::logWarning("KHR_materials_dispersion.dispersion %s is negative; the default 0 is used", value.dump().c_str());
+                    containsErrors = true;
+                }
+            } else {
+                containsErrors = true;
+                core::logWarning("KHR_materials_dispersion.%s with value '%s' has invalid type", key.c_str(), value.dump().c_str());
+            }
+        }
+    }
+
+    if (!GltfObjectFromJson::convertUnknownExtensions(_json, &_dispersion, "KHR_materials_dispersion")) {
+        containsErrors = true;
+    }
+    GltfObjectFromJson::convertExtras(_json, &_dispersion);
+
+    if (containsErrors) {
+        return ConversionError::SuccessWithErrors;
+    }
     return ConversionResult::Success;
 }
 

@@ -53,8 +53,48 @@ static void renderFileVisibilityMarker(const ux3d::gltf::Node* node)
     }
 }
 
+// KHR_node_selectability / KHR_node_hoverability: the file makes this node not selectable and/or not hoverable (its
+// own value, as authored or animated now). A marker one slot further left than the file-visibility marker, not a
+// switch: a viewport click passes through such a node, the hierarchy still selects it.
+static void renderFileInteractionMarker(const ux3d::gltf::Node* node)
+{
+    const bool selectable = node->isFileSelectable();
+    const bool hoverable = node->isFileHoverable();
+    if (selectable && hoverable) {
+        return;
+    }
+    ImGui::SameLine();
+    ImGui::Dummy(ImVec2(kEyeButtonWidth, 0.0f));
+    ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - 3.0f * kEyeButtonWidth - 2.0f * ImGui::GetStyle().ItemSpacing.x);
+    ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_FrameBg));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_FrameBg));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImGui::GetStyleColorVec4(ImGuiCol_FrameBg));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.75f, 0.95f, 0.9f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f));
+    const char* icon = selectable ? ICON_MDI_MOUSE_OFF : ICON_MDI_SELECTION_OFF;
+    const std::string label = std::string(icon) + "##fileinteract_n_" + std::to_string(node->m_ID);
+    ImGui::Button(label.c_str(), ImVec2(kEyeButtonWidth, ImGui::GetFrameHeight()));
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor(4);
+    ux3d::imgui::UiProbe::item(selectable ? "hier.node_file_unhoverable" : "hier.node_file_unselectable",
+                               static_cast<long long>(node->m_ID));
+    if (ImGui::IsItemHovered()) {
+        std::string tip;
+        if (!selectable) {
+            tip += "Not selectable (KHR_node_selectability: selectable = false): a viewport click passes through this "
+                   "node and its subtree; the hierarchy still selects it.";
+        }
+        if (!hoverable) {
+            tip += std::string(tip.empty() ? "" : "\n") + "Not hoverable (KHR_node_hoverability: hoverable = false); "
+                   "Glider has no viewport hover highlight.";
+        }
+        ImGui::SetTooltip("%s", tip.c_str());
+    }
+}
+
 static void renderNodeVisibilityToggle(ux3d::gltf::Node* node, SceneRevisions& revisions)
 {
+    renderFileInteractionMarker(node);
     renderFileVisibilityMarker(node);
     beginVisibilityToggle();
 

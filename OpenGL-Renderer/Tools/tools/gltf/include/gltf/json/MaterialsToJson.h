@@ -39,6 +39,7 @@ private:
     void convertExtensionVolume(const Material& _material, nlohmann::json& _jsonMaterial) const;
     void convertExtensionIridescence(const Material& _material, nlohmann::json& _jsonMaterial) const;
     void convertExtensionAnisotropy(const Material& _material, nlohmann::json& _jsonMaterial) const;
+    void convertExtensionDispersion(const Material& _material, nlohmann::json& _jsonMaterial) const;
 
     //helper functions
     bool convertTextureInfo(const std::optional<TextureInfo>& _oTextureInfo, const std::string& _entry, nlohmann::json& _jsonRoot) const;

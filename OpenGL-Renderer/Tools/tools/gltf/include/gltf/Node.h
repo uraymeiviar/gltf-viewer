@@ -76,6 +76,28 @@ struct Summary {
 Summary summarize(const Gltf& gltf);
 }
 
+// KHR_node_selectability / KHR_node_hoverability (https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Khronos):
+// node.extensions.KHR_node_selectability.selectable and node.extensions.KHR_node_hoverability.hoverable (booleans,
+// default true). Inherited like KHR_node_visibility: a false ancestor makes the whole subtree non-selectable /
+// non-hoverable. Both are animatable through KHR_animation_pointer (the pointer paths below, relative to
+// /nodes/{i}/) and read only when the file declares the extension. Glider: a node that is not selectable still
+// renders and can be selected in the Scene Hierarchy, but a viewport click passes through it; Glider has no viewport
+// hover highlight, so hoverable is read and shown only.
+namespace node_interaction {
+inline constexpr const char* SelectabilityName = "KHR_node_selectability";
+inline constexpr const char* SelectablePointer = "extensions/KHR_node_selectability/selectable";
+inline constexpr const char* HoverabilityName = "KHR_node_hoverability";
+inline constexpr const char* HoverablePointer = "extensions/KHR_node_hoverability/hoverable";
+// Statistics: nodes carrying each extension and how many of them the file sets to false (authored values).
+struct Summary {
+    uint32_t selectabilityNodes = 0;
+    uint32_t unselectable = 0;
+    uint32_t hoverabilityNodes = 0;
+    uint32_t unhoverable = 0;
+};
+Summary summarize(const Gltf& gltf);
+}
+
 class Node : public ChildOfRoot, public HelperVisible {
     class LightPointerObject : public GltfObject {
     public:
@@ -119,6 +141,12 @@ private:
     // const nodes; it is a per-frame flag like an animated transform, not a model edit).
     std::optional<bool> m_fileVisible;
     mutable bool m_fileVisibleNow = true;
+    // KHR_node_selectability / KHR_node_hoverability: authored values (nullopt: not carried) and current values
+    // (set by KHR_animation_pointer channels; mutable for the same reason as m_fileVisibleNow).
+    std::optional<bool> m_fileSelectable;
+    mutable bool m_fileSelectableNow = true;
+    std::optional<bool> m_fileHoverable;
+    mutable bool m_fileHoverableNow = true;
 
 public:
     Node(uint32_t _id); // regular constructor
@@ -194,6 +222,30 @@ public:
     bool isFileVisible() const { return m_fileVisibleNow; }
     void setAnimatedFileVisible(bool _visible) const { m_fileVisibleNow = _visible; }
     void resetAnimatedFileVisible() const { m_fileVisibleNow = m_fileVisible.value_or(true); }
+
+    // KHR_node_selectability / KHR_node_hoverability (see node_interaction): the node's own values; the renderer and
+    // the hierarchy inherit them down the subtree.
+    bool hasNodeSelectability() const { return m_fileSelectable.has_value(); }
+    bool getAuthoredSelectable() const { return m_fileSelectable.value_or(true); }
+    void setNodeSelectability(std::optional<bool> _selectable)
+    {
+        m_fileSelectable = _selectable;
+        m_fileSelectableNow = _selectable.value_or(true);
+    }
+    bool isFileSelectable() const { return m_fileSelectableNow; }
+    void setAnimatedSelectable(bool _selectable) const { m_fileSelectableNow = _selectable; }
+    void resetAnimatedSelectable() const { m_fileSelectableNow = m_fileSelectable.value_or(true); }
+
+    bool hasNodeHoverability() const { return m_fileHoverable.has_value(); }
+    bool getAuthoredHoverable() const { return m_fileHoverable.value_or(true); }
+    void setNodeHoverability(std::optional<bool> _hoverable)
+    {
+        m_fileHoverable = _hoverable;
+        m_fileHoverableNow = _hoverable.value_or(true);
+    }
+    bool isFileHoverable() const { return m_fileHoverableNow; }
+    void setAnimatedHoverable(bool _hoverable) const { m_fileHoverableNow = _hoverable; }
+    void resetAnimatedHoverable() const { m_fileHoverableNow = m_fileHoverable.value_or(true); }
 
     GltfResult getChildrenRecursively(core::Vector<Node*>& _recursiveChildren);
     GltfResult addChild(Node& _child, const Gltf& _root);

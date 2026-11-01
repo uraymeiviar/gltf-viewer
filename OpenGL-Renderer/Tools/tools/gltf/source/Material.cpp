@@ -38,6 +38,7 @@ Material::Material(uint32_t _id, const Material& _source)
     , m_volume(_source.m_volume)
     , m_iridescence(_source.m_iridescence)
     , m_anisotropy(_source.m_anisotropy)
+    , m_dispersion(_source.m_dispersion)
     , m_xmpPacket(_source.m_xmpPacket)
 {
 }
@@ -185,6 +186,16 @@ GltfResult Material::createAnisotropy()
     return GltfResult::Success;
 }
 
+GltfResult Material::createDispersion()
+{
+    if (m_dispersion.has_value()) {
+        return GltfError::ObjectAlreadyExists;
+    }
+    resetPBRNextExtensionExceptions();
+    m_dispersion.emplace();
+    return GltfResult::Success;
+}
+
 GltfResult Material::createEmissiveStrength()
 {
     if (m_emissiveStrength.has_value()) {
@@ -270,6 +281,9 @@ Extensions Material::getUsedExtensions() const
     }
     if (m_emissiveStrength.has_value()) {
         usedExtensions |= Extension::EmissiveStrength;
+    }
+    if (m_dispersion.has_value()) {
+        usedExtensions |= Extension::Dispersion;
     }
 
     return usedExtensions;
@@ -369,6 +383,7 @@ void Material::resetPBRNextExtensions()
     m_volume.reset();
     m_emissiveStrength.reset();
     m_anisotropy.reset();
+    m_dispersion.reset();
 }
 
 void Material::resetPBRNextExtensionExceptions()

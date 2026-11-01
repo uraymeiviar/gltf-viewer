@@ -2,6 +2,8 @@
 
 #pragma once
 
+#include <unordered_set>
+
 #include "animation/Animation.h"
 #include "core/Algorithms.h"
 #include "core/TupleHash.h"
@@ -294,6 +296,12 @@ public:
     const gltf::Node* getIsolationRoot() const { return m_isolationRoot; }
     bool getIsolationIncludeChildren() const { return m_isolationIncludeChildren; }
 
+    // KHR_node_selectability: false when the node, or an ancestor, is not selectable (current, possibly animated values)
+    // in the last scene traversal (createScene). Picking skips such nodes, so a viewport click selects what is behind
+    // them; they are still drawn and still selectable in the Scene Hierarchy.
+    bool isNodeSelectable(const gltf::Node* node) const { return m_traversal.unselectableNodes.count(node) == 0; }
+    bool hasUnselectableNodes() const { return !m_traversal.unselectableNodes.empty(); }
+
     // P8.5: removes from drawables the static primitives (found through reverseMapping)
     // whose POSITION bounds lie entirely outside clipFromWorld's view volume, with the
     // test frustumCulling uses. Primitives it cannot bound and drawables the mapping does
@@ -325,6 +333,8 @@ private:
         math::vec3 interiorMax = math::vec3(0.0f);
         bool containsTransmissiveMaterial = false;
         std::vector<const gltf::Node*> skyPortals; // A3.7: visible portal nodes (isolation does not remove them)
+        // KHR_node_selectability: nodes not selectable (own current value or an ancestor's), for picking.
+        std::unordered_set<const gltf::Node*> unselectableNodes;
         const gltf::Scene* scene = nullptr;
         AsoboOptions asoboOptions;
         MaterialExtensionOptions materialExtensionOptions;

@@ -191,6 +191,34 @@ python scripts/run_regression.py --tier full
   `nodeVisibility`, a KHR_animation_pointer channel on `visible` (STEP, unsigned byte) at times where it is on / off
   against static twins, also exactly on keys (STEP: that key's value, including the clip end; switched off: visible), the validator (no notice; `KHR_NODE_VISIBILITY_INVALID_TYPE` for
   a string `visible`), and the removed / no-extension twins against the baseline.
+- **`trivial_extensions` suite** (`validate_trivial_extensions.py`; triggers: `Node.*`, `NodesFromJson.*`,
+  `MaterialsFromJson.*`, `MaterialsToJson.*`, `GltfObjectFromJson.*`, `Extensions.*`, `TilesExtensions.h`,
+  `Dispersion.h`, `Material.*` (glTF and renderer), `GltfRenderLayer*`, renderer `*Command*`, `PickingRenderLayer.*`,
+  `ibl.glsl`, `pbr.frag`, `SceneHierarchy*`, `ElementInspector.cpp`, `MaterialInspector.cpp`, `StatisticsPanel.cpp`,
+  `GltfValidator.*`, `GltfExtensionSettings.*`, `source/imgui/application/Commands*`, `Application.cpp`,
+  `DiagnosticsPicking.cpp`, `Viewports.cpp`, and itself): writes 18 small `.gltf` fixtures (data URIs,
+  `build/trivial_extensions/fixtures`, never committed). **KHR_materials_dispersion**: a thick glass cube (transmission
+  + volume, IOR 1.5) turned 25 degrees in front of black / white unlit bars: dispersion 0 and
+  `--disable-extension KHR_materials_dispersion` render byte-identical to the material without the extension, and
+  dispersion without volume to its twin; dispersion 10 differs only inside the glass, keeps the linear HDR green of
+  the plain refraction (pipe `probe`), and shifts the red / blue bar edges against green in opposite directions by
+  the shift the KHR_materials_ior twins at `ior -/+ (ior - 1) * 0.025 * dispersion` give their green (within 2 px);
+  a KHR_animation_pointer STEP channel on `dispersion` at 0.5 / 1.5 s equals the 0 / 10 files; `set_material_param`
+  0 -> 10 at runtime equals the file with 10 (pipe captures); no validator notice; the baseline renders 10 like none.
+  The Khronos samples `DispersionTest.glb` / `DragonDispersion.glb` are rendered when present in
+  `build/khronos-samples` (downloaded by hand from KhronosGroup/glTF-Sample-Assets, not committed; INFO otherwise).
+  **KHR_node_selectability / KHR_node_hoverability**: non-selectable nodes (direct, inherited from a parent, explicit
+  `true` under a `false` parent, one with nothing behind) render byte-identical to the file without the extension;
+  pipe `pick` at their centres returns what the twin with those nodes removed returns (the back plate, or nothing),
+  the file without the extension or with the switch off returns the node; 945 window clicks (`--ui-script`) select
+  exactly what the removed twin selects; pipe `select` (the hierarchy) still selects them; an animated `selectable`
+  (STEP 1 -> 0) changes the pick at 0.5 / 1.5 s; `list_nodes` values; validator: no notice,
+  `KHR_NODE_SELECTABILITY_INVALID_TYPE` for a non-boolean; the scene against the baseline. **3D Tiles / Cesium**: one
+  file with all five extensions (CESIUM_RTC center at ECEF scale, schema + property table + property attribute,
+  attribute and implicit feature IDs, outline indices, instance features on an EXT_mesh_gpu_instancing node) renders
+  byte-identical to the plain twin (the same JSON without them), also required and with each switched off; required +
+  switched off is refused; no validator notice; `get_state.tiles3d` lists the center, schema, table, feature ID and
+  outline counts, empty with every one switched off; the plain twin against the baseline.
 - **`animation_keys` suite** (`validate_animation_keys.py`; triggers: the runtime animation library
   `OpenGL-Renderer/Tools/Runtime/runtime/animation/*` (`Channel.h`, `Sampler.h`, `Animation.*`),
   `GltfRenderLayerNodes.cpp`, `AnimationPlayer.*`, `TransformAnimationTarget.h`, `KHRAnimationPointerTarget.h`,

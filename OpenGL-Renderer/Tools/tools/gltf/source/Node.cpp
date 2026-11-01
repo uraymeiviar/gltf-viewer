@@ -46,6 +46,10 @@ Node::Node(uint32_t _id, const Node& _source)
     , m_gpuInstancingStatus(_source.m_gpuInstancingStatus)
     , m_fileVisible(_source.m_fileVisible)
     , m_fileVisibleNow(_source.m_fileVisibleNow)
+    , m_fileSelectable(_source.m_fileSelectable)
+    , m_fileSelectableNow(_source.m_fileSelectableNow)
+    , m_fileHoverable(_source.m_fileHoverable)
+    , m_fileHoverableNow(_source.m_fileHoverableNow)
     , weights(_source.weights)
 {
     // we can't copy the children because Nodes can only have one parent
@@ -663,6 +667,22 @@ ux3d::gltf::node_visibility::Summary ux3d::gltf::node_visibility::summarize(cons
         ++summary.nodes;
         if (!node.getAuthoredFileVisible()) {
             ++summary.hidden;
+        }
+    }
+    return summary;
+}
+
+ux3d::gltf::node_interaction::Summary ux3d::gltf::node_interaction::summarize(const Gltf& gltf)
+{
+    Summary summary;
+    for (const Node& node : gltf.getNodes()) {
+        if (node.hasNodeSelectability()) {
+            ++summary.selectabilityNodes;
+            summary.unselectable += node.getAuthoredSelectable() ? 0u : 1u;
+        }
+        if (node.hasNodeHoverability()) {
+            ++summary.hoverabilityNodes;
+            summary.unhoverable += node.getAuthoredHoverable() ? 0u : 1u;
         }
     }
     return summary;

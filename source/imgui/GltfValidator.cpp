@@ -921,6 +921,34 @@ ValidationReport GltfValidator::validate(const std::string& filePath, ux3d::gltf
         }
     }
 
+    // 3.8a'' KHR_node_selectability / KHR_node_hoverability: the extension is an object and its boolean, when present,
+    // a boolean (the loader reads anything else as true).
+    if (jsonDoc.contains("nodes") && jsonDoc["nodes"].is_array()) {
+        const auto& nodes = jsonDoc["nodes"];
+        const std::pair<const char*, const char*> flags[] = { { "KHR_node_selectability", "selectable" },
+                                                              { "KHR_node_hoverability", "hoverable" } };
+        for (size_t i = 0; i < nodes.size(); ++i) {
+            const auto& node = nodes[i];
+            if (!node.is_object() || !node.contains("extensions") || !node["extensions"].is_object()) continue;
+            const auto& extensions = node["extensions"];
+            for (const auto& [extensionName, property] : flags) {
+                const auto it = extensions.find(extensionName);
+                if (it == extensions.end()) continue;
+                const std::string pointer = "/nodes/" + std::to_string(i) + "/extensions/" + extensionName;
+                const std::string code = std::string(extensionName) == "KHR_node_selectability"
+                    ? "KHR_NODE_SELECTABILITY_INVALID_TYPE" : "KHR_NODE_HOVERABILITY_INVALID_TYPE";
+                if (!it->is_object()) {
+                    report.addIssue(ValidationSeverity::Error, code, std::string(extensionName) + " must be an object; "
+                                    "it is read as " + property + " = true.", pointer, SelectionType::Node, static_cast<int>(i));
+                } else if (it->contains(property) && !(*it)[property].is_boolean()) {
+                    report.addIssue(ValidationSeverity::Error, code, std::string(extensionName) + "." + property +
+                                    " must be a boolean (found " + (*it)[property].dump() + "); it is read as true.",
+                                    pointer + "/" + property, SelectionType::Node, static_cast<int>(i));
+                }
+            }
+        }
+    }
+
     // 3.8b A1.7: the MSFS exporter writes its "DITHER" alpha mode verbatim into the core field. It is not
     // a glTF 2.0 value; Glider renders it as ASOBO_material_alphamode_dither, so it is reported as an info.
     if (jsonDoc.contains("materials") && jsonDoc["materials"].is_array()) {

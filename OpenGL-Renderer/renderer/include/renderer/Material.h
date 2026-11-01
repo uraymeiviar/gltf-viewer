@@ -59,6 +59,7 @@ struct RenderSettings {
     bool enableSpecular = true;
     bool enableEmissiveStrength = true;
     bool enableAnisotropy = true;
+    bool enableDispersion = true; // KHR_materials_dispersion (per-material display switch)
 };
 
 class Material {

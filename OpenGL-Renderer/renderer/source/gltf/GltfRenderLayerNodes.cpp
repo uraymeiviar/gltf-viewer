@@ -246,6 +246,28 @@ void GltfRenderLayer::initNodeMappings(gl::GL* gl)
             m_animationPointerTargets.erase({ gltfNode, gltf::node_visibility::PointerPath });
         }
 
+        // KHR_node_selectability / KHR_node_hoverability: the same per-frame flags (boolean channels).
+        gltfNode->resetAnimatedSelectable();
+        gltfNode->resetAnimatedHoverable();
+        if (gltfNode->hasNodeSelectability()) {
+            m_animationPointerTargets[{ gltfNode, gltf::node_interaction::SelectablePointer }].callback = KHRAnimationPointerTarget::Callback<float> {
+                [gltfNode](const float& value) -> void {
+                    gltfNode->setAnimatedSelectable(value != 0.0f);
+                }
+            };
+        } else {
+            m_animationPointerTargets.erase({ gltfNode, gltf::node_interaction::SelectablePointer });
+        }
+        if (gltfNode->hasNodeHoverability()) {
+            m_animationPointerTargets[{ gltfNode, gltf::node_interaction::HoverablePointer }].callback = KHRAnimationPointerTarget::Callback<float> {
+                [gltfNode](const float& value) -> void {
+                    gltfNode->setAnimatedHoverable(value != 0.0f);
+                }
+            };
+        } else {
+            m_animationPointerTargets.erase({ gltfNode, gltf::node_interaction::HoverablePointer });
+        }
+
         return true;
     };
     m_transformHierarchyMapping.createRendererObjectFromGltf = [this](const gltf::Node* gltfNode) -> renderer::TransformHierarchyNode* {
@@ -277,6 +299,8 @@ void GltfRenderLayer::initNodeMappings(gl::GL* gl)
         m_animationPointerTargets.erase({ gltfNode, "scale" });
         m_animationPointerTargets.erase({ gltfNode, "weights" });
         m_animationPointerTargets.erase({ gltfNode, gltf::node_visibility::PointerPath });
+        m_animationPointerTargets.erase({ gltfNode, gltf::node_interaction::SelectablePointer });
+        m_animationPointerTargets.erase({ gltfNode, gltf::node_interaction::HoverablePointer });
         recalculateBones = true;
     };
 

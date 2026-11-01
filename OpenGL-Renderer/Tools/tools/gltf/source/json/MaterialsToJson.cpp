@@ -37,6 +37,7 @@ void MaterialsToJson::convert(const Material& _material, nlohmann::json& _jsonMa
     convertExtensionSpecular(_material, _jsonMaterial);
     convertExtensionSheen(_material, _jsonMaterial);
     convertExtensionIor(_material, _jsonMaterial);
+    convertExtensionDispersion(_material, _jsonMaterial);
     convertExtensionEmissiveStrength(_material, _jsonMaterial);
     convertExtensionTransmission(_material, _jsonMaterial);
     convertExtensionXMP(_material, _jsonMaterial);
@@ -331,6 +332,25 @@ void MaterialsToJson::convertExtensionIor(const Material& _material, nlohmann::j
         jsonIor["ior"] = oIor->getIorOrDefault();
     }
     _jsonMaterial["extensions"]["KHR_materials_ior"] = jsonIor;
+}
+
+void MaterialsToJson::convertExtensionDispersion(const Material& _material, nlohmann::json& _jsonMaterial) const
+{
+    const std::optional<gltf::Dispersion>& oDispersion = _material.getDispersion();
+    if (oDispersion.has_value() == false) {
+        return;
+    }
+
+    nlohmann::json jsonDispersion = nlohmann::json::object();
+
+    GltfObjectToJson gltfObjectToJson(m_exportOptions);
+    gltfObjectToJson.convertExtras(oDispersion.value(), jsonDispersion);
+    gltfObjectToJson.convertUnknownExtensions(oDispersion.value(), jsonDispersion);
+
+    if (oDispersion->hasDispersion()) {
+        jsonDispersion["dispersion"] = oDispersion->getDispersionOrDefault();
+    }
+    _jsonMaterial["extensions"]["KHR_materials_dispersion"] = jsonDispersion;
 }
 
 void MaterialsToJson::convertExtensionTextureTransform(const std::optional<TextureInfo>& _oTextureInfo, nlohmann::json& _jsonRoot) const

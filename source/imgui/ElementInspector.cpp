@@ -4,6 +4,7 @@
 // accessor, animation and skin views). Image previews and header details are in ElementInspectorImages.cpp.
 
 #include "ElementInspectorImages.h"
+#include "gltf/extensions/TilesExtensions.h"
 
 namespace ux3d::imgui {
 
@@ -294,6 +295,52 @@ void ElementInspector::render(SelectionState& selection,
             }
         }
 
+        // 3D Tiles: EXT_instance_features feature ID sets, read-only.
+        {
+            const auto& unknown = node->getUnknownExtensions();
+            const auto features = unknown.find(ux3d::gltf::tiles::InstanceFeatures);
+            if (features != unknown.end()) {
+                ImGui::Separator();
+                const auto sets = ux3d::gltf::tiles::parseFeatureIds(features->second, true);
+                ImGui::Text("Instance feature ID sets (EXT_instance_features): %zu", sets.size());
+                for (const auto& set : sets) {
+                    ImGui::BulletText("%s: %llu features%s", set.source.c_str(),
+                                      static_cast<unsigned long long>(set.featureCount),
+                                      set.propertyTable >= 0 ? (", property table " + std::to_string(set.propertyTable)).c_str() : "");
+                }
+            }
+        }
+
+        // KHR_node_selectability / KHR_node_hoverability: the file's values, read-only (the node's own value; an
+        // ancestor's false applies to the subtree too).
+        if (node->hasNodeSelectability() || node->hasNodeHoverability()) {
+            ImGui::Separator();
+            const auto showFlag = [](const char* label, bool authored, bool now, const char* tooltip) {
+                if (!authored) {
+                    ImGui::TextColored(ImVec4(0.55f, 0.75f, 0.95f, 1.0f), "%s: false", label);
+                } else {
+                    ImGui::Text("%s: true", label);
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("%s", tooltip);
+                }
+                if (now != authored) {
+                    ImGui::TextDisabled("Animated now: %s", now ? "true" : "false");
+                }
+            };
+            if (node->hasNodeSelectability()) {
+                showFlag("Selectable (KHR_node_selectability)", node->getAuthoredSelectable(), node->isFileSelectable(),
+                         "The file's value; a viewport click passes through a non-selectable node and its subtree "
+                         "(the hierarchy still selects it).");
+                UiProbe::item("inspector.node_selectable", static_cast<long long>(node->m_ID), false,
+                              node->isFileSelectable());
+            }
+            if (node->hasNodeHoverability()) {
+                showFlag("Hoverable (KHR_node_hoverability)", node->getAuthoredHoverable(), node->isFileHoverable(),
+                         "The file's value; read and shown only (Glider has no viewport hover highlight).");
+            }
+        }
+
         if (node->getCamera() != nullptr) {
             ImGui::Separator();
             if (ImGui::Button("Inspect Attached Camera")) {
@@ -512,6 +559,30 @@ void ElementInspector::render(SelectionState& selection,
                                 }
                             }
                         }
+                        ImGui::TreePop();
+                    }
+                }
+
+                // 3D Tiles: EXT_mesh_features feature ID sets and CESIUM_primitive_outline, read-only.
+                {
+                    const auto& unknown = prim.getUnknownExtensions();
+                    const auto features = unknown.find(ux3d::gltf::tiles::MeshFeatures);
+                    const bool outline = unknown.count(ux3d::gltf::tiles::PrimitiveOutline) != 0;
+                    const bool metadata = unknown.count(ux3d::gltf::tiles::StructuralMetadata) != 0;
+                    if ((features != unknown.end() || outline || metadata) && ImGui::TreeNodeEx("3D Tiles (read-only)", ImGuiTreeNodeFlags_DefaultOpen)) {
+                        if (features != unknown.end()) {
+                            const auto sets = ux3d::gltf::tiles::parseFeatureIds(features->second, false);
+                            ImGui::Text("Feature ID sets (EXT_mesh_features): %zu", sets.size());
+                            for (const auto& set : sets) {
+                                ImGui::BulletText("%s: %llu features%s%s%s", set.source.c_str(),
+                                                  static_cast<unsigned long long>(set.featureCount),
+                                                  set.propertyTable >= 0 ? (", property table " + std::to_string(set.propertyTable)).c_str() : "",
+                                                  set.label.empty() ? "" : ", label ",
+                                                  set.label.c_str());
+                            }
+                        }
+                        if (metadata) ImGui::TextUnformatted("Property textures / attributes (EXT_structural_metadata)");
+                        if (outline) ImGui::TextDisabled("Outline edges (CESIUM_primitive_outline): recognised, not drawn");
                         ImGui::TreePop();
                     }
                 }

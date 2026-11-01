@@ -173,6 +173,7 @@ const GltfRenderLayer::SceneTraversal& GltfRenderLayer::traverseScene(const gltf
     t.primitivesVisited = 0;
     t.containsTransmissiveMaterial = false;
     t.skyPortals.clear();
+    t.unselectableNodes.clear();
     t.hasInteriorVolume = false;
     t.scene = gltfScene;
     t.asoboOptions = asoboOptions;
@@ -184,8 +185,9 @@ const GltfRenderLayer::SceneTraversal& GltfRenderLayer::traverseScene(const gltf
     const bool hideInvisible = asoboOptions.applies("ASOBO_material_invisible");
     const bool hideOccluders = asoboOptions.applies("ASOBO_material_environment_occluder");
 
-    std::function<void(const gltf::Node*, bool, bool, bool)> addMeshMaterialRecursive;
-    addMeshMaterialRecursive = [&](const gltf::Node* gltfNode, bool insideIsolation, bool parentHidden, bool parentFileHidden) {
+    std::function<void(const gltf::Node*, bool, bool, bool, bool)> addMeshMaterialRecursive;
+    addMeshMaterialRecursive = [&](const gltf::Node* gltfNode, bool insideIsolation, bool parentHidden, bool parentFileHidden,
+                                   bool parentUnselectable) {
         ++t.nodesVisited;
         const bool isIsolationRoot = (gltfNode == m_isolationRoot);
         const bool insideIsolatedSubtree = (m_isolationRoot == nullptr) || insideIsolation || isIsolationRoot;
@@ -198,6 +200,11 @@ const GltfRenderLayer::SceneTraversal& GltfRenderLayer::traverseScene(const gltf
         // the node is not rendered. The node's mesh, its light and sky portal go with it; cameras keep working.
         const bool fileHidden = parentFileHidden || !gltfNode->isFileVisible();
         const bool hidden = viewerHidden || fileHidden;
+        // KHR_node_selectability: inherited the same way (current values); recorded for picking only.
+        const bool unselectable = parentUnselectable || !gltfNode->isFileSelectable();
+        if (unselectable) {
+            t.unselectableNodes.insert(gltfNode);
+        }
 
         // Keep walking children of nodes outside the isolated subtree: the isolated node
         // can be nested at any depth below a scene root. Collection is gated below.
@@ -205,7 +212,7 @@ const GltfRenderLayer::SceneTraversal& GltfRenderLayer::traverseScene(const gltf
             ? false
             : (isIsolationRoot ? m_isolationIncludeChildren : insideIsolation);
         for (const auto* child : gltfNode->getChildren()) {
-            addMeshMaterialRecursive(child, childInsideIsolation, viewerHidden, fileHidden);
+            addMeshMaterialRecursive(child, childInsideIsolation, viewerHidden, fileHidden, unselectable);
         }
 
         // A3.7: a portal is part of the environment of whatever is drawn, so isolating a part of the cabin
@@ -300,7 +307,7 @@ const GltfRenderLayer::SceneTraversal& GltfRenderLayer::traverseScene(const gltf
 
     if (gltfScene != nullptr) {
         for (const gltf::Node* gltfNode : gltfScene->getNodes()) {
-            addMeshMaterialRecursive(gltfNode, false, false, false);
+            addMeshMaterialRecursive(gltfNode, false, false, false, false);
         }
     }
     return t;
@@ -522,6 +529,7 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
             material->renderSettings.enableSpecular &= materialExtensionOptions.applies(material->gltfMaterialId, "KHR_materials_specular");
             material->renderSettings.enableEmissiveStrength &= materialExtensionOptions.applies(material->gltfMaterialId, "KHR_materials_emissive_strength");
             material->renderSettings.enableAnisotropy &= materialExtensionOptions.applies(material->gltfMaterialId, "KHR_materials_anisotropy");
+            material->renderSettings.enableDispersion &= materialExtensionOptions.applies(material->gltfMaterialId, "KHR_materials_dispersion");
         }
         material->defines.define("LINEAR_OUTPUT", 1);
     }

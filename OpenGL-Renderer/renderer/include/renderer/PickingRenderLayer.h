@@ -35,6 +35,9 @@ public:
     // full-size targets, whose gl_FragCoord already is the viewport pixel.
     int pixelOriginX = 0;
     int pixelOriginY = 0;
+    // KHR_node_selectability: when set and false for a drawable's mesh, the drawable keeps its picking id but gets no
+    // picking draw, so a click passes through to what is behind it (it is still drawn in the scene).
+    std::function<bool(const Mesh*)> isPickable;
 
     // Picking materials are kept in a pool and refreshed by copy-assignment each
     // call instead of being created and destroyed per drawable per frame (P4.6).

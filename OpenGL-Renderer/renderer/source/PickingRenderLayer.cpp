@@ -45,6 +45,9 @@ RendererScene PickingRenderLayer::applyLayer(RendererScene&& scene)
         pickingColor.b = static_cast<float>((id >> 0u) & 0xFFu) / 255.0f;
         m_inverseMapping.push_back(mesh);
         ++id;
+        if (isPickable && !isPickable(mesh)) {
+            continue;
+        }
 
         // copy the renderpasses to be able to inject the pickinig framebuffer
         RenderPass* renderPassCopy = nullptr;

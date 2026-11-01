@@ -35,6 +35,7 @@ enum class Extension : uint32_t {
     WebP = 1u << 19u,
     TextureDDS = 1u << 20u,
     Anisotropy = 1u << 21u,
+    Dispersion = 1u << 22u,
 };
 
 using Extensions = core::Flag<Extension>;

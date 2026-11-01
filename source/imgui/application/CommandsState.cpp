@@ -112,6 +112,34 @@ json Application::agentStateJson()
                                             {"reloads", extensionReloads},
                                             {"loadPending", !queuedLoadPath.empty() || loadingActive}};
     }
+    // 3D Tiles / Cesium extensions of the open file (read-only metadata; geometry renders as plain glTF).
+    {
+        const auto tiles = ux3d::gltf::tiles::summarize(gltfModel);
+        json tables = json::array();
+        for (const auto& table : tiles.propertyTables) {
+            tables.push_back({{"name", table.name}, {"class", table.className}, {"count", table.count},
+                              {"properties", table.properties}});
+        }
+        st["tiles3d"] = {{"rtcCenter", tiles.rtcCenter.has_value()
+                                           ? json::array({tiles.rtcCenter->x, tiles.rtcCenter->y, tiles.rtcCenter->z})
+                                           : json(nullptr)},
+                         {"structuralMetadata", tiles.structuralMetadata},
+                         {"schemaId", tiles.schemaId},
+                         {"classes", tiles.classNames},
+                         {"enums", tiles.enums},
+                         {"propertyTables", tables},
+                         {"propertyTextures", tiles.propertyTextures},
+                         {"propertyAttributes", tiles.propertyAttributes},
+                         {"meshFeaturePrimitives", tiles.meshFeaturePrimitives},
+                         {"featureIdSets", tiles.featureIdSets},
+                         {"featureIdAttributes", tiles.featureIdAttributes},
+                         {"featureIdTextures", tiles.featureIdTextures},
+                         {"featureIdImplicit", tiles.featureIdImplicit},
+                         {"metadataPrimitives", tiles.metadataPrimitives},
+                         {"instanceFeatureNodes", tiles.instanceFeatureNodes},
+                         {"instanceFeatureIdSets", tiles.instanceFeatureIdSets},
+                         {"outlinePrimitives", tiles.outlinePrimitives}};
+    }
     st["environment"] = {{"effects", effectsStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene))}};
     st["skyOcclusion"] = skyOcclusionStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene));
     if (activeViewport != nullptr) {

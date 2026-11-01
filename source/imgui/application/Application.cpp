@@ -275,6 +275,13 @@ int Application::run(int argc, char** argv)
     glRenderer->setGpuProfilingEnabled(s_profilingEnabled);
 
     pickingLayer = std::make_unique<ux3d::renderer::PickingRenderLayer>(gladGL.get());
+    // KHR_node_selectability: a node the file makes non-selectable (or below one) is drawn but not picked, so a
+    // viewport click (and the pipe pick) selects what is behind it. currentReverseMapping is the scene being picked.
+    pickingLayer->isPickable = [this](const ux3d::renderer::Mesh* mesh) {
+        if (gltfLayer == nullptr || !gltfLayer->hasUnselectableNodes()) return true;
+        const auto it = currentReverseMapping.find(const_cast<ux3d::renderer::Mesh*>(mesh));
+        return it == currentReverseMapping.end() || gltfLayer->isNodeSelectable(it->second);
+    };
     // A2.1: the decal prepass adds its own program and pass to the scene built below.
     decalPrepassLayer = std::make_unique<ux3d::renderer::DecalPrepassLayer>(gladGL.get());
     // A2.2: the accumulation pass draws the decals the prepass excluded.

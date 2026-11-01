@@ -130,6 +130,14 @@ void Application::registerAgentCommands()
                     entry["nodeVisibility"] = node.getAuthoredFileVisible();
                     entry["nodeVisibilityNow"] = node.isFileVisible();
                 }
+                if (node.hasNodeSelectability()) { // KHR_node_selectability: the file's value (own, not inherited)
+                    entry["selectable"] = node.getAuthoredSelectable();
+                    entry["selectableNow"] = node.isFileSelectable();
+                }
+                if (node.hasNodeHoverability()) { // KHR_node_hoverability
+                    entry["hoverable"] = node.getAuthoredHoverable();
+                    entry["hoverableNow"] = node.isFileHoverable();
+                }
                 if (node.hasGpuInstancing()) { // EXT_mesh_gpu_instancing
                     entry["gpuInstances"] = node.getGpuInstances().size();
                     entry["gpuInstancing"] = node.getGpuInstancingStatus();
@@ -1084,6 +1092,11 @@ void Application::registerAgentCommands()
                         if (data.isExplicit(key)) explicitKeys.push_back(key);
                     }
                 }
+            }
+            if (!found && extension == ux3d::gltf::Dispersion::ExtensionName && material->getDispersion().has_value()) {
+                found = true; // KHR_materials_dispersion: the typed value (default 0)
+                values["dispersion"] = material->getDispersion()->getDispersionOrDefault();
+                if (material->getDispersion()->hasDispersion()) explicitKeys.push_back("dispersion");
             }
             if (!found) {
                 for (const auto& [name, text] : material->getUnknownExtensions()) {

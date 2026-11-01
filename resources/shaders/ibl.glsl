@@ -110,9 +110,47 @@ vec3 getTransmissionSample(vec2 fragCoord, float roughness, float ior)
 
 
 #ifdef MATERIAL_TRANSMISSION
+#ifdef MATERIAL_DISPERSION
+uniform float u_Dispersion; // KHR_materials_dispersion: 20 / Abbe number
+#endif
 vec3 getIBLVolumeRefraction(vec3 n, vec3 v, float perceptualRoughness, vec3 baseColor, vec3 f0, vec3 f90,
     vec3 position, mat4 modelMatrix, mat4 viewMatrix, mat4 projMatrix, float ior, float thickness, vec3 attenuationColor, float attenuationDistance)
 {
+#if defined(MATERIAL_DISPERSION) && defined(MATERIAL_VOLUME)
+    // KHR_materials_dispersion (as the Khronos sample viewer): one refraction per colour channel, the IOR spread around
+    // the material IOR by halfSpread = (ior - 1) * 0.025 * dispersion (red bends least, blue most). The ray length of
+    // the last (blue) channel drives the volume attenuation, like the sample viewer. Dispersion 0 takes the
+    // single-sample path below, the same code as a material without the extension.
+    vec3 transmittedLight;
+    float transmissionRayLength;
+    if (u_Dispersion > 0.0) {
+        float halfSpread = (ior - 1.0) * 0.025 * u_Dispersion;
+        vec3 iors = vec3(ior - halfSpread, ior, ior + halfSpread);
+        for (int i = 0; i < 3; i++) {
+            vec3 channelRay = getVolumeTransmissionRay(n, v, thickness, iors[i], modelMatrix);
+            transmissionRayLength = length(channelRay);
+            vec4 channelNdc = projMatrix * viewMatrix * vec4(position + channelRay, 1.0);
+            vec2 channelCoords = channelNdc.xy / channelNdc.w;
+            channelCoords += 1.0;
+            channelCoords /= 2.0;
+            transmittedLight[i] = getTransmissionSample(channelCoords, perceptualRoughness, iors[i])[i];
+        }
+    } else {
+        vec3 transmissionRay = getVolumeTransmissionRay(n, v, thickness, ior, modelMatrix);
+        vec3 refractedRayExit = position + transmissionRay;
+
+        // Project refracted vector on the framebuffer, while mapping to normalized device coordinates.
+        vec4 ndcPos = projMatrix * viewMatrix * vec4(refractedRayExit, 1.0);
+        vec2 refractionCoords = ndcPos.xy / ndcPos.w;
+        refractionCoords += 1.0;
+        refractionCoords /= 2.0;
+
+        // Sample framebuffer to get pixel the refracted ray hits.
+        transmittedLight = getTransmissionSample(refractionCoords, perceptualRoughness, ior);
+        transmissionRayLength = length(transmissionRay);
+    }
+    vec3 attenuatedColor = applyVolumeAttenuation(transmittedLight, transmissionRayLength, attenuationColor, attenuationDistance);
+#else
     vec3 transmissionRay = getVolumeTransmissionRay(n, v, thickness, ior, modelMatrix);
     vec3 refractedRayExit = position + transmissionRay;
 
@@ -126,6 +164,7 @@ vec3 getIBLVolumeRefraction(vec3 n, vec3 v, float perceptualRoughness, vec3 base
     vec3 transmittedLight = getTransmissionSample(refractionCoords, perceptualRoughness, ior);
 
     vec3 attenuatedColor = applyVolumeAttenuation(transmittedLight, length(transmissionRay), attenuationColor, attenuationDistance);
+#endif
 
     // Sample GGX LUT to get the specular component.
     float NdotV = clampedDot(n, v);
