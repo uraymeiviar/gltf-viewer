@@ -173,6 +173,41 @@ flowchart TD
   - `ux3d::imgui::GridRenderer`: Infinite fading ground plane grid with adaptive grid subdivisions based on camera altitude and zoom.
   - `ux3d::imgui::BoundingBoxRenderer`: Immediate-mode wireframe bounding box renderer supporting both axis-aligned (AABB) and oriented bounding boxes (OBB).
 
+### 3.2a glTF Loading and Compressed Geometry
+
+- **Path**: `GltfParsing::fromFile` parses the JSON (`GltfFromJson`, `json/*FromJson.cpp`), then
+  `Gltf::loadBinaryDataToMemory` (`OpenGL-Renderer/Tools/tools/gltf/source/Gltf.cpp`) runs on the importer
+  thread: buffers (one async read each; the "Buffer read" stage), then meshopt decode, then images, then Draco.
+  GLB enters the same function from `GltfFromBinary::setBufferData`.
+- **EXT_meshopt_compression / KHR_meshopt_compression** (the same bitstream; KHR adds vertex codec v1 and the
+  COLOR filter): `BufferViewsFromJson` reads the bufferView extension into `BufferView::getMeshoptCompression()`
+  (`gltf/MeshoptCompression.h`) and `BuffersFromJson` the buffer's `fallback` flag; neither is kept as an unknown
+  extension. A fallback buffer is never read (it usually has no uri): it is allocated zeroed at its byteLength.
+  After the buffers, `meshopt::decodeBufferViews` (`source/MeshoptCompression.cpp`) checks each compressed view
+  against the specification (stride and count rules per mode and filter, EXT allows vertex codec v0 only, COLOR is
+  KHR only, ranges inside both buffers) and decodes it straight into the bufferView's own range of its buffer with
+  meshoptimizer's `meshopt_decodeVertexBuffer` / `IndexBuffer` / `IndexSequence` and the OCTAHEDRAL / QUATERNION /
+  EXPONENTIAL / COLOR filters. Everything after loading (accessors, renderer, validator, Statistics) sees a plain
+  bufferView. Each compressed view counts as one "Buffer read" progress item; allocation failures return
+  `AllocationFailure` like other buffer reads. A stream that fails to decode logs
+  `[Loading] EXT_meshopt_compression: bufferView N cannot be decoded: (reason)`, zeroes the range and returns
+  `GltfError::MeshoptDecodingError`, so the load fails ("Failed to load", the scene is replaced by an empty one)
+  instead of showing broken geometry. `GLIDER_TEST_DISABLE_MESHOPT=1` reads files as a loader without the extension
+  (views left undecoded, fallback buffers read normally): a file that lists the extension in `extensionsRequired` is
+  refused with an error naming it; one that only uses it renders from its uncompressed fallback.
+- **Library**: meshoptimizer `v1.3` (MIT), fetched in `cmake/standalone_dependencies.cmake`; only its codec sources
+  (`vertexcodec.cpp`, `indexcodec.cpp`, `vertexfilter.cpp`) are compiled into the static `meshopt_codec` library,
+  linked by the `Gltf` library (Glider calls only the decoders). The dev-only `meshopt_fixture_gen`
+  (`scripts/meshopt_fixture_gen.cpp`, `build/tools/<config>/`) uses the encoders to write the test fixtures of
+  `scripts/validate_meshopt.py`; it is built with the Glider target but never linked into it or shipped.
+- **Saving**: the decoded model has no meshopt extension, so `GltfParsing::toFile` would write plain, uncompressed
+  bufferViews (the compressed buffer, used by no bufferView, is dropped; the fallback buffer is stored like a loaded
+  file buffer). Glider has no Save command wired to it today (`Application::saveGltfModel` has no caller).
+- **Draco** (`KHR_draco_mesh_compression`): decoded per primitive after the images (`DracoDecoder`).
+- **Unsupported extensions**: the loader reads only the extensions it knows and does not refuse a file for an unknown
+  required one; `gltf::isExtensionSupported` (`gltf/Extensions.h`) is the one support list and the validator reports
+  what it does not contain (section 3.7).
+
 ### 3.3 GPU Color Picking & Oriented Bounding Boxes (OBB)
 
 - **Picking FBO**: An offscreen `GL_RGBA8` framebuffer rendered by `ux3d::renderer::PickingRenderLayer`. Each drawable mesh receives a unique 24-bit integer ID encoded as `(R << 16) | (G << 8) | B`.
@@ -273,6 +308,12 @@ Replaces the legacy external `gltf_validator.exe` subprocess with a native, 100%
   - Animation timeline monotonicity ($t_{i+1} > t_i$) and interpolation output count checks.
   - Scene hierarchy cycle detection (DFS loop checking) and multi-parent rule checks.
   - External resource URI portability checks (warnings for absolute paths, infos for external URLs).
+  - Extension support: every `extensionsRequired` entry outside `gltf::isExtensionSupported` (the KHR/EXT/MSFT names
+    of `getAllExtensionNames()`, EXT/KHR_meshopt_compression, `ux3d_gestaltor`, and the ASOBO support-table rows that
+    are not "Not yet supported") is a warning `EXTENSION_REQUIRED_UNSUPPORTED` ("Required extension X is not
+    supported; the file may not display correctly."); an unsupported `extensionsUsed` entry that is not required is an
+    info `EXTENSION_USED_UNSUPPORTED` (ASOBO extensions keep their own "not rendered" info,
+    `ASOBO_EXTENSIONS_NOT_RENDERED`).
 - **Interactive UI (`ValidationPanel`)**:
   - Filterable issues table with Errors (🔴), Warnings (🟡), and Infos (🔵).
   - Quick-search filter by code, JSON pointer, or message.

@@ -41,6 +41,8 @@ target_link_libraries(${lib_name} PUBLIC Audio)
 FIND_PACKAGE(draco)
 
 target_link_libraries(${lib_name} PRIVATE draco::draco)
+# EXT/KHR_meshopt_compression decoder (meshoptimizer codec sources only, cmake/standalone_dependencies.cmake)
+target_link_libraries(${lib_name} PRIVATE meshopt_codec)
 target_include_directories(${lib_name} PRIVATE ${draco_INCLUDE_DIRS})
 
 if (UX3D_USE_IWYU)

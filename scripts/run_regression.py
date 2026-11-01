@@ -125,7 +125,10 @@ Suites (equivalence against the baseline plus each feature's analytic acceptance
   validate_area_maximize.py (Maximize Area / Full Screen / drag-and-drop open: restored layout and byte-identical
   viewport image, borderless full screen and Esc, keys and menus, drops, settings.ini keeps the restored layout),
   validate_settings_scopes.py (Quality levels / scene appearance and shared ground / viewport Shaded and overlays:
-  legacy flags against the baseline, CLI = pipe, migration/restart, shared ocean, UI ID conflicts)
+  legacy flags against the baseline, CLI = pipe, migration/restart, shared ocean, UI ID conflicts),
+  validate_meshopt.py (EXT/KHR_meshopt_compression: compressed fixtures written by build/tools meshopt_fixture_gen
+  render byte-identical to their plain twins, fallback buffers, decode failure / extension off refuse the load,
+  validator notices for unsupported required / used extensions; plain twins against the baseline)
 Full tier: every suite above except the on-demand suites (see above), plus
   --with-ab (each feature against its own switch; validate_p8_5.py then also runs the P5.1 cases with
   --always-pick) and validate_p8_5.py's 10,000-drawable grid and MSAA/TAA fixture copies (the quick tier passes
@@ -206,6 +209,12 @@ TRIGGERS = (
      ("asobo_*.glsl", "decal_*", "material_info.glsl", "textures.glsl", "AsoboExtension*", "AsoboSupport.*",
       "resources/schemas/asobo/*", "TextureUtils.*", "Decal*", "DrawOrder.h", "TextureDds.*", "Dds.*", "Ktx2*",
       "GltfRenderLayerMaterials.cpp")),
+    # glTF loading: EXT/KHR_meshopt_compression decode, buffers and bufferViews, extension lists, the validator.
+    (("meshopt",),
+     ("MeshoptCompression.*", "meshopt_*", "Buffer.cpp", "Buffer.h", "BufferView.cpp", "BufferView.h",
+      "BuffersFromJson.*", "BufferViewsFromJson.*", "GltfObjectFromJson.*", "GltfFromJson.*", "GltfFromBinary.*",
+      "GltfParsing.*", "OpenGL-Renderer/Tools/tools/gltf/source/Gltf.cpp", "GltfResult.h", "Extensions.cpp",
+      "Extensions.h", "GltfValidator.*")),
     (("settings_scopes", "viewport_image", "area_maximize", "agent_control", "review_fixes"),
      ("Settings*", "ViewportOverrides.*", "source/imgui/application/Commands*", "ControlPipe.*",
       "CommandRegistry.*", "AreaLayout.cpp", "Menus.cpp", "ViewportImage.cpp", "Panels.cpp", "AppSettings.*",
@@ -394,6 +403,7 @@ serial_jobs = [
     ("viewport_image", ["scripts/validate_viewport_image.py"]),
     ("area_maximize", ["scripts/validate_area_maximize.py"]),
     ("settings_scopes", ["scripts/validate_settings_scopes.py", "--baseline-exe", str(baseline)]),
+    ("meshopt", ["scripts/validate_meshopt.py", "--baseline-exe", str(baseline)]),
 ]
 # validate_p5_1.py is superseded (its counter checks run in validate_p8_5.py) and no longer registered.
 tier_suites = [name for name, _ in jobs + serial_jobs] + list(SELFCHECKS)

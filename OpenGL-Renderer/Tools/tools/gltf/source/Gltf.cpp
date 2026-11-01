@@ -5,6 +5,7 @@
 #include "core/Algorithms.h"
 #include "gltf/DracoDecoder.h"
 #include "gltf/Merger.h"
+#include "gltf/MeshoptCompression.h"
 
 #include <future>
 #include <thread>
@@ -668,14 +669,31 @@ GltfResult Gltf::loadBinaryDataToMemory(const std::optional<filesystem::Dir>& gl
         if (!results.reserve(m_buffers.size())) {
             return GltfError::AllocationFailure;
         }
-        core::loading::begin(core::loading::Buffers, static_cast<uint32_t>(m_buffers.size()));
+        // EXT/KHR_meshopt_compression: compressed bufferViews count as Buffer-read work items; their decode runs here,
+        // on this (importer) thread, after every buffer is in memory and before images, which may read bufferViews.
+        uint32_t meshoptViews = 0;
+        if (!imagesOnly) for (const auto& bufferView : m_bufferViews) {
+            meshoptViews += bufferView.getMeshoptCompression().has_value() ? 1u : 0u;
+        }
+        core::loading::begin(core::loading::Buffers, static_cast<uint32_t>(m_buffers.size()) + meshoptViews);
         const auto buffersStart = core::loading::Clock::now();
         if (!imagesOnly) for (auto& buffer : m_buffers) {
+            if (buffer.isMeshoptFallback()) {
+                // Only compressed bufferViews use it: never read (it often has no uri); the decoder fills it.
+                results.emplace_back(std::async(std::launch::deferred, [&buffer]() {
+                    const GltfResult allocated = buffer.allocateZeroed();
+                    return allocated == GltfError::ObjectAlreadyExists ? GltfResult(GltfResult::Success) : allocated;
+                }));
+                continue;
+            }
             results.emplace_back(std::async(std::launch::async, [&buffer, &gltfDir]() { return buffer.loadDataToMemory(gltfDir); }));
         }
         for (auto& res : results) {
             result = core::Max(res.get(), result);
             ++core::loading::state.completed;
+        }
+        if (!imagesOnly && (meshoptViews != 0 || !m_requiredUnknownExtensions.empty())) {
+            result = core::Max(meshopt::decodeBufferViews(*this), result);
         }
 
         {

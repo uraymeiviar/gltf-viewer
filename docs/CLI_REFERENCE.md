@@ -258,6 +258,12 @@ Short forms of flags whose longer documentation lives in the phase documents (`R
 
 - `GLIDER_TEST_SKY_FIXED_COST=<ms per unit>` (environment, read once at the first use): the procedural sky's time-sliced IBL scheduler (`SkyEnvironment::msPerUnit`, used by `runSlices`) plans every filter and source-cube piece of work at this constant GPU cost per unit (one filter sample at one texel; `validate_sky.py` uses `7e-7`) and every LUT build at 0.5 ms, instead of the costs measured with GL timestamps. Rows per frame, jobs and swaps then no longer depend on the GPU's load (`validate_sky.py`'s swap and planned-budget checks). Unset, empty, non-numeric or ≤ 0: ignored, unchanged behaviour (an invalid value logs one line). The measured GPU times (`gpuMs*`, `overBudgetFrames`) are still reported; the sky stats also report `testFixedMsPerUnit` (0 without the hook), `plannedMsMax` and `plannedOverBudgetFrames` (the scheduler's own estimate of each time-sliced frame's work).
 
+- `GLIDER_TEST_DISABLE_MESHOPT=1` (environment, read once): the loader treats EXT/KHR_meshopt_compression as unknown,
+  like a loader without the extension: compressed bufferViews are not decoded and fallback buffers are read from
+  their uri. A file listing the extension in `extensionsRequired` is then refused with `[Loading] the file requires
+  EXT_meshopt_compression, which is switched off ...`; a file that only uses it renders from its fallback data.
+  Used by `scripts/validate_meshopt.py`; unset, empty or `0`: the extension is decoded.
+
 - `GLIDER_NO_FOCUS=1` (environment): shows and renders the window normally but creates it without keyboard focus (`GLFW_FOCUSED` / `GLFW_FOCUS_ON_SHOW` false); unset behaviour is unchanged.
 
 ## Invocation example

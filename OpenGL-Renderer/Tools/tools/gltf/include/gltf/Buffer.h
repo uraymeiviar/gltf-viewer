@@ -33,6 +33,16 @@ public:
 
     GltfResult loadDataToMemory(const std::optional<filesystem::Dir>& _gltfDir);
 
+    // EXT/KHR_meshopt_compression "fallback": true. The buffer is only referenced by compressed bufferViews, so with
+    // the extension decoded it is never read (often it has no uri); loading allocates byteLength zeroed bytes that
+    // the decoder fills.
+    bool isMeshoptFallback() const { return m_meshoptFallback; }
+    void setMeshoptFallback(bool _fallback) { m_meshoptFallback = _fallback; }
+    // Zero-filled byteLength bytes, for a fallback buffer the decoder writes into.
+    GltfResult allocateZeroed();
+    // Writable bytes [offset, offset + length), or nullptr when the range is outside the data.
+    uint8_t* mutableRange(size_t _offset, size_t _length);
+
     bool isValid() const override;
     GltfResult getInvalidProperties(core::Vector<core::string>& _invalidProperties) const override;
 
@@ -51,5 +61,6 @@ private:
     std::optional<core::string> m_uri;
     uint32_t m_byteLength = 0u;
     StorageFormat m_storageFormat = StorageFormat::Undefined;
+    bool m_meshoptFallback = false;
 };
 }

@@ -72,6 +72,7 @@
 - **Advanced glTF 2.0 PBR Rendering**:
   - Full support for glTF 2.0 Core specification and PBR metallic-roughness materials.
   - Extension support: Specular-Glossiness, Clearcoat, Sheen, Transmission, Volume, IOR, Iridescence, Material Variants, and Punctual Lights.
+  - Compressed geometry: KHR_draco_mesh_compression and EXT_meshopt_compression / KHR_meshopt_compression (decoded at load).
   - Real-time Image-Based Lighting (IBL) with spherical harmonics and environment radiance filtering supporting both Radiance HDR (`.hdr`) and OpenEXR (`.exr`) panoramic environment maps.
   - Infinite fading ground grid and 30+ render debug modes (Wireframe, Normal, Roughness, Metallic, Base Color, UV, Clearcoat, Sheen, etc.).
   - Window state and recent file history persistence across sessions.

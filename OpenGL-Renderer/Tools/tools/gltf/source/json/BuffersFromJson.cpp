@@ -1,6 +1,7 @@
 #include "gltf/json/BuffersFromJson.h"
 #include "gltf/EmbeddedData.h"
 #include "gltf/Gltf.h"
+#include "gltf/MeshoptCompression.h"
 #include "gltf/Utils.h"
 #include "gltf/json/GltfObjectFromJson.h"
 #include "gltf/json/PointerLookup.h"
@@ -46,7 +47,12 @@ ux3d::gltf::ConversionResult ux3d::gltf::BuffersFromJson::convert(const nlohmann
         } else if (key == "extensions") {
             if (value.is_object()) {
                 for (const auto& [extensionName, extension] : value.items()) {
-                    if (extensionName == "ux3d_gestaltor") {
+                    if (meshopt::isMeshoptExtension(extensionName)) {
+                        // "fallback": true marks a buffer only compressed bufferViews use (decoded at load).
+                        if (extension.is_object() && extension.contains("fallback") && extension["fallback"].is_boolean()) {
+                            pBuffer->setMeshoptFallback(extension["fallback"].get<bool>() && !meshopt::decodingDisabled());
+                        }
+                    } else if (extensionName == "ux3d_gestaltor") {
                         if (extension.is_object()) {
                             if (core::Failed(convertStorageFormat(extension, *pBuffer))) {
                                 containsErrors = true;

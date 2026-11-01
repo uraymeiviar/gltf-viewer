@@ -150,6 +150,13 @@ python scripts/run_regression.py --tier full
 - **`validate_p5_1.py` is superseded** (not registered): its candidate counters — no unserved click, one picking
   render per viewport click, no picking render on idle frames — plus the focus double-click, resize clicks,
   split-viewport node check and `--always-pick` A/B run in `validate_p8_5.py`.
+- **`meshopt` suite** (`validate_meshopt.py`; triggers: the meshopt sources, the glTF buffer/bufferView/JSON loader
+  files, `Gltf.cpp`, `Extensions.*`, `GltfValidator.*`, `meshopt_*`): runs `build/tools/Release/meshopt_fixture_gen.exe`
+  into `build/meshopt/fixtures` (EXT and KHR GLBs, a `.gltf` with a uri-less fallback buffer, a used-not-required
+  file with an uncompressed fallback, a damaged stream; about 360 KB, generated, never committed) and requires every
+  compressed file to render byte-identical to its plain twin (same decoded bytes, no extension), the damaged and
+  the `GLIDER_TEST_DISABLE_MESHOPT=1` required files to be refused with their error, the validator notices for
+  unsupported required/used extensions, and the plain twins to equal the baseline.
 - **Per-suite summary**: the run ends with each suite's wall time and Glider launches (current build, baseline,
   baseline served from the cache, baseline started, repeated argument sets, control-pipe/follow sessions and their
   summed seconds), slowest first, and writes `build/regression/summary.json` (with the candidate and why each suite
@@ -210,6 +217,9 @@ python scripts/run_regression.py --tier full
 ### 4.6 Third-party code
 
 There are no git submodules. GLM is vendored as headers in `thirdparty/glm` (version in its README); the other
-libraries are fetched by CMake `FetchContent` (`cmake/standalone_dependencies.cmake`). The glTF, Khronos and ASOBO
+libraries are fetched by CMake `FetchContent` (`cmake/standalone_dependencies.cmake`). meshoptimizer (`v1.3`, MIT;
+EXT/KHR_meshopt_compression) is fetched there too: only its three codec sources are compiled (`meshopt_codec`,
+decoders used by Glider), plus the dev-only fixture writer `meshopt_fixture_gen` (`scripts/meshopt_fixture_gen.cpp`,
+output `build/tools/Release/`), which the Glider target builds as a dependency and which is never shipped. The glTF, Khronos and ASOBO
 JSON schemas live in `resources/schemas`. The UX3D libraries' own unit tests (`UX3D_RUNTIME_TESTING`,
 `UX3D_TOOLS_TESTING`) and the editor's `Operations` library are not built.

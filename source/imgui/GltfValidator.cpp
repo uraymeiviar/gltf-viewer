@@ -5,6 +5,7 @@
 #include "imgui/StdFileSystem.h"
 
 #include "gltf/Gltf.h"
+#include "gltf/Extensions.h"
 #include "gltf/IndexLookup.h"
 #include "gltf/Node.h"
 #include "gltf/Mesh.h"
@@ -840,6 +841,41 @@ ValidationReport GltfValidator::validate(const std::string& filePath, ux3d::gltf
                     report.addIssue(ValidationSeverity::Error, "REQUIRED_EXTENSION_NOT_USED",
                                     "Extension '" + req + "' is declared in extensionsRequired but not in extensionsUsed.", "/extensionsRequired");
                 }
+            }
+        }
+    }
+
+    // 3.8a Extensions Glider does not read (gltf::isExtensionSupported, the one support list): a warning for each
+    // extensionsRequired entry, an info for each extensionsUsed entry that is not required. ASOBO extensions that are
+    // only used are left to the "not rendered" notice below.
+    {
+        std::vector<std::string> requiredNames;
+        if (jsonDoc.contains("extensionsRequired") && jsonDoc["extensionsRequired"].is_array()) {
+            for (const auto& r : jsonDoc["extensionsRequired"]) {
+                if (r.is_string()) requiredNames.push_back(r.get<std::string>());
+            }
+        }
+        for (size_t i = 0; i < requiredNames.size(); ++i) {
+            const std::string& name = requiredNames[i];
+            if (std::find(requiredNames.begin(), requiredNames.begin() + i, name) != requiredNames.begin() + i) continue;
+            if (!ux3d::gltf::isExtensionSupported(name)) {
+                report.addIssue(ValidationSeverity::Warning, "EXTENSION_REQUIRED_UNSUPPORTED",
+                                "Required extension " + name + " is not supported; the file may not display correctly.",
+                                "/extensionsRequired/" + std::to_string(i));
+            }
+        }
+        if (jsonDoc.contains("extensionsUsed") && jsonDoc["extensionsUsed"].is_array()) {
+            const auto& usedNames = jsonDoc["extensionsUsed"];
+            std::unordered_set<std::string> seen;
+            for (size_t i = 0; i < usedNames.size(); ++i) {
+                if (!usedNames[i].is_string()) continue;
+                const std::string name = usedNames[i].get<std::string>();
+                if (!seen.insert(name).second) continue;
+                if (std::find(requiredNames.begin(), requiredNames.end(), name) != requiredNames.end()) continue;
+                if (ux3d::gltf::asobo::isAsoboExtension(name) || ux3d::gltf::isExtensionSupported(name)) continue;
+                report.addIssue(ValidationSeverity::Info, "EXTENSION_USED_UNSUPPORTED",
+                                "Extension " + name + " is not supported by Glider and is ignored.",
+                                "/extensionsUsed/" + std::to_string(i));
             }
         }
     }

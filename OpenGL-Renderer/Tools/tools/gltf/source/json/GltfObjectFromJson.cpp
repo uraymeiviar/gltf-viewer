@@ -2,6 +2,7 @@
 #include "core/Algorithms.h"
 #include "gltf/Extensions.h"
 #include "gltf/GltfObject.h"
+#include "gltf/MeshoptCompression.h"
 
 using namespace ux3d;
 using namespace ux3d::gltf;
@@ -17,6 +18,11 @@ ConversionResult GltfObjectFromJson::convertUnknownExtensions(const nlohmann::js
         if (pValue->is_object()) {
             auto extensionNames = getAllExtensionNames();
             for (const auto& [extensionName, extension] : pValue->items()) {
+                // EXT/KHR_meshopt_compression is read by BufferViewsFromJson / BuffersFromJson and decoded at load; the
+                // decoded model has plain bufferViews, so the extension is not kept for writing back.
+                if (meshopt::isMeshoptExtension(extensionName)) {
+                    continue;
+                }
                 if (core::find(extensionNames.begin(), extensionNames.end(), extensionName) == extensionNames.end()) {
                     if (extension.is_object()) {
                         bool skipExtension = false;

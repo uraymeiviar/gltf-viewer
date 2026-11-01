@@ -15,6 +15,7 @@ ux3d::gltf::BufferView::BufferView(uint32_t _id, const BufferView& _source)
     , m_byteLength(_source.m_byteLength)
     , m_byteStride(_source.m_byteStride)
     , m_target(_source.m_target)
+    , m_meshopt(_source.m_meshopt)
 {
 }
 

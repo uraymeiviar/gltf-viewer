@@ -291,3 +291,39 @@ if(NOT tinyexr_POPULATED)
     endif()
 endif()
 
+
+# 18. meshoptimizer (EXT_meshopt_compression / KHR_meshopt_compression)
+# Only the codec sources are compiled: meshopt_codec holds the vertex/index codecs and the vertex filters. Glider
+# calls only their decoders (the linker drops the unused encoders). The encoders are used by the dev-only fixture
+# tool meshopt_fixture_gen (scripts/meshopt_fixture_gen.cpp, written to build/tools, never shipped), which
+# scripts/validate_meshopt.py runs to write its test files.
+message(STATUS "[Standalone] Fetching meshoptimizer...")
+FetchContent_Declare(
+    meshoptimizer
+    GIT_REPOSITORY https://github.com/zeux/meshoptimizer.git
+    GIT_TAG v1.3
+)
+FetchContent_GetProperties(meshoptimizer)
+if(NOT meshoptimizer_POPULATED)
+    FetchContent_Populate(meshoptimizer)
+    add_library(meshopt_codec STATIC
+        ${meshoptimizer_SOURCE_DIR}/src/vertexcodec.cpp
+        ${meshoptimizer_SOURCE_DIR}/src/indexcodec.cpp
+        ${meshoptimizer_SOURCE_DIR}/src/vertexfilter.cpp
+    )
+    target_include_directories(meshopt_codec PUBLIC ${meshoptimizer_SOURCE_DIR}/src)
+    set_target_properties(meshopt_codec PROPERTIES FOLDER "thirdparty")
+
+    add_executable(meshopt_fixture_gen EXCLUDE_FROM_ALL "${CMAKE_CURRENT_LIST_DIR}/../scripts/meshopt_fixture_gen.cpp"
+        ${meshoptimizer_SOURCE_DIR}/src/vcacheoptimizer.cpp)
+    target_link_libraries(meshopt_fixture_gen PRIVATE meshopt_codec nlohmann_json::nlohmann_json)
+    set_target_properties(meshopt_fixture_gen PROPERTIES
+        CXX_STANDARD 20
+        CXX_STANDARD_REQUIRED ON
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tools"
+        RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/tools/Release"
+        RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/tools/Debug"
+        RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO "${CMAKE_BINARY_DIR}/tools/RelWithDebInfo"
+        RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL "${CMAKE_BINARY_DIR}/tools/MinSizeRel"
+    )
+endif()

@@ -6,6 +6,7 @@
 #include "core/String.h"
 #include "core/Vector.h"
 #include <cstdint>
+#include <string_view>
 
 namespace ux3d::gltf {
 enum class Extension : uint32_t {
@@ -42,5 +43,11 @@ core::string extensionToString(Extension _extension);
 Extension stringToExtension(core::string& _extensionStr);
 bool extensionStringKnown(core::string& _extensionStr);
 bool isExtensionRequired(Extension _extension);
+
+// The one list of glTF extensions Glider reads or renders (validator: unsupported extensionsRequired /
+// extensionsUsed entries): every name of getAllExtensionNames() (KHR_*, EXT_texture_webp, MSFT_texture_dds),
+// EXT_meshopt_compression and KHR_meshopt_compression (decoded at load), ux3d_gestaltor (Gestaltor's own storage
+// hints), and every row of asobo::supportTable() (ASOBO_*) that is not "Not yet supported".
+bool isExtensionSupported(std::string_view _extensionName);
 
 }

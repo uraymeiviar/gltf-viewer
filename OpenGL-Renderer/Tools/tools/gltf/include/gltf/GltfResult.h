@@ -20,7 +20,8 @@ enum class GltfError : uint32_t {
     AttributeDeletionFailure,
     EncodingFailed,
     ResolutionMismatch,
-    TextureTransformIsPresent
+    TextureTransformIsPresent,
+    MeshoptDecodingError // a compressed bufferView (EXT/KHR_meshopt_compression) could not be decoded
 };
 
 using GltfResult = core::ResultT<GltfError>;

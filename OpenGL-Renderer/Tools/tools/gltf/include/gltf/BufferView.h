@@ -4,6 +4,7 @@
 
 #include "ChildOfRoot.h"
 #include "core/MemoryRange.h"
+#include "gltf/MeshoptCompression.h"
 #include <optional>
 
 //See https://github.com/KhronosGroup/glTF/tree/master/specification/2.0#bufferview
@@ -43,6 +44,11 @@ public:
 
     GltfResult getData(core::MemoryRange<const uint8_t>& _outData) const;
 
+    // EXT/KHR_meshopt_compression of this bufferView, as read from the file (decoded at load).
+    const std::optional<MeshoptCompression>& getMeshoptCompression() const { return m_meshopt; }
+    std::optional<MeshoptCompression>& getMeshoptCompression() { return m_meshopt; }
+    void setMeshoptCompression(const MeshoptCompression& _meshopt) { m_meshopt = _meshopt; }
+
     bool isValid() const override;
     GltfResult getInvalidProperties(core::Vector<core::string>& _invalidProperties) const override;
 
@@ -52,5 +58,6 @@ private:
     uint32_t m_byteLength = 0u;
     std::optional<uint32_t> m_byteStride;
     std::optional<uint32_t> m_target;
+    std::optional<MeshoptCompression> m_meshopt;
 };
 }

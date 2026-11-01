@@ -227,6 +227,12 @@ endif()
 add_executable(${APP_NAME} ${GLIDER_SOURCES})
 
 # Backwards compatibility alias for build scripts specifying Gestaltor or Gestaltor-ImGui
+# The dev-only meshopt fixture writer (build/tools, not linked into Glider, not shipped) is built with Glider so that
+# scripts/validate_meshopt.py always finds the encoder matching the decoder Glider links.
+if(TARGET meshopt_fixture_gen)
+	add_dependencies(${APP_NAME} meshopt_fixture_gen)
+endif()
+
 add_custom_target(Gestaltor DEPENDS ${APP_NAME})
 add_custom_target(Gestaltor-ImGui DEPENDS ${APP_NAME})
 

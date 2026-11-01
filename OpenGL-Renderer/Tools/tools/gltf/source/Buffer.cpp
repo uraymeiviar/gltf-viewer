@@ -8,6 +8,8 @@
 #include "gltf/Gltf.h"
 #include "gltf/Utils.h"
 
+#include <algorithm>
+
 using namespace ux3d;
 using namespace ux3d::gltf;
 
@@ -23,6 +25,7 @@ ux3d::gltf::Buffer::Buffer(uint32_t _id, const Buffer& _source)
     , m_uri(_source.m_uri)
     , m_byteLength(_source.m_byteLength)
     , m_storageFormat(_source.m_storageFormat)
+    , m_meshoptFallback(_source.m_meshoptFallback)
 {
 }
 
@@ -124,6 +127,31 @@ ux3d::gltf::GltfResult ux3d::gltf::Buffer::loadDataToMemory(const std::optional<
     m_storageFormat = StorageFormat::File;
 
     return GltfResult::Success;
+}
+
+ux3d::gltf::GltfResult ux3d::gltf::Buffer::allocateZeroed()
+{
+    if (!m_data.empty()) {
+        return GltfError::ObjectAlreadyExists;
+    }
+    if (!m_data.resize(m_byteLength)) {
+        return GltfError::AllocationFailure;
+    }
+    std::fill(m_data.begin(), m_data.end(), uint8_t(0));
+    if (m_storageFormat == StorageFormat::Undefined) {
+        m_storageFormat = StorageFormat::File; // the decoded data is written like any loaded buffer on export
+    }
+    m_historyDataIsDirty = true;
+    return GltfResult::Success;
+}
+
+uint8_t* ux3d::gltf::Buffer::mutableRange(size_t _offset, size_t _length)
+{
+    if (_offset > m_data.size() || _length > m_data.size() - _offset) {
+        return nullptr;
+    }
+    m_historyDataIsDirty = true;
+    return m_data.data() + _offset;
 }
 
 bool ux3d::gltf::Buffer::isValid() const

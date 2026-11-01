@@ -1,6 +1,8 @@
 #include "gltf/Extensions.h"
 #include "core/Algorithms.h"
 #include "core/Logger.h"
+#include "gltf/MeshoptCompression.h"
+#include "gltf/extensions/AsoboSupport.h"
 
 ux3d::core::Vector<ux3d::gltf::Extension> ux3d::gltf::getAllExtensions()
 {
@@ -209,4 +211,22 @@ bool ux3d::gltf::isExtensionRequired(Extension _extension)
     }
 
     return true;
+}
+
+bool ux3d::gltf::isExtensionSupported(std::string_view _extensionName)
+{
+    if (meshopt::isMeshoptExtension(_extensionName) || _extensionName == "ux3d_gestaltor") {
+        return true;
+    }
+    for (const core::string& name : getAllExtensionNames()) {
+        if (name == _extensionName) {
+            return true;
+        }
+    }
+    for (const asobo::SupportInfo& info : asobo::supportTable()) {
+        if (info.name == _extensionName) {
+            return info.status != asobo::Support::NotYetSupported;
+        }
+    }
+    return false;
 }
