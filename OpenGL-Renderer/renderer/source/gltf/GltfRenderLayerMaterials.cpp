@@ -180,6 +180,11 @@ void GltfRenderLayer::initMaterialMapping(gl::GL* gl)
         // anisotropy defaults (KHR_materials_anisotropy: rotation 0, strength 0)
         material->setUniform<math::vec3>("u_Anisotropy", math::vec3(1.f, 0.f, 0.f));
 
+        // KHR_materials_diffuse_transmission / KHR_materials_diffuse_roughness defaults (factor 0, colour white)
+        material->setUniform<float>("u_DiffuseTransmissionFactor", 0.f);
+        material->setUniform<math::vec3>("u_DiffuseTransmissionColorFactor", math::vec3(1.f));
+        material->setUniform<float>("u_DiffuseRoughnessFactor", 0.f);
+
         if (m_resourceManager.getFramebufferTexture() != nullptr && m_resourceManager.getFramebufferSamplerState() != nullptr) {
             material->defines.define("HAS_OPAQUE_FRAMEBUFFER");
             material->samplers.emplace_back("u_TransmissionFramebufferSampler", m_resourceManager.getFramebufferTexture(), m_resourceManager.getFramebufferSamplerState());
@@ -442,6 +447,23 @@ void GltfRenderLayer::initMaterialMapping(gl::GL* gl)
             }
         }
         createSampler("Occlusion", occlusionTexture, "occlusionTexture");
+
+        // MSFT_packing_occlusionRoughnessMetallic: occlusionRoughnessMetallicTexture has the core channel layout (R
+        // occlusion, G roughness, B metallic), an alternative packing of the same data. It is bound only into the slots
+        // the material leaves empty (no core occlusion / metallic-roughness texture), with strength 1.
+        if (m_syncingGltf != nullptr && m_syncingGltf->isExtensionDeclared(gltf::msft::PackingOrm)) {
+            const gltf::msft::TextureRef orm = gltf::msft::packedOcclusionRoughnessMetallic(*gltfMaterial);
+            if (orm.index >= 0 && static_cast<size_t>(orm.index) < m_syncingGltf->getTextures().size()) {
+                const gltf::Texture* ormTexture = &m_syncingGltf->getTextures().at(static_cast<size_t>(orm.index));
+                if (!occlusionTexture.has_value()) {
+                    createSamplerFromTexture("Occlusion", ormTexture, static_cast<uint32_t>(orm.texCoord), true);
+                }
+                const auto& coreMetallicRoughness = gltfMaterial->getPbrMetallicRoughness();
+                if (!(coreMetallicRoughness.has_value() && coreMetallicRoughness->getMetallicRoughnessTextureInfo().has_value())) {
+                    createSamplerFromTexture("MetallicRoughness", ormTexture, static_cast<uint32_t>(orm.texCoord), true);
+                }
+            }
+        }
 
         // A5.1: ASOBO_material_detail_map. Its four textures are optional and each goes
         // through the same sampler path as the core textures (DDS preference, KTX2 block
@@ -775,6 +797,26 @@ void GltfRenderLayer::initMaterialMapping(gl::GL* gl)
             m_animationPointerTargets.erase({ gltfMaterial, gltf::Dispersion::PointerPath });
         }
 
+        // KHR_materials_diffuse_transmission: the define is set for every material carrying the extension (an animated
+        // factor can move away from 0); the shader keeps the original Lambert code for a factor of 0, so 0 renders
+        // byte-identically to the material without the extension. KHR_materials_diffuse_roughness the same way (a
+        // roughness of 0 is the Lambert code).
+        const auto& diffuseTransmission = gltfMaterial->getDiffuseTransmission();
+        if (diffuseTransmission.has_value()) {
+            createSampler("DiffuseTransmission", diffuseTransmission->getDiffuseTransmissionTextureInfo(), gltf::DiffuseTransmission::TexturePointer);
+            createSampler("DiffuseTransmissionColor", diffuseTransmission->getDiffuseTransmissionColorTextureInfo(), gltf::DiffuseTransmission::ColorTexturePointer, false);
+            material->setUniform<float>("u_DiffuseTransmissionFactor", static_cast<float>(diffuseTransmission->getDiffuseTransmissionFactorOrDefault()));
+            material->setUniform<math::vec3>("u_DiffuseTransmissionColorFactor", diffuseTransmission->getDiffuseTransmissionColorFactorOrDefault());
+            setUniformAsAnimationPointerTarget<float>(gltfMaterial, gltf::DiffuseTransmission::FactorPointer, material, "u_DiffuseTransmissionFactor");
+            setUniformAsAnimationPointerTarget<glm::vec3>(gltfMaterial, gltf::DiffuseTransmission::ColorFactorPointer, material, "u_DiffuseTransmissionColorFactor");
+        }
+        const auto& diffuseRoughness = gltfMaterial->getDiffuseRoughness();
+        if (diffuseRoughness.has_value()) {
+            createSampler("DiffuseRoughness", diffuseRoughness->getDiffuseRoughnessTextureInfo(), gltf::DiffuseRoughness::TexturePointer);
+            material->setUniform<float>("u_DiffuseRoughnessFactor", static_cast<float>(diffuseRoughness->getDiffuseRoughnessFactorOrDefault()));
+            setUniformAsAnimationPointerTarget<float>(gltfMaterial, gltf::DiffuseRoughness::FactorPointer, material, "u_DiffuseRoughnessFactor");
+        }
+
         const auto& iridescence = gltfMaterial->getIridescence();
         if (iridescence.has_value()) {
             createSampler("Iridescence", iridescence->getIridescenceTextureInfo(), "extensions/KHR_materials_iridescence/iridescenceTexture");
@@ -880,6 +922,8 @@ void GltfRenderLayer::initMaterialMapping(gl::GL* gl)
         material->defines.defineIf(transmission.has_value(), "MATERIAL_TRANSMISSION");
         material->defines.defineIf(volume.has_value(), "MATERIAL_VOLUME");
         material->defines.defineIf(dispersive, "MATERIAL_DISPERSION");
+        material->defines.defineIf(diffuseTransmission.has_value() && !gltfMaterial->isUnlit(), "MATERIAL_DIFFUSE_TRANSMISSION");
+        material->defines.defineIf(diffuseRoughness.has_value() && !gltfMaterial->isUnlit(), "MATERIAL_DIFFUSE_ROUGHNESS");
         material->defines.defineIf(iridescence.has_value(), "MATERIAL_IRIDESCENCE");
         material->defines.defineIf(material->khrAnisotropy, "MATERIAL_ANISOTROPY");
 
@@ -949,6 +993,15 @@ void GltfRenderLayer::initMaterialMapping(gl::GL* gl)
 
         m_animationPointerTargets.erase({ gltfMaterial, "extensions/KHR_materials_ior/ior" });
         m_animationPointerTargets.erase({ gltfMaterial, gltf::Dispersion::PointerPath });
+        m_animationPointerTargets.erase({ gltfMaterial, gltf::DiffuseTransmission::FactorPointer });
+        m_animationPointerTargets.erase({ gltfMaterial, gltf::DiffuseTransmission::ColorFactorPointer });
+        m_animationPointerTargets.erase({ gltfMaterial, gltf::DiffuseRoughness::FactorPointer });
+        for (const char* texturePointer : { gltf::DiffuseTransmission::TexturePointer, gltf::DiffuseTransmission::ColorTexturePointer,
+                                            gltf::DiffuseRoughness::TexturePointer }) {
+            for (const char* property : { "offset", "rotation", "scale" }) {
+                m_animationPointerTargets.erase({ gltfMaterial, std::string(texturePointer) + "/extensions/KHR_texture_transform/" + property });
+            }
+        }
 
         m_animationPointerTargets.erase({ gltfMaterial, "extensions/KHR_materials_transmission/transmissionFactor" });
         m_animationPointerTargets.erase({ gltfMaterial, "extensions/KHR_materials_transmission/transmissionTexture/extensions/KHR_texture_transform/offset" });

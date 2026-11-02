@@ -371,6 +371,27 @@ vec3 windshieldReflection(vec3 fallback, vec3 n, vec3 v, float roughness, vec3 f
 }
 #endif
 
+#if defined(MATERIAL_DIFFUSE_TRANSMISSION) || defined(MATERIAL_DIFFUSE_ROUGHNESS)
+// The colour of a direct light's diffuse reflection in the BRDF_lambertian convention (BRDF = (1 - F) x colour / pi):
+// c_diff (Lambert); pi x f_EON with KHR_materials_diffuse_roughness > 0; times the reflected share (1 - factor) of the
+// KHR_materials_diffuse_transmission mix. A roughness / factor of 0 leaves c_diff exactly (the Lambert code).
+vec3 directDiffuseColor(MaterialInfo info, float NdotL, float NdotV, float LdotV)
+{
+    vec3 color = info.c_diff;
+#ifdef MATERIAL_DIFFUSE_ROUGHNESS
+    if (info.diffuseRoughness > 0.0) {
+        color = M_PI * f_EON(info.c_diff, info.diffuseRoughness, NdotL, NdotV, LdotV);
+    }
+#endif
+#ifdef MATERIAL_DIFFUSE_TRANSMISSION
+    if (info.diffuseTransmissionFactor > 0.0) {
+        color *= 1.0 - info.diffuseTransmissionFactor;
+    }
+#endif
+    return color;
+}
+#endif
+
 void main()
 {
 #ifdef ASOBO_DECAL_RECEIVER
@@ -475,6 +496,14 @@ void main()
     materialInfo = getIridescenceInfo(materialInfo);
 #endif
 
+#ifdef MATERIAL_DIFFUSE_TRANSMISSION
+    materialInfo = getDiffuseTransmissionInfo(materialInfo);
+#endif
+
+#ifdef MATERIAL_DIFFUSE_ROUGHNESS
+    materialInfo = getDiffuseRoughnessInfo(materialInfo);
+#endif
+
     materialInfo.perceptualRoughness = clamp(materialInfo.perceptualRoughness, 0.0, 1.0);
     materialInfo.metallic = clamp(materialInfo.metallic, 0.0, 1.0);
 
@@ -503,6 +532,18 @@ void main()
     vec3 f_transmission = vec3(0.0);
 
     float albedoSheenScaling = 1.0;
+
+#ifdef MATERIAL_DIFFUSE_TRANSMISSION
+    // KHR_materials_diffuse_transmission (glTF-Sample-Renderer): dtFactor of the diffuse lobe is the Lambert BTDF of the
+    // transmission colour (with the (1 - metallic) weight of c_diff); with KHR_materials_volume the transmitted light is
+    // attenuated over thickness x the mean model scale. A factor of 0 keeps every original term.
+    float dtFactor = materialInfo.diffuseTransmissionFactor;
+    vec3 dtColor = mix(materialInfo.diffuseTransmissionColor, vec3(0.0), materialInfo.metallic);
+#ifdef MATERIAL_VOLUME
+    float dtThickness = materialInfo.thickness *
+        (length(vec3(u_ModelMatrix[0].xyz)) + length(vec3(u_ModelMatrix[1].xyz)) + length(vec3(u_ModelMatrix[2].xyz))) / 3.0;
+#endif
+#endif
 
 #ifdef ASOBO_SSS
     // A3.4: SSS colour and transmission weight, after the decal layers changed the base colour.
@@ -572,6 +613,17 @@ void main()
 #else
     f_diffuse += getIBLRadianceLambertian(n, v, materialInfo.perceptualRoughness, materialInfo.c_diff, materialInfo.f0, materialInfo.specularWeight);
 #endif
+#ifdef MATERIAL_DIFFUSE_TRANSMISSION
+    // The diffuse mix with the irradiance from behind (-n), as the sample renderer.
+    if (dtFactor > 0.0) {
+        vec3 dtBackIrradiance = getDiffuseLight(-n);
+#ifdef MATERIAL_VOLUME
+        dtBackIrradiance = applyVolumeAttenuation(dtBackIrradiance, dtThickness, materialInfo.attenuationColor, materialInfo.attenuationDistance);
+#endif
+        f_diffuse += getIBLDiffuseTransmissionDelta(n, v, materialInfo.perceptualRoughness, materialInfo.c_diff, dtColor,
+            dtBackIrradiance, materialInfo.f0, materialInfo.specularWeight, dtFactor);
+    }
+#endif
 #ifdef ASOBO_SSS
     // A3.4: translucency from the environment behind the surface; occlusion applies to it below.
     f_diffuse += asoboSssBackRadiance(getDiffuseLight(-n), NdotV, materialInfo.f0, materialInfo.f90, materialInfo.c_diff,
@@ -640,6 +692,16 @@ void main()
 #endif
         vec2 ambientAB = texture(u_GGXLUT, clamp(vec2(NdotV, materialInfo.perceptualRoughness), vec2(0.0), vec2(1.0))).rg;
         f_diffuse += materialInfo.c_diff * ambientRadiance;
+#ifdef MATERIAL_DIFFUSE_TRANSMISSION
+        // The uniform ambient light also arrives from behind: the diffuse mix of its front and back share.
+        if (dtFactor > 0.0) {
+            vec3 dtAmbient = ambientRadiance;
+#ifdef MATERIAL_VOLUME
+            dtAmbient = applyVolumeAttenuation(dtAmbient, dtThickness, materialInfo.attenuationColor, materialInfo.attenuationDistance);
+#endif
+            f_diffuse += dtFactor * (dtColor * dtAmbient - materialInfo.c_diff * ambientRadiance);
+        }
+#endif
         f_specular += materialInfo.specularWeight * ambientRadiance * (materialInfo.f0 * ambientAB.x + ambientAB.y);
 #ifdef MATERIAL_CLEARCOAT
         vec2 ambientClearcoatAB = texture(u_GGXLUT, clamp(vec2(clampedDot(materialInfo.clearcoatNormal, v),
@@ -754,6 +816,12 @@ void main()
         portalOcclusion *= skyDiffuse;
 #endif
         vec3 portalDiffuse = u_SkyPortalStrength * skyPortalIrradiance(v_Position, n) * materialInfo.c_diff / M_PI;
+#ifdef MATERIAL_DIFFUSE_TRANSMISSION
+        // Window light arrives at the front: only the reflected share of the diffuse mix.
+        if (dtFactor > 0.0) {
+            portalDiffuse *= 1.0 - dtFactor;
+        }
+#endif
         f_diffuse += clamp(vec3(1.0) - portalOcclusion, 0.0, 1.0) * min(portalDiffuse, skyPortalUnoccludedDiffuse);
     }
 #endif
@@ -786,10 +854,19 @@ void main()
             // Calculation of analytical light
             // https://github.com/KhronosGroup/glTF/tree/master/specification/2.0#acknowledgments AppendixB
             vec3 intensity = getLighIntensity(light, pointToLight);
+#if defined(MATERIAL_DIFFUSE_TRANSMISSION) || defined(MATERIAL_DIFFUSE_ROUGHNESS)
+            vec3 lightDiffuseColor = directDiffuseColor(materialInfo, NdotL, NdotV, dot(l, v));
+#ifdef MATERIAL_IRIDESCENCE
+            f_diffuse += intensity * NdotL *  BRDF_lambertianIridescence(materialInfo.f0, materialInfo.f90, iridescenceFresnel, materialInfo.iridescenceFactor, lightDiffuseColor, materialInfo.specularWeight, VdotH);
+#else
+            f_diffuse += intensity * NdotL *  BRDF_lambertian(materialInfo.f0, materialInfo.f90, lightDiffuseColor, materialInfo.specularWeight, VdotH);
+#endif
+#else
 #ifdef MATERIAL_IRIDESCENCE
             f_diffuse += intensity * NdotL *  BRDF_lambertianIridescence(materialInfo.f0, materialInfo.f90, iridescenceFresnel, materialInfo.iridescenceFactor, materialInfo.c_diff, materialInfo.specularWeight, VdotH);
 #else
             f_diffuse += intensity * NdotL *  BRDF_lambertian(materialInfo.f0, materialInfo.f90, materialInfo.c_diff, materialInfo.specularWeight, VdotH);
+#endif
 #endif
 #ifdef MATERIAL_ANISOTROPY
             if (materialInfo.anisotropyStrength > 0.0) {
@@ -830,6 +907,18 @@ void main()
         f_diffuse += asoboSssDirectDiffuse(getLighIntensity(light, pointToLight), dot(n, l), NdotL, sssVdotH, NdotV,
             materialInfo.f0, materialInfo.f90, materialInfo.c_diff, materialInfo.specularWeight,
             asoboSssColor, asoboSssTransmission);
+#endif
+
+#ifdef MATERIAL_DIFFUSE_TRANSMISSION
+        // KHR_materials_diffuse_transmission: a light behind the surface reaches the viewer through the diffuse BTDF.
+        if (dtFactor > 0.0 && dot(n, l) < 0.0) {
+            vec3 dtLight = diffuseTransmissionBtdf(getLighIntensity(light, pointToLight), n, v, l, materialInfo.f0, materialInfo.f90,
+                materialInfo.specularWeight, dtColor);
+#ifdef MATERIAL_VOLUME
+            dtLight = applyVolumeAttenuation(dtLight, dtThickness, materialInfo.attenuationColor, materialInfo.attenuationDistance);
+#endif
+            f_diffuse += dtFactor * dtLight;
+        }
 #endif
 
         // BDTF
@@ -873,10 +962,19 @@ void main()
         float sunAlpha = min(materialInfo.alphaRoughness + sunWiden, 1.0);
         if (sunNdotL > 0.0 || sunNdotV > 0.0)
         {
+#if defined(MATERIAL_DIFFUSE_TRANSMISSION) || defined(MATERIAL_DIFFUSE_ROUGHNESS)
+            vec3 sunDiffuseColor = directDiffuseColor(materialInfo, sunNdotL, sunNdotV, dot(sunL, v));
+#ifdef MATERIAL_IRIDESCENCE
+            f_diffuse += sunIntensity * sunNdotL * BRDF_lambertianIridescence(materialInfo.f0, materialInfo.f90, iridescenceFresnel, materialInfo.iridescenceFactor, sunDiffuseColor, materialInfo.specularWeight, sunVdotH);
+#else
+            f_diffuse += sunIntensity * sunNdotL * BRDF_lambertian(materialInfo.f0, materialInfo.f90, sunDiffuseColor, materialInfo.specularWeight, sunVdotH);
+#endif
+#else
 #ifdef MATERIAL_IRIDESCENCE
             f_diffuse += sunIntensity * sunNdotL * BRDF_lambertianIridescence(materialInfo.f0, materialInfo.f90, iridescenceFresnel, materialInfo.iridescenceFactor, materialInfo.c_diff, materialInfo.specularWeight, sunVdotH);
 #else
             f_diffuse += sunIntensity * sunNdotL * BRDF_lambertian(materialInfo.f0, materialInfo.f90, materialInfo.c_diff, materialInfo.specularWeight, sunVdotH);
+#endif
 #endif
 #ifdef MATERIAL_ANISOTROPY
             if (materialInfo.anisotropyStrength > 0.0) {
@@ -933,6 +1031,20 @@ void main()
             f_diffuse += asoboSssTransmittedDiffuse(u_SunIlluminance * sunBackVisibility, dot(n, sunL), sunNdotV,
                 materialInfo.f0, materialInfo.f90, materialInfo.c_diff, materialInfo.specularWeight,
                 asoboSssColor, asoboSssTransmission);
+        }
+#endif
+#ifdef MATERIAL_DIFFUSE_TRANSMISSION
+        // KHR_materials_diffuse_transmission: the sun behind the surface. A3.2: the transmitted light is not shadowed, as
+        // in the Khronos sample renderer (which has no shadows): a closed shell (teacup, fruit, candle) lit from behind
+        // glows through, although the sun shadow map sees its far wall in front of the near one. The cost: a sheet behind
+        // an opaque occluder still transmits the sun. The reflected (front) part keeps sunVisibility.
+        if (dtFactor > 0.0 && dot(n, sunL) < 0.0) {
+            vec3 dtSun = diffuseTransmissionBtdf(u_SunIlluminance, n, v, sunL,
+                materialInfo.f0, materialInfo.f90, materialInfo.specularWeight, dtColor);
+#ifdef MATERIAL_VOLUME
+            dtSun = applyVolumeAttenuation(dtSun, dtThickness, materialInfo.attenuationColor, materialInfo.attenuationDistance);
+#endif
+            f_diffuse += dtFactor * dtSun;
         }
 #endif
 #ifdef MATERIAL_TRANSMISSION

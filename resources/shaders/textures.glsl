@@ -309,6 +309,56 @@ vec2 getSpecularColorUV()
 #endif
 
 
+// KHR_materials_diffuse_transmission (factor: A channel, linear; colour: RGB, sRGB) and KHR_materials_diffuse_roughness
+// (R channel, linear).
+
+#ifdef MATERIAL_DIFFUSE_TRANSMISSION
+
+uniform sampler2D u_DiffuseTransmissionSampler;
+uniform int u_DiffuseTransmissionUVSet;
+uniform mat3 u_DiffuseTransmissionUVTransform;
+uniform sampler2D u_DiffuseTransmissionColorSampler;
+uniform int u_DiffuseTransmissionColorUVSet;
+uniform mat3 u_DiffuseTransmissionColorUVTransform;
+
+vec2 getDiffuseTransmissionUV()
+{
+    vec3 uv = vec3(u_DiffuseTransmissionUVSet < 1 ? v_texcoord_0 : v_texcoord_1, 1.0);
+#ifdef HAS_DIFFUSETRANSMISSION_UV_TRANSFORM
+    uv = u_DiffuseTransmissionUVTransform * uv;
+#endif
+    return uv.xy;
+}
+
+vec2 getDiffuseTransmissionColorUV()
+{
+    vec3 uv = vec3(u_DiffuseTransmissionColorUVSet < 1 ? v_texcoord_0 : v_texcoord_1, 1.0);
+#ifdef HAS_DIFFUSETRANSMISSIONCOLOR_UV_TRANSFORM
+    uv = u_DiffuseTransmissionColorUVTransform * uv;
+#endif
+    return uv.xy;
+}
+
+#endif
+
+#ifdef MATERIAL_DIFFUSE_ROUGHNESS
+
+uniform sampler2D u_DiffuseRoughnessSampler;
+uniform int u_DiffuseRoughnessUVSet;
+uniform mat3 u_DiffuseRoughnessUVTransform;
+
+vec2 getDiffuseRoughnessUV()
+{
+    vec3 uv = vec3(u_DiffuseRoughnessUVSet < 1 ? v_texcoord_0 : v_texcoord_1, 1.0);
+#ifdef HAS_DIFFUSEROUGHNESS_UV_TRANSFORM
+    uv = u_DiffuseRoughnessUVTransform * uv;
+#endif
+    return uv.xy;
+}
+
+#endif
+
+
 // Transmission Material
 
 

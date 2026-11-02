@@ -104,6 +104,8 @@ The validator reports a switched-off extension a file declares like an unsupport
 | `KHR_lights_punctual` | KHR | Rendered | No lights are created from the file. |
 | `KHR_materials_anisotropy` | KHR | Rendered | Ignored: core material. |
 | `KHR_materials_clearcoat` | KHR | Rendered | Ignored: core material. |
+| `KHR_materials_diffuse_roughness` | KHR | Rendered | Ignored: Lambert diffuse. |
+| `KHR_materials_diffuse_transmission` | KHR | Rendered | Ignored: core material (no light through the surface). |
 | `KHR_materials_dispersion` | KHR | Rendered | Ignored: no dispersion (single-IOR refraction). |
 | `KHR_materials_emissive_strength` | KHR | Rendered | Ignored: core material (emissive at strength 1). |
 | `KHR_materials_ior` | KHR | Rendered | Ignored: core material. |
@@ -129,6 +131,9 @@ The validator reports a switched-off extension a file declares like an unsupport
 | `EXT_meshopt_compression` | EXT | Read | Compressed bufferViews not decoded, fallback buffers read; required: not loaded. |
 | `EXT_structural_metadata` | EXT | Metadata | Not read: no metadata listed; required: not loaded. |
 | `EXT_texture_webp` | EXT | Rendered | Textures use their core source; none: no image; required: not loaded. |
+| `MSFT_lod` | MSFT | Metadata | Not read: no LOD chain listed (the node itself is drawn either way); required: not loaded. |
+| `MSFT_packing_normalRoughnessMetallic` | MSFT | Metadata | Not read: no packing summary (the packed texture is never used); required: not loaded. |
+| `MSFT_packing_occlusionRoughnessMetallic` | MSFT | Partial | The packed texture is not used (core textures only); required: not loaded. |
 | `MSFT_texture_dds` | MSFT | Rendered | Textures use their core source; none: no image; required: not loaded. |
 | `CESIUM_RTC` | CESIUM | Partial | Not read: the center is not shown (rendering is unchanged: Glider renders relative to it either way); required: not loaded. |
 | `CESIUM_primitive_outline` | CESIUM | Metadata | Not read: outlines not counted (never drawn); required: not loaded. |

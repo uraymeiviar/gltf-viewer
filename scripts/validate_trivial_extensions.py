@@ -456,7 +456,12 @@ def dispersion_checks(files, baseline):
         base, _, _ = render(baseline, files["disp_on"], "base_disp_on")
         base_none, _, _ = render(baseline, files["disp_none"], "base_disp_none")
         check(same(base_none, img["none"]), f"disp_none: byte-identical to the baseline {baseline.name}")
-        check(same(base, img["none"]), f"the baseline {baseline.name} renders dispersion 10 like no dispersion")
+        # A baseline from before e6fe72a has no dispersion (it renders dispersion 10 like none); once the baseline
+        # disperses, dispersion 10 must stay byte-identical to it.
+        if same(base, img["none"]):
+            print(f"  INFO the baseline {baseline.name} has no dispersion (renders dispersion 10 like none)")
+        else:
+            check(same(base, img["on"]), f"disp_on: byte-identical to the baseline {baseline.name}")
 
     print("[Khronos samples]")
     for sample in ("DispersionTest", "DragonDispersion"):

@@ -75,6 +75,37 @@ bool Application::setMaterialParamAction(const std::string& material, const std:
         sceneRevisions.mark(ux3d::imgui::SceneChange::Material);
         return true;
     }
+    // KHR_materials_diffuse_transmission / KHR_materials_diffuse_roughness: typed, edited like the Inspector's fields
+    // (existing extension only; factors in [0, 1], the colour three numbers in [0, 1]).
+    if (extension == ux3d::gltf::DiffuseTransmission::ExtensionName || extension == ux3d::gltf::DiffuseRoughness::ExtensionName) {
+        const bool isDt = extension == ux3d::gltf::DiffuseTransmission::ExtensionName;
+        if (isDt ? !target->getDiffuseTransmission().has_value() : !target->getDiffuseRoughness().has_value()) {
+            error = "material '" + material + "' has no " + extension + " (extensions are never added)";
+            return false;
+        }
+        json parsed = value;
+        if (value.is_string()) {
+            try { parsed = json::parse(value.get<std::string>()); } catch (...) { parsed = value; }
+        }
+        bool ok = false;
+        if (isDt && param == "diffuseTransmissionFactor" && parsed.is_number()) {
+            ok = target->getDiffuseTransmission()->setDiffuseTransmissionFactor(parsed.get<double>()) == ux3d::gltf::GltfResult::Success;
+        } else if (isDt && param == "diffuseTransmissionColorFactor" && parsed.is_array() && parsed.size() == 3
+                   && parsed[0].is_number() && parsed[1].is_number() && parsed[2].is_number()) {
+            ok = target->getDiffuseTransmission()->setDiffuseTransmissionColorFactor(ux3d::math::dvec3(
+                     parsed[0].get<double>(), parsed[1].get<double>(), parsed[2].get<double>())) == ux3d::gltf::GltfResult::Success;
+        } else if (!isDt && param == "diffuseRoughnessFactor" && parsed.is_number()) {
+            ok = target->getDiffuseRoughness()->setDiffuseRoughnessFactor(parsed.get<double>()) == ux3d::gltf::GltfResult::Success;
+        }
+        if (!ok) {
+            error = "cannot set " + extension + "." + param + " = " + raw +
+                    (isDt ? " (diffuseTransmissionFactor in [0, 1] or diffuseTransmissionColorFactor [r, g, b] in [0, 1])"
+                          : " (only diffuseRoughnessFactor, a number in [0, 1])");
+            return false;
+        }
+        sceneRevisions.mark(ux3d::imgui::SceneChange::Material);
+        return true;
+    }
     bool present = false;
     for (const auto& [name, text] : target->getUnknownExtensions()) {
         present = present || std::string(name.c_str()) == extension;

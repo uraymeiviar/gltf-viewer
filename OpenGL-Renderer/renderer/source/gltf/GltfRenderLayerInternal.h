@@ -23,6 +23,7 @@
 #include "renderer/passes/TransparentPass.h"
 
 #include "gltf/extensions/AsoboExtensions.h"
+#include "gltf/extensions/MsftExtensions.h"
 #include "gltf/GltfUtils.h"
 #include "gltf/mikktspace/mikktspace.h"
 #include "gltf/mesh/Primitive.h"

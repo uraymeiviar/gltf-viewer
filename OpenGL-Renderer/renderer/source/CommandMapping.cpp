@@ -439,7 +439,8 @@ uint32_t renderSettingsBits(const RenderSettings& rs)
     const bool flags[] = { rs.enableSkinning, rs.enableMorphing, rs.enableSpecularGlossiness, rs.enableUnlit,
                            rs.enableClearCoat, rs.enableSheen, rs.enableTransmission, rs.enableVolume,
                            rs.enableIridescence, rs.enableIOR, rs.enableSpecular, rs.enableEmissiveStrength,
-                           rs.enableAnisotropy, rs.enableDispersion };
+                           rs.enableAnisotropy, rs.enableDispersion, rs.enableDiffuseTransmission,
+                           rs.enableDiffuseRoughness };
     uint32_t bits = 0;
     for (size_t i = 0; i < std::size(flags); ++i) {
         bits |= (flags[i] ? 1u : 0u) << i;
@@ -597,6 +598,15 @@ gl::Program* CommandMapping::buildProgram(const Mesh& meshRef, const Material& m
     }
     if (!material->renderSettings.enableDispersion) {
         fragmentDefines.undefine("MATERIAL_DISPERSION");
+    }
+    if (!material->renderSettings.enableDiffuseTransmission) {
+        fragmentDefines.undefine("MATERIAL_DIFFUSE_TRANSMISSION");
+        fragmentDefines.undefine("HAS_DIFFUSE_TRANSMISSION_MAP");
+        fragmentDefines.undefine("HAS_DIFFUSE_TRANSMISSION_COLOR_MAP");
+    }
+    if (!material->renderSettings.enableDiffuseRoughness) {
+        fragmentDefines.undefine("MATERIAL_DIFFUSE_ROUGHNESS");
+        fragmentDefines.undefine("HAS_DIFFUSE_ROUGHNESS_MAP");
     }
     if (!material->renderSettings.enableAnisotropy && !fragmentDefines.isDefined("ASOBO_ANISOTROPY")) {
         // KHR_materials_anisotropy display switch. The ASOBO mapping (ASOBO_ANISOTROPY) shares the

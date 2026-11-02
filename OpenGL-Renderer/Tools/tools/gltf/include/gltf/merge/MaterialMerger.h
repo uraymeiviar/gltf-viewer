@@ -25,6 +25,7 @@ private:
     void resolveVolumeTextures(const Material& _SourceMaterial, Material& _Material);
     void resolveIridescenceTextures(const Material& _SourceMaterial, Material& _Material);
     void resolveAnisotropyTextures(const Material& _SourceMaterial, Material& _Material);
+    void resolveDiffuseTextures(const Material& _SourceMaterial, Material& _Material);
     void resolveXMP(const Material& _SourceMaterial, Material& _Material);
     void resolveTextureInfo(const std::optional<ux3d::gltf::TextureInfo>& _SourceInfo, std::optional<ux3d::gltf::TextureInfo>& _Info);
 

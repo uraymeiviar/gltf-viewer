@@ -5,7 +5,9 @@
 #include "gltf/extensions/AsoboExtensions.h"
 #include "gltf/extensions/AsoboSupport.h"
 #include "gltf/Gltf.h"
+#include "gltf/extensions/MsftExtensions.h"
 #include "gltf/extensions/TilesExtensions.h"
+#include <algorithm>
 #include <nlohmann/json.hpp>
 
 ux3d::core::Vector<ux3d::gltf::Extension> ux3d::gltf::getAllExtensions()
@@ -34,6 +36,8 @@ ux3d::core::Vector<ux3d::gltf::Extension> ux3d::gltf::getAllExtensions()
         Extension::TextureDDS,
         Extension::Anisotropy,
         Extension::Dispersion,
+        Extension::DiffuseTransmission,
+        Extension::DiffuseRoughness,
     };
 }
 
@@ -63,6 +67,8 @@ ux3d::core::Vector<ux3d::core::string> ux3d::gltf::getAllExtensionNames()
         extensionToString(Extension::TextureDDS),
         extensionToString(Extension::Anisotropy),
         extensionToString(Extension::Dispersion),
+        extensionToString(Extension::DiffuseTransmission),
+        extensionToString(Extension::DiffuseRoughness),
     };
 }
 
@@ -117,6 +123,10 @@ ux3d::core::string ux3d::gltf::extensionToString(Extension _extension)
         return "KHR_materials_anisotropy";
     case Extension::Dispersion:
         return "KHR_materials_dispersion";
+    case Extension::DiffuseTransmission:
+        return "KHR_materials_diffuse_transmission";
+    case Extension::DiffuseRoughness:
+        return "KHR_materials_diffuse_roughness";
     }
 
     core::logError("%u is not a valid extension value, it might contain multiple extension flags",
@@ -189,6 +199,12 @@ ux3d::gltf::Extension ux3d::gltf::stringToExtension(core::string& _extensionStr)
     if (_extensionStr == "KHR_materials_dispersion") {
         return Extension::Dispersion;
     }
+    if (_extensionStr == "KHR_materials_diffuse_transmission") {
+        return Extension::DiffuseTransmission;
+    }
+    if (_extensionStr == "KHR_materials_diffuse_roughness") {
+        return Extension::DiffuseRoughness;
+    }
     if (_extensionStr == "KHR_animation_pointer") {
         return Extension::AnimationPointer;
     }
@@ -213,7 +229,7 @@ bool ux3d::gltf::extensionStringKnown(core::string& _extensionStr)
 
 bool ux3d::gltf::isExtensionRequired(Extension _extension)
 {
-    if (_extension == Extension::Audio || _extension == Extension::PunctualLights || _extension == Extension::MaterialsVariants || _extension == Extension::XMP || _extension == Extension::PbrSpecularGlossinessMaterial || _extension == Extension::UnlitMaterial || _extension == Extension::Clearcoat || _extension == Extension::Specular || _extension == Extension::Sheen || _extension == Extension::Ior || _extension == Extension::Transmission || _extension == Extension::Volume || _extension == Extension::EmissiveStrength || _extension == Extension::WebP || _extension == Extension::TextureDDS || _extension == Extension::Anisotropy || _extension == Extension::Dispersion) {
+    if (_extension == Extension::Audio || _extension == Extension::PunctualLights || _extension == Extension::MaterialsVariants || _extension == Extension::XMP || _extension == Extension::PbrSpecularGlossinessMaterial || _extension == Extension::UnlitMaterial || _extension == Extension::Clearcoat || _extension == Extension::Specular || _extension == Extension::Sheen || _extension == Extension::Ior || _extension == Extension::Transmission || _extension == Extension::Volume || _extension == Extension::EmissiveStrength || _extension == Extension::WebP || _extension == Extension::TextureDDS || _extension == Extension::Anisotropy || _extension == Extension::Dispersion || _extension == Extension::DiffuseTransmission || _extension == Extension::DiffuseRoughness) {
         return false;
     }
 
@@ -260,6 +276,12 @@ std::vector<ExtensionSupport> buildSupportTable()
             "Read as absent: no lights are created from the file."),
         row("KHR_materials_anisotropy", "KHR", "Rendered", "Anisotropic specular lobe.", materialOff),
         row("KHR_materials_clearcoat", "KHR", "Rendered", "Clear coat layer.", materialOff),
+        row("KHR_materials_diffuse_roughness", "KHR", "Rendered", "Diffuse roughness: energy-preserving Oren-Nayar "
+            "(EON) diffuse lobe for the sun and punctual lights; the IBL diffuse stays Lambert (draft extension).",
+            materialOff),
+        row("KHR_materials_diffuse_transmission", "KHR", "Rendered", "Diffuse transmission through thin surfaces: "
+            "light from behind (sun, punctual lights, IBL) shows on the front, tinted by the transmission colour.",
+            materialOff),
         row("KHR_materials_dispersion", "KHR", "Rendered", "Chromatic dispersion of volumetric refraction "
             "(transmission with volume): one IOR per colour channel.", materialOff),
         row("KHR_materials_emissive_strength", "KHR", "Rendered", "Emissive strength above 1 (HDR, bloom).",
@@ -313,6 +335,16 @@ std::vector<ExtensionSupport> buildSupportTable()
             "Not read: no metadata is listed. A file that requires it is not loaded."),
         row("EXT_texture_webp", "EXT", "Rendered", "WebP textures.", textureOff),
         // Microsoft
+        row("MSFT_lod", "MSFT", "Metadata", "Levels of detail: the highest LOD (the node or material the file "
+            "draws) renders as before; the Inspector lists the LOD chain and the screen-coverage hints. No LOD "
+            "switching.", "Not read: the Inspector does not list the LOD chain (rendering is unchanged)."),
+        row("MSFT_packing_normalRoughnessMetallic", "MSFT", "Metadata", "Recognised; the packed normal / roughness / "
+            "metallic texture is not used (the core textures are rendered).", "Not read (rendering is unchanged). "
+            "A file that requires it is not loaded."),
+        row("MSFT_packing_occlusionRoughnessMetallic", "MSFT", "Partial", "The packed occlusion / roughness / metallic "
+            "texture (R / G / B, the core channel layout) is used where the material has no core metallic-roughness "
+            "or occlusion texture; roughnessMetallicOcclusionTexture and the two-channel normalTexture are not used.",
+            "Read as absent: only the core textures are used. A file that requires it is not loaded."),
         row("MSFT_texture_dds", "MSFT", "Rendered", "DDS textures (preferred over the core source, with automatic "
             "fallback).", textureOff),
         // Cesium (3D Tiles glb payloads)
@@ -527,4 +559,75 @@ ux3d::gltf::tiles::Summary ux3d::gltf::tiles::summarize(const Gltf& gltf)
         }
     }
     return summary;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Microsoft extensions (gltf/extensions/MsftExtensions.h): MSFT_lod chains and the MSFT_packing textures, read from the
+// unknown-extension JSON the loader keeps on nodes and materials.
+// ---------------------------------------------------------------------------------------------------------------------
+
+ux3d::gltf::msft::LodInfo ux3d::gltf::msft::lod(const GltfObject& object)
+{
+    LodInfo info;
+    const std::string* text = findUnknown(object, Lod);
+    if (text == nullptr) {
+        return info;
+    }
+    info.present = true;
+    const nlohmann::json json = parseOrNull(*text);
+    if (json.is_object() && json.contains("ids") && json["ids"].is_array()) {
+        for (const auto& id : json["ids"]) {
+            if (id.is_number_integer()) {
+                info.ids.push_back(id.get<int>());
+            }
+        }
+    }
+    const nlohmann::json extras = object.getExtras().empty() ? nlohmann::json() : parseOrNull(object.getExtras());
+    if (extras.is_object() && extras.contains("MSFT_screencoverage") && extras["MSFT_screencoverage"].is_array()) {
+        for (const auto& value : extras["MSFT_screencoverage"]) {
+            if (value.is_number()) {
+                info.screenCoverage.push_back(value.get<double>());
+            }
+        }
+    }
+    return info;
+}
+
+ux3d::gltf::msft::TextureRef ux3d::gltf::msft::packedOcclusionRoughnessMetallic(const GltfObject& material)
+{
+    TextureRef ref;
+    const std::string* text = findUnknown(material, PackingOrm);
+    if (text == nullptr) {
+        return ref;
+    }
+    const nlohmann::json json = parseOrNull(*text);
+    if (json.is_object() && json.contains("occlusionRoughnessMetallicTexture")) {
+        const nlohmann::json& info = json["occlusionRoughnessMetallicTexture"];
+        if (info.is_object() && info.contains("index") && info["index"].is_number_integer() && info["index"].get<int>() >= 0) {
+            ref.index = info["index"].get<int>();
+            ref.texCoord = info.contains("texCoord") && info["texCoord"].is_number_integer() ? std::max(0, info["texCoord"].get<int>()) : 0;
+        }
+    }
+    return ref;
+}
+
+std::vector<std::string> ux3d::gltf::msft::packingSummary(const GltfObject& material)
+{
+    std::vector<std::string> lines;
+    for (const char* name : { PackingOrm, PackingNrm }) {
+        const std::string* text = findUnknown(material, name);
+        if (text == nullptr) {
+            continue;
+        }
+        const nlohmann::json json = parseOrNull(*text);
+        if (!json.is_object()) {
+            continue;
+        }
+        for (const auto& [key, value] : json.items()) {
+            if (value.is_object() && value.contains("index") && value["index"].is_number_integer()) {
+                lines.push_back(std::string(name) + "." + key + " -> texture " + std::to_string(value["index"].get<int>()));
+            }
+        }
+    }
+    return lines;
 }

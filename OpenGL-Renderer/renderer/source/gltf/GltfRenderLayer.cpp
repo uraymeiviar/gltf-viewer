@@ -307,6 +307,23 @@ void GltfRenderLayer::updateGltf(const gltf::Gltf& gltf)
             }
         }
 
+        // KHR_materials_diffuse_transmission: the factor texture (A) is linear, the colour texture (RGB) sRGB;
+        // KHR_materials_diffuse_roughness: linear (R).
+        if (const auto& dt = material.getDiffuseTransmission(); dt.has_value()) {
+            insertImage(dt->getDiffuseTransmissionTextureInfo(), true);
+            insertImage(dt->getDiffuseTransmissionColorTextureInfo(), false);
+        }
+        if (const auto& dr = material.getDiffuseRoughness(); dr.has_value()) {
+            insertImage(dr->getDiffuseRoughnessTextureInfo(), true);
+        }
+        // MSFT_packing_occlusionRoughnessMetallic: the packed ORM texture is linear (bound only without core textures).
+        if (gltf.isExtensionDeclared(gltf::msft::PackingOrm)) {
+            const gltf::msft::TextureRef orm = gltf::msft::packedOcclusionRoughnessMetallic(material);
+            if (orm.index >= 0 && static_cast<size_t>(orm.index) < gltf.getTextures().size()) {
+                insertTextureImage(&gltf.getTextures().at(static_cast<size_t>(orm.index)), true);
+            }
+        }
+
         // A3.4: the ASOBO_material_SSS opacity map is linear.
         if (gltf.isExtensionDeclared("ASOBO_material_SSS")) {
             const gltf::asobo::ExtensionSet materialExtensions =

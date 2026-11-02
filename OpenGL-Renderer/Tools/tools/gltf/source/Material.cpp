@@ -39,6 +39,8 @@ Material::Material(uint32_t _id, const Material& _source)
     , m_iridescence(_source.m_iridescence)
     , m_anisotropy(_source.m_anisotropy)
     , m_dispersion(_source.m_dispersion)
+    , m_diffuseTransmission(_source.m_diffuseTransmission)
+    , m_diffuseRoughness(_source.m_diffuseRoughness)
     , m_xmpPacket(_source.m_xmpPacket)
 {
 }
@@ -196,6 +198,26 @@ GltfResult Material::createDispersion()
     return GltfResult::Success;
 }
 
+GltfResult Material::createDiffuseTransmission()
+{
+    if (m_diffuseTransmission.has_value()) {
+        return GltfError::ObjectAlreadyExists;
+    }
+    resetPBRNextExtensionExceptions();
+    m_diffuseTransmission.emplace();
+    return GltfResult::Success;
+}
+
+GltfResult Material::createDiffuseRoughness()
+{
+    if (m_diffuseRoughness.has_value()) {
+        return GltfError::ObjectAlreadyExists;
+    }
+    resetPBRNextExtensionExceptions();
+    m_diffuseRoughness.emplace();
+    return GltfResult::Success;
+}
+
 GltfResult Material::createEmissiveStrength()
 {
     if (m_emissiveStrength.has_value()) {
@@ -285,6 +307,12 @@ Extensions Material::getUsedExtensions() const
     if (m_dispersion.has_value()) {
         usedExtensions |= Extension::Dispersion;
     }
+    if (m_diffuseTransmission.has_value()) {
+        usedExtensions |= Extension::DiffuseTransmission;
+    }
+    if (m_diffuseRoughness.has_value()) {
+        usedExtensions |= Extension::DiffuseRoughness;
+    }
 
     return usedExtensions;
 }
@@ -369,6 +397,18 @@ bool Material::checkForTextureTransform() const
         && m_anisotropy->getAnisotropyTextureInfo()->getTextureTransform().has_value()) {
         return true;
     }
+    if (m_diffuseTransmission.has_value()) {
+        for (const auto* info : { &m_diffuseTransmission->getDiffuseTransmissionTextureInfo(),
+                                  &m_diffuseTransmission->getDiffuseTransmissionColorTextureInfo() }) {
+            if (info->has_value() && (*info)->getTextureTransform().has_value()) {
+                return true;
+            }
+        }
+    }
+    if (m_diffuseRoughness.has_value() && m_diffuseRoughness->getDiffuseRoughnessTextureInfo()
+        && m_diffuseRoughness->getDiffuseRoughnessTextureInfo()->getTextureTransform().has_value()) {
+        return true;
+    }
 
     return false;
 }
@@ -384,6 +424,8 @@ void Material::resetPBRNextExtensions()
     m_emissiveStrength.reset();
     m_anisotropy.reset();
     m_dispersion.reset();
+    m_diffuseTransmission.reset();
+    m_diffuseRoughness.reset();
 }
 
 void Material::resetPBRNextExtensionExceptions()

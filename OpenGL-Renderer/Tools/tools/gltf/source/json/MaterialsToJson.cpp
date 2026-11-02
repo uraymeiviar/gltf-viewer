@@ -38,6 +38,8 @@ void MaterialsToJson::convert(const Material& _material, nlohmann::json& _jsonMa
     convertExtensionSheen(_material, _jsonMaterial);
     convertExtensionIor(_material, _jsonMaterial);
     convertExtensionDispersion(_material, _jsonMaterial);
+    convertExtensionDiffuseTransmission(_material, _jsonMaterial);
+    convertExtensionDiffuseRoughness(_material, _jsonMaterial);
     convertExtensionEmissiveStrength(_material, _jsonMaterial);
     convertExtensionTransmission(_material, _jsonMaterial);
     convertExtensionXMP(_material, _jsonMaterial);
@@ -351,6 +353,52 @@ void MaterialsToJson::convertExtensionDispersion(const Material& _material, nloh
         jsonDispersion["dispersion"] = oDispersion->getDispersionOrDefault();
     }
     _jsonMaterial["extensions"]["KHR_materials_dispersion"] = jsonDispersion;
+}
+
+void MaterialsToJson::convertExtensionDiffuseTransmission(const Material& _material, nlohmann::json& _jsonMaterial) const
+{
+    const auto& value = _material.getDiffuseTransmission();
+    if (value.has_value() == false) {
+        return;
+    }
+    nlohmann::json json = nlohmann::json::object();
+    GltfObjectToJson gltfObjectToJson(m_exportOptions);
+    gltfObjectToJson.convertExtras(value.value(), json);
+    gltfObjectToJson.convertUnknownExtensions(value.value(), json);
+    if (value->hasDiffuseTransmissionFactor()) {
+        json["diffuseTransmissionFactor"] = value->getDiffuseTransmissionFactorOrDefault();
+    }
+    if (value->hasDiffuseTransmissionColorFactor()) {
+        nlohmann::json jsonArray = nlohmann::json::array();
+        vectorToDoubles(value->getDiffuseTransmissionColorFactorOrDefault(), jsonArray);
+        json["diffuseTransmissionColorFactor"] = jsonArray;
+    }
+    if (value->getDiffuseTransmissionTextureInfo().has_value()) {
+        convertTextureInfo(value->getDiffuseTransmissionTextureInfo(), "diffuseTransmissionTexture", json);
+    }
+    if (value->getDiffuseTransmissionColorTextureInfo().has_value()) {
+        convertTextureInfo(value->getDiffuseTransmissionColorTextureInfo(), "diffuseTransmissionColorTexture", json);
+    }
+    _jsonMaterial["extensions"][DiffuseTransmission::ExtensionName] = json;
+}
+
+void MaterialsToJson::convertExtensionDiffuseRoughness(const Material& _material, nlohmann::json& _jsonMaterial) const
+{
+    const auto& value = _material.getDiffuseRoughness();
+    if (value.has_value() == false) {
+        return;
+    }
+    nlohmann::json json = nlohmann::json::object();
+    GltfObjectToJson gltfObjectToJson(m_exportOptions);
+    gltfObjectToJson.convertExtras(value.value(), json);
+    gltfObjectToJson.convertUnknownExtensions(value.value(), json);
+    if (value->hasDiffuseRoughnessFactor()) {
+        json["diffuseRoughnessFactor"] = value->getDiffuseRoughnessFactorOrDefault();
+    }
+    if (value->getDiffuseRoughnessTextureInfo().has_value()) {
+        convertTextureInfo(value->getDiffuseRoughnessTextureInfo(), "diffuseRoughnessTexture", json);
+    }
+    _jsonMaterial["extensions"][DiffuseRoughness::ExtensionName] = json;
 }
 
 void MaterialsToJson::convertExtensionTextureTransform(const std::optional<TextureInfo>& _oTextureInfo, nlohmann::json& _jsonRoot) const

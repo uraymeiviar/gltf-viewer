@@ -36,6 +36,8 @@ enum class Extension : uint32_t {
     TextureDDS = 1u << 20u,
     Anisotropy = 1u << 21u,
     Dispersion = 1u << 22u,
+    DiffuseTransmission = 1u << 23u,
+    DiffuseRoughness = 1u << 24u,
 };
 
 using Extensions = core::Flag<Extension>;

@@ -211,6 +211,7 @@ flowchart TD
 - **KHR_materials_dispersion, KHR_node_selectability / KHR_node_hoverability, 3D Tiles / Cesium extensions**
   (EXT_structural_metadata, EXT_mesh_features, EXT_instance_features, CESIUM_primitive_outline, CESIUM_RTC): see
   section 3.2d.
+- **KHR_materials_diffuse_transmission, KHR_materials_diffuse_roughness, MSFT_lod, MSFT_packing_*:** see section 3.2e.
 - **Unsupported extensions**: the loader reads only the extensions it knows and does not refuse a file for an unknown
   required one; `gltf::isExtensionSupported` (`gltf/Extensions.h`) is the one support list and the validator reports
   what it does not contain (section 3.7).
@@ -366,6 +367,51 @@ flowchart TD
   equals the file without CESIUM_RTC; georeferenced placement (and Y-up / ECEF orientation) is not applied.
   CESIUM_primitive_outline edges are counted but not drawn (the Wireframe paths draw triangles only).
 - Checked by `scripts/validate_trivial_extensions.py` (see
+  [BUILD_AND_TEST.md](BUILD_AND_TEST.md#45-regression-testing)).
+
+### 3.2e Diffuse transmission, diffuse roughness and MSFT_lod / MSFT_packing
+
+- **KHR_materials_diffuse_transmission** (`gltf/material/DiffuseTransmission.h`, `Material::getDiffuseTransmission`,
+  `Extension::DiffuseTransmission`): `MaterialsFromJson::convertDiffuseTransmission` reads
+  `diffuseTransmissionFactor` ([0, 1], default 0), `diffuseTransmissionColorFactor` (default white) and the two
+  textures (factor in A, linear; colour in RGB, sRGB); invalid values are logged and keep the default;
+  `MaterialsToJson` writes them back. The renderer defines `MATERIAL_DIFFUSE_TRANSMISSION` only for a lit material
+  with the extension; without the define the shader compiles the original source, and every new term sits behind
+  `dtFactor > 0`, so factor 0, an absent extension or its switch off render byte-identically. Equations as the
+  spec and the Khronos glTF-Sample-Renderer: the diffuse lobe becomes `mix(diffuse_brdf(c_diff),
+  diffuse_btdf(dtColor), dtFactor)` with `dtColor = mix(colour, 0, metallic)` (the BTDF uses the transmission colour,
+  not the base colour). Punctual lights and the sun: the front reflection is scaled by `1 - dtFactor`
+  (`directDiffuseColor` in `pbr.frag`); a light behind (`dot(n, l) < 0`) adds `dtFactor x
+  diffuseTransmissionBtdf` = `I x clampedDot(-n, l) x (1 - specularWeight F) x dtColor / pi`, with F at the half
+  vector of the light mirrored to the front (`brdf.glsl`). IBL: `getIBLDiffuseTransmissionDelta` (`ibl.glsl`) adds
+  `dtFactor x (1 - FssEss + FmsEms) x (dtColor x E(-n) - c_diff x E(n))` (irradiance sampled at -n); the uniform
+  ambient term mixes the same way; sky portals (light arriving at the front) keep only `1 - dtFactor`. With
+  KHR_materials_volume the transmitted light is attenuated over `thickness x` mean model scale (sample renderer).
+  KHR_materials_transmission sits on top: `diffuse = mix(f_diffuse, f_transmission, transmission)` is unchanged, so
+  transmission 1 overrides diffuse transmission. Shadows: the sample renderer has none; Glider's sun shadow keeps
+  the reflected part and leaves the transmitted part unshadowed (a closed shell lit from behind glows through, the
+  cost being that a sheet behind an opaque occluder still transmits the sun). Animatable
+  (`extensions/KHR_materials_diffuse_transmission/diffuseTransmissionFactor` / `diffuseTransmissionColorFactor` and
+  the texture transforms), editable in the Material Inspector and through `set_material_param` /
+  `get_material_param`; the per-material display switch (`RenderSettings::enableDiffuseTransmission`) undefines
+  the define and its texture defines.
+- **KHR_materials_diffuse_roughness** (draft, KhronosGroup/glTF PR 2481; `gltf/material/DiffuseRoughness.h`):
+  `diffuseRoughnessFactor` ([0, 1], default 0 as the draft README; the draft schema's 1 is not used) times the
+  texture's R. Direct lights (punctual, sun) use the energy-preserving Oren-Nayar model (EON, Portsmouth et al.
+  2025, arXiv 2410.18026, with the `E_FON_approx` albedo fit): `f_EON` in `brdf.glsl`, put into the
+  `BRDF_lambertian` convention as `pi x f_EON` in place of `c_diff`. Roughness 0 keeps `c_diff` exactly (define
+  `MATERIAL_DIFFUSE_ROUGHNESS` plus an `r > 0` branch), so it is byte-identical. IBL keeps Lambert irradiance (the
+  sample renderer has no implementation; EON's IBL needs a separate lookup Glider does not ship). Animatable,
+  editable, display switch `RenderSettings::enableDiffuseRoughness`.
+- **MSFT_lod** (`gltf/extensions/MsftExtensions.h`, `msft::lod`): recognised only. The node Inspector lists the LOD
+  chain (`ids`) and `extras.MSFT_screencoverage`; Glider always draws the highest LOD (the node itself), as a
+  loader without the extension does.
+- **MSFT_packing_occlusionRoughnessMetallic**: `occlusionRoughnessMetallicTexture` is bound to the occlusion and
+  metallic-roughness slots only when the material has neither core texture (the packed layout equals core ORM);
+  `roughnessMetallicOcclusionTexture` and `normalTexture` (two-channel) are not used.
+  **MSFT_packing_normalRoughnessMetallic** is recognised only (its packed normal needs a reconstructing decoder).
+  The Material Inspector prints a one-line summary for both.
+- Checked by `scripts/validate_diffuse_extensions.py` (see
   [BUILD_AND_TEST.md](BUILD_AND_TEST.md#45-regression-testing)).
 
 ### 3.3 GPU Color Picking & Oriented Bounding Boxes (OBB)

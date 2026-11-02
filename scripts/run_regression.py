@@ -143,6 +143,12 @@ Suites (equivalence against the baseline plus each feature's analytic acceptance
   renders unchanged, pick and window clicks pass through to what is behind (= the removed twin), hierarchy select,
   inherited, animated; KHR_node_hoverability listed; 3D Tiles / Cesium extensions render = plain twin, required
   loads, no notice, get_state.tiles3d metadata; Khronos dispersion samples when present; twins against the baseline),
+  validate_diffuse_extensions.py (KHR_materials_diffuse_transmission: factor 0 / absent / switched off byte-identical,
+  back-lit quad = the transmission colour, factor and texture scaling, (1 - factor) front mix, IBL from -n, sun
+  unshadowed, volume attenuation, KHR_materials_transmission override, animated and pipe-edited; KHR_materials_
+  diffuse_roughness: roughness 0 byte-identical, EON profiles and energy against a Python reference, texture,
+  animated, pipe; MSFT_lod / MSFT_packing_*: render = core twins, ORM used only without core textures, required + off
+  refused; Khronos samples lit from behind when present; validator; twins against the baseline),
   validate_animation_keys.py (animation sampling against the glTF rules: STEP / LINEAR / CUBICSPLINE translation,
   LINEAR rotation, KHR_animation_pointer visibility, STEP and CUBICSPLINE morph weights at t = 0, exactly on each
   key, between keys, the clip end, past the end and before the first key through the pipe; the timeline's end,
@@ -281,6 +287,18 @@ TRIGGERS = (
       "StatisticsPanel.cpp", "GltfValidator.*", "GltfExtensionSettings.*", "source/imgui/application/Commands*",
       "source/imgui/application/Application.cpp", "DiagnosticsPicking.cpp", "Viewports.cpp",
       "validate_trivial_extensions.py")),
+    # KHR_materials_diffuse_transmission / diffuse_roughness, MSFT_lod / MSFT_packing_*: material parsing and writing,
+    # the support rows, texture registration, the shader paths, display switches, Inspector, pipe and pointer targets.
+    (("diffuse_extensions",),
+     ("DiffuseTransmission.h", "DiffuseRoughness.h", "MsftExtensions.h", "MaterialsFromJson.*", "MaterialsToJson.*",
+      "MaterialMerger.*", "ChildCollector.cpp", "Extensions.cpp", "Extensions.h",
+      "OpenGL-Renderer/Tools/tools/gltf/include/gltf/Material.h", "OpenGL-Renderer/Tools/tools/gltf/source/Material.cpp",
+      "OpenGL-Renderer/Tools/tools/gltf/source/Gltf.cpp", "GltfRenderLayer*", "OpenGL-Renderer/renderer/*Command*",
+      "OpenGL-Renderer/renderer/include/renderer/Material.h", "resources/shaders/pbr.frag",
+      "resources/shaders/brdf.glsl", "resources/shaders/ibl.glsl", "resources/shaders/material_info.glsl",
+      "resources/shaders/textures.glsl", "MaterialInspector.cpp", "ElementInspector.cpp",
+      "source/imgui/application/Commands*", "GltfValidator.*", "GltfExtensionSettings.*",
+      "validate_diffuse_extensions.py")),
     # Animation sampling: the runtime channels and samplers, glTF channel creation, the timeline player and the
     # set_animation_time / get_node_pose pipe commands.
     (("animation_keys",),
@@ -481,6 +499,7 @@ serial_jobs = [
     ("node_visibility", ["scripts/validate_node_visibility.py", "--baseline-exe", str(baseline)]),
     ("animation_keys", ["scripts/validate_animation_keys.py", "--baseline-exe", str(baseline)]),
     ("trivial_extensions", ["scripts/validate_trivial_extensions.py", "--baseline-exe", str(baseline)]),
+    ("diffuse_extensions", ["scripts/validate_diffuse_extensions.py", "--baseline-exe", str(baseline)]),
 ]
 # validate_p5_1.py is superseded (its counter checks run in validate_p8_5.py) and no longer registered.
 tier_suites = [name for name, _ in jobs + serial_jobs] + list(SELFCHECKS)

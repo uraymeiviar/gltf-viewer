@@ -243,3 +243,55 @@ vec3 BRDF_specularSheen(vec3 sheenColor, float sheenRoughness, float NdotL, floa
     float sheenVisibility = V_Sheen(NdotL, NdotV, sheenRoughness);
     return sheenColor * sheenDistribution * sheenVisibility;
 }
+
+
+#ifdef MATERIAL_DIFFUSE_ROUGHNESS
+// KHR_materials_diffuse_roughness: the energy-preserving Oren-Nayar model (EON) of Portsmouth, Kutz and Hill, "EON: A
+// practical energy-preserving rough diffuse BRDF" (JCGT 2025, arXiv:2410.18026, listing 1; the OpenPBR base substrate
+// model the draft extension recommends), with the paper's fast albedo approximation E_FON_approx. rho is the diffuse
+// albedo (c_diff), r the roughness in [0, 1], mu_i = N.L, mu_o = N.V, LdotV = dot(l, v). Returns the BRDF value
+// (including 1/pi); r = 0 is Lambert (rho / pi) analytically, but the caller keeps the Lambert code for r = 0.
+const float kEonConstant1 = 0.5 - 2.0 / (3.0 * M_PI);            // FON A coefficient term
+const float kEonConstant2 = 2.0 / 3.0 - 28.0 / (15.0 * M_PI);    // FON average albedo term
+
+float E_FON_approx(float mu, float r)
+{
+    float mucomp = 1.0 - mu;
+    const float g1 = 0.0571085289;
+    const float g2 = 0.491881867;
+    const float g3 = -0.332181442;
+    const float g4 = 0.0714429953;
+    float GoverPi = mucomp * (g1 + mucomp * (g2 + mucomp * (g3 + mucomp * g4)));
+    return (1.0 + r * GoverPi) / (1.0 + kEonConstant1 * r);
+}
+
+vec3 f_EON(vec3 rho, float r, float mu_i, float mu_o, float LdotV)
+{
+    float s = LdotV - mu_i * mu_o;                               // QON s term
+    float sovertF = s > 0.0 ? s / max(max(mu_i, mu_o), 1e-7) : s; // FON s / t
+    float AF = 1.0 / (1.0 + kEonConstant1 * r);                  // FON A coefficient
+    vec3 f_ss = (rho / M_PI) * AF * (1.0 + r * sovertF);         // single scattering
+    float EFo = E_FON_approx(mu_o, r);                            // FON albedo, outgoing direction
+    float EFi = E_FON_approx(mu_i, r);                            // FON albedo, incoming direction
+    float avgEF = AF * (1.0 + kEonConstant2 * r);                 // average albedo
+    vec3 rho_ms = (rho * rho) * avgEF / (vec3(1.0) - rho * (1.0 - avgEF));
+    const float eps = 1.0e-7;
+    vec3 f_ms = (rho_ms / M_PI) * max(eps, 1.0 - EFo) * max(eps, 1.0 - EFi) / max(eps, 1.0 - avgEF); // multiple scattering
+    return f_ss + f_ms;
+}
+#endif
+
+
+#ifdef MATERIAL_DIFFUSE_TRANSMISSION
+// KHR_materials_diffuse_transmission, direct light (glTF-Sample-Renderer pbr.frag): a light behind the surface
+// (dot(n, l) < 0) is transmitted by the Lambert BTDF of the transmission colour, with N.L taken on the back side
+// (clampedDot(-n, l)) and the Fresnel weight from the half vector of the light mirrored onto the front side. The
+// caller multiplies by the diffuse transmission factor (the BSDF mix) and applies the volume attenuation.
+vec3 diffuseTransmissionBtdf(vec3 intensity, vec3 n, vec3 v, vec3 l, vec3 f0, vec3 f90, float specularWeight, vec3 color)
+{
+    float backNdotL = clampedDot(-n, l);
+    vec3 mirrored = normalize(l + 2.0 * n * dot(-l, n));
+    float mirroredVdotH = clampedDot(v, normalize(mirrored + v));
+    return intensity * backNdotL * BRDF_lambertian(f0, f90, color, specularWeight, mirroredVdotH);
+}
+#endif

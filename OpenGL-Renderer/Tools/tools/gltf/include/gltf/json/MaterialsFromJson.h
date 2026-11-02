@@ -19,6 +19,8 @@ class Volume;
 class Iridescence;
 class Anisotropy;
 class Dispersion;
+class DiffuseTransmission;
+class DiffuseRoughness;
 class EmissiveStrength;
 
 class MaterialsFromJson : public ChildOfRootFromJson {
@@ -45,6 +47,8 @@ private:
     ConversionResult convertIridescence(const nlohmann::json& _json, Iridescence& _iridescence) const;
     ConversionResult convertAnisotropy(const nlohmann::json& _json, Anisotropy& _anisotropy) const;
     ConversionResult convertDispersion(const nlohmann::json& _json, Dispersion& _dispersion) const;
+    ConversionResult convertDiffuseTransmission(const nlohmann::json& _json, DiffuseTransmission& _value) const;
+    ConversionResult convertDiffuseRoughness(const nlohmann::json& _json, DiffuseRoughness& _value) const;
     ConversionResult convertEmissiveStrength(const nlohmann::json&, EmissiveStrength&) const;
 
     ConversionResult resolveMetallicRoughness(const nlohmann::json& _jsonMetallicRoughness, PbrMetallicRoughness& _metallicRoughness);
@@ -57,6 +61,8 @@ private:
     ConversionResult resolveVolume(const nlohmann::json& _jsonVolume, Volume& _volume);
     ConversionResult resolveIridescence(const nlohmann::json& _json, Iridescence& _iridescence);
     ConversionResult resolveAnisotropy(const nlohmann::json& _json, Anisotropy& _anisotropy);
+    ConversionResult resolveDiffuseTransmission(const nlohmann::json& _json, DiffuseTransmission& _value);
+    ConversionResult resolveDiffuseRoughness(const nlohmann::json& _json, DiffuseRoughness& _value);
     ConversionResult resolveXMP(const nlohmann::json& _jsonXMP, Material& _material);
 
 public:

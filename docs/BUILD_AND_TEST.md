@@ -219,6 +219,28 @@ python scripts/run_regression.py --tier full
   byte-identical to the plain twin (the same JSON without them), also required and with each switched off; required +
   switched off is refused; no validator notice; `get_state.tiles3d` lists the center, schema, table, feature ID and
   outline counts, empty with every one switched off; the plain twin against the baseline.
+- **`diffuse_extensions` suite** (`validate_diffuse_extensions.py`; triggers: `DiffuseTransmission.h`,
+  `DiffuseRoughness.h`, `MsftExtensions.h`, `MaterialsFromJson.*`, `MaterialsToJson.*`, `MaterialMerger.*`,
+  `ChildCollector.cpp`, `Extensions.*`, `Material.*` (glTF and renderer), `Gltf.cpp`, `GltfRenderLayer*`, renderer
+  `*Command*`, `pbr.frag`, `brdf.glsl`, `ibl.glsl`, `material_info.glsl`, `textures.glsl`, `MaterialInspector.cpp`,
+  `ElementInspector.cpp`, `source/imgui/application/Commands*`, `GltfValidator.*`, `GltfExtensionSettings.*`, and
+  itself; parts `--only dt|dr|msft|samples`): writes small `.gltf` fixtures (`build/diffuse_extensions/fixtures`,
+  never committed) and measures linear HDR radiance through the pipe (`probe` / `probe_region`) on a black
+  environment. **KHR_materials_diffuse_transmission**: factor 0, factor 1 switched off (back light, front light,
+  default HDR, sun with shadows) byte-identical to the material without the extension; a quad lit from behind is black
+  without it, `E x colour / pi` with it (= the front-lit Lambert of a base colour equal to the tint, specularFactor 0,
+  0.5 %), channel ratios = the colour factor, factor 0.5 = half, front light reflection x (1 - factor), volume
+  attenuation 0.5 = half, factor (A) and colour (RGB) texture halves; IBL with light only behind gives irradiance(-N)
+  x colour; the sun behind transmits with shadows on = off; transmission 1 overrides it; KHR_animation_pointer STEP
+  and `set_material_param` equal the static files; the Inspector display switch (UI script) renders as no
+  extension; validator: no notice. **KHR_materials_diffuse_roughness**: roughness 0 / switched off byte-identical;
+  the Python EON reference keeps albedo 1; a sphere's centre row follows `mu_i f_EON` (2 %) at r 0.5 / 1, the limb
+  flattens with r, the near-orthographic retro view gives the EON disc ratio (2 %); texture R halves, animation,
+  pipe, display switch, validator. **MSFT_lod / MSFT_packing_***: LOD and required LOD render = plain twin, required +
+  off refused; a packed ORM texture without core textures = the core twin, with core textures = core, switched off =
+  none; NRM = plain; no validator notice. The Khronos samples DiffuseTransmissionTest, DiffuseTransmissionPlant,
+  DiffuseTransmissionTeacup and MandarinOrange (`build/khronos-samples`, downloaded by hand, not committed; INFO
+  otherwise) are captured lit from behind and must differ with the extension off. Plain twins against the baseline.
 - **`animation_keys` suite** (`validate_animation_keys.py`; triggers: the runtime animation library
   `OpenGL-Renderer/Tools/Runtime/runtime/animation/*` (`Channel.h`, `Sampler.h`, `Animation.*`),
   `GltfRenderLayerNodes.cpp`, `AnimationPlayer.*`, `TransformAnimationTarget.h`, `KHRAnimationPointerTarget.h`,

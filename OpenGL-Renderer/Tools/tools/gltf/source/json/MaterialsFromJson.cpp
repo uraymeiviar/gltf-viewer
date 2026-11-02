@@ -242,6 +242,48 @@ ConversionResult MaterialsFromJson::convert(const nlohmann::json& _jsonMaterial)
                 }
             }
 
+            // KHR_materials_diffuse_transmission / KHR_materials_diffuse_roughness: factors and textures; the textures are
+            // resolved with the other material textures (resolve).
+            extensionName = "KHR_materials_diffuse_transmission";
+            extension = extensions->find(extensionName);
+            if (extension != extensions->end()) {
+                if (!exclusiveExtension.isSet(ExtensionCategory::Unlit) && !exclusiveExtension.isSet(ExtensionCategory::PBRSpecularGlossiness)) {
+                    if (extension->is_object()) {
+                        pMaterial->createDiffuseTransmission();
+                        exclusiveExtension |= ExtensionCategory::PBRNext;
+                        if (!convertDiffuseTransmission(*extension, pMaterial->getDiffuseTransmission().value())) {
+                            containsErrors = true;
+                        }
+                    } else {
+                        core::logWarning("material.%s.%s with value '%s' has invalid type", key.c_str(), extensionName.c_str(), extension->dump().c_str());
+                        containsErrors = true;
+                    }
+                } else {
+                    // The conflicting extensions have to be put in manually
+                    core::logWarning("Conflicting extensions in material: %s conflicts with Unlit and is discarded. Discarded Content: %s", extensionName.c_str(), extension->dump().c_str());
+                }
+            }
+
+            extensionName = "KHR_materials_diffuse_roughness";
+            extension = extensions->find(extensionName);
+            if (extension != extensions->end()) {
+                if (!exclusiveExtension.isSet(ExtensionCategory::Unlit) && !exclusiveExtension.isSet(ExtensionCategory::PBRSpecularGlossiness)) {
+                    if (extension->is_object()) {
+                        pMaterial->createDiffuseRoughness();
+                        exclusiveExtension |= ExtensionCategory::PBRNext;
+                        if (!convertDiffuseRoughness(*extension, pMaterial->getDiffuseRoughness().value())) {
+                            containsErrors = true;
+                        }
+                    } else {
+                        core::logWarning("material.%s.%s with value '%s' has invalid type", key.c_str(), extensionName.c_str(), extension->dump().c_str());
+                        containsErrors = true;
+                    }
+                } else {
+                    // The conflicting extensions have to be put in manually
+                    core::logWarning("Conflicting extensions in material: %s conflicts with Unlit and is discarded. Discarded Content: %s", extensionName.c_str(), extension->dump().c_str());
+                }
+            }
+
             extensionName = "KHR_materials_pbrSpecularGlossiness";
             extension = extensions->find(extensionName);
             if (extension != extensions->end()) {
@@ -439,6 +481,16 @@ ConversionResult MaterialsFromJson::resolve(const nlohmann::json& _jsonMaterial,
                         }
                         if (extensionName == "KHR_materials_anisotropy" && _material.getAnisotropy().has_value()) {
                             if (!resolveAnisotropy(extension, _material.getAnisotropy().value())) {
+                                containsErrors = true;
+                            }
+                        }
+                        if (extensionName == "KHR_materials_diffuse_transmission" && _material.getDiffuseTransmission().has_value()) {
+                            if (!resolveDiffuseTransmission(extension, _material.getDiffuseTransmission().value())) {
+                                containsErrors = true;
+                            }
+                        }
+                        if (extensionName == "KHR_materials_diffuse_roughness" && _material.getDiffuseRoughness().has_value()) {
+                            if (!resolveDiffuseRoughness(extension, _material.getDiffuseRoughness().value())) {
                                 containsErrors = true;
                             }
                         }
@@ -871,6 +923,77 @@ ConversionResult MaterialsFromJson::convertSheen(const nlohmann::json& _jsonShee
         return ConversionError::SuccessWithErrors;
     }
 
+    return ConversionResult::Success;
+}
+
+ConversionResult MaterialsFromJson::convertDiffuseTransmission(const nlohmann::json& _json, DiffuseTransmission& _value) const
+{
+    bool containsErrors = false;
+    const char* name = DiffuseTransmission::ExtensionName;
+    for (const auto& [key, value] : _json.items()) {
+        if (key == "diffuseTransmissionFactor") {
+            if (!value.is_number() || _value.setDiffuseTransmissionFactor(value.get<double>()) != GltfResult::Success) {
+                core::logWarning("%s.%s with value '%s' is not a number in [0, 1]; the default 0 is used", name, key.c_str(), value.dump().c_str());
+                containsErrors = true;
+            }
+        } else if (key == "diffuseTransmissionColorFactor") {
+            if (core::Failed(checkVector(value, 3, "KHR_materials_diffuse_transmission.diffuseTransmissionColorFactor"))
+                || _value.setDiffuseTransmissionColorFactor(doublesToVector<3>(value.get<std::vector<double>>())) != GltfResult::Success) {
+                core::logWarning("%s.%s with value '%s' is not 3 numbers in [0, 1]; the default [1, 1, 1] is used", name, key.c_str(), value.dump().c_str());
+                containsErrors = true;
+            }
+        } else if (key == "diffuseTransmissionTexture" || key == "diffuseTransmissionColorTexture") {
+            if (value.is_object()) {
+                auto& info = key == "diffuseTransmissionTexture" ? _value.getDiffuseTransmissionTextureInfo() : _value.getDiffuseTransmissionColorTextureInfo();
+                info.emplace();
+                if (!convertTextureInfo(value, info.value())) {
+                    containsErrors = true;
+                }
+            } else {
+                containsErrors = true;
+                core::logWarning("%s.%s with value '%s' has invalid type", name, key.c_str(), value.dump().c_str());
+            }
+        }
+    }
+    if (!GltfObjectFromJson::convertUnknownExtensions(_json, &_value, name)) {
+        containsErrors = true;
+    }
+    GltfObjectFromJson::convertExtras(_json, &_value);
+    if (containsErrors) {
+        return ConversionError::SuccessWithErrors;
+    }
+    return ConversionResult::Success;
+}
+
+ConversionResult MaterialsFromJson::convertDiffuseRoughness(const nlohmann::json& _json, DiffuseRoughness& _value) const
+{
+    bool containsErrors = false;
+    const char* name = DiffuseRoughness::ExtensionName;
+    for (const auto& [key, value] : _json.items()) {
+        if (key == "diffuseRoughnessFactor") {
+            if (!value.is_number() || _value.setDiffuseRoughnessFactor(value.get<double>()) != GltfResult::Success) {
+                core::logWarning("%s.%s with value '%s' is not a number in [0, 1]; the default 0 is used", name, key.c_str(), value.dump().c_str());
+                containsErrors = true;
+            }
+        } else if (key == "diffuseRoughnessTexture") {
+            if (value.is_object()) {
+                _value.getDiffuseRoughnessTextureInfo().emplace();
+                if (!convertTextureInfo(value, _value.getDiffuseRoughnessTextureInfo().value())) {
+                    containsErrors = true;
+                }
+            } else {
+                containsErrors = true;
+                core::logWarning("%s.%s with value '%s' has invalid type", name, key.c_str(), value.dump().c_str());
+            }
+        }
+    }
+    if (!GltfObjectFromJson::convertUnknownExtensions(_json, &_value, name)) {
+        containsErrors = true;
+    }
+    GltfObjectFromJson::convertExtras(_json, &_value);
+    if (containsErrors) {
+        return ConversionError::SuccessWithErrors;
+    }
     return ConversionResult::Success;
 }
 
@@ -1393,6 +1516,36 @@ ConversionResult MaterialsFromJson::resolveAnisotropy(const nlohmann::json& _jso
     const auto texture = _json.find("anisotropyTexture");
     if (texture != _json.end() && texture->is_object() && _anisotropy.getAnisotropyTextureInfo().has_value()) {
         if (core::Failed(resolveTextureInfo(*texture, _anisotropy.getAnisotropyTextureInfo().value()))) {
+            return ConversionError::SuccessWithErrors;
+        }
+    }
+    return ConversionResult::Success;
+}
+
+ConversionResult MaterialsFromJson::resolveDiffuseTransmission(const nlohmann::json& _json, DiffuseTransmission& _value)
+{
+    bool containsErrors = false;
+    for (const char* key : { "diffuseTransmissionTexture", "diffuseTransmissionColorTexture" }) {
+        auto& info = std::string_view(key) == "diffuseTransmissionTexture" ? _value.getDiffuseTransmissionTextureInfo()
+                                                                           : _value.getDiffuseTransmissionColorTextureInfo();
+        const auto texture = _json.find(key);
+        if (texture != _json.end() && texture->is_object() && info.has_value()) {
+            if (core::Failed(resolveTextureInfo(*texture, info.value()))) {
+                containsErrors = true;
+            }
+        }
+    }
+    if (containsErrors) {
+        return ConversionError::SuccessWithErrors;
+    }
+    return ConversionResult::Success;
+}
+
+ConversionResult MaterialsFromJson::resolveDiffuseRoughness(const nlohmann::json& _json, DiffuseRoughness& _value)
+{
+    const auto texture = _json.find("diffuseRoughnessTexture");
+    if (texture != _json.end() && texture->is_object() && _value.getDiffuseRoughnessTextureInfo().has_value()) {
+        if (core::Failed(resolveTextureInfo(*texture, _value.getDiffuseRoughnessTextureInfo().value()))) {
             return ConversionError::SuccessWithErrors;
         }
     }

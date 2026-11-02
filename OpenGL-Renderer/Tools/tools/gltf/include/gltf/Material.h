@@ -8,6 +8,8 @@
 #include "XMP.h"
 #include "material/Anisotropy.h"
 #include "material/Clearcoat.h"
+#include "material/DiffuseRoughness.h"
+#include "material/DiffuseTransmission.h"
 #include "material/Dispersion.h"
 #include "material/EmissiveStrength.h"
 #include "material/Ior.h"
@@ -53,6 +55,8 @@ private:
     std::optional<Iridescence> m_iridescence;
     std::optional<Anisotropy> m_anisotropy;
     std::optional<Dispersion> m_dispersion;
+    std::optional<DiffuseTransmission> m_diffuseTransmission;
+    std::optional<DiffuseRoughness> m_diffuseRoughness;
 
     // extensions
     std::optional<PacketContainer> m_xmpPacket = std::nullopt;
@@ -164,6 +168,16 @@ public:
     void destroyDispersion() { m_dispersion.reset(); }
     std::optional<Dispersion>& getDispersion() { return m_dispersion; }
     const std::optional<Dispersion>& getDispersion() const { return m_dispersion; }
+
+    GltfResult createDiffuseTransmission();
+    void destroyDiffuseTransmission() { m_diffuseTransmission.reset(); }
+    std::optional<DiffuseTransmission>& getDiffuseTransmission() { return m_diffuseTransmission; }
+    const std::optional<DiffuseTransmission>& getDiffuseTransmission() const { return m_diffuseTransmission; }
+
+    GltfResult createDiffuseRoughness();
+    void destroyDiffuseRoughness() { m_diffuseRoughness.reset(); }
+    std::optional<DiffuseRoughness>& getDiffuseRoughness() { return m_diffuseRoughness; }
+    const std::optional<DiffuseRoughness>& getDiffuseRoughness() const { return m_diffuseRoughness; }
 
     GltfResult createUnlit();
     void destroyUnlit() { m_unlit.reset(); }

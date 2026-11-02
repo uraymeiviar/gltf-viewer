@@ -369,6 +369,23 @@ void ChildCollector::addMaterialChildren(const Material* material)
         }
     }
 
+    if (material->getDiffuseTransmission().has_value()) {
+        addToGltfObjectList(&material->getDiffuseTransmission().value());
+        for (auto* info : { &material->getDiffuseTransmission()->getDiffuseTransmissionTextureInfo(),
+                            &material->getDiffuseTransmission()->getDiffuseTransmissionColorTextureInfo() }) {
+            if (info->has_value()) {
+                addToGltfObjectList(&info->value());
+                addToWorkList((*info)->getTexture());
+            }
+        }
+    }
+    if (material->getDiffuseRoughness().has_value()) {
+        addToGltfObjectList(&material->getDiffuseRoughness().value());
+        if (material->getDiffuseRoughness()->getDiffuseRoughnessTextureInfo().has_value()) {
+            addToGltfObjectList(&material->getDiffuseRoughness()->getDiffuseRoughnessTextureInfo().value());
+            addToWorkList(material->getDiffuseRoughness()->getDiffuseRoughnessTextureInfo()->getTexture());
+        }
+    }
     if (material->getAnisotropy().has_value()) {
         addToGltfObjectList(&material->getAnisotropy().value());
 

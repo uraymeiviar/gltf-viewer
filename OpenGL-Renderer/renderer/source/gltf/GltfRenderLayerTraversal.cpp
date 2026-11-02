@@ -530,6 +530,8 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
             material->renderSettings.enableEmissiveStrength &= materialExtensionOptions.applies(material->gltfMaterialId, "KHR_materials_emissive_strength");
             material->renderSettings.enableAnisotropy &= materialExtensionOptions.applies(material->gltfMaterialId, "KHR_materials_anisotropy");
             material->renderSettings.enableDispersion &= materialExtensionOptions.applies(material->gltfMaterialId, "KHR_materials_dispersion");
+            material->renderSettings.enableDiffuseTransmission &= materialExtensionOptions.applies(material->gltfMaterialId, "KHR_materials_diffuse_transmission");
+            material->renderSettings.enableDiffuseRoughness &= materialExtensionOptions.applies(material->gltfMaterialId, "KHR_materials_diffuse_roughness");
         }
         material->defines.define("LINEAR_OUTPUT", 1);
     }

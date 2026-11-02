@@ -487,6 +487,18 @@ GltfResult Gltf::deleteTexture(Texture& _Texture)
                 }
             }
         }
+        // KHR_materials_diffuse_transmission / KHR_materials_diffuse_roughness
+        if (auto& dt = material.getDiffuseTransmission(); dt.has_value()) {
+            for (auto* info : { &dt->getDiffuseTransmissionTextureInfo(), &dt->getDiffuseTransmissionColorTextureInfo() }) {
+                if (info->has_value() && (*info)->getTexture() == &_Texture) {
+                    (*info)->unsetTexture();
+                }
+            }
+        }
+        if (auto& dr = material.getDiffuseRoughness(); dr.has_value() && dr->getDiffuseRoughnessTextureInfo().has_value()
+            && dr->getDiffuseRoughnessTextureInfo()->getTexture() == &_Texture) {
+            dr->getDiffuseRoughnessTextureInfo()->unsetTexture();
+        }
         // Anisotropy
         auto& anisotropy = material.getAnisotropy();
         if (anisotropy.has_value() && anisotropy->getAnisotropyTextureInfo().has_value()
@@ -1135,6 +1147,17 @@ core::Vector<TextureInfo*> Gltf::getTextureInfos()
                 textureInfo.has_value()) {
                 result.emplace_back(&textureInfo.value());
             }
+        }
+
+        if (auto& dt = mat.getDiffuseTransmission(); dt.has_value()) {
+            for (auto* info : { &dt->getDiffuseTransmissionTextureInfo(), &dt->getDiffuseTransmissionColorTextureInfo() }) {
+                if (info->has_value()) {
+                    result.emplace_back(&info->value());
+                }
+            }
+        }
+        if (auto& dr = mat.getDiffuseRoughness(); dr.has_value() && dr->getDiffuseRoughnessTextureInfo().has_value()) {
+            result.emplace_back(&dr->getDiffuseRoughnessTextureInfo().value());
         }
     }
     return result;

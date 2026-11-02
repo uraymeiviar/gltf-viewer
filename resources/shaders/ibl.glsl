@@ -251,3 +251,27 @@ vec3 getIBLRadianceCharlie(vec3 n, vec3 v, float sheenRoughness, vec3 sheenColor
     vec3 sheenLight = sheenSample.rgb;
     return sheenLight * sheenColor * brdf;
 }
+
+
+#ifdef MATERIAL_DIFFUSE_TRANSMISSION
+// KHR_materials_diffuse_transmission, IBL (glTF-Sample-Renderer: f_diffuse = mix(irradiance(n) * baseColor,
+// irradiance(-n) * diffuseTransmissionColor, diffuseTransmission)). Returned as the change to the diffuse term of
+// getIBLRadianceLambertian: factor x (k_D(transmissionColor) x E(-n) attenuated - k_D(c_diff) x E(n)), with Glider's
+// split-sum diffuse weight k_D(c) = c (1 - FssEss + FmsEms) for both lobes; the multiple-scattering specular FmsEms E(n)
+// is not mixed. backIrradiance = getDiffuseLight(-n) (after the volume attenuation, if any).
+vec3 getIBLDiffuseTransmissionDelta(vec3 n, vec3 v, float roughness, vec3 diffuseColor, vec3 transmissionColor,
+    vec3 backIrradiance, vec3 F0, float specularWeight, float factor)
+{
+    float NdotV = clampedDot(n, v);
+    vec2 brdfSamplePoint = clamp(vec2(NdotV, roughness), vec2(0.0, 0.0), vec2(1.0, 1.0));
+    vec2 f_ab = texture(u_GGXLUT, brdfSamplePoint).rg;
+    vec3 Fr = max(vec3(1.0 - roughness), F0) - F0;
+    vec3 k_S = F0 + Fr * pow(1.0 - NdotV, 5.0);
+    vec3 FssEss = specularWeight * k_S * f_ab.x + f_ab.y;
+    float Ems = (1.0 - (f_ab.x + f_ab.y));
+    vec3 F_avg = specularWeight * (F0 + (1.0 - F0) / 21.0);
+    vec3 FmsEms = Ems * FssEss * F_avg / (1.0 - F_avg * Ems);
+    vec3 diffuseWeight = vec3(1.0) - FssEss + FmsEms;
+    return factor * diffuseWeight * (transmissionColor * backIrradiance - diffuseColor * getDiffuseLight(n));
+}
+#endif

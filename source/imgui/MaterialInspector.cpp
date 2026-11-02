@@ -12,6 +12,7 @@
 #include "renderer/gltf/GltfRenderLayer.h"
 #include <imgui.h>
 #include <algorithm>
+#include "gltf/extensions/MsftExtensions.h"
 #include <cctype>
 #include <cstring>
 #include <cstdio>
@@ -548,7 +549,9 @@ bool MaterialInspector::render(ux3d::gltf::Material* material,
                          material->getSheen().has_value() ||
                          material->getIridescence().has_value() ||
                          material->getAnisotropy().has_value() ||
-                         material->getDispersion().has_value();
+                         material->getDispersion().has_value() ||
+                         material->getDiffuseTransmission().has_value() ||
+                         material->getDiffuseRoughness().has_value();
 
     std::string khronosHeader = "Khronos Extensions" + std::string(hasKhronosExt ? " (Active)" : "");
     if (ImGui::CollapsingHeader(khronosHeader.c_str(), hasKhronosExt ? ImGuiTreeNodeFlags_DefaultOpen : 0)) {
@@ -673,6 +676,68 @@ bool MaterialInspector::render(ux3d::gltf::Material* material,
             }
             if (renderTextureSlot("Specular Texture", spec.getSpecularTextureInfo(), gltfModel, material, selection, gltfLayer)) modified = true;
             if (renderTextureSlot("Specular Color Texture", spec.getSpecularColorTextureInfo(), gltfModel, material, selection, gltfLayer)) modified = true;
+            ImGui::Unindent(15.0f);
+        }
+
+        // MSFT_lod / MSFT_packing_*: read-only summaries (kept as vendor JSON).
+        if (const auto lod = ux3d::gltf::msft::lod(*material); lod.present) {
+            ImGui::TextUnformatted("MSFT_lod (this material is LOD0, rendered)");
+            for (size_t i = 0; i < lod.ids.size(); ++i) {
+                ImGui::BulletText("LOD%zu: material %d%s", i + 1, lod.ids[i],
+                                  i + 1 < lod.screenCoverage.size() ? (", screen coverage " + std::to_string(lod.screenCoverage[i + 1]).substr(0, 6)).c_str() : "");
+            }
+        }
+        for (const std::string& line : ux3d::gltf::msft::packingSummary(*material)) {
+            ImGui::BulletText("%s", line.c_str());
+        }
+
+        // KHR_materials_diffuse_transmission: the diffuse lobe's share transmitted through the (thin) surface.
+        if (material->getDiffuseTransmission().has_value()) {
+            extensionHeader(ux3d::gltf::DiffuseTransmission::ExtensionName);
+            ImGui::Indent(15.0f);
+            auto& dt = material->getDiffuseTransmission().value();
+            float dtFactor = static_cast<float>(dt.getDiffuseTransmissionFactorOrDefault());
+            if (ImGui::SliderFloat("Diffuse Transmission Factor", &dtFactor, 0.0f, 1.0f, "%.3f")) {
+                dt.setDiffuseTransmissionFactor(static_cast<double>(std::clamp(dtFactor, 0.0f, 1.0f)));
+                modified = true;
+            }
+            UiProbe::item("khr.KHR_materials_diffuse_transmission.diffuseTransmissionFactor", material->m_ID);
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Share of the diffuse light that passes through the surface (0 = opaque Lambert, 1 = all "
+                                  "diffuse light is transmitted). Light from behind shows on the front.");
+            }
+            auto dtColorD = dt.getDiffuseTransmissionColorFactorOrDefault();
+            float dtColor[3] = { static_cast<float>(dtColorD.r), static_cast<float>(dtColorD.g), static_cast<float>(dtColorD.b) };
+            if (ImGui::ColorEdit3("Diffuse Transmission Color", dtColor)) {
+                dt.setDiffuseTransmissionColorFactor(ux3d::math::dvec3(std::clamp(dtColor[0], 0.0f, 1.0f),
+                    std::clamp(dtColor[1], 0.0f, 1.0f), std::clamp(dtColor[2], 0.0f, 1.0f)));
+                modified = true;
+            }
+            UiProbe::item("khr.KHR_materials_diffuse_transmission.diffuseTransmissionColorFactor", material->m_ID);
+            if (renderTextureSlot("Diffuse Transmission Texture (A)", dt.getDiffuseTransmissionTextureInfo(), gltfModel, material, selection, gltfLayer)) modified = true;
+            if (renderTextureSlot("Diffuse Transmission Color Texture", dt.getDiffuseTransmissionColorTextureInfo(), gltfModel, material, selection, gltfLayer)) modified = true;
+            if (material->getTransmission().has_value()) {
+                ImGui::TextDisabled("KHR_materials_transmission overrides it by the transmission factor.");
+            }
+            ImGui::Unindent(15.0f);
+        }
+
+        // KHR_materials_diffuse_roughness: Oren-Nayar (EON) roughness of the diffuse lobe.
+        if (material->getDiffuseRoughness().has_value()) {
+            extensionHeader(ux3d::gltf::DiffuseRoughness::ExtensionName);
+            ImGui::Indent(15.0f);
+            auto& dr = material->getDiffuseRoughness().value();
+            float drFactor = static_cast<float>(dr.getDiffuseRoughnessFactorOrDefault());
+            if (ImGui::SliderFloat("Diffuse Roughness Factor", &drFactor, 0.0f, 1.0f, "%.3f")) {
+                dr.setDiffuseRoughnessFactor(static_cast<double>(std::clamp(drFactor, 0.0f, 1.0f)));
+                modified = true;
+            }
+            UiProbe::item("khr.KHR_materials_diffuse_roughness.diffuseRoughnessFactor", material->m_ID);
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("0 = Lambert; higher values flatten the diffuse shading (energy-preserving Oren-Nayar, "
+                                  "sun and punctual lights; the IBL diffuse stays Lambert).");
+            }
+            if (renderTextureSlot("Diffuse Roughness Texture (R)", dr.getDiffuseRoughnessTextureInfo(), gltfModel, material, selection, gltfLayer)) modified = true;
             ImGui::Unindent(15.0f);
         }
 

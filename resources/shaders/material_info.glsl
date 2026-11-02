@@ -37,6 +37,17 @@ uniform float u_IridescenceThicknessMaximum;
 // Anisotropy (KHR_materials_anisotropy): cos(anisotropyRotation), sin(anisotropyRotation), anisotropyStrength
 uniform vec3 u_Anisotropy;
 
+#ifdef MATERIAL_DIFFUSE_TRANSMISSION
+// KHR_materials_diffuse_transmission
+uniform float u_DiffuseTransmissionFactor;
+uniform vec3 u_DiffuseTransmissionColorFactor;
+#endif
+
+#ifdef MATERIAL_DIFFUSE_ROUGHNESS
+// KHR_materials_diffuse_roughness
+uniform float u_DiffuseRoughnessFactor;
+#endif
+
 // Emissive Strength
 uniform float u_EmissiveStrength;
 
@@ -94,6 +105,14 @@ struct MaterialInfo
     float iridescenceFactor;
     float iridescenceIor;
     float iridescenceThickness;
+
+#ifdef MATERIAL_DIFFUSE_TRANSMISSION
+    float diffuseTransmissionFactor;   // diffuseTransmissionFactor x texture.a, [0, 1]
+    vec3 diffuseTransmissionColor;     // diffuseTransmissionColorFactor x colour texture.rgb
+#endif
+#ifdef MATERIAL_DIFFUSE_ROUGHNESS
+    float diffuseRoughness;            // diffuseRoughnessFactor x texture.r, [0, 1]
+#endif
 
 #ifdef MATERIAL_ANISOTROPY
     // Anisotropic GGX lobe in the KHR_materials_anisotropy parameterisation (A7.1 maps
@@ -384,6 +403,38 @@ MaterialInfo getTransmissionInfo(MaterialInfo info)
     vec4 transmissionSample = texture(u_TransmissionSampler, getTransmissionUV());
     info.transmissionFactor *= transmissionSample.r;
 #endif
+    return info;
+}
+#endif
+
+
+#ifdef MATERIAL_DIFFUSE_TRANSMISSION
+// KHR_materials_diffuse_transmission (glTF-Sample-Renderer getDiffuseTransmissionInfo).
+MaterialInfo getDiffuseTransmissionInfo(MaterialInfo info)
+{
+    info.diffuseTransmissionFactor = u_DiffuseTransmissionFactor;
+    info.diffuseTransmissionColor = u_DiffuseTransmissionColorFactor;
+#ifdef HAS_DIFFUSE_TRANSMISSION_MAP
+    info.diffuseTransmissionFactor *= texture(u_DiffuseTransmissionSampler, getDiffuseTransmissionUV()).a;
+#endif
+#ifdef HAS_DIFFUSE_TRANSMISSION_COLOR_MAP
+    info.diffuseTransmissionColor *= texture(u_DiffuseTransmissionColorSampler, getDiffuseTransmissionColorUV()).rgb;
+#endif
+    info.diffuseTransmissionFactor = clamp(info.diffuseTransmissionFactor, 0.0, 1.0);
+    return info;
+}
+#endif
+
+
+#ifdef MATERIAL_DIFFUSE_ROUGHNESS
+// KHR_materials_diffuse_roughness: diffuseRoughnessFactor x texture.r.
+MaterialInfo getDiffuseRoughnessInfo(MaterialInfo info)
+{
+    info.diffuseRoughness = u_DiffuseRoughnessFactor;
+#ifdef HAS_DIFFUSE_ROUGHNESS_MAP
+    info.diffuseRoughness *= texture(u_DiffuseRoughnessSampler, getDiffuseRoughnessUV()).r;
+#endif
+    info.diffuseRoughness = clamp(info.diffuseRoughness, 0.0, 1.0);
     return info;
 }
 #endif

@@ -1098,6 +1098,24 @@ void Application::registerAgentCommands()
                 values["dispersion"] = material->getDispersion()->getDispersionOrDefault();
                 if (material->getDispersion()->hasDispersion()) explicitKeys.push_back("dispersion");
             }
+            if (!found && extension == ux3d::gltf::DiffuseTransmission::ExtensionName && material->getDiffuseTransmission().has_value()) {
+                found = true; // typed values with their defaults (factor 0, colour white)
+                const auto& dt = material->getDiffuseTransmission().value();
+                const auto color = dt.getDiffuseTransmissionColorFactorOrDefault();
+                values["diffuseTransmissionFactor"] = dt.getDiffuseTransmissionFactorOrDefault();
+                values["diffuseTransmissionColorFactor"] = json::array({color.r, color.g, color.b});
+                if (dt.hasDiffuseTransmissionFactor()) explicitKeys.push_back("diffuseTransmissionFactor");
+                if (dt.hasDiffuseTransmissionColorFactor()) explicitKeys.push_back("diffuseTransmissionColorFactor");
+                if (dt.getDiffuseTransmissionTextureInfo().has_value()) values["diffuseTransmissionTexture"] = true;
+                if (dt.getDiffuseTransmissionColorTextureInfo().has_value()) values["diffuseTransmissionColorTexture"] = true;
+            }
+            if (!found && extension == ux3d::gltf::DiffuseRoughness::ExtensionName && material->getDiffuseRoughness().has_value()) {
+                found = true; // typed value with its default 0
+                const auto& dr = material->getDiffuseRoughness().value();
+                values["diffuseRoughnessFactor"] = dr.getDiffuseRoughnessFactorOrDefault();
+                if (dr.hasDiffuseRoughnessFactor()) explicitKeys.push_back("diffuseRoughnessFactor");
+                if (dr.getDiffuseRoughnessTextureInfo().has_value()) values["diffuseRoughnessTexture"] = true;
+            }
             if (!found) {
                 for (const auto& [name, text] : material->getUnknownExtensions()) {
                     if (std::string(name.c_str()) != extension) continue;

@@ -4,6 +4,7 @@
 // accessor, animation and skin views). Image previews and header details are in ElementInspectorImages.cpp.
 
 #include "ElementInspectorImages.h"
+#include "gltf/extensions/MsftExtensions.h"
 #include "gltf/extensions/TilesExtensions.h"
 
 namespace ux3d::imgui {
@@ -308,6 +309,27 @@ void ElementInspector::render(SelectionState& selection,
                                       static_cast<unsigned long long>(set.featureCount),
                                       set.propertyTable >= 0 ? (", property table " + std::to_string(set.propertyTable)).c_str() : "");
                 }
+            }
+        }
+
+        // MSFT_lod: the LOD chain and screen-coverage hints, read-only (Glider renders this node, the highest LOD).
+        if (const auto lod = ux3d::gltf::msft::lod(*node); lod.present) {
+            ImGui::Separator();
+            ImGui::Text("Levels of detail (MSFT_lod): %zu lower", lod.ids.size());
+            const auto& nodes = gltfModel.getNodes();
+            for (size_t i = 0; i <= lod.ids.size(); ++i) {
+                const int index = i == 0 ? -1 : lod.ids[i - 1];
+                std::string label = i == 0 ? std::string("this node (rendered)")
+                    : (index >= 0 && static_cast<size_t>(index) < nodes.size()
+                           ? "node " + std::to_string(index) + " '" + std::string(nodes.at(static_cast<size_t>(index)).getName().c_str()) + "'"
+                           : "node " + std::to_string(index) + " (invalid)");
+                if (i < lod.screenCoverage.size()) {
+                    label += ", screen coverage " + std::to_string(lod.screenCoverage[i]).substr(0, 6);
+                }
+                ImGui::BulletText("LOD%zu: %s", i, label.c_str());
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Glider draws the highest LOD only (no LOD switching).");
             }
         }
 
