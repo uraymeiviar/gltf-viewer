@@ -402,6 +402,21 @@ def check_sun(black, uniform, box):
         session.kill()
 
 
+def check_precision(uniform, box):
+    import numpy as np
+    print("[precision: 16bit against 32bit]")
+    flags = uniform + LOOK + BOX_VIEW + SSAO
+    a, _ = render(box, "precision_32_explicit", flags + ["--ssao-precision", "32bit"])
+    b, _ = render(box, "precision_32_default", flags)
+    check(a is not None and same(a, b), "--ssao-precision 32bit is the default image")
+    c, data = render(box, "precision_16", flags + ["--ssao-precision", "16bit"])
+    viewport = ((data or {}).get("ssao") or {}).get("viewports", [{}])[0]
+    check(viewport.get("precision") == "16bit", f"the report says 16bit: {viewport.get('precision')}")
+    difference = np.abs(linear(a) - linear(c)).max() if c is not None else 1.0
+    print(f"  INFO largest linear difference from 32bit: {difference:.5f}")
+    check(difference < 0.01, f"the box looks the same at 16bit: largest difference {difference:.5f} < 0.01")
+
+
 def check_state(uniform, box):
     print("[registry, get_state, flags]")
     try:
@@ -421,6 +436,17 @@ def check_state(uniform, box):
         session.call("set_viewport_setting", key="ssao_intensity", value=1.5)
         session.settle()
         state = session.call("get_state")["ssao"]["viewports"][0]
+        check(state["precision"] == "32bit", f"the default precision is 32bit: {state['precision']}")
+        memory32 = state["memoryBytes"]
+        session.call("set_viewport_setting", key="ssao_precision", value="16bit")
+        session.settle()
+        state16 = session.call("get_state")["ssao"]["viewports"][0]
+        check(state16["precision"] == "16bit" and state16["active"] and state16["memoryBytes"] < memory32,
+              f"16bit: smaller targets, {memory32} -> {state16['memoryBytes']} bytes")
+        session.call("set_viewport_setting", key="ssao_precision", value="32bit")
+        session.settle()
+        state = session.call("get_state")["ssao"]["viewports"][0]
+        check(state["memoryBytes"] == memory32, "32bit again: the same memory")
         check(state["enabled"] and state["active"] and state["slices"] == 4 and state["steps"] == 8 and
               state["resolution"] == "half" and abs(state["radius"] - 0.8) < 1e-6 and abs(state["intensity"] - 1.5) < 1e-6 and state["memoryBytes"] > 0,
               f"set_viewport_setting: active, high (4 x 8), half, radius 0.8, intensity 1.5, {state['memoryBytes']} bytes")
@@ -429,7 +455,7 @@ def check_state(uniform, box):
         mode = session.call("get_state")["renderMode"]
         check(mode == "ssao", f"render_mode ssao ({mode})")
         session.call("set_viewport_setting", key="render_mode", value="shaded")
-        for key, bad in (("ssao_quality", "ultra"), ("ssao_resolution", "quarter"), ("ssao_radius", -1.0),
+        for key, bad in (("ssao_quality", "ultra"), ("ssao_resolution", "quarter"), ("ssao_precision", "8bit"), ("ssao_radius", -1.0),
                          ("ssao_intensity", 9.0)):
             try:
                 session.call("set_viewport_setting", key=key, value=bad)
@@ -441,7 +467,7 @@ def check_state(uniform, box):
         state = session.call("get_state")["ssao"]["viewports"][0]
         check(not state["active"] and state["memoryBytes"] == 0, "off again: every target is released")
         listed = {s["key"] for s in session.call("list_settings", scope="viewport")["settings"]}
-        wanted = {"ssao", "ssao_radius", "ssao_intensity", "ssao_quality", "ssao_resolution"}
+        wanted = {"ssao", "ssao_radius", "ssao_intensity", "ssao_quality", "ssao_resolution", "ssao_precision"}
         check(wanted <= listed, f"list_settings lists the SSAO settings ({sorted(wanted - listed) or 'all'})")
         errors = session.close()
         check(errors == 0, f"pipe session: {errors} GL errors")
@@ -453,7 +479,7 @@ def check_state(uniform, box):
     if not zero_b.exists():
         zero_b, _ = render(box, "cur_box_default", uniform + LOOK + BOX_VIEW)
     check(zero_a is not None and same(zero_a, zero_b), "--ssao-intensity 0 renders the SSAO-off image")
-    for bad in (["--ssao", "maybe"], ["--ssao-quality", "ultra"], ["--ssao-resolution", "quarter"],
+    for bad in (["--ssao", "maybe"], ["--ssao-quality", "ultra"], ["--ssao-resolution", "quarter"], ["--ssao-precision", "8bit"],
                 ["--ssao-radius", "-2"], ["--ssao-intensity", "abc"]):
         result = run([EXE, box] + COMMON + bad + ["--exit-after-dump"], timeout=120)
         check(result.returncode != 0, f"{' '.join(bad)} is rejected")
@@ -462,7 +488,7 @@ def check_state(uniform, box):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--baseline-exe", default=None)
-    parser.add_argument("--only", default=None, help="comma-separated: baseline,box,halo,taa,sun,state")
+    parser.add_argument("--only", default=None, help="comma-separated: baseline,box,halo,taa,sun,state,precision")
     args = parser.parse_args()
     only = set(args.only.split(",")) if args.only else None
 
@@ -490,6 +516,8 @@ def main():
         check_sun(black, uniform, box)
     if wanted("state"):
         check_state(uniform, box)
+    if wanted("precision"):
+        check_precision(uniform, box)
     print("[GL errors]")
     bad = [name for name, log in gl_logs if not gl_errors_zero(log)]
     check(not bad, f"zero GL errors in {len(gl_logs)} renders {bad}")

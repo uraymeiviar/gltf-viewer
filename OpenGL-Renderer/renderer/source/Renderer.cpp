@@ -30,10 +30,15 @@ bool ux3d::renderer::Renderer::draw(const core::Vector<CommandGenerator*>& scene
     m_gpuProfiler.beginFrame(m_gpuFrame, m_gpuViewport, m_gpuLabel);
     m_commandExecutor.resetState();
 
-    if (!checkGLError(m_gl, "Renderer::draw")) {
-        m_commandExecutor.resetState();
-        m_gpuProfiler.endFrame();
-        return false;
+    // C15: glGetError makes a threaded driver wait for its queue, so it runs at the first draw of a frame; an error from
+    // this frame's draws is logged by the next frame's check. A draw outside the frame loop (frame 0) keeps its own check.
+    if (m_gpuFrame == 0 || m_gpuFrame != m_glCheckedFrame) {
+        m_glCheckedFrame = m_gpuFrame;
+        if (!checkGLError(m_gl, "Renderer::draw")) {
+            m_commandExecutor.resetState();
+            m_gpuProfiler.endFrame();
+            return false;
+        }
     }
 
     if (!preDrawScenes()) {
@@ -94,16 +99,20 @@ bool ux3d::renderer::Renderer::setViewportAndClear(int width, int height)
 
 bool ux3d::renderer::Renderer::onDrawScenes(const core::Vector<CommandGenerator*>& scenes)
 {
-    m_lastExecutedPasses.clear();
+    // C15: the list keeps its strings between draws, so the pass names of a repeated frame allocate nothing.
+    size_t executedPasses = 0;
+    std::string unnamedPass;
     for (auto& scene : scenes) {
         scene->bindFrameBlocks();
         uint32_t passIndex = 0;
         for (Pass& passType : scene->getPassCommands()) {
             for (auto& [pass, commands] : passType) {
                 if (!pass) continue;
-                const std::string passName = pass->getName().empty()
-                    ? ("pass" + std::to_string(passIndex))
-                    : pass->getName();
+                const bool named = !pass->getName().empty();
+                if (!named) {
+                    unnamedPass = "pass" + std::to_string(passIndex);
+                }
+                const std::string& passName = named ? pass->getName() : unnamedPass;
                 m_gpuProfiler.beginPass(passName);
                 if (drawtrace::active) {
                     drawtrace::stage = m_gpuLabel;
@@ -111,7 +120,12 @@ bool ux3d::renderer::Renderer::onDrawScenes(const core::Vector<CommandGenerator*
                     drawtrace::pass = passName;
                 }
                 if (!commands.empty()) {
-                    m_lastExecutedPasses.push_back(passName);
+                    if (executedPasses < m_lastExecutedPasses.size()) {
+                        m_lastExecutedPasses[executedPasses] = passName;
+                    } else {
+                        m_lastExecutedPasses.push_back(passName);
+                    }
+                    ++executedPasses;
                 }
 
                 for (const auto& cmd : pass->getPreCommands()) {
@@ -135,6 +149,7 @@ bool ux3d::renderer::Renderer::onDrawScenes(const core::Vector<CommandGenerator*
             ++passIndex;
         }
     }
+    m_lastExecutedPasses.resize(executedPasses);
 
     return true;
 }

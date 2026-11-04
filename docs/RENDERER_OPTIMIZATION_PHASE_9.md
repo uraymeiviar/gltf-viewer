@@ -506,4 +506,32 @@ inference VM, 12 of 24 cores, vsync off, so read the ratios and not the absolute
 | C22 | While a running clock drives the sun, a move under 0.1 degrees is not a sky change | 1x clock, 4 s: frames with sky GPU work 2757 -> 0. 3600x still updates (549 LUT builds in 4 s). A stopped clock converges on the exact sun |
 
 The running-clock IBL can now lag the sun by up to 0.1 degrees. Capture runs use the reference path and are unchanged.
-The same synchronous spectrum remains on Looping drags, which were not in this batch.
+Looping drags were not in this batch; the section below moves them to the worker.
+
+## Audit tail, 2026-11-04: C14, C15, C16, C19, C21, Looping drags
+
+Measured by `scripts/validate_interactive_costs.py` and hand-made A/B builds (GPU shared with an inference VM, 12 of 24
+cores, vsync off, so read the ratios and not the absolute values).
+
+| Item | Change | Result |
+|---|---|---|
+| C14 | `IBLSampler` keeps the decoded panorama for the next filter of the same unchanged file | Sun switch on the default HDR, round trip about 440 -> 325 ms. The filtering itself is the larger part and stays. Holds 96 MiB (the default 4096 x 2048 RGB float panorama) |
+| C15 | `glGetError` in `Renderer::draw` once per frame, not per draw; pass names no longer built as strings for every pass | Not timed. Images byte-identical. A GL error from a draw is logged by the next frame's check |
+| C16 | The scene traversal is reused across frames while `SceneRevisions::traversalStamp` and the pose stay the same | Orbit of a still model: 32 scene renders, 1 traversal. Frame time not measured. `--disable-shared-traversal` stays the A/B reference, byte-identical |
+| C19 shadows | `SUN_SHADOW_FILTER`: only the current filter is compiled into `pbr.frag`, `ground.frag` and `ocean.frag` | Main pass, 2048 x 3 cascades, PCF, median of 5 alternating runs: E195 cockpit 4.09 -> 2.74 ms (-33%), DA62 cockpit 8.26 -> 5.96 ms (-28%), E195 exterior 1.33 -> 1.23 ms (-7.5%). Byte-identical. Measured with the constant written into the shader; the define compiles the same code |
+| C19 SSAO | Compiled slice and step counts | Rejected: the AO passes took 0.058 -> 0.062 ms on the E195 exterior, slower within a small total. Only that view was measured. The uniforms stay |
+| C21 | `ssao_precision` (`--ssao-precision <32bit\|16bit>`, File -> Settings -> Quality): RG16F targets | Default 32bit, byte-identical. A 16bit box differs by at most 0.005 in linear luminance. The saving is 50% of the AO targets; with the viewport's own prepass, which keeps its format, 9.0 -> 6.3 MB in the check's window. No preset selects 16bit |
+| Looping drags | The worker computes the spectrum of a Looping setting, and the loop job starts once the value has rested for 120 ms; the front set keeps playing | High, paced drag: worst round trip 12.5 -> 2.8 ms, 1 spectrum built instead of one per value. A loop reaches the new value 120 ms later than before |
+
+**When the panorama is freed:** another file replaces it (the old one goes before the decode), the procedural sky
+frees it (`IBLSampler::release`), 120 s without a re-filter frees it, and so does under 1 GiB of available system memory
+(`trimDecodedEnvironment` in `Viewports.cpp`, checked every 2 s while one is held). An edited file decodes again (size and
+write time). A re-filter after a free decodes as before.
+
+**C19 cost:** changing the shadow filter compiles the materials' programs for the new filter once, including when Auto
+steps between Soft and PCF. Materials that never get the define would fall back to the uniform branch.
+
+**C16 risk:** it relies on every change of what the traversal reads marking a `SceneChange` or moving the pose. Node and
+mesh visibility, materials, extensions, topology and animation do. Selection, the view camera and the environment ticks
+are left out of the stamp. A later producer that changes draw membership without a mark would show a stale scene until
+the next mark.

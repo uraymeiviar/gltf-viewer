@@ -108,6 +108,7 @@ void ShadowCasterLayer::collect(const core::LinkedList<std::tuple<Mesh*, Materia
             copy.defines.undefine("ASOBO_DECAL_RECEIVER");
             copy.defines.undefine("RAW_SSR_OVERLAY");
             copy.defines.undefine("SKY_OCCLUSION");
+            copy.defines.undefine("SUN_SHADOW_FILTER");
             copy.defines.define("DEBUG", 0);
             copy.drawOrderClass = DrawOrderClass::None;
             copy.drawOrderActive = false;

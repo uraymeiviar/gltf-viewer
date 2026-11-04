@@ -126,6 +126,20 @@ public:
         return index < kSceneChangeCount ? m_revisions[index] : 0;
     }
 
+    // C16: changes whenever a kind that could change the renderer's scene traversal is marked (never 0). Left out: the
+    // view camera, the selection and the environment ticks, which no traversal reads.
+    uint64_t traversalStamp() const
+    {
+        uint64_t stamp = 1;
+        for (size_t i = 0; i < kSceneChangeCount; ++i) {
+            const SceneChange change = static_cast<SceneChange>(i);
+            if (change != SceneChange::ViewCamera && change != SceneChange::Selection && change != SceneChange::Environment) {
+                stamp += m_revisions[i];
+            }
+        }
+        return stamp;
+    }
+
     // Total number of mark() calls, including repeated marks of a pending kind.
     uint64_t markCount() const { return m_markCount; }
 

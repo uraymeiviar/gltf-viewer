@@ -508,8 +508,14 @@ bool OceanSimulation::updateLiveBackground(const Key& key, std::optional<Spectru
             // Shown even when the setting has moved on, so the sea follows a drag; the next build starts from there.
             build = m_liveBuild.get();
             ++m_stats.liveBackgroundBuilds;
-            m_liveQuickStart = !(build->set.key == key);
-            return false;
+            if (key.live || build->set.key == key) {
+                m_liveQuickStart = !(build->set.key == key);
+                return false;
+            }
+            // A loop takes many frames to compute, so a spectrum the drag has left behind is not worth starting: the
+            // front set keeps playing and the worker goes on with the current value.
+            build.reset();
+            ++m_stats.liveBackgroundDropped;
         } catch (const std::exception& error) {
             ux3d::core::logWarning("Ocean: the Live spectrum worker failed (%s); building on the render thread", error.what());
             m_liveBackgroundOff = true;
@@ -774,6 +780,7 @@ bool OceanSimulation::update(const OceanSettings& settings, bool synchronous, do
     pollTimers(false);
     const Key key = keyOf(settings);
     const bool frontCurrent = m_front.texture != 0 && m_front.key == key;
+    m_loopSettling = false;
     if (frontCurrent && !m_job.active) {
         // The settings went back to the front set: a spectrum still on the worker is dropped when it ends.
         if (m_liveBuild.valid() && m_liveBuild.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
@@ -792,10 +799,28 @@ bool OceanSimulation::update(const OceanSettings& settings, bool synchronous, do
     }
     if (m_failed) return false;
 
-    // A Live set shows and a Live setting changed, in an interactive run: the set keeps stepping while the worker
-    // thread computes the new spectrum. Capture runs (synchronous) and mode changes build at once, as before.
+    // A set shows and a setting of the same mode changed, in an interactive run: the set keeps playing while the worker
+    // thread computes the new spectrum (the loop job then runs in slices). A loop job for a value the drag has left is
+    // dropped first. Capture runs (synchronous) and mode changes build at once, as before.
     std::optional<SpectrumBuild> backgroundBuild;
-    if (key.live && !synchronous && m_front.live && m_front.texture != 0 && !m_job.active && !m_liveBackgroundOff) {
+    if (!frontCurrent && !synchronous && m_front.live == key.live && m_front.texture != 0 && !m_liveBackgroundOff &&
+        (!m_job.active || !(m_job.set.key == key))) {
+        if (m_job.active) {
+            SavedState savedForAbort;
+            savedForAbort.save();
+            abortJob();
+            savedForAbort.restore();
+        }
+        if (!key.live) {
+            // A loop job allocates its whole array, so it waits until the drag rests; the front set keeps playing.
+            const auto now = profiling::Clock::now();
+            if (!(m_loopWantedKey == key)) {
+                m_loopWantedKey = key;
+                m_loopWantedSince = now;
+            }
+            m_loopSettling = now - m_loopWantedSince < std::chrono::milliseconds(120);
+            if (m_loopSettling) return true;
+        }
         if (updateLiveBackground(key, backgroundBuild)) return true;
     }
 

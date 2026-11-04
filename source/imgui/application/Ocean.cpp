@@ -111,6 +111,7 @@ void Application::setOceanUniforms(const ux3d::imgui::ViewportInstance& vp, ux3d
     const bool hazeFromEnvironment = hasEnvironment && ux3d::imgui::RenderQuality::allowSkybox(environment.showBackground);
     material.defines.defineIf(hasEnvironment, "GROUND_ENV");
     material.defines.defineIf(skyOcclusion, "SKY_OCCLUSION");
+    material.defines.define("SUN_SHADOW_FILTER", static_cast<int>(ux3d::imgui::RenderQuality::effective().shadowFilter));
     material.setUniform("u_GroundHaze", ux3d::math::vec2(extinction, hazeFromEnvironment ? 1.0f : 0.0f));
     material.setUniform("u_GroundHazeColor", vec3(environment.clearColor.r, environment.clearColor.g, environment.clearColor.b));
 }

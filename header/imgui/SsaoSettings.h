@@ -20,6 +20,7 @@ struct SsaoSettings {
     float intensity = 1.0f;  // exponent on the visibility (1 = the GTAO value)
     SsaoQuality quality = SsaoQuality::Medium;
     bool halfResolution = false; // compute at half resolution, depth-aware upsample
+    bool halfPrecision = false;  // RG16F targets instead of RG32F
 
     static int sliceCount(SsaoQuality q) { return q == SsaoQuality::Low ? 2 : q == SsaoQuality::High ? 4 : 3; }
     static int stepCount(SsaoQuality q) { return q == SsaoQuality::Low ? 4 : q == SsaoQuality::High ? 8 : 6; }

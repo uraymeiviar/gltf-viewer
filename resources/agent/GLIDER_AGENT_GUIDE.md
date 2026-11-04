@@ -256,7 +256,8 @@ compatibility override. Lens intensity is Quality, default 1; modes preserve off
   emissive, BLEND / transmission surfaces, the background and the A3.6 ground plane are never changed by it.
 - Keys: scene `ssao_radius` (world units, metres in MSFS files; default 0.5), `ssao_intensity` (exponent, default 1,
   0 = no occlusion); renderer-wide quality `ssao_quality` (`low` 2 x 4, `medium` 3 x 6, `high` 4 x 8 samples per
-  side), `ssao_resolution` (`full`, or `half` with a depth-aware upsample).
+  side), `ssao_resolution` (`full`, or `half` with a depth-aware upsample), `ssao_precision` (`32bit`, or `16bit`: half
+  the memory of the targets, coarser depth for the denoise far from the camera).
 - Debug view `ssao` (`set_viewport_setting render_mode ssao`): the raw visibility, 1 white (open) to 0 black; `probe`
   reads it directly. `get_state` `ssao.viewports[]` reports each viewport's settings, `active` (its last render
   applied it), the AO target size, `memoryBytes` and `gpuMs` (GPU time of the AO passes).

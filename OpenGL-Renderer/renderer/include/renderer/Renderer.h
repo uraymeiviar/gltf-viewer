@@ -54,6 +54,7 @@ private:
     CommandExecutor m_commandExecutor;
     GpuProfiler m_gpuProfiler;
     uint64_t m_gpuFrame = 0;
+    uint64_t m_glCheckedFrame = 0; // the frame whose first draw checked glGetError
     uint32_t m_gpuViewport = 0;
     std::string m_gpuLabel = "main";
     std::vector<std::string> m_lastExecutedPasses;

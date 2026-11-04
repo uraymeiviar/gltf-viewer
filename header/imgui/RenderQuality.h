@@ -81,6 +81,7 @@ struct RenderQualitySettings {
     int ssrQuality = 1;               // 0/1/2: 256/512/1024 screen-space samples
     int ssaoQuality = 1;              // SsaoQuality: 2 x 4, 3 x 6, 4 x 8 samples per side
     bool ssaoHalfResolution = false;  // SSAO at half resolution with a depth-aware upsample
+    bool ssaoHalfPrecision = false;   // SSAO targets in RG16F instead of RG32F: half the memory, coarser far depth
     int skyOcclusionQuality = 1;      // SkyOcclusionQuality: 64 / 96 / 128 cells per axis
     int oceanQuality = 1;             // OceanQuality: cascades x resolution x loop frames
 

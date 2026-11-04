@@ -350,6 +350,8 @@ std::optional<int> Application::configure(int argc, char** argv)
             if (!applyCliSetting(SettingScope::Renderer, "ssao_quality", toLowerAscii(argv[++i]), "--ssao-quality")) return 1;
         } else if (arg == "--ssao-resolution" && i + 1 < argc) {
             if (!applyCliSetting(SettingScope::Renderer, "ssao_resolution", toLowerAscii(argv[++i]), "--ssao-resolution")) return 1;
+        } else if (arg == "--ssao-precision" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Renderer, "ssao_precision", toLowerAscii(argv[++i]), "--ssao-precision")) return 1;
         } else if (arg == "--ssr-quality" && i + 1 < argc) {
             if (!applyCliSetting(SettingScope::Renderer, "ssr_quality", toLowerAscii(argv[++i]), "--ssr-quality")) return 1;
         } else if (arg == "--interior-sky-reflection" && i + 1 < argc) {

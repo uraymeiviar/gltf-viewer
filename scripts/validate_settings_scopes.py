@@ -312,7 +312,7 @@ def check_cli_equals_pipe(ssr):
         check({"shadows", "ssr", "ssao", "ssao_radius", "ssao_intensity", "interior_sky_reflection", "windshield_icing",
                "sky_portal_strength", "decal_tolerance_mm"} <= by_scope.get("environment", set()),
               "list_settings: the scene effects (environment)")
-        check({"aa", "msaa", "post_aa", "ssr_quality", "ssao_quality", "ssao_resolution", "sky_occlusion_quality",
+        check({"aa", "msaa", "post_aa", "ssr_quality", "ssao_quality", "ssao_resolution", "ssao_precision", "sky_occlusion_quality",
                "ocean_quality", "shadows_allowed"} <= by_scope.get("renderer", set()),
               "list_settings: the global quality (renderer)")
         check({"aa", "msaa", "post_aa", "ssr", "ssr_quality", "ssao", "ssao_radius", "ssao_quality", "interior_sky_reflection",
@@ -472,7 +472,7 @@ def check_ui(quads):
     for fraction in ("top","0.25","0.5","0.75","bottom"):
         commands += [f"scroll QualityPage {fraction}","wait 6",f"snap quality_current_{fraction}",shot("quality_current_"+fraction)]
     commands += ["set_viewport_setting ssao_level high", "scroll QualityPage 0.5", "wait 6",
-                 "hoverp quality.ssao_resolution 0", "wait 3", "snap ao_ui_on",
+                 "hoverp quality.ssao_resolution 0", "hoverp quality.ssao_precision 0", "wait 3", "snap ao_ui_on",
                  "set_viewport_setting ssao_level off", "wait 6", "snap ao_ui_off",
                  "scroll QualityPage bottom", "wait 6", "hoverp quality.shadow.details 0", "wait 3", "snap shadow_ui_on",
                  "set_viewport_setting shadow_map off", "wait 6", "snap shadow_ui_off",
@@ -506,6 +506,8 @@ def check_ui(quads):
           "IBL off hides dependent filter controls, non-off restores them")
     check("quality.ssao_resolution" in tags("ao_ui_on") and "quality.ssao_resolution" not in tags("ao_ui_off"),
           "SSAO off hides resolution, non-off restores it")
+    check("quality.ssao_precision" in tags("ao_ui_on") and "quality.ssao_precision" not in tags("ao_ui_off"),
+          "SSAO off hides precision, non-off restores it")
     check("quality.shadow.details" in tags("shadow_ui_on") and "quality.shadow.details" not in tags("shadow_ui_off"),
           "shadow map off hides cascade/tuning controls")
     check("vp.tab.post" not in tags("viewport_render") and "vp.ground.type" not in tags("viewport_camera"),"viewport has no lens tab or ground appearance")

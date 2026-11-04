@@ -621,6 +621,7 @@ void Application::finishFrame(FrameContext& frame, int displayW, int displayH)
                 ",\"pickUnserved\":" + std::to_string(s_pickUnservedTotal) +
                 ",\"pickCulled\":" + std::to_string(s_pickCulledTotal) +
                 ",\"traversalReuses\":" + std::to_string(gltfLayer->getTraversalReuses()) +
+                ",\"traversalBuilds\":" + std::to_string(gltfLayer->getTraversalBuilds()) +
                 ",\"instancedDraws\":" + std::to_string(s_sceneInstancedDraws) +
                 ",\"instancedMembers\":" + std::to_string(s_sceneInstancedMembers) +
                 ",\"sceneRenders\":" + std::to_string(s_sceneRenderTotal) +

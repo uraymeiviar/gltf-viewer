@@ -164,7 +164,7 @@ of `set_viewport_setting` remains available.
 | `ssr`, `--ssr`; old environment / viewport scopes | Quality reflection enable bit; `reflections` combines off / low / mid / high. |
 | `ssr_quality`, `--ssr-quality` | Quality retained sample budget, including while off. |
 | `ssao`, `--ssao`; old scopes | Quality enable bit; `ssao_level` combines off / low / mid / high. |
-| `ssao_quality`, `ssao_resolution`, corresponding flags | Quality budget / resolution. |
+| `ssao_quality`, `ssao_resolution`, `ssao_precision`, corresponding flags | Quality budget / resolution / target precision. |
 | `ssao_radius`, `ssao_intensity`, `windshield_icing`, corresponding flags | Scene appearance; old viewport names forward. |
 | `shadows`, `--shadows`, `shadows_allowed` | Quality map enable bit; `shadow_map` combines off / 1024 / 2048 / 4096. |
 | `shadow_*`, `--shadow-*` | Quality budget / tuning. `--shadow-resolution off` disables the map. |

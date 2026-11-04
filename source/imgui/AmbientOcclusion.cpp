@@ -7,17 +7,19 @@
 
 namespace ux3d::imgui {
 
-bool AmbientOcclusion::ensureTargets(int width, int height, bool halfResolution)
+bool AmbientOcclusion::ensureTargets(int width, int height, bool halfResolution, bool halfPrecision)
 {
     const int aoWidth = halfResolution ? (width + 1) / 2 : width;
     const int aoHeight = halfResolution ? (height + 1) / 2 : height;
-    if (m_result.texture != 0 && m_width == width && m_height == height && m_half == halfResolution) {
+    if (m_result.texture != 0 && m_width == width && m_height == height && m_half == halfResolution &&
+        m_halfPrecision == halfPrecision) {
         return true;
     }
     releaseTargets();
     m_width = width;
     m_height = height;
     m_half = halfResolution;
+    m_halfPrecision = halfPrecision;
     m_aoWidth = aoWidth;
     m_aoHeight = aoHeight;
     bool ok = createTarget(m_raw, aoWidth, aoHeight) && createTarget(m_result, width, height);
@@ -169,8 +171,9 @@ bool AmbientOcclusion::compute(const Params& params)
 
 uint64_t AmbientOcclusion::getMemoryBytes() const
 {
-    const uint64_t ao = static_cast<uint64_t>(m_aoWidth) * static_cast<uint64_t>(m_aoHeight) * 8u;
-    const uint64_t full = static_cast<uint64_t>(m_width) * static_cast<uint64_t>(m_height) * 8u;
+    const uint64_t texelBytes = m_halfPrecision ? 4u : 8u;
+    const uint64_t ao = static_cast<uint64_t>(m_aoWidth) * static_cast<uint64_t>(m_aoHeight) * texelBytes;
+    const uint64_t full = static_cast<uint64_t>(m_width) * static_cast<uint64_t>(m_height) * texelBytes;
     const uint64_t prepass = static_cast<uint64_t>(m_prepassWidth) * static_cast<uint64_t>(m_prepassHeight) * 8u;
     return (m_raw.texture ? ao : 0) + (m_denoised.texture ? ao : 0) + (m_result.texture ? full : 0) +
            (m_prepassFbo ? prepass : 0);
@@ -230,7 +233,7 @@ bool AmbientOcclusion::createTarget(Target& target, int width, int height)
 {
     glGenTextures(1, &target.texture);
     glBindTexture(GL_TEXTURE_2D, target.texture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RG32F, width, height, 0, GL_RG, GL_FLOAT, nullptr);
+    glTexImage2D(GL_TEXTURE_2D, 0, m_halfPrecision ? GL_RG16F : GL_RG32F, width, height, 0, GL_RG, GL_FLOAT, nullptr);
     setNearest();
     glBindTexture(GL_TEXTURE_2D, 0);
     GLint previous = 0;

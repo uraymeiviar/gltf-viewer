@@ -49,7 +49,7 @@ public:
 
     // The result target for a width x height render; call before the draw that computes it, so the texture handle
     // the shading commands bind is the one compute() fills. Returns false when the targets are incomplete.
-    bool ensureTargets(int width, int height, bool halfResolution);
+    bool ensureTargets(int width, int height, bool halfResolution, bool halfPrecision = false);
 
     // The prepass target used when no decal buffer is active: DEPTH_COMPONENT32F depth and the RGB10_A2 normal,
     // exactly the decal buffer's prepass layout.
@@ -117,7 +117,7 @@ private:
 
     static void bindTexture(GLuint unit, GLuint texture);
 
-    static bool createTarget(Target& target, int width, int height);
+    bool createTarget(Target& target, int width, int height);
 
     // Visibility 1 and no surface everywhere (read as "no occlusion").
     static void clearTarget(const Target& target);
@@ -145,6 +145,7 @@ private:
     int m_aoWidth = 0;
     int m_aoHeight = 0;
     bool m_half = false;
+    bool m_halfPrecision = false; // RG16F targets instead of RG32F
 
     GLuint m_prepassFbo = 0;
     GLuint m_prepassDepth = 0;

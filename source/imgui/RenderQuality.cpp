@@ -189,6 +189,7 @@ bool readLayerField(RenderQualitySettings& q, const std::string& key, const std:
 {
     bool b = false; int i = 0; float f = 0; uint32_t u = 0;
     if (key == "ssaoHalfResolution") { if (parseBool(value,b)) { q.ssaoHalfResolution = b; if (applied) *applied = true; } else logSettingsMessage("Invalid SSAO resolution",true); return true; }
+    if (key == "ssaoHalfPrecision") { if (parseBool(value,b)) { q.ssaoHalfPrecision = b; if (applied) *applied = true; } else logSettingsMessage("Invalid SSAO precision",true); return true; }
     if (key == "ssrEnabled") { if (parseBool(value,b)) { q.ssrEnabled = b; if (applied) *applied = true; } else logSettingsMessage("Invalid Quality ssrEnabled", true); return true; }
     if (key == "ssaoEnabled") { if (parseBool(value,b)) { q.ssaoEnabled = b; if (applied) *applied = true; } else logSettingsMessage("Invalid Quality ssaoEnabled", true); return true; }
     if (key == "iblEnabled") { if (parseBool(value,b)) { q.iblEnabled = b; if (applied) *applied = true; } else logSettingsMessage("Invalid Quality iblEnabled", true); return true; }
@@ -267,6 +268,8 @@ bool readQualityProfiles(SettingsFile& settings)
             if (parseInt(value, i) && i >= 0 && i <= 2) profile.render.ssaoQuality = i; else invalid = true;
         } else if (field == "ssaoResolution") {
             if (value == "full" || value == "half") profile.render.ssaoHalfResolution = value == "half"; else invalid = true;
+        } else if (field == "ssaoPrecision") {
+            if (value == "32bit" || value == "16bit") profile.render.ssaoHalfPrecision = value == "16bit"; else invalid = true;
         } else if (field == "skyOcclusionQuality") {
             if (parseInt(value, i) && i >= 0 && i <= 2) profile.render.skyOcclusionQuality = i; else invalid = true;
         } else if (field == "oceanQuality") {
@@ -451,6 +454,10 @@ bool drawEffectLevels(RenderQualitySettings& q, bool showLights = true)
         int half = q.ssaoHalfResolution ? 1 : 0;
         if (ImGui::Combo("SSAO resolution", &half, "Full\0Half\0")) { q.ssaoHalfResolution = half == 1; changed = true; }
         UiProbe::item("quality.ssao_resolution", 0);
+        int precision = q.ssaoHalfPrecision ? 1 : 0;
+        if (ImGui::Combo("SSAO precision", &precision, "32-bit\0" "16-bit\0")) { q.ssaoHalfPrecision = precision == 1; changed = true; }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("16-bit halves the memory of the SSAO targets; the denoise filter then sees coarser depth far from the camera.");
+        UiProbe::item("quality.ssao_precision", 0);
     }
     int sky = q.skyOcclusion < 0 ? 0 : q.skyOcclusion ? 1 : 2;
     if (ImGui::Combo("Sky occlusion", &sky, "Auto\0On\0Off\0")) { q.skyOcclusion = sky == 0 ? -1 : sky == 1 ? 1 : 0; changed = true; }
@@ -563,6 +570,7 @@ void RenderQualitySettings::copyEffectQuality(const RenderQualitySettings& from)
     ssrQuality = from.ssrQuality;
     ssaoQuality = from.ssaoQuality;
     ssaoHalfResolution = from.ssaoHalfResolution;
+    ssaoHalfPrecision = from.ssaoHalfPrecision;
     skyOcclusionQuality = from.skyOcclusionQuality;
     oceanQuality = from.oceanQuality;
 }
@@ -817,6 +825,7 @@ void RenderQuality::resolveViewport(ViewportSettingsState& viewport, const Scene
     viewport.ssrQuality = std::clamp(quality.ssrQuality, 0, 2);
     viewport.ssao.quality = static_cast<SsaoQuality>(std::clamp(quality.ssaoQuality, 0, 2));
     viewport.ssao.halfResolution = quality.ssaoHalfResolution;
+    viewport.ssao.halfPrecision = quality.ssaoHalfPrecision;
     viewport.ground.ocean.quality = static_cast<OceanQuality>(std::clamp(quality.oceanQuality, 0, 2));
 
     viewport.sunShadows = quality.shadows;
@@ -994,6 +1003,7 @@ void RenderQuality::commitSetting(const std::string& key)
     if (key == "ssao_level") { s_savedQuality.ssaoEnabled = current.ssaoEnabled; s_savedQuality.ssaoQuality = current.ssaoQuality; }
     if (key == "ssao_quality") { s_savedQuality.ssaoQuality = current.ssaoQuality; }
     if (key == "ssao_resolution") { s_savedQuality.ssaoHalfResolution = current.ssaoHalfResolution; }
+    if (key == "ssao_precision") { s_savedQuality.ssaoHalfPrecision = current.ssaoHalfPrecision; }
     if (key == "sky_occlusion") { s_savedQuality.skyOcclusion = current.skyOcclusion; }
     if (key == "sky_occlusion_quality") { s_savedQuality.skyOcclusionQuality = current.skyOcclusionQuality; }
     if (key == "ocean_quality") { s_savedQuality.oceanQuality = current.oceanQuality; }
@@ -1051,6 +1061,7 @@ void RenderQuality::save()
         if (current.ssrQuality != s_observedQuality.ssrQuality) s_savedQuality.ssrQuality = current.ssrQuality;
         if (current.ssaoQuality != s_observedQuality.ssaoQuality) s_savedQuality.ssaoQuality = current.ssaoQuality;
         if (current.ssaoHalfResolution != s_observedQuality.ssaoHalfResolution) s_savedQuality.ssaoHalfResolution = current.ssaoHalfResolution;
+        if (current.ssaoHalfPrecision != s_observedQuality.ssaoHalfPrecision) s_savedQuality.ssaoHalfPrecision = current.ssaoHalfPrecision;
         if (current.skyOcclusionQuality != s_observedQuality.skyOcclusionQuality) s_savedQuality.skyOcclusionQuality = current.skyOcclusionQuality;
         if (current.oceanQuality != s_observedQuality.oceanQuality) s_savedQuality.oceanQuality = current.oceanQuality;
         if (current.ssrEnabled != s_observedQuality.ssrEnabled) s_savedQuality.ssrEnabled = current.ssrEnabled;
@@ -1101,6 +1112,7 @@ void RenderQuality::save()
         if (profile.render.ssrQuality != defaults.render.ssrQuality) add("ssrQuality", intText(profile.render.ssrQuality));
         if (profile.render.ssaoQuality != defaults.render.ssaoQuality) add("ssaoQuality", intText(profile.render.ssaoQuality));
         if (profile.render.ssaoHalfResolution != defaults.render.ssaoHalfResolution) add("ssaoResolution", profile.render.ssaoHalfResolution ? "half" : "full");
+        if (profile.render.ssaoHalfPrecision != defaults.render.ssaoHalfPrecision) add("ssaoPrecision", profile.render.ssaoHalfPrecision ? "16bit" : "32bit");
         if (profile.render.skyOcclusionQuality != defaults.render.skyOcclusionQuality) add("skyOcclusionQuality", intText(profile.render.skyOcclusionQuality));
         if (profile.render.oceanQuality != defaults.render.oceanQuality) add("oceanQuality", intText(profile.render.oceanQuality));
         if (profile.skybox != defaults.skybox) add("skybox", boolText(profile.skybox));
@@ -1159,6 +1171,7 @@ void RenderQuality::save()
     if (current.textureMaxSize != defaults.textureMaxSize) qualityEntries.emplace_back("textureMaxSize", intText(current.textureMaxSize));
     if (current.lensFlareIntensity != defaults.lensFlareIntensity) qualityEntries.emplace_back("lensFlareIntensity", floatText(current.lensFlareIntensity));
     if (current.ssaoHalfResolution != defaults.ssaoHalfResolution) qualityEntries.emplace_back("ssaoHalfResolution", boolText(current.ssaoHalfResolution));
+    if (current.ssaoHalfPrecision != defaults.ssaoHalfPrecision) qualityEntries.emplace_back("ssaoHalfPrecision", boolText(current.ssaoHalfPrecision));
     store.replaceSection("RenderQuality", std::move(qualityEntries));
 
     store.save();

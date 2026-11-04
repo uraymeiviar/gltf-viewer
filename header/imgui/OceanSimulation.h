@@ -102,7 +102,7 @@ public:
     bool live() const { return m_front.live; }
     // Live mode: brings the layers to the ocean time (no-op for a precomputed set, or when the time did not change).
     void stepLive(double time);
-    bool busy() const { return m_job.active || m_liveBuild.valid(); }
+    bool busy() const { return m_job.active || m_liveBuild.valid() || m_loopSettling; }
     float progress() const;
     GLuint texture() const { return m_front.texture; }
     uint64_t version() const { return m_front.version; }
@@ -211,6 +211,9 @@ private:
     std::future<SpectrumBuild> m_liveBuild;
     bool m_liveQuickStart = false; // the next live step skips the foam preroll: the settings have already moved on
     bool m_liveBackgroundOff = false; // a worker failed: back to building on this thread
+    Key m_loopWantedKey;              // the Looping value a drag last asked for, and since when
+    std::chrono::steady_clock::time_point m_loopWantedSince;
+    bool m_loopSettling = false;      // that value is too recent to start its loop job
     // Live mode: the time of the last step and whether the layers hold a valid previous state (foam accumulation).
     double m_liveTime = 0.0;
     bool m_liveValid = false;

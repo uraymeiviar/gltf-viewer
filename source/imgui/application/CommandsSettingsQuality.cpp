@@ -230,6 +230,23 @@ void Application::registerAgentQualitySettings()
         };
         addSetting(std::move(resolution));
     }
+    {
+        SettingSpec precision;
+        precision.key = "ssao_precision";
+        precision.scope = R;
+        precision.type = SettingType::Enum;
+        precision.help = "SSAO target precision of every viewport: 32bit (RG32F), or 16bit (RG16F, half the memory, coarser "
+                         "depth for the denoise far from the camera).";
+        precision.cliFlag = "--ssao-precision <32bit|16bit>";
+        precision.enumValues = {"32bit", "16bit"};
+        precision.defaultValue = "32bit";
+        precision.get = [](void*) { return json(RQ::settings().ssaoHalfPrecision ? "16bit" : "32bit"); };
+        precision.set = [](void*, const json& v, std::string&) {
+            RQ::settings().ssaoHalfPrecision = v.get<std::string>() == "16bit";
+            return true;
+        };
+        addSetting(std::move(precision));
+    }
     qualityEnum("sky_occlusion_quality", &ux3d::imgui::RenderQualitySettings::skyOcclusionQuality, {"low", "medium", "high"},
                 "Sky occlusion bake: low 64 directions x up to 64 cells per axis, medium (default) 128 x 96, high 256 x 128 "
                 "(renderer-wide).",

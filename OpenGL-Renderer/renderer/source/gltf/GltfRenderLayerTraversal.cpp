@@ -160,13 +160,19 @@ size_t GltfRenderLayer::boundDrawables(const core::LinkedList<std::tuple<Mesh*, 
 const GltfRenderLayer::SceneTraversal& GltfRenderLayer::traverseScene(const gltf::Scene* gltfScene)
 {
     SceneTraversal& t = m_traversal;
-    if (m_sceneFrameToken != 0 && t.frameToken == m_sceneFrameToken && t.scene == gltfScene
+    // This frame's traversal, or (C16) an earlier frame's while the model state and the pose it read are unchanged.
+    const bool sameFrame = t.frameToken == m_sceneFrameToken;
+    const bool sameState = t.frameToken != 0 && m_sceneStamp != 0 && t.sceneStamp == m_sceneStamp
+        && t.poseGeneration == m_poseGeneration;
+    if (m_sceneFrameToken != 0 && (sameFrame || sameState) && t.scene == gltfScene
         && t.asoboOptions == asoboOptions && t.materialExtensionOptions == materialExtensionOptions
         && t.materialVariantID == m_materialVariantID
         && t.isolationRoot == m_isolationRoot && t.isolationIncludeChildren == m_isolationIncludeChildren) {
         ++m_traversalReuses;
+        t.frameToken = m_sceneFrameToken;
         return t;
     }
+    ++m_traversalBuilds;
     t.primitives.clear();
     t.lights.clear();
     t.nodesVisited = 0;
@@ -182,6 +188,8 @@ const GltfRenderLayer::SceneTraversal& GltfRenderLayer::traverseScene(const gltf
     t.isolationRoot = m_isolationRoot;
     t.isolationIncludeChildren = m_isolationIncludeChildren;
     t.frameToken = m_sceneFrameToken;
+    t.sceneStamp = m_sceneStamp;
+    t.poseGeneration = m_poseGeneration;
     const bool hideInvisible = asoboOptions.applies("ASOBO_material_invisible");
     const bool hideOccluders = asoboOptions.applies("ASOBO_material_environment_occluder");
 

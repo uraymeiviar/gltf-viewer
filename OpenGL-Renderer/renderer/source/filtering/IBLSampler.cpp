@@ -12,6 +12,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
+#include <system_error>
 #include <vector>
 
 using namespace ux3d;
@@ -284,6 +286,25 @@ void IBLSampler::release()
     destroyResources();
     m_samplerStatus = SamplerStatus();
     m_environmentSun = EnvironmentSun();
+    releaseDecodedPanorama();
+}
+
+void IBLSampler::releaseDecodedPanorama()
+{
+    m_decodedPanorama.reset();
+    m_decodedPanoramaPath.clear();
+    m_decodedPanoramaSize = 0;
+    m_decodedPanoramaWriteTime = 0;
+}
+
+uint64_t IBLSampler::decodedPanoramaBytes() const
+{
+    return m_decodedPanorama != nullptr ? static_cast<uint64_t>(m_decodedPanorama->getPixels().size()) : 0;
+}
+
+double IBLSampler::decodedPanoramaIdleSeconds() const
+{
+    return std::chrono::duration<double>(std::chrono::steady_clock::now() - m_decodedPanoramaUsed).count();
 }
 
 void IBLSampler::destroyRuntimeResources()
@@ -538,16 +559,36 @@ void IBLSampler::sampleLut(uint32_t _distribution, uint32_t textureID, GLsizei _
 
 GLuint IBLSampler::loadTextureHDR(const filesystem::Path& _panoramaImagePath)
 {
-    filesystem::File inputHdrFile = _panoramaImagePath;
-    core::Vector<uint8_t> hdrFileData;
-    inputHdrFile.load(hdrFileData);
-
-    image::Image panoramaImage;
-
-    if (core::Failed(imageformats::decodeImage(hdrFileData, panoramaImage))) {
-        core::logError("Decoding of HDR/EXR environment map failed: %s", _panoramaImagePath.toString().c_str());
-        return 0;
+    // C14: the same unchanged file reuses its decoded pixels. An embedded file has no stamp (0, 0) and never changes.
+    const std::string panoramaPath = _panoramaImagePath.toString();
+    std::error_code stampError;
+    const std::filesystem::path stampPath(panoramaPath);
+    const uintmax_t fileSize = std::filesystem::file_size(stampPath, stampError);
+    const uint64_t panoramaSize = stampError ? 0 : static_cast<uint64_t>(fileSize);
+    const auto writeTime = std::filesystem::last_write_time(stampPath, stampError);
+    const int64_t panoramaWriteTime = stampError ? 0 : static_cast<int64_t>(writeTime.time_since_epoch().count());
+    if (m_decodedPanorama != nullptr && m_decodedPanoramaPath == panoramaPath && m_decodedPanoramaSize == panoramaSize &&
+        m_decodedPanoramaWriteTime == panoramaWriteTime) {
+        ++m_panoramaReuses;
+    } else {
+        // Freed first, so two panoramas are never in memory together.
+        releaseDecodedPanorama();
+        filesystem::File inputHdrFile = _panoramaImagePath;
+        core::Vector<uint8_t> hdrFileData;
+        inputHdrFile.load(hdrFileData);
+        auto decoded = std::make_unique<image::Image>();
+        if (core::Failed(imageformats::decodeImage(hdrFileData, *decoded))) {
+            core::logError("Decoding of HDR/EXR environment map failed: %s", _panoramaImagePath.toString().c_str());
+            return 0;
+        }
+        m_decodedPanorama = std::move(decoded);
+        m_decodedPanoramaPath = panoramaPath;
+        m_decodedPanoramaSize = panoramaSize;
+        m_decodedPanoramaWriteTime = panoramaWriteTime;
+        ++m_panoramaDecodes;
     }
+    m_decodedPanoramaUsed = std::chrono::steady_clock::now();
+    const image::Image& panoramaImage = *m_decodedPanorama;
 
     if (!gl::checkGLError(m_gl, "IBLSampler: failed")) {
         return 0;

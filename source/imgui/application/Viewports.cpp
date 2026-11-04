@@ -21,12 +21,42 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <unordered_set>
 #include "imgui/Profiling.h"
+#include "imgui/MemoryInfo.h"
+#include "core/Logger.h"
+#include <chrono>
+#include <cstdlib>
 
 namespace ux3d::imgui::application {
 
 namespace {
 // C4: the GL state the overlay-depth draw leaves (the renderer sets these per command; the grid and box overlays
 // drawn after it inherit the ones they do not set), captured when the pass runs and restored when it is skipped.
+// C14: frees the decoded HDR panorama that IBLSampler keeps for re-filters, once two minutes pass without one or the
+// system runs low on memory. Checked at most every two seconds, and only while a panorama is held.
+void trimDecodedEnvironment(ux3d::renderer::IBLSampler& sampler)
+{
+    if (sampler.decodedPanoramaBytes() == 0) return;
+    static const double idleLimit = [] {
+        const char* text = std::getenv("GLIDER_TEST_PANORAMA_IDLE_SECONDS");
+        const double value = text != nullptr ? std::atof(text) : 0.0;
+        return value > 0.0 ? value : 120.0;
+    }();
+    static const bool testLowMemory = std::getenv("GLIDER_TEST_PANORAMA_LOW_MEMORY") != nullptr;
+    constexpr uint64_t kLowMemoryBytes = 1024ull * 1024ull * 1024ull;
+    static auto lastCheck = std::chrono::steady_clock::time_point{};
+    const auto now = std::chrono::steady_clock::now();
+    if (now - lastCheck < std::chrono::seconds(2)) return;
+    lastCheck = now;
+    const bool idle = sampler.decodedPanoramaIdleSeconds() >= idleLimit;
+    const uint64_t available = testLowMemory ? 0 : ux3d::imgui::queryMemoryInfo().availableRam;
+    const bool lowMemory = testLowMemory || (available != 0 && available < kLowMemoryBytes);
+    if (idle || lowMemory) {
+        ux3d::core::logInfo("IBLSampler: decoded panorama freed (%.1f MiB, %s)", sampler.decodedPanoramaBytes() / 1048576.0,
+                            idle ? "idle" : "low system memory");
+        sampler.releaseDecodedPanorama();
+    }
+}
+
 ux3d::imgui::OverlayDepthGlState captureOverlayDepthGlState()
 {
     ux3d::imgui::OverlayDepthGlState state;
@@ -151,6 +181,9 @@ void Application::drawViewports(FrameContext& frame)
             }
         }
     }
+    if (gltfLayer != nullptr) {
+        trimDecodedEnvironment(gltfLayer->getEnvironmentSampler());
+    }
     // The background draws the sky-view LUT while the procedural environment is attached (cubemap.frag).
     const bool skyActive = proceduralSky && skyEnvironment.active() && gltfLayer != nullptr && gltfLayer->isExternalEnvironment();
     if (gltfLayer != nullptr) {
@@ -213,7 +246,7 @@ void Application::drawViewports(FrameContext& frame)
 
     // Viewports drawn this frame share one scene traversal (see GltfRenderLayer).
     if (!s_disableSharedTraversal) {
-        gltfLayer->beginSceneFrame();
+        gltfLayer->beginSceneFrame(sceneRevisions.traversalStamp());
     }
     for (auto& vp : viewports) {
         if (!vp->isOpen) {
@@ -755,6 +788,7 @@ void Application::drawViewports(FrameContext& frame)
                                             (shadingMode == ux3d::renderer::RenderMode::None ||
                                              mode == ux3d::renderer::RenderMode::SkyVisibility);
             vp->skyOcclusionActive = skyOcclusionActive;
+            const int shadowFilter = static_cast<int>(ux3d::imgui::RenderQuality::effective().shadowFilter);
             for (auto& [mesh, material] : scene.drawables) {
                 if (mesh != nullptr && mesh != cubeMesh) {
                     mesh->polygonMode = ux3d::renderer::gl::PolygonMode::Fill;
@@ -765,6 +799,7 @@ void Application::drawViewports(FrameContext& frame)
                     material->defines.defineIf(ssrDebugOverlay, "RAW_SSR_OVERLAY");
                     if (material->fragmentShader == "pbr.frag") {
                         material->defines.defineIf(skyOcclusionActive, "SKY_OCCLUSION");
+                        material->defines.define("SUN_SHADOW_FILTER", shadowFilter); // C19 (shadow.glsl)
                     }
                     if (vp->settings.forceDoubleSided) {
                         material->isDoubleSided = true;
@@ -803,7 +838,7 @@ void Application::drawViewports(FrameContext& frame)
                               (shadingMode == ux3d::renderer::RenderMode::None || ssaoDebugView);
             auto& ambientOcclusion = vp->ambientOcclusion;
             if (ssaoActive) {
-                ssaoActive = ambientOcclusion.ensureTargets(vpW, vpH, vp->settings.ssao.halfResolution);
+                ssaoActive = ambientOcclusion.ensureTargets(vpW, vpH, vp->settings.ssao.halfResolution, vp->settings.ssao.halfPrecision);
                 if (ssaoActive && !decalActive) {
                     ssaoActive = ambientOcclusion.ensurePrepassTarget(vpW, vpH);
                 } else if (ambientOcclusion.hasPrepassTarget()) {
@@ -995,6 +1030,7 @@ void Application::drawViewports(FrameContext& frame)
                 const bool hazeFromEnvironment =
                     hasEnvironment && ux3d::imgui::RenderQuality::allowSkybox(activeEnvironment.showBackground);
                 groundMaterial->defines.defineIf(hasEnvironment, "GROUND_ENV");
+                groundMaterial->defines.define("SUN_SHADOW_FILTER", shadowFilter);
                 groundMaterial->setUniform("u_GroundHeight", groundHeight);
                 groundMaterial->setUniform("u_GroundAlbedo", ux3d::math::vec3(ground.albedo.x, ground.albedo.y, ground.albedo.z));
                 groundMaterial->setUniform("u_GroundRoughness", ground.roughness);

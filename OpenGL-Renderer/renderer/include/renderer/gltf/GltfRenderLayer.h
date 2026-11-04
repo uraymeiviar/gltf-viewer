@@ -141,6 +141,8 @@ public:
     // found in the current panorama (cube-map space; see EnvironmentSun).
     void setEnvironmentSunRemoval(bool remove) { m_iblSampler.setSunRemoval(remove); }
     bool getEnvironmentSunRemoval() const { return m_iblSampler.getSunRemoval(); }
+    IBLSampler& getEnvironmentSampler() { return m_iblSampler; }
+    const IBLSampler& getEnvironmentSampler() const { return m_iblSampler; }
     const EnvironmentSun& getEnvironmentSun() const { return m_iblSampler.getEnvironmentSun(); }
     const glm::vec3& getEnvironmentHorizontalIlluminance() const { return m_iblSampler.horizontalIlluminance(); }
     EnvironmentMap* getActiveEnvironmentMap() { return m_activeEnvironmentMap; }
@@ -259,10 +261,18 @@ public:
     // static bounds, plus lights) does not depend on the camera, so between
     // beginSceneFrame and endSceneFrame createScene computes it once and every viewport
     // reuses it; only culling and the per-drawable state are redone. Outside a frame
-    // createScene always traverses.
-    void beginSceneFrame() { m_sceneFrameToken = ++m_nextSceneFrameToken; }
+    // createScene always traverses. C16: sceneStamp identifies the model state the traversal
+    // reads (the application's SceneRevisions::traversalStamp); while it and the pose stay the
+    // same, later frames reuse the traversal too, so an orbit around a still model walks no nodes.
+    // 0 keeps the reuse within this frame.
+    void beginSceneFrame(uint64_t sceneStamp = 0)
+    {
+        m_sceneFrameToken = ++m_nextSceneFrameToken;
+        m_sceneStamp = sceneStamp;
+    }
     void endSceneFrame() { m_sceneFrameToken = 0; }
     uint64_t getTraversalReuses() const { return m_traversalReuses; }
+    uint64_t getTraversalBuilds() const { return m_traversalBuilds; }
 
     // Which ASOBO (MSFS) extensions createScene applies; set per viewport (A0.4). With
     // ASOBO_material_invisible not applied, materials it marks invisible are drawn.
@@ -347,7 +357,9 @@ private:
         std::optional<uint32_t> materialVariantID;
         const gltf::Node* isolationRoot = nullptr;
         bool isolationIncludeChildren = false;
-        uint64_t frameToken = 0;
+        uint64_t frameToken = 0; // 0: not reusable
+        uint64_t sceneStamp = 0;
+        uint64_t poseGeneration = 0;
     };
     const SceneTraversal& traverseScene(const gltf::Scene* gltfScene);
     void updateSkyPortals(const gltf::Gltf& gltf);
@@ -355,7 +367,9 @@ private:
     SceneTraversal m_traversal;
     uint64_t m_sceneFrameToken = 0;
     uint64_t m_nextSceneFrameToken = 0;
+    uint64_t m_sceneStamp = 0;
     uint64_t m_traversalReuses = 0;
+    uint64_t m_traversalBuilds = 0;
     const gltf::Node* m_isolationRoot = nullptr;
     bool m_isolationIncludeChildren = false;
 

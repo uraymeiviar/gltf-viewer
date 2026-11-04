@@ -182,7 +182,7 @@ void Application::registerAgentCompatibilitySettings()
         spec.set = [set = found->set, targetFor](void*, const json& v, std::string& error) { return set(targetFor(), v, error); };
         agentRegistry.addSetting(std::move(spec));
     };
-    for (const char* key : {"aa", "msaa", "post_aa", "ssr_quality", "ssao_quality", "ssao_resolution", "ocean_quality"}) {
+    for (const char* key : {"aa", "msaa", "post_aa", "ssr_quality", "ssao_quality", "ssao_resolution", "ssao_precision", "ocean_quality"}) {
         forward(key, V, R);
     }
     for (const char* key : {"windshield_icing", "sky_portal_strength",

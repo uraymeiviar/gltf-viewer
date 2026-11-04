@@ -8,6 +8,15 @@
 
 #include "math/MatrixFunctions.h"
 
+#include <chrono>
+#include <cstdint>
+#include <memory>
+#include <string>
+
+namespace ux3d::image {
+class Image;
+}
+
 namespace ux3d::renderer {
 struct InitizalizationParameters {
     // Upper bound for the specular, sheen and source cube faces; the panorama may lower it.
@@ -94,6 +103,15 @@ public:
     // A3.10: cached horizontal irradiance of the filtered HDR (Lambertian cube at +Y, times pi).
     const glm::vec3& horizontalIlluminance() const { return m_horizontalIlluminance; }
 
+    // C14: the decoded panorama stays in memory for the next filter of the same file (quality, sun or inspector
+    // changes), so a re-filter skips the file read and the decode. Another file replaces it; release() (the procedural
+    // sky takes over) and the application's trim (idle time, low system memory) free it.
+    void releaseDecodedPanorama();
+    uint64_t decodedPanoramaBytes() const;
+    double decodedPanoramaIdleSeconds() const;
+    uint64_t panoramaDecodes() const { return m_panoramaDecodes; }
+    uint64_t panoramaReuses() const { return m_panoramaReuses; }
+
 private:
     GLuint createCubemapTexture(bool _withMipmaps, uint32_t _size, GLint _internalFormat);
     static GLuint createLutTexture(gl::GL* gl, size_t width, size_t height, GLint internalFormat);
@@ -125,5 +143,13 @@ private:
     bool m_sunRemoval = false;
     EnvironmentSun m_environmentSun;
     glm::vec3 m_horizontalIlluminance = glm::vec3(0.0f);
+
+    std::unique_ptr<image::Image> m_decodedPanorama;
+    std::string m_decodedPanoramaPath;
+    uint64_t m_decodedPanoramaSize = 0;      // file size and time at the decode: an edited file decodes again
+    int64_t m_decodedPanoramaWriteTime = 0;
+    std::chrono::steady_clock::time_point m_decodedPanoramaUsed;
+    uint64_t m_panoramaDecodes = 0;
+    uint64_t m_panoramaReuses = 0;
 };
 }

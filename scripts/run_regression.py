@@ -3,6 +3,7 @@
 
 Usage:
   python scripts/run_regression.py                  # quick tier (core + suites triggered by the diff), baseline of HEAD
+  python scripts/run_regression.py --tier commit    # the check before a commit: quick's selection within 10 minutes
   python scripts/run_regression.py --tier full      # every suite and each feature's A/B switch
   python scripts/run_regression.py --plan           # print the selected suites and why, launch nothing
   python scripts/run_regression.py --plan --changed resources/shaders/ssao.glsl   # selection for these paths
@@ -27,6 +28,14 @@ brdf.glsl, Application.*, Frame.cpp, Scene.cpp, CMake, thirdparty/, the default 
 every suite. A resources/ file outside the shaders triggers the suites whose scripts name it. Any other
 file that matches no trigger selects every suite and prints a warning naming it, so TRIGGERS can be
 extended. --only replaces the selection with the named suites of the tier.
+
+The commit tier takes the quick tier's selection and keeps it within --budget seconds (default 600): the core always
+runs, then the suites that failed in their last run, then the suites a changed path triggers by name, then the rest,
+each group longest-unrun first. It estimates a suite by the longest of its last three runs (60 s when unknown,
+build/regression/suite_history.json, kept by every tier), and a serial suite that would no longer fit is left out while
+running. Every suite left out is named in the output and in summary.json, and the triggered ones are called out; the
+next commit run takes the longest-unrun ones first, so a broad change is covered over several commits. A PASS of this
+tier covers only the suites it names: run --tier full before a release or overnight. No on-demand parts run in it.
 
 On-demand parts (ON_DEMAND below): a few slow sections of a suite run only when its flag is passed: night
 --sweep (the evening exposure sweeps and the minute-by-minute emissive blend), area_maximize --keys (the whole
@@ -224,7 +233,7 @@ ASOBO_SUITES = ("asobo_model", "asobo_normal", "asobo_support", "asobo_draworder
 TRIGGERS = (
     (("interactive_costs",),
      ("OceanSimulation.*", "SkyEnvironment.*", "*/gltf/*/Image.*", "*/gltf/source/Image.cpp", "*/image/Image.h",
-      "ElementInspectorImages.cpp", "validate_interactive_costs.py")),
+      "ElementInspectorImages.cpp", "IBLSampler.*", "GltfRenderLayerTraversal.cpp", "shadow.glsl", "validate_interactive_costs.py")),
     (("p8_3", "p8_5", "p8_followup"),
      ("OpenGL-Renderer/renderer/*Command*", "GltfRenderLayer*", "Viewports.cpp", "DiagnosticsPicking.cpp",
       "picking.frag", "PickingRenderLayer.*", "TransformHierarchy*", "SceneRevisions.*",
@@ -434,7 +443,8 @@ def classify(path, suites, closures, texts):
     return None, "no trigger"
 
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-parser.add_argument("--tier", choices=["quick", "full"], default="quick")
+parser.add_argument("--tier", choices=["quick", "commit", "full"], default="quick")
+parser.add_argument("--budget", type=float, default=600.0, help="commit tier: the time to stay within, in seconds")
 parser.add_argument("--baseline", help="reference binary (default: build/baselines/<HEAD short sha>.exe)")
 parser.add_argument("--jobs", type=int, default=3, help="harnesses run at the same time")
 parser.add_argument("--extra", action="append", default=[], help="extra Glider argument passed to both binaries")
@@ -468,7 +478,7 @@ jobs = [
     ("p8_1", ["scripts/validate_p8_1.py", "--only", "equivalence", "--ref-exe", str(baseline), "--label", "regression_p8_1"] + extra),
     ("p8_3", ["scripts/validate_p8_3.py", "--ref-exe", str(baseline)] + ab + extra),
     ("p8_5", ["scripts/validate_p8_5.py", "--only", "equivalence", "--pre-exe", str(baseline)] + ab + extra
-             + (["--quick"] if args.tier == "quick" else [])),
+             + (["--quick"] if args.tier != "full" else [])),
     ("p8_followup", ["scripts/validate_p8_followup.py", "--only", "traversal", "--ref-exe", str(baseline)]),
     ("p4_exit_gate", ["scripts/validate_p4_exit_gate.py"]),
 ]
@@ -587,6 +597,36 @@ if args.tier == "quick" and not args.only:
                 any(_match(path, pattern) for pattern in patterns)]
         if hits:
             on_demand.setdefault(suite, []).extend(hits)
+# Commit tier: the selection within the budget (see the docstring).
+HISTORY = OUT / "suite_history.json"
+try:
+    history = json.loads(HISTORY.read_text(encoding="utf-8"))
+    history = history if isinstance(history, dict) else {}
+except (OSError, ValueError):
+    history = {}
+
+
+def estimate(name):
+    recent = (history.get(name) or {}).get("seconds") or []
+    return max(recent) if recent else (5.0 if name in SELFCHECKS else 60.0)
+
+
+not_run = {}  # suite -> "triggered" (a changed path names it) or "broad" (selected only because every suite was)
+commit_budget = args.tier == "commit" and not args.only
+if commit_budget:
+    named = {suite for _, why, selected in file_rows if why not in ("broad", "no trigger") for suite in selected}
+
+    def priority(name):
+        record = history.get(name) or {}
+        return (0 if record.get("passed") is False else 1, 0 if name in named else 1, record.get("lastRun", 0.0), estimate(name))
+
+    planned = sum(estimate(name) for name in reasons if name in CORE)
+    for name in sorted((name for name in reasons if name not in CORE), key=priority):
+        if planned + estimate(name) <= args.budget:
+            planned += estimate(name)
+        else:
+            not_run[name] = "triggered" if name in named else "broad"
+            del reasons[name]
 jobs = [job for job in jobs if job[0] in reasons]
 serial_jobs = [(name, command + ([demand_flags[name]] if name in on_demand else []))
                for name, command in serial_jobs if name in reasons]
@@ -625,6 +665,9 @@ if args.plan:
         else:
             print(f"on-demand suite: {suite} not run (--on-demand {suite}, --with-on-demand or a trigger path "
                   f"selects it)")
+    if commit_budget:
+        print(f"commit tier: estimated {planned:.0f} s of {args.budget:.0f} s; left out ({len(not_run)}): "
+              f"{', '.join(not_run) or 'none'}")
     for line in warnings:
         print(line)
     sys.exit(0)
@@ -739,7 +782,8 @@ try:
 except ValueError:
     candidate_name = EXE
 selection = "" if args.only or args.tier == "full" else \
-    f", {len(jobs) + len(serial_jobs) + len(selfchecks)} of {len(tier_suites)} suites (core + triggered)"
+    f", {len(jobs) + len(serial_jobs) + len(selfchecks)} of {len(tier_suites)} suites (core + triggered" + \
+    (f", {args.budget:.0f} s budget)" if commit_budget else ")")
 print(f"[regression: {args.tier} tier{selection}, candidate {candidate_name} vs baseline {baseline.name}, {args.jobs} jobs, "
       f"baseline render cache {cache_state}]")
 if on_demand:
@@ -748,7 +792,11 @@ start = time.time()
 try:
     with ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
         results = list(pool.map(run_job, jobs))
-    results += [run_job(job) for job in serial_jobs]
+    for job in serial_jobs:
+        if commit_budget and job[0] not in CORE and time.time() - start + estimate(job[0]) > args.budget:
+            not_run[job[0]] = "triggered" if job[0] in named else "broad"
+            continue
+        results.append(run_job(job))
     results += [run_selfcheck(check) for check in selfchecks]
 finally:
     if memo is not None:
@@ -782,7 +830,16 @@ print(f"  {'total':28s} {time.time() - start:6.0f} s {totals['current']:8d} {tot
       f"{'':7s} {totals['sessions']:9d} {totals['session_seconds']:8.1f} s")
 print(f"  in-run memo: {totals['memo_hits']} of {totals['current']} candidate launches replayed; "
       f"{totals['seeded']} seeded into the baseline cache; {totals['seed_hits']} baseline launches served from seeds")
-(OUT / "summary.json").write_text(json.dumps({"tier": args.tier, "candidate": str(EXE), "baseline": baseline.name,
+for name, passed, seconds, _, _ in results:
+    record = history.setdefault(name, {})
+    record["seconds"] = (record.get("seconds") or [])[-2:] + [round(seconds, 1)]
+    record["passed"] = passed
+    record["lastRun"] = start
+try:
+    HISTORY.write_text(json.dumps(history, indent=1), encoding="utf-8")
+except OSError as error:
+    print(f"WARNING: {HISTORY} not written: {error}")
+(OUT / "summary.json").write_text(json.dumps({"tier": args.tier, "not_run": not_run, "candidate": str(EXE), "baseline": baseline.name,
                                               "cache": cache_state, "totals": totals, "selected": {name: reasons[name] for name in reasons},
                                               "on_demand": {name: [demand_flags[name]] + why for name, why in on_demand.items()},
                                               "on_demand_suites_not_run": [name for name in ON_DEMAND_SUITES
@@ -790,5 +847,11 @@ print(f"  in-run memo: {totals['memo_hits']} of {totals['current']} candidate la
                                               "seconds": round(time.time() - start, 1), "suites": summary}, indent=1),
                                   encoding="utf-8")
 print("=" * 60)
-print(f"RESULT: {'FAIL' if failed else 'PASS'} ({time.time() - start:.0f} s)")
+if not_run:
+    triggered = [name for name, kind in not_run.items() if kind == "triggered"]
+    print(f"NOT RUN within the budget ({len(not_run)} suites; this result does not cover them): {', '.join(not_run)}")
+    if triggered:
+        print(f"  a changed path triggers these ({len(triggered)}): {', '.join(triggered)}")
+print(f"RESULT: {'FAIL' if failed else 'PASS'} ({time.time() - start:.0f} s" +
+      (f", {len(not_run)} suites not run)" if not_run else ")"))
 sys.exit(1 if failed else 0)

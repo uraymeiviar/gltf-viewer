@@ -159,6 +159,12 @@ json Application::agentStateJson()
     }
     st["environment"]["oceanSimulationShared"] = oceanShared;
     st["environment"]["oceanSimulationCount"] = oceanSimulations.size();
+    if (gltfLayer != nullptr) {
+        const auto& sampler = gltfLayer->getEnvironmentSampler();
+        st["environment"]["decodedPanorama"] = {{"bytes", sampler.decodedPanoramaBytes()},
+                                                {"decodes", sampler.panoramaDecodes()},
+                                                {"reuses", sampler.panoramaReuses()}};
+    }
     st["environment"]["oceanClock"] = environment.oceanClock;
     // A3.7: the file's sky portals (world centre, direction into the cabin, disc radius) and how many lit the
     // active viewport's last render.
@@ -203,6 +209,7 @@ json Application::qualityStateJson() const
                     {"ssrQuality", levels[std::clamp(q.ssrQuality, 0, 2)]},
                     {"ssaoQuality", levels[std::clamp(q.ssaoQuality, 0, 2)]},
                     {"ssaoResolution", q.ssaoHalfResolution ? "half" : "full"},
+                    {"ssaoPrecision", q.ssaoHalfPrecision ? "16bit" : "32bit"},
                     {"skyOcclusionQuality", levels[std::clamp(q.skyOcclusionQuality, 0, 2)]},
                     {"oceanQuality", levels[std::clamp(q.oceanQuality, 0, 2)]},
                     {"renderScale", agent::floatJson(q.renderScale)},
@@ -254,6 +261,7 @@ json Application::ssaoStateJson() const
                         {"slices", ux3d::imgui::SsaoSettings::sliceCount(settings.quality)},
                         {"steps", ux3d::imgui::SsaoSettings::stepCount(settings.quality)},
                         {"resolution", settings.halfResolution ? "half" : "full"},
+                        {"precision", settings.halfPrecision ? "16bit" : "32bit"},
                         {"aoWidth", ao.getAoWidth()},
                         {"aoHeight", ao.getAoHeight()},
                         {"ownPrepass", ao.hasPrepassTarget()},

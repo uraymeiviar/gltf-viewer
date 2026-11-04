@@ -62,7 +62,13 @@ python scripts/run_regression.py --tier full
   side-panel UI changes do not fail them (`validate_p4_exit_gate.py` covers the panels). The script's docstring
   lists what each suite covers. `--only a,b` runs exactly those suites of the tier (names as printed);
   `--no-cache` starts every baseline launch.
-- **Tiers**: `--tier full` runs every suite except the on-demand ones (one full run per commit for broad changes;
+- **Commit tier**: `--tier commit` is the check before a commit. It takes the quick tier's selection and stays within
+  `--budget` seconds (default 600): the core always runs, then the suites that failed last time, the suites a changed
+  path triggers by name, and the rest, each group longest-unrun first. Durations come from
+  `build/regression/suite_history.json` (the longest of a suite's last three runs). Suites left out are named under
+  `NOT RUN` and in `summary.json`, and a PASS does not cover them; later commit runs take them first. Run `--tier full`
+  before a release or overnight.
+- **Tiers**: `--tier full` runs every suite except the on-demand ones (before a release or overnight;
   about 33 minutes on the CPU-limited maintainer setup, 12 of 24 cores, `--jobs 1`, before the capture sessions and
   on-demand suites of 2026-11-01; an estimated 26 minutes since). The **quick tier** (default) runs the **core** —
   `p8_1`, `p4_exit_gate`, `asobo_common`, `defaults` (about 57 s) and the self-checks; 139 s warm before
