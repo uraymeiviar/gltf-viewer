@@ -83,6 +83,7 @@ const std::vector<ExtensionSpec>& extensionSpecs()
             {"clearcoatNormalTiling", ValueType::Number, Value{1.0}, DefaultSource::Schema, std::nullopt, std::nullopt, 0, 0, ""},
             {"clearcoatInverseRoughness", ValueType::Boolean, Value{false}, DefaultSource::Schema, std::nullopt, std::nullopt, 0, 0, ""},
             {"clearcoatBaseRoughness", ValueType::Number, Value{0.5}, DefaultSource::Schema, std::nullopt, std::nullopt, 0, 0, ""},
+            {"clearcoatBaseAffectCoat", ValueType::Boolean, Value{true}, DefaultSource::Exporter, std::nullopt, std::nullopt, 0, 0, ""},
         }},
         {"ASOBO_material_detail_map", Scope::Material, "ASOBO_material_detail_map/gltf.ASOBO_material_detail_map.schema.json", {
             {"UVScale", ValueType::Number, Value{1.0}, DefaultSource::Exporter, std::nullopt, std::nullopt, 0, 0, ""},
@@ -165,9 +166,9 @@ const std::vector<ExtensionSpec>& extensionSpecs()
             {"corridor", ValueType::Boolean, Value{false}, DefaultSource::Exporter, std::nullopt, std::nullopt, 0, 0, ""},
         }},
         {"ASOBO_material_pearlescent", Scope::Material, "ASOBO_material_pearlescent/gltf.ASOBO_material_pearlescent.schema.json", {
-            {"pearlShift", ValueType::Number, Value{}, DefaultSource::None, std::nullopt, std::nullopt, 0, 0, ""},
-            {"pearlRange", ValueType::Number, Value{}, DefaultSource::None, std::nullopt, std::nullopt, 0, 0, ""},
-            {"pearlBrightness", ValueType::Number, Value{}, DefaultSource::None, std::nullopt, std::nullopt, 0, 0, ""},
+            {"pearlShift", ValueType::Number, Value{0.0}, DefaultSource::Exporter, std::nullopt, std::nullopt, 0, 0, ""},
+            {"pearlRange", ValueType::Number, Value{0.0}, DefaultSource::Exporter, std::nullopt, std::nullopt, 0, 0, ""},
+            {"pearlBrightness", ValueType::Number, Value{0.0}, DefaultSource::Exporter, std::nullopt, std::nullopt, 0, 0, ""},
         }},
         {"ASOBO_material_sail", Scope::Material, "ASOBO_material_sail/gltf.ASOBO_material_sail.schema.json", {
             {"sailLightAbsorption", ValueType::Number, Value{1.0}, DefaultSource::Schema, 0.0, 1.0, 0, 0, ""},

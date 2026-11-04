@@ -80,7 +80,7 @@ int asoboDrawOrderOffset(const gltf::asobo::ExtensionSet& extensions)
 // material with only those is still a receiver.
 constexpr std::string_view kAsoboMaterialTypeExtensions[] = {
     "ASOBO_material_geometry_decal", "ASOBO_material_blend_gbuffer", "ASOBO_material_clear_coat",
-    "ASOBO_material_clear_coat_v2", "ASOBO_material_iridescent", "ASOBO_material_pearlescent",
+    "ASOBO_material_clear_coat_v2", "ASOBO_material_iridescent",
     "ASOBO_material_anisotropic", "ASOBO_material_anisotropic_v2", "ASOBO_material_detail_map",
     "ASOBO_material_glass_v2", "ASOBO_material_glass", "ASOBO_material_kitty_glass",
     "ASOBO_material_windshield", "ASOBO_material_windshield_v3",
@@ -952,6 +952,93 @@ void GltfRenderLayer::initMaterialMapping(gl::GL* gl)
                 }
             }
             material->asoboSss = true;
+        }
+
+        // A7.1: the layered ASOBO materials (docs/ASOBO_EXTENSIONS_SEMANTICS.md section 20). A failed image (the
+        // loader's placeholder) is not bound, so it does not read as a colour or a roughness.
+        auto usableAsoboTexture = [this, &anisotropyImageUsable](const gltf::asobo::TextureRef* reference) -> const gltf::Texture* {
+            if (reference == nullptr || m_syncingGltf == nullptr || reference->index < 0
+                || static_cast<size_t>(reference->index) >= m_syncingGltf->getTextures().size()) {
+                return nullptr;
+            }
+            const gltf::Texture* gltfTexture = &m_syncingGltf->getTextures().at(static_cast<size_t>(reference->index));
+            return anisotropyImageUsable(gltfTexture) ? gltfTexture : nullptr;
+        };
+        material->khrClearcoat = clearCoat.has_value();
+        material->khrIridescence = iridescence.has_value();
+        material->asoboClearcoat = false;
+        material->asoboClearcoatV1 = false;
+        material->asoboIridescent = false;
+        material->asoboPearlescent = false;
+        if (material->asobo != nullptr && !gltfMaterial->isUnlit()) {
+            const gltf::asobo::ExtensionData* coat = clearCoat.has_value() ? nullptr : material->asobo->find("ASOBO_material_clear_coat_v2");
+            const gltf::asobo::ExtensionData* coatV1 = clearCoat.has_value() ? nullptr : material->asobo->find("ASOBO_material_clear_coat");
+            if (coat != nullptr) {
+                // The layer is always there: the DA62 sample has no colour/roughness texture on any of its 122 clear
+                // coat materials and sets roughness factor 0.1, so a missing texture reads as white with roughness 1
+                // (the schema's "no layer when undefined" does not match those files).
+                material->asoboClearcoat = true;
+                const bool uniformRoughness = coat->boolean("clearcoatInverseRoughness").value_or(false);
+                material->setUniform<float>("u_ClearcoatFactor", 1.f);
+                material->setUniform<float>("u_ClearcoatRoughnessFactor",
+                    static_cast<float>(std::clamp(coat->number("clearcoatRoughnessFactor").value_or(1.0), 0.0, 1.0)));
+                material->setUniform<float>("u_AsoboClearcoatBaseRoughness",
+                    static_cast<float>(std::clamp(coat->number("clearcoatBaseRoughness").value_or(0.5), 0.0, 1.0)));
+                material->setUniform<math::vec2>("u_AsoboClearcoatTiling", math::vec2(
+                    static_cast<float>(coat->number("clearcoatColorRoughnessTiling").value_or(1.0)),
+                    static_cast<float>(coat->number("clearcoatNormalTiling").value_or(1.0))));
+                material->defines.defineIf(uniformRoughness, "ASOBO_CLEARCOAT_UNIFORM_ROUGHNESS");
+                material->defines.defineIf(coat->boolean("clearcoatBaseAffectCoat").value_or(true), "ASOBO_CLEARCOAT_BASE_NORMAL");
+                // Linear: 3ds Max opens this slot with gamma 1.0 and the 2024 Blender add-on marks it Non-Color.
+                const gltf::asobo::TextureRef* colorRoughness = coat->texture("clearcoatColorRoughnessTexture");
+                if (const gltf::Texture* gltfTexture = uniformRoughness ? nullptr : usableAsoboTexture(colorRoughness)) {
+                    createSamplerFromTexture("AsoboClearcoatColorRoughness", gltfTexture, static_cast<uint32_t>(std::max(0, colorRoughness->texCoord)), true);
+                }
+                const gltf::asobo::TextureRef* coatNormal = coat->texture("clearcoatNormalTexture");
+                const double normalFactor = std::clamp(coat->number("clearcoatNormalFactor").value_or(1.0), 0.0, 1.0);
+                material->setUniform<float>("u_ClearcoatNormalScale",
+                    static_cast<float>(normalFactor * (coatNormal != nullptr ? coatNormal->scale : 1.0)));
+                if (const gltf::Texture* gltfTexture = usableAsoboTexture(coatNormal)) {
+                    createSamplerFromTexture("ClearcoatNormal", gltfTexture, static_cast<uint32_t>(std::max(0, coatNormal->texCoord)), true);
+                }
+            } else if (coatV1 != nullptr) {
+                // MSFS 2020: dirtTexture R = coat amount, G = coat roughness (the 2020 Blender tree), the KHR channels.
+                const gltf::asobo::TextureRef* dirt = coatV1->texture("dirtTexture");
+                if (const gltf::Texture* gltfTexture = usableAsoboTexture(dirt)) {
+                    const uint32_t texCoord = static_cast<uint32_t>(std::max(0, dirt->texCoord));
+                    material->setUniform<float>("u_ClearcoatFactor", 1.f);
+                    material->setUniform<float>("u_ClearcoatRoughnessFactor", 1.f);
+                    material->asoboClearcoatV1 = createSamplerFromTexture("Clearcoat", gltfTexture, texCoord, true)
+                        && createSamplerFromTexture("ClearcoatRoughness", gltfTexture, texCoord, true);
+                }
+            }
+            const gltf::asobo::ExtensionData* iridescent = iridescence.has_value() ? nullptr : material->asobo->find("ASOBO_material_iridescent");
+            if (iridescent != nullptr) {
+                // Thin film of the KHR path; the film IOR is not exposed by the extension (1.3 assumed, the KHR default).
+                material->asoboIridescent = true;
+                material->setUniform<float>("u_IridescenceFactor", 1.f);
+                material->setUniform<float>("u_IridescenceIor", 1.3f);
+                material->setUniform<float>("u_IridescenceThicknessMinimum",
+                    static_cast<float>(std::max(0.0, iridescent->number("iridescentMinThickness").value_or(10.0))));
+                material->setUniform<float>("u_IridescenceThicknessMaximum",
+                    static_cast<float>(std::max(0.0, iridescent->number("iridescentMaxThickness").value_or(400.0))));
+                material->setUniform<float>("u_AsoboIridescentBrightness",
+                    static_cast<float>(std::max(0.0, iridescent->number("iridescentBrightness").value_or(1.0))));
+                const gltf::asobo::TextureRef* thickness = iridescent->texture("iridescentThicknessTexture");
+                if (const gltf::Texture* gltfTexture = usableAsoboTexture(thickness)) {
+                    createSamplerFromTexture("AsoboIridescentThickness", gltfTexture, static_cast<uint32_t>(std::max(0, thickness->texCoord)), true);
+                }
+            }
+            // Written for Standard materials only by 3ds Max; the 2024 Blender exporter also writes it on decals, where
+            // a test of MAT_LIVERY in MSFS showed no difference, so a decal keeps its plain look.
+            if (const gltf::asobo::ExtensionData* pearl = material->asobo->find("ASOBO_material_pearlescent");
+                pearl != nullptr && material->drawOrderClass != DrawOrderClass::Decal && !specularGlossiness.has_value()) {
+                material->asoboPearlescent = true;
+                material->setUniform<math::vec3>("u_AsoboPearl", math::vec3(
+                    static_cast<float>(pearl->number("pearlShift").value_or(0.0)),
+                    static_cast<float>(pearl->number("pearlRange").value_or(0.0)),
+                    static_cast<float>(pearl->number("pearlBrightness").value_or(0.0))));
+            }
         }
 
         if (m_resourceManager.getFramebufferTexture() != nullptr && m_resourceManager.getFramebufferSamplerState() != nullptr) {

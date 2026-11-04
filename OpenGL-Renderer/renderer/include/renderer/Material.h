@@ -125,6 +125,15 @@ public:
     // A3.4: an OPAQUE or MASK material declaring ASOBO_material_SSS (u_AsoboSSSColor set, opacity map
     // bound when usable); createScene defines ASOBO_SSS per viewport when the viewport applies it.
     bool asoboSss = false;
+    // A7.1: the layered ASOBO materials (docs/ASOBO_EXTENSIONS_SEMANTICS.md section 20). A KHR extension of the same
+    // layer wins, so these are only set without it; createScene defines the variant per viewport when the viewport
+    // applies the extension. khrClearcoat / khrIridescence keep the KHR define through that per-viewport step.
+    bool khrClearcoat = false;
+    bool khrIridescence = false;
+    bool asoboClearcoat = false;   // ASOBO_material_clear_coat_v2
+    bool asoboClearcoatV1 = false; // ASOBO_material_clear_coat with its dirtTexture bound
+    bool asoboIridescent = false;
+    bool asoboPearlescent = false;
     bool overrideBlend = false;
     bool customBlend = false;
     bool blendingEnabled = false;

@@ -19,7 +19,8 @@ EXCLUDED = METADATA | {"ASOBO_asset_optimized", "ASOBO_material_invisible", "ASO
                        "ASOBO_normal_map_convention", "ASOBO_material_draw_order", "ASOBO_material_emissive",
                        "ASOBO_material_flip_back_face", "ASOBO_material_detail_map", "ASOBO_material_UV_options", "ASOBO_occlusion_strength",
                        "ASOBO_material_fresnel_fade", "ASOBO_material_ghost_effect", "ASOBO_material_alphamode_dither",
-                       "ASOBO_material_anisotropic_v2", "ASOBO_material_shadow_options", "MSFT_texture_dds"}
+                       "ASOBO_material_anisotropic_v2", "ASOBO_material_shadow_options", "MSFT_texture_dds",
+                       "ASOBO_material_clear_coat", "ASOBO_material_pearlescent"}
 failures = []
 
 
@@ -93,12 +94,14 @@ def main():
                         "ASOBO_normal_map_convention", "ASOBO_material_draw_order", "ASOBO_material_emissive",
                         "ASOBO_material_flip_back_face", "ASOBO_material_detail_map", "ASOBO_material_UV_options", "ASOBO_occlusion_strength",
                         "ASOBO_material_fresnel_fade", "ASOBO_material_ghost_effect", "ASOBO_material_alphamode_dither",
-                        "ASOBO_material_anisotropic_v2", "ASOBO_material_shadow_options", "MSFT_texture_dds"):
+                        "ASOBO_material_anisotropic_v2", "ASOBO_material_shadow_options", "MSFT_texture_dds",
+                        "ASOBO_material_clear_coat", "ASOBO_material_pearlescent"):
                 status = "Rendered"
             elif name in ("ASOBO_material_geometry_decal", "ASOBO_material_blend_gbuffer",
                           "ASOBO_material_windshield_v3", "ASOBO_material_glass_v2",
                           "ASOBO_material_windshield", "ASOBO_material_glass", "ASOBO_material_kitty_glass",
-                          "ASOBO_material_SSS", "ASOBO_sky_portal", "ASOBO_property_animation"):
+                          "ASOBO_material_SSS", "ASOBO_sky_portal", "ASOBO_property_animation",
+                          "ASOBO_material_clear_coat_v2", "ASOBO_material_iridescent"):
                 status = "Partial"
             elif name in ("ASOBO_material_disable_motion_blur", "ASOBO_material_fake_terrain"):
                 status = "Not applicable"

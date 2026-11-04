@@ -96,10 +96,10 @@ the planned behavior. Exact semantics are confirmed per task against the sources
 
 | Extension | Schema properties | Viewer meaning | Current | Phase |
 |---|---|---|---|---|
-| `ASOBO_material_clear_coat` | `dirtTexture` | Clear coat with a dirt mask (v1) | Ignored | A7 |
-| `ASOBO_material_clear_coat_v2` | `clearcoatColorRoughnessTexture` (required), `clearcoatNormalTexture`, roughness/normal factors and tilings, `clearcoatInverseRoughness`, `clearcoatBaseRoughness` | Colored clear coat layer; can reuse the `KHR_materials_clearcoat` shader path | Ignored | A7 |
-| `ASOBO_material_iridescent` | `iridescentThicknessTexture`, min/max thickness (10–400 nm), `iridescentBrightness` | Thin-film interference; can reuse the `KHR_materials_iridescence` path | Ignored | A7 |
-| `ASOBO_material_pearlescent` | `pearlShift`, `pearlRange`, `pearlBrightness` | View-angle-dependent hue shift | Ignored | A7 |
+| `ASOBO_material_clear_coat` | `dirtTexture` | Clear coat, R = amount, G = roughness (v1) | **Rendered** on the KHR coat path; no file found to test against | A7.1 |
+| `ASOBO_material_clear_coat_v2` | `clearcoatColorRoughnessTexture` (required), `clearcoatNormalTexture`, roughness/normal factors and tilings, `clearcoatInverseRoughness`, `clearcoatBaseRoughness`, `clearcoatBaseAffectCoat` | Colored clear coat layer | **Partial** (KHR coat lobe, tint, normal, tilings, uniform roughness; no rain; semantics section 20) | A7.1 |
+| `ASOBO_material_iridescent` | `iridescentThicknessTexture`, min/max thickness (10–400 nm), `iridescentBrightness` | Thin-film interference on windshields | **Partial** (KHR film; IOR and brightness rule assumed, semantics section 20) | A7.1 |
+| `ASOBO_material_pearlescent` | `pearlShift`, `pearlRange`, `pearlBrightness` | View-angle hue rotation on the metallic part | **Rendered** (Asobo's preview formula; not on decals; semantics section 20) | A7.1 |
 | `ASOBO_material_anisotropic` | `anisotropicTexture` | Anisotropic specular (v1) | Ignored (deferred: packing not established, semantics section 17) | A7.1 |
 | `ASOBO_material_anisotropic_v2` | `anisoDirectionRoughnessTexture` (RG direction, B roughness Y) | Anisotropic GGX along a tangent-space direction | **Rendered** (`KHR_materials_anisotropy` lobe: direction RG x 2 - 1, 0.5/0.5 = tangent; roughness X = core roughness along it, Y = B across it; without the texture isotropic) | A7.1 |
 

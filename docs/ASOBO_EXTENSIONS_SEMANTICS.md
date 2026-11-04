@@ -1457,3 +1457,61 @@ Glider renders an approximation (docs/ASOBO_EXTENSIONS_PHASE_3.md, A3.7).
 - Added only where the IBL was occluded: `(1 - occlusion) x min(strength x portal, unoccluded IBL diffuse)`, strength
   0.35 calibrated against the SDK before/after pair. No sun term: the A3.1 sun already enters through glass, which
   casts no shadow in A3.2.
+
+## 20. Layered materials: clear coat, iridescence and pearl (A7.1, 2026-11-04)
+
+Sources: the 2024 Blender exporter (`msfs-blender-5-addons`, `io/com/extensions/material/asobo_material_{clear_coat,iridescent,pearlescent}.py`), the 3ds Max exporter and material script in the SDK (`FlightSimMaterialExporter.cs`, `MSFS2024_Material.ms`, `Fx/`), the SDK schemas and pages *FlightSim Material Parameters*, *FlightSim Material Textures* and *Clearcoat*. **V** = read in a source, **I** = inferred. No MSFS capture was compared.
+
+**Use in files.** Survey of 5,004 `.gltf` of any size in the SDK, `E:\msfs-pkgs`, `F:\msfs-addons` and the E-Jet projects:
+
+| Extension | Materials | Where |
+|---|---|---|
+| `ASOBO_material_clear_coat_v2` | 122 | only the DA62 SDK sample; no material has `clearcoatColorRoughnessTexture` |
+| `ASOBO_material_clear_coat` (v1) | 0 | |
+| `ASOBO_material_iridescent` | 0 | |
+| `ASOBO_material_pearlescent` | 76 | 69 on geometry decals (the E-Jet liveries), 7 on others: CJ4 holographic livery, FA-18 HUD |
+
+### Clear coat v2
+
+| Key | Default | Glider |
+|---|---|---|
+| `clearcoatColorRoughnessTexture` | none | RGB tints the base layer, A is the coat roughness; linear |
+| `clearcoatRoughnessFactor` | 1 | multiplies the coat roughness |
+| `clearcoatColorRoughnessTiling` | 1 | multiplies that texture's UV, after the material's UV options |
+| `clearcoatNormalTexture` | none | coat normal map, packaged and DirectX decoding as the core normal |
+| `clearcoatNormalFactor` | 1 | X/Y scale of the coat normal, multiplied by the texture's `scale` |
+| `clearcoatNormalTiling` | 1 | multiplies that texture's UV |
+| `clearcoatInverseRoughness` | false | "Use uniform base roughness": coat roughness = COMP roughness x factor, base roughness = `clearcoatBaseRoughness`, colour texture not read |
+| `clearcoatBaseRoughness` | 0.5 | see above |
+| `clearcoatBaseAffectCoat` | true | not in the schema, both exporters write it: the coat normal includes the base normal (whiteout sum, as the detail normal); off follows the geometry |
+
+- **V** Colour and roughness: "the RGB components set the varnish colour and will be a multiplier on the light absorption [...] If the colour is white, the varnish will appear transparent, if it is black, the varnish will absorb all light and appear black. The alpha channel sets the roughness" (*FlightSim Material Textures*; the schema says the same). The Blender add-on labels the slot "Clearcoat amount (R), Clearcoat rough (G)" and previews it that way; that is the v1 layout carried over, so Glider follows the SDK.
+- **V** Linear: 3ds Max opens this slot with gamma 1.0 and base colour with 2.2 (`MSFS2024_Material.ms:1658,1896`); the add-on marks it Non-Color.
+- **I** A missing texture means white with roughness 1, and the layer stays. The schema says "When undefined, the material does not have an additional clearcoated layer", but all 122 real materials have no texture and set `clearcoatRoughnessFactor` 0.1 or uniform roughness, which would mean nothing without a layer.
+- **I** Coat F0 0.04 (the KHR lobe). The tint also covers the emissive under the varnish ("absorbs all light"). `clearcoatRoughnessFactor` also applies under uniform roughness (the panels offer it there).
+- Not drawn: rain (`ASOBO_material_rain_options`, weather is not implemented). Every decal stays under the coat (section 7, `underClearcoat`).
+
+### Clear coat v1
+
+**V** MSFS 2020: written only with a `dirtTexture`; the 2020 Blender tree sends its R to the coat amount and G to the coat roughness, Non-Color. Glider feeds it to the KHR channels; **I** no texture = no coat. A `"ClearCoat"` material code alone draws no coat. No file was found to test it against.
+
+### Iridescence
+
+- **V** Windshield parameter set: thickness = mix(min, max, texture R) (*FlightSim Material Parameters*). Max writes it for Windshield only; the Blender add-on for any material with the switch on, so Glider draws it wherever it is declared.
+- **I** No formula exists anywhere in the sources (the Max preview shader declares the parameters and never reads them). Glider uses the KHR thin film with film IOR 1.3, the KHR default.
+- **I** No texture = the maximum thickness (the KHR rule).
+- **I** `iridescentBrightness`: mix(plain Fresnel, film Fresnel, brightness): 0 = no film, 1 = the KHR film, above 1 a stronger colour.
+- A windshield keeps its screen-space reflection, seen through the film's F0.
+- **V** Defaults conflict: the schema and Max say minimum 10, the Blender add-on 400 and omits the key at its default. Glider reads a missing key as 10, so a Blender file with a texture and a default minimum gets a wider range than its panel shows.
+
+### Pearl
+
+**V** The formula is in Asobo's 3ds Max preview (`Fx/MSFS2024Material_Standard.fx:94-105`, `Fx/utility.fx:58-71`), run after detail and vertex colour, before wear. `ramp = (1 - N.V)^pearlShift`; the BT.709 chroma is rotated by `-ramp x pearlRange x 2 pi` and multiplied by pi; luma + `saturate(ramp) x pearlBrightness`; the result replaces the base colour by `metallic`.
+
+- **V** The factor pi and the metallic mix are in Asobo's source. It is the preview shader, not the sim's. "Enables Pearl effect on reflections" (Max tooltip) fits the metallic mix.
+- **V** A material with metallic 0 does not change. So a dielectric needs a COMP metallic to show it (the FA-18 HUD does nothing in Glider).
+- **I** Decals ignore it. Max writes it for Standard only, the SDK lists it under Standard, and the E195 `MAT_LIVERY` decal showed no difference in MSFS (add-on journal 2026-10-02, Known Issue 2). 69 of the 76 materials are such decals.
+- **I** A decal lies over the pearl: its coverage hides the effect, and the decal's own colour and metallic do not shift.
+- A pearl material now receives decals: it was wrongly in the list of non-Standard material types.
+
+Switches: each extension in File > Settings > glTF Extensions, `--asobo-disable <name>`, `--asobo off`; off compiles the core variant, byte-identical to the file without the extension. A KHR extension of the same layer on the same material wins. Check: `scripts/validate_asobo_layers.py`.

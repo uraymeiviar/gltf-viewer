@@ -94,7 +94,7 @@ Suites (equivalence against the baseline plus each feature's analytic acceptance
   validate_asobo_support.py, validate_asobo_draworder.py, validate_asobo_packaged.py,
   validate_asobo_uv_options.py
   validate_asobo_occlusion_strength.py, validate_asobo_fresnel_ghost.py, validate_asobo_flip_back_face.py, validate_cli_presets.py, validate_asobo_dither.py,
-  validate_asobo_anisotropy.py, validate_asobo_sss.py, validate_sun.py (A3.1 sun; sun off against the baseline),
+  validate_asobo_anisotropy.py, validate_asobo_layers.py, validate_asobo_sss.py, validate_sun.py (A3.1 sun; sun off against the baseline),
   validate_shadows.py (A3.2 cascaded sun shadows; sun off and shadows off against the baseline),
   validate_ground.py (A3.6 ground plane: shadow, lit value, IBL, model base, stability; Grid against the baseline),
   validate_ssao.py (A3.5 SSAO: box interior/open plane, no halo, TAA stability, sun unchanged; off against the baseline),
@@ -217,7 +217,7 @@ BROAD = ("pbr.frag", "primitive.vert", "ibl.glsl", "brdf.glsl", "Application.cpp
          "source/imgui/application/Frame.cpp", "source/imgui/application/Scene.cpp", "CMakeLists.txt", "*.cmake",
          "cmake/*", "thirdparty/*", "*/thirdparty/*", "HelloCube.glb", "default_hdr_env4k.hdr")
 ASOBO_SUITES = ("asobo_model", "asobo_normal", "asobo_support", "asobo_draworder", "asobo_uv_options",
-                "asobo_occlusion", "asobo_fresnel_ghost", "asobo_dither", "asobo_anisotropy", "asobo_sss",
+                "asobo_occlusion", "asobo_fresnel_ghost", "asobo_dither", "asobo_anisotropy", "asobo_layers", "asobo_sss",
                 "asobo_sky_portal", "asobo_packaged", "asobo_decal_modes", "emissive_units", "texture_dds",
                 "texture_ktx2")
 # (suites, path patterns), docs/BUILD_AND_TEST.md section 4.5; every pattern matches files in the tree.
@@ -488,6 +488,7 @@ serial_jobs = [
     ("cli_presets", ["scripts/validate_cli_presets.py"]),
     ("asobo_dither", ["scripts/validate_asobo_dither.py", "--baseline-exe", str(baseline)]),
     ("asobo_anisotropy", ["scripts/validate_asobo_anisotropy.py", "--baseline-exe", str(baseline)]),
+    ("asobo_layers", ["scripts/validate_asobo_layers.py", "--baseline-exe", str(baseline)]),
     ("asobo_sss", ["scripts/validate_asobo_sss.py", "--baseline-exe", str(baseline)]),
     ("sun", ["scripts/validate_sun.py", "--baseline-exe", str(baseline)]),
     ("shadows", ["scripts/validate_shadows.py", "--baseline-exe", str(baseline)]),
@@ -504,7 +505,9 @@ serial_jobs = [
     ("emissive_units", ["scripts/validate_emissive_units.py", "--baseline-exe", str(baseline)]),
     ("sky_occlusion", ["scripts/validate_sky_occlusion.py", "--baseline-exe", str(baseline)]),
     ("ocean", ["scripts/validate_ocean.py", "--baseline-exe", str(baseline)]),
-    ("interactive_costs", ["scripts/validate_interactive_costs.py", "--baseline-exe", str(baseline)]),
+    # Before and after: it compares with its own default baseline, the build from before these costs fell, since a
+    # baseline that already has them would fail its "the baseline does this work" premises.
+    ("interactive_costs", ["scripts/validate_interactive_costs.py"]),
     ("review_fixes", ["scripts/validate_review_fixes.py", "--baseline-exe", str(baseline)]),
     ("asobo_packaged", ["scripts/validate_asobo_packaged.py"]),
     ("asobo_decal_modes", ["scripts/validate_asobo_decal_modes.py", "--baseline-exe", str(baseline)]),

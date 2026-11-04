@@ -112,7 +112,8 @@ def check_baseline(baseline):
         else:
             print(f"  SKIP {name}: asset not installed")
     if night.DA62_COCKPIT.exists():
-        cases.append(("da62_cockpit", night.DA62_COCKPIT, night.DA62_CAMERA))
+        # The DA62 uses the clear coat v2, which draws since that work: off on both sides (validate_asobo_layers.py covers it).
+        cases.append(("da62_cockpit", night.DA62_COCKPIT, night.DA62_CAMERA + ["--asobo-disable", "ASOBO_material_clear_coat_v2"]))
     for name, model, flags in cases:
         flags = list(flags) + ["--environment", "hdr"]
         now, _ = night.render(model, f"hdr_now_{name}", flags)

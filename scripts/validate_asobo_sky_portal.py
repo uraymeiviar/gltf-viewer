@@ -370,12 +370,14 @@ def check_baseline(baseline, uniform):
         print("  SKIP DA62 cockpit not found")
         return
     # The same switch on both sides: a baseline from before A3.7 ignores it and renders without portals anyway.
-    disable = ["--asobo-disable", "ASOBO_sky_portal"]
+    # The DA62 is the file that uses the clear coat v2, which draws since that work: switched off on both sides, so this
+    # compares the portals alone (validate_asobo_layers.py covers the coat).
+    disable = ["--asobo-disable", "ASOBO_sky_portal", "--asobo-disable", "ASOBO_material_clear_coat_v2"]
     base = render(DA62_COCKPIT, "base_da62", DA62_VIEW + disable, exe=baseline)
     check(base is not None and magenta(base) < 0.001, f"DA62 cockpit textures load (magenta {magenta(base):.5f})")
     off = render(DA62_COCKPIT, "cur_da62_disable", DA62_VIEW + disable)
     check(same(off, base), f"DA62 cockpit, --asobo-disable ASOBO_sky_portal: byte-identical to {baseline.stem}")
-    on = render(DA62_COCKPIT, "cur_da62_on", DA62_VIEW)
+    on = render(DA62_COCKPIT, "cur_da62_on", DA62_VIEW + disable[2:])
     check(on is not None and not same(on, off), "DA62 cockpit: the default (portals on) differs from portals off")
     base_off = render(DA62_COCKPIT, "base_da62_asobo_off", DA62_VIEW + ["--asobo", "off"], exe=baseline)
     cur_off = render(DA62_COCKPIT, "cur_da62_asobo_off", DA62_VIEW + ["--asobo", "off"])

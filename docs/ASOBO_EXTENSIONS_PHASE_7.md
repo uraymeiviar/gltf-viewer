@@ -10,10 +10,10 @@ classify every remaining extension, so the support matrix has no unknown entry.
 ## Tasks
 
 - [ ] **A7.1 — Layered BRDF features (R3–R4). Owner: Claude.**
-  - `ASOBO_material_clear_coat_v2` and v1: map onto the `KHR_materials_clearcoat` path, with the color/roughness
-    texture, tilings, inverse roughness and the v1 dirt mask.
-  - `ASOBO_material_iridescent`: map onto `KHR_materials_iridescence`.
-  - `ASOBO_material_pearlescent`: a view-dependent hue shift (25 project files use it).
+  - [x] `ASOBO_material_clear_coat_v2` and v1, `ASOBO_material_iridescent`, `ASOBO_material_pearlescent`. **Done,
+    2026-11-04:** the KHR coat and film paths plus Asobo's pearl formula; semantics section 20 has the rules, what is
+    inferred and the file survey (122 clear coat materials, all DA62; no iridescent file). Check:
+    `scripts/validate_asobo_layers.py`.
   - [x] `ASOBO_material_anisotropic_v2` and v1: an anisotropic GGX lobe. **Done (v2), 2026-10-28:** v2 maps onto
     the new `KHR_materials_anisotropy` lobe (Sample-Viewer anisotropic GGX for punctual lights, bent-normal IBL):
     direction = RG x 2 - 1 in tangent space (0.5/0.5 = tangent), roughness X = core roughness along it, Y = texture B

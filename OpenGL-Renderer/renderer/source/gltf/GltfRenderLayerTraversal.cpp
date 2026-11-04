@@ -452,6 +452,16 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
             // A3.4: ASOBO_material_SSS per viewport; off compiles the core variant.
             entry.material->defines.defineIf(entry.material->asoboSss && asoboOptions.applies("ASOBO_material_SSS"),
                 "ASOBO_SSS");
+            // A7.1: the layered ASOBO materials per viewport; off compiles the core variant.
+            const bool asoboClearcoat = entry.material->asoboClearcoat && asoboOptions.applies("ASOBO_material_clear_coat_v2");
+            const bool asoboClearcoatV1 = entry.material->asoboClearcoatV1 && asoboOptions.applies("ASOBO_material_clear_coat");
+            entry.material->defines.defineIf(asoboClearcoat, "ASOBO_CLEARCOAT");
+            entry.material->defines.defineIf(entry.material->khrClearcoat || asoboClearcoat || asoboClearcoatV1, "MATERIAL_CLEARCOAT");
+            const bool asoboIridescent = entry.material->asoboIridescent && asoboOptions.applies("ASOBO_material_iridescent");
+            entry.material->defines.defineIf(asoboIridescent, "ASOBO_IRIDESCENT");
+            entry.material->defines.defineIf(entry.material->khrIridescence || asoboIridescent, "MATERIAL_IRIDESCENCE");
+            entry.material->defines.defineIf(entry.material->asoboPearlescent && asoboOptions.applies("ASOBO_material_pearlescent"),
+                "ASOBO_PEARLESCENT");
             // ASOBO_material_flip_back_face: in an MSFS file the back of a double-sided material keeps the front
             // normal unless the material declares this extension; off (or any other file) is the core flip.
             const auto* flipBackFace = extensions != nullptr ? extensions->find("ASOBO_material_flip_back_face") : nullptr;

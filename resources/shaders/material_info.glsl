@@ -16,6 +16,11 @@ uniform vec3 u_SheenColorFactor;
 uniform float u_ClearcoatFactor;
 uniform float u_ClearcoatRoughnessFactor;
 
+#ifdef ASOBO_PEARLESCENT
+// A7.1: ASOBO_material_pearlescent. x = pearlShift, y = pearlRange, z = pearlBrightness
+uniform vec3 u_AsoboPearl;
+#endif
+
 // Specular
 uniform vec3 u_KHR_materials_specular_specularColorFactor;
 uniform float u_KHR_materials_specular_specularFactor;
@@ -91,8 +96,11 @@ struct MaterialInfo
     float clearcoatFactor;
     vec3 clearcoatNormal;
     float clearcoatRoughness;
+#ifdef ASOBO_CLEARCOAT
+    vec3 asoboClearcoatTint;   // ASOBO_material_clear_coat_v2: what the varnish lets through from the base layer
+#endif
 
-    // KHR_materials_specular 
+    // KHR_materials_specular
     float specularWeight; // product of specularFactor and specularTexture.a
 
     float transmissionFactor;
@@ -179,6 +187,7 @@ NormalInfo getNormalInfo(vec3 v)
     // Compute normals:
     NormalInfo info;
     info.ng = ng;
+    info.ntex = vec3(0.0, 0.0, 1.0);
 #ifdef HAS_NORMAL_MAP
 #ifdef NORMAL_TEXTURE_RG_SNORM
     info.ntex = sampleTangentSpaceNormalRG(u_NormalSampler, UV);
@@ -228,6 +237,28 @@ NormalInfo getNormalInfo(vec3 v)
 #ifdef MATERIAL_CLEARCOAT
 vec3 getClearcoatNormal(NormalInfo normalInfo)
 {
+#ifdef ASOBO_CLEARCOAT
+    // A7.1: clearcoatBaseAffectCoat puts the coat's normal map over the base normal (whiteout, as the detail normal);
+    // without it the coat follows the geometry.
+#ifdef HAS_CLEARCOAT_NORMAL_MAP
+#ifdef CLEARCOAT_NORMAL_TEXTURE_RG_SNORM
+    vec3 coatTangent = sampleTangentSpaceNormalRG(u_ClearcoatNormalSampler, getClearcoatNormalUV());
+#else
+    vec3 coatTangent = sampleTangentSpaceNormal(u_ClearcoatNormalSampler, getClearcoatNormalUV());
+#endif
+    coatTangent = normalize(coatTangent * vec3(u_ClearcoatNormalScale, u_ClearcoatNormalScale, 1.0));
+#ifdef ASOBO_CLEARCOAT_BASE_NORMAL
+    coatTangent = vec3(coatTangent.xy + normalInfo.ntex.xy, coatTangent.z * normalInfo.ntex.z);
+#endif
+    return normalize(mat3(normalInfo.t, normalInfo.b, normalInfo.ng) * coatTangent);
+#else
+#ifdef ASOBO_CLEARCOAT_BASE_NORMAL
+    return normalInfo.n;
+#else
+    return normalInfo.ng;
+#endif
+#endif
+#endif
 #ifdef HAS_CLEARCOAT_NORMAL_MAP
 #ifdef CLEARCOAT_NORMAL_TEXTURE_RG_SNORM
     vec3 n = sampleTangentSpaceNormalRG(u_ClearcoatNormalSampler, getClearcoatNormalUV());
@@ -346,6 +377,34 @@ MaterialInfo getMetallicRoughnessInfo(MaterialInfo info)
     // Achromatic f0 based on IOR.
     info.c_diff = mix(info.baseColor.rgb,  vec3(0), info.metallic);
     info.f0 = mix(info.f0, info.baseColor.rgb, info.metallic);
+    return info;
+}
+#endif
+
+
+#ifdef ASOBO_PEARLESCENT
+// A7.1: Asobo's formula from the 3ds Max preview shader (MSFS2024Material_Standard.fx:94-105, BT.709 matrices in
+// utility.fx): the chroma turns with the view angle and is scaled by pi (in Asobo's source), the luma moves with the
+// brightness, and only the metallic part changes. The ramp's base is kept above 0 so a shift of 0 or below stays finite.
+// rgb and metallic are the receiver's, keep is how much of it shows through the decals.
+MaterialInfo applyAsoboPearl(MaterialInfo info, float NdotV, vec3 rgb, float keep, float metallic)
+{
+    float ramp = pow(max(1.0 - clamp(NdotV, 0.0, 1.0), 1e-5), u_AsoboPearl.x);
+    float luma = dot(vec3(0.2126, 0.7152, 0.0722), rgb);
+    vec2 chroma = vec2(dot(vec3(-0.09991, -0.33609, 0.436), rgb), dot(vec3(0.615, -0.55861, -0.05639), rgb));
+    float angle = -ramp * u_AsoboPearl.y * 6.2831853;
+    float cosAngle = cos(angle);
+    float sinAngle = sin(angle);
+    chroma = vec2(dot(chroma, vec2(cosAngle, sinAngle)), dot(chroma, vec2(-sinAngle, cosAngle))) * 3.1415926;
+    luma = clamp(luma + clamp(ramp, 0.0, 1.0) * u_AsoboPearl.z, 0.0, 1.0);
+    vec3 pearl = clamp(vec3(luma + 1.28033 * chroma.y,
+                            luma - 0.21482 * chroma.x - 0.38059 * chroma.y,
+                            luma + 2.12798 * chroma.x), 0.0, 1.0);
+    // f0 and c_diff were derived from the old colour with the composited metallic.
+    vec3 change = (pearl - rgb) * metallic * keep;
+    info.baseColor += change;
+    info.f0 += change * info.metallic;
+    info.c_diff = mix(info.baseColor, vec3(0.0), info.metallic);
     return info;
 }
 #endif
@@ -476,6 +535,12 @@ MaterialInfo getIridescenceInfo(MaterialInfo info)
         info.iridescenceThickness = thickness;
     #endif
 
+    // A7.1: ASOBO_material_iridescent reads the red channel (SDK: "Iridescent Thickness (R)").
+    #if defined(ASOBO_IRIDESCENT) && defined(HAS_ASOBO_IRIDESCENT_THICKNESS_MAP)
+        info.iridescenceThickness = mix(u_IridescenceThicknessMinimum, u_IridescenceThicknessMaximum,
+            texture(u_AsoboIridescentThicknessSampler, getAsoboIridescentThicknessUV()).r);
+    #endif
+
     return info;
 }
 #endif
@@ -497,6 +562,20 @@ MaterialInfo getClearCoatInfo(MaterialInfo info, NormalInfo normalInfo)
 #ifdef HAS_CLEARCOAT_ROUGHNESS_MAP
     vec4 clearcoatSampleRoughness = texture(u_ClearcoatRoughnessSampler, getClearcoatRoughnessUV());
     info.clearcoatRoughness *= clearcoatSampleRoughness.g;
+#endif
+
+#ifdef ASOBO_CLEARCOAT
+    // A7.1: ASOBO_material_clear_coat_v2. Colour (RGB) tints what comes through the varnish, roughness (A) is the
+    // coat's. "Use uniform base roughness": the coat takes the COMP roughness, the base layer a single value.
+    info.asoboClearcoatTint = vec3(1.0);
+#if defined(ASOBO_CLEARCOAT_UNIFORM_ROUGHNESS)
+    info.clearcoatRoughness *= info.perceptualRoughness;
+    info.perceptualRoughness = u_AsoboClearcoatBaseRoughness;
+#elif defined(HAS_ASOBO_CLEARCOAT_COLOR_ROUGHNESS_MAP)
+    vec4 asoboCoatSample = texture(u_AsoboClearcoatColorRoughnessSampler, getAsoboClearcoatColorRoughnessUV());
+    info.asoboClearcoatTint = asoboCoatSample.rgb;
+    info.clearcoatRoughness *= asoboCoatSample.a;
+#endif
 #endif
 
     info.clearcoatNormal = getClearcoatNormal(normalInfo);

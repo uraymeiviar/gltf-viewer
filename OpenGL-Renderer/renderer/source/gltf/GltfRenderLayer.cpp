@@ -360,6 +360,20 @@ void GltfRenderLayer::updateGltf(const gltf::Gltf& gltf)
             }
         }
 
+        // A7.1: the layered ASOBO textures are all linear (3ds Max opens them with gamma 1.0, Blender marks them Non-Color).
+        auto insertAsoboImage = [&gltf, &insertTextureImage, &findSyncExtension, &material](const char* extension, const char* key) {
+            const gltf::asobo::ExtensionData* data = findSyncExtension(material, extension);
+            const gltf::asobo::TextureRef* reference = data != nullptr ? data->texture(key) : nullptr;
+            if (reference != nullptr && reference->index >= 0
+                && static_cast<size_t>(reference->index) < gltf.getTextures().size()) {
+                insertTextureImage(&gltf.getTextures().at(static_cast<size_t>(reference->index)), true);
+            }
+        };
+        insertAsoboImage("ASOBO_material_clear_coat_v2", "clearcoatColorRoughnessTexture");
+        insertAsoboImage("ASOBO_material_clear_coat_v2", "clearcoatNormalTexture");
+        insertAsoboImage("ASOBO_material_clear_coat", "dirtTexture");
+        insertAsoboImage("ASOBO_material_iridescent", "iridescentThicknessTexture");
+
         // A5.1: the four ASOBO_material_detail_map textures are not core slots, so register
         // them here. The colour map is sRGB, the ORM, normal and blend-mask maps are linear.
         if (gltf.isExtensionDeclared("ASOBO_material_detail_map")) {

@@ -68,6 +68,8 @@ EXPORTER_DEFAULTS = {
                                        "roomNumberXY": 5.0},
     # A3.4: both exporters (2024 Blender, MSFS 2020 3ds Max) default the SSS colour to white RGBA.
     "ASOBO_material_SSS": {"SSSColor": [1.0, 1.0, 1.0, 1.0]},
+    # A7.1: the exporters' defaults; the schema gives none.
+    "ASOBO_material_pearlescent": {"pearlShift": 0.0, "pearlRange": 0.0, "pearlBrightness": 0.0},
     # A3.7: the exporter's Blender light properties (blender/msfs_lights.py: Source Radius (cm) 50, Inner Angle 0,
     # Outer Angle 160); a sky portal's shape is always "disc" = 1 (io/com/msfs_light_utils.py). The exporter writes
     # all four keys, so these defaults only matter for hand-written files.
@@ -90,6 +92,8 @@ EXPORTER_PROPERTIES = {
     "ASOBO_material_windshield_v3": {
         "UVScale": ("Number", 1.0), "ssrAttenuation": ("Number", 1.0), "cubemapReflectionMasking": ("Boolean", False)},
     "ASOBO_material_parallax_window": {"corridor": ("Boolean", False)},
+    # A7.1: both exporters write it (default true); ten DA62 materials have it false.
+    "ASOBO_material_clear_coat_v2": {"clearcoatBaseAffectCoat": ("Boolean", True)},
 }
 
 # Keys the exporter spells differently from the schema: {extension: {schema key: exporter key}}. The property is

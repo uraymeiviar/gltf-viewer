@@ -213,8 +213,10 @@ def check_baseline(baseline):
           "procedural sky default: sky occlusion automatic and on, the volume baked")
     # The E195 reference views (HDR): validate_defaults.py (shared default views).
     if DA62_COCKPIT.exists():
-        a, _ = render(DA62_COCKPIT, "base_now_da62", DA62_CAMERA)
-        b, _ = render(DA62_COCKPIT, "base_ref_da62", DA62_CAMERA, exe=baseline)
+        # The DA62 uses the clear coat v2, which draws since that work: off on both sides (validate_asobo_layers.py covers it).
+        no_coat = ["--asobo-disable", "ASOBO_material_clear_coat_v2"]
+        a, _ = render(DA62_COCKPIT, "base_now_da62", DA62_CAMERA + no_coat)
+        b, _ = render(DA62_COCKPIT, "base_ref_da62", DA62_CAMERA + no_coat, exe=baseline)
         check(same(a, b), f"DA62 SDK cockpit (HDR): byte-identical to {baseline.stem}")
     else:
         print("  SKIP DA62 SDK cockpit not installed")

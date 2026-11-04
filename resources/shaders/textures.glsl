@@ -210,6 +210,22 @@ uniform int u_ClearcoatNormalUVSet;
 uniform mat3 u_ClearcoatNormalUVTransform;
 uniform float u_ClearcoatNormalScale;
 
+#ifdef ASOBO_CLEARCOAT
+// A7.1: ASOBO_material_clear_coat_v2. x = colour/roughness tiling, y = normal tiling.
+uniform vec2 u_AsoboClearcoatTiling;
+uniform float u_AsoboClearcoatBaseRoughness;
+#ifdef HAS_ASOBO_CLEARCOAT_COLOR_ROUGHNESS_MAP
+uniform sampler2D u_AsoboClearcoatColorRoughnessSampler;
+uniform int u_AsoboClearcoatColorRoughnessUVSet;
+
+vec2 getAsoboClearcoatColorRoughnessUV()
+{
+    vec2 uv = u_AsoboClearcoatColorRoughnessUVSet < 1 ? getAsoboMainUV(v_texcoord_0) : v_texcoord_1;
+    return clampAsoboUV(uv * u_AsoboClearcoatTiling.x, u_AsoboClearcoatColorRoughnessUVSet, u_AsoboClearcoatColorRoughnessSampler);
+}
+#endif
+#endif
+
 
 vec2 getClearcoatUV()
 {
@@ -231,6 +247,10 @@ vec2 getClearcoatRoughnessUV()
 
 vec2 getClearcoatNormalUV()
 {
+#ifdef ASOBO_CLEARCOAT
+    vec2 asoboUV = u_ClearcoatNormalUVSet < 1 ? getAsoboMainUV(v_texcoord_0) : v_texcoord_1;
+    return clampAsoboUV(asoboUV * u_AsoboClearcoatTiling.y, u_ClearcoatNormalUVSet, u_ClearcoatNormalSampler);
+#endif
     vec3 uv = vec3(u_ClearcoatNormalUVSet < 1 ? v_texcoord_0 : v_texcoord_1, 1.0);
 #ifdef HAS_CLEARCOATNORMAL_UV_TRANSFORM
     uv = u_ClearcoatNormalUVTransform * uv;
@@ -416,6 +436,21 @@ uniform mat3 u_IridescenceUVTransform;
 uniform sampler2D u_IridescenceThicknessSampler;
 uniform int u_IridescenceThicknessUVSet;
 uniform mat3 u_IridescenceThicknessUVTransform;
+
+#ifdef ASOBO_IRIDESCENT
+// A7.1: ASOBO_material_iridescent. How far the film departs from the plain Fresnel term; 1 = the KHR film.
+uniform float u_AsoboIridescentBrightness;
+#ifdef HAS_ASOBO_IRIDESCENT_THICKNESS_MAP
+uniform sampler2D u_AsoboIridescentThicknessSampler;
+uniform int u_AsoboIridescentThicknessUVSet;
+
+vec2 getAsoboIridescentThicknessUV()
+{
+    vec2 uv = u_AsoboIridescentThicknessUVSet < 1 ? getAsoboMainUV(v_texcoord_0) : v_texcoord_1;
+    return clampAsoboUV(uv, u_AsoboIridescentThicknessUVSet, u_AsoboIridescentThicknessSampler);
+}
+#endif
+#endif
 
 
 vec2 getIridescenceUV()

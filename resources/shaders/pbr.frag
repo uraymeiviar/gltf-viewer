@@ -399,6 +399,9 @@ void main()
 #endif
 
     vec4 baseColor = getBaseColor();
+#ifdef ASOBO_PEARLESCENT
+    vec3 asoboPearlReceiverColor = baseColor.rgb;
+#endif
 #ifdef ASOBO_DECAL_RECEIVER
     baseColor.rgb = applyDecalColor(baseColor.rgb, decalReceiver.baseColor);
 #endif
@@ -470,6 +473,23 @@ void main()
 
 #ifdef MATERIAL_METALLICROUGHNESS
     materialInfo = getMetallicRoughnessInfo(materialInfo);
+#endif
+
+#ifdef ASOBO_PEARLESCENT
+    // A7.1: the pearl belongs to the receiver: a decal lies over it, so its coverage hides the effect and the decal's
+    // own colour and metallic do not shift.
+    float asoboPearlKeep = 1.0;
+    float asoboPearlMetallic = materialInfo.metallic;
+#ifdef ASOBO_DECAL_RECEIVER
+    if (decalReceiver.baseColor.a < 1.0) {
+        asoboPearlKeep = decalReceiver.baseColor.a;
+    }
+    if (decalReceiver.metallic.y < 1.0) {
+        asoboPearlMetallic = decalReceiver.metallic.y > 1e-4
+            ? clamp((materialInfo.metallic - decalReceiver.metallic.x) / decalReceiver.metallic.y, 0.0, 1.0) : 0.0;
+    }
+#endif
+    materialInfo = applyAsoboPearl(materialInfo, NdotV, asoboPearlReceiverColor, asoboPearlKeep, asoboPearlMetallic);
 #endif
 
 #ifdef MATERIAL_SHEEN
@@ -561,6 +581,11 @@ void main()
 
     if (materialInfo.iridescenceFactor > 0.0) {
         iridescenceFresnel = evalIridescence(1.0, materialInfo.iridescenceIor, NdotV, materialInfo.iridescenceThickness, materialInfo.f0);
+#ifdef ASOBO_IRIDESCENT
+        // A7.1: iridescentBrightness (rule inferred): 0 = no film, 1 = the KHR film, more = a stronger colour.
+        materialInfo.iridescenceFactor *= min(u_AsoboIridescentBrightness, 1.0);
+        iridescenceFresnel = max(mix(F_Schlick(materialInfo.f0, vec3(1.0), NdotV), iridescenceFresnel, max(u_AsoboIridescentBrightness, 1.0)), vec3(0.0));
+#endif
         iridescenceF0 = Schlick_to_F0(iridescenceFresnel, NdotV);
     }
 #endif
@@ -591,7 +616,15 @@ void main()
     } else
 #endif
     {
-#ifdef MATERIAL_IRIDESCENCE
+#if defined(MATERIAL_IRIDESCENCE) && defined(ASOBO_IRIDESCENT) && defined(ASOBO_WINDSHIELD_SSR)
+    // A7.1: an iridescent windshield keeps its screen-space reflection, seen through the film's reflectance.
+    vec3 windshieldFilmF0 = mix(materialInfo.f0, iridescenceF0, materialInfo.iridescenceFactor);
+    vec3 windshieldFilmIbl = getIBLRadianceGGX(n, v, materialInfo.perceptualRoughness, windshieldFilmF0, materialInfo.specularWeight);
+#ifdef SKY_OCCLUSION
+    windshieldFilmIbl *= skySpecular;
+#endif
+    f_specular += windshieldReflection(windshieldFilmIbl, n, v, materialInfo.perceptualRoughness, windshieldFilmF0, materialInfo.specularWeight, normalInfo.ng);
+#elif defined(MATERIAL_IRIDESCENCE)
     f_specular += getIBLRadianceGGXIridescence(n, v, materialInfo.perceptualRoughness, materialInfo.f0, iridescenceFresnel, materialInfo.iridescenceFactor, materialInfo.specularWeight);
 #else
 #ifdef ASOBO_WINDSHIELD_SSR
@@ -1113,6 +1146,9 @@ void main()
 #else
     color = f_emissive + diffuse + f_specular;
     color = f_sheen + color * albedoSheenScaling;
+#if defined(MATERIAL_CLEARCOAT) && defined(ASOBO_CLEARCOAT)
+    color *= materialInfo.asoboClearcoatTint;
+#endif
     color = color * (1.0 - clearcoatFactor * clearcoatFresnel) + f_clearcoat;
 #endif
 
@@ -1151,6 +1187,9 @@ void main()
 #else
     color = (f_emissive + diffuse) * coverage + f_specular;
     color = f_sheen + color * albedoSheenScaling;
+#if defined(MATERIAL_CLEARCOAT) && defined(ASOBO_CLEARCOAT)
+    color *= materialInfo.asoboClearcoatTint;
+#endif
     color = color * (1.0 - clearcoatFactor * clearcoatFresnel) + f_clearcoat;
 #endif
 #ifdef ASOBO_MATERIAL_WINDSHIELD
