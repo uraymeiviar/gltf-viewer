@@ -41,7 +41,8 @@ namespace ux3d::imgui {
 //    32 sheen samples, or the configured values when smaller) renders its source cube from the current LUT at once and
 //    then runs its filter passes in row bands, as many per frame as the GPU budget allows (budgetMs, default 2.5 ms,
 //    from a per-unit cost measured with GL_TIMESTAMP queries); when complete it is swapped in. While the sky keeps
-//    changing, the next fast job starts from the then-current LUT.
+//    changing, the next fast job starts from the then-current LUT. While a running clock drives the sun, a move under
+//    kSunMoveChord is not a change: a slow clock does no sky work on most frames, and stopping it applies the exact sun.
 //  * The sky has been still for kSettleFrames frames and the front is a fast set: a *refine* job at the configured
 //    quality runs the same way and is swapped in when complete (aborted if the sky changes meanwhile).
 // GGX mip 0 (roughness 0) uses one sample: the configured count gives the same value (every sample is the same
@@ -64,6 +65,7 @@ public:
     struct Inputs {
         AtmosphereParameters atmosphere;
         glm::vec3 sunDirection = glm::vec3(0.0f, 1.0f, 0.0f); // world, unit
+        bool clockDrivesSun = false; // the sun follows a playing time-of-day clock
         IblConfig ibl;
         bool timeSlicing = true;
         double budgetMs = 2.5;
@@ -114,6 +116,10 @@ public:
     static constexpr uint32_t kFastSheenSamples = 32;
     static constexpr uint32_t kLowestMipLevel = 4; // IBLSampler's InitizalizationParameters::lowestMipLevel
     static constexpr uint64_t kSettleFrames = 10;
+    // While a running clock drives the sun (time slicing only): a sun that moved less than this (0.1 degrees, as a
+    // chord) keeps the current LUT and cubes, so a slow clock does not refilter every frame. When the clock stops the
+    // exact sun is applied. A manual change and the reference path (captures) always apply at once.
+    static constexpr float kSunMoveChord = 0.00175f;
     static constexpr double kStatedBudgetMs = 4.0; // the documented per-frame limit (budgetMs aims below it)
 
     SkyEnvironment() = default;
@@ -123,7 +129,8 @@ public:
 
     bool active() const { return m_active; }
     // A job is running or due: keep frames coming (the idle wait would stall it).
-    bool busy() const { return m_active && (m_job.active || (m_front != nullptr && !m_front->full)); }
+    bool busy() const { return m_active && (m_job.active || m_sunPending || (m_front != nullptr && !m_front->full)); }
+    glm::vec3 lutSunDirection() const { return m_sunDirection; } // the sun the LUT and the latest job were built from
     GLuint skyViewLut() const { return m_skyViewLut.texture; }
     GLuint transmittanceLut() const { return m_transmittanceLut.texture; }
     GLuint frontLambertian() const { return m_front ? m_front->lambertian : 0; }
@@ -450,7 +457,8 @@ private:
     bool m_programsFailed = false;
     IblConfig m_config;
     AtmosphereParameters m_atmosphere;
-    glm::vec3 m_sunDirection = glm::vec3(0.0f, 1.0f, 0.0f);
+    glm::vec3 m_sunDirection = glm::vec3(0.0f, 1.0f, 0.0f); // the sun the LUT and the cubes were built from
+    bool m_sunPending = false;                              // the input differs from m_sunDirection, not applied yet
     uint64_t m_skyVersion = 0;
     uint64_t m_frame = 0;
     uint64_t m_lastChangeFrame = 0;

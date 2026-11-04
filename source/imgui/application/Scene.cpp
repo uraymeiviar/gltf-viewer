@@ -397,13 +397,14 @@ bool Application::loadGltfModel(const std::string& filePath, ux3d::gltf::Gltf& g
         }
         startupProfile.rendererUploadMs = ux3d::imgui::profiling::elapsedMs(uploadStart);
         startupProfile.residentModelTextureBytes = 0;
-        startupProfile.encodedImageBytes = startupProfile.decodedImageBytes = 0;
+        startupProfile.encodedImageBytes = startupProfile.decodedImageBytes = startupProfile.retainedDecodedImageBytes = 0;
         if (gltfLayer) for (const auto& entry : gltfLayer->m_textureMapping.map) {
             if (entry.second) startupProfile.residentModelTextureBytes += entry.second->residentBytes;
         }
         for (const auto& image : gltfModel.getImages()) {
             startupProfile.encodedImageBytes += image.getEncodedBytes()->size();
-            startupProfile.decodedImageBytes += image.getData().getPixels().size();
+            startupProfile.decodedImageBytes += image.decodedByteSize();
+            startupProfile.retainedDecodedImageBytes += image.getData().getPixels().size();
         }
         startupProfile.peakWorkingSetAfterUpload = ux3d::imgui::processPeakWorkingSetBytes();
 

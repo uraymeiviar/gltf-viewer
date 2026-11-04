@@ -26,6 +26,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -203,6 +204,11 @@ private:
 
     // The document updateGltf is synchronising; the material mapping reads its extensionsUsed.
     const gltf::Gltf* m_syncingGltf = nullptr;
+    // The ASOBO extensions of each material, parsed once per sync and valid only during it. Both paths that run
+    // updateMaterials (updateGltf, the material-only sync) fill it first and end with finishMaterialSync.
+    std::unordered_map<const gltf::Material*, std::shared_ptr<const gltf::asobo::ExtensionSet>> m_syncMaterialExtensions;
+    void parseSyncMaterialExtensions(const gltf::Gltf& gltf);
+    void finishMaterialSync(const gltf::Gltf& gltf);
 
     // Set by updateGltf from the asset's declared ASOBO_normal_map_convention (A1.2).
     bool m_assetNormalMapConventionDirectX = false;

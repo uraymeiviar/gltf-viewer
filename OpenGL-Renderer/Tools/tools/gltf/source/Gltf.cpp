@@ -677,7 +677,7 @@ GltfResult Gltf::loadBinaryDataToMemory(const std::optional<filesystem::Dir>& gl
         const auto searchDir = resourceDir.has_value() ? resourceDir : gltfDir;
         core::Vector<std::future<GltfResult>> results;
         if (imagesOnly) {
-            for (auto& image : m_images) { image.m_data = image::Image{}; ++image.encodedMapID; }
+            for (auto& image : m_images) { image.resetDecodedData(); ++image.encodedMapID; }
         }
 
         // buffers need to be resolved first because images may get their data from buffers

@@ -6,6 +6,8 @@
 #include <glad/glad.h>
 #include <array>
 #include <cstdint>
+#include <future>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -81,6 +83,9 @@ public:
         double liveGpuMaxMs = 0.0;
         uint64_t liveSteps = 0;
         uint64_t liveMeasured = 0;
+        // Live mode: spectra built on the worker thread and shown, and those dropped because the settings went back.
+        uint64_t liveBackgroundBuilds = 0;
+        uint64_t liveBackgroundDropped = 0;
     };
 
     OceanSimulation() = default;
@@ -97,7 +102,7 @@ public:
     bool live() const { return m_front.live; }
     // Live mode: brings the layers to the ocean time (no-op for a precomputed set, or when the time did not change).
     void stepLive(double time);
-    bool busy() const { return m_job.active; }
+    bool busy() const { return m_job.active || m_liveBuild.valid(); }
     float progress() const;
     GLuint texture() const { return m_front.texture; }
     uint64_t version() const { return m_front.version; }
@@ -155,6 +160,18 @@ private:
     bool ensurePrograms(int resolution, bool live);
     void releasePrograms();
     bool startJob(const Key& key);
+    // The CPU part of a new set (no GL): its cascades and the initial spectrum. Runs on the worker thread for a Live
+    // change while a Live set is showing, so dragging a setting never stalls the frame on it.
+    struct SpectrumBuild {
+        Set set;
+        std::vector<float> spectrum;
+        double wallMs = 0.0;
+    };
+    static SpectrumBuild computeSpectrum(const Key& key);
+    bool installSpectrum(SpectrumBuild build); // the GL part: textures and the job
+    // Brings the background build forward. Returns true when the front set stays for now (the build runs); build is
+    // set when a spectrum finished.
+    bool updateLiveBackground(const Key& key, std::optional<SpectrumBuild>& build);
     void runItem(int item);
     // One cascade's frame: spectrum, row and column FFT, finalize into the array layer. Live: the exact dispersion at
     // time, foam accumulating by recovery per second x dt (reset: starting from the raw Jacobian).
@@ -176,10 +193,24 @@ private:
     int m_programResolution = 0;
     bool m_programLive = false;
     GLuint m_spectrumProgram = 0, m_fftProgram = 0, m_finalizeProgram = 0, m_foamProgram = 0, m_mipProgram = 0;
+    // Their uniforms, looked up once after linking.
+    struct UniformLocations {
+        GLint spectrumPatchSize = -1, spectrumTime = -1, spectrumOmega0 = -1, spectrumFrame = -1, spectrumFrames = -1;
+        GLint fftHorizontal = -1;
+        GLint finalizeTexel = -1, finalizeChoppiness = -1, finalizeFoamStrength = -1, finalizeAccumulate = -1,
+              finalizeReset = -1, finalizeRecovery = -1;
+        GLint foamRecovery = -1, foamLayer = -1, foamPreviousLayer = -1;
+        GLint mipLayerBase = -1, mipSize = -1;
+    };
+    UniformLocations m_uniforms;
     GLuint m_spectrumTexture = 0; // RGBA32F 2D array, one layer per cascade: h0(k), conj(h0(-k))
     GLuint m_scratchTexture = 0;  // RGBA32F R x R: two complex fields
     int m_scratchResolution = 0;
     int m_spectrumResolution = 0;
+    // At most one spectrum on the worker thread; the newest key starts when it ends.
+    std::future<SpectrumBuild> m_liveBuild;
+    bool m_liveQuickStart = false; // the next live step skips the foam preroll: the settings have already moved on
+    bool m_liveBackgroundOff = false; // a worker failed: back to building on this thread
     // Live mode: the time of the last step and whether the layers hold a valid previous state (foam accumulation).
     double m_liveTime = 0.0;
     bool m_liveValid = false;

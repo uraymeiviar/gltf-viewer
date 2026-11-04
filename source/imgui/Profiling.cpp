@@ -506,6 +506,7 @@ json startupToJson(const StartupProfile& startup)
         { "residentModelTextureBytes", startup.residentModelTextureBytes },
         { "encodedImageBytes", startup.encodedImageBytes },
         { "decodedImageBytes", startup.decodedImageBytes },
+        { "retainedDecodedImageBytes", startup.retainedDecodedImageBytes },
         { "peakGpuUsageBytes", ux3d::core::loading::state.peakGpuUsage.load() },
         { "textureBudgetBytes", ux3d::core::loading::state.textureBudget.load() },
         { "estimatedTextureBytes", ux3d::core::loading::state.estimatedTextureBytes.load() },

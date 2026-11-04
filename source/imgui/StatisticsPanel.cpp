@@ -125,7 +125,7 @@ StatisticsSnapshot buildSnapshot(const ux3d::gltf::Gltf& gltfModel, const std::s
 
     uint64_t totalImageBytes = 0;
     for (const auto& img : gltfModel.getElements<ux3d::gltf::Image>()) {
-        size_t s = img.getData().getPixels().size();
+        size_t s = img.decodedByteSize();
         if (s == 0 && img.getEncodedBytes() != nullptr) {
             s = img.getEncodedBytes()->size();
         }

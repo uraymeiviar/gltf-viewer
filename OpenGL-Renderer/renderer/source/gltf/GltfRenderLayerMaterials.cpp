@@ -237,9 +237,10 @@ void GltfRenderLayer::initMaterialMapping(gl::GL* gl)
             }
         }
         if (m_syncingGltf != nullptr) {
-            auto extensions = gltf::asobo::parseExtensions(*m_syncingGltf, *gltfMaterial, gltf::asobo::Scope::Material);
-            if (!extensions.empty()) {
-                material->asobo = std::make_shared<const gltf::asobo::ExtensionSet>(std::move(extensions));
+            // parseSyncMaterialExtensions parsed every material of this sync once.
+            const auto parsed = m_syncMaterialExtensions.find(gltfMaterial);
+            if (parsed != m_syncMaterialExtensions.end()) {
+                material->asobo = parsed->second;
             }
         }
         material->invisible = material->asobo != nullptr && isAsoboInvisible(*material->asobo);
@@ -381,7 +382,12 @@ void GltfRenderLayer::initMaterialMapping(gl::GL* gl)
 
             if (glTexture->currentMapID != gltfImage->encodedMapID) {
                 glTexture->currentMapID = gltfImage->encodedMapID;
-                if (ktx2Compressed) {
+                // updateGltf released the pixels after the last sync; a later first use (the other colour space, a
+                // recreated texture) decodes them again.
+                if (!const_cast<gltf::Image*>(gltfImage)->ensureDecoded()) {
+                    core::logWarning("'%s' could not be decoded again; using a white placeholder", gltfImage->getUri().substr(0, 120).c_str());
+                    glTexture->write(whiteTexturePlaceholder(), isLinear);
+                } else if (ktx2Compressed) {
                     if (!ktx2Supported || !glTexture->writeCompressed(gltfImage->getData(), ktx2Info, isLinear)) {
                         glTexture->write(whiteTexturePlaceholder(), isLinear);
                     }
@@ -1119,8 +1125,9 @@ bool GltfRenderLayer::updateMaterialStates(const gltf::Gltf& gltf)
     }
 
     m_syncingGltf = &gltf;
+    parseSyncMaterialExtensions(gltf);
     updateMaterials(gltf.getMaterials());
-    m_syncingGltf = nullptr;
+    finishMaterialSync(gltf);
     return meshUpdateNeeded;
 }
 

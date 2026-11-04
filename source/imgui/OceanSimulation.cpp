@@ -8,9 +8,12 @@
 #include "core/Logger.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <exception>
+#include <system_error>
 #include <vector>
 
 namespace ux3d::imgui {
@@ -247,6 +250,8 @@ void OceanSimulation::releasePrograms()
 
 void OceanSimulation::release()
 {
+    if (m_liveBuild.valid()) m_liveBuild.wait(); // its task uses nothing of this object, but ends before it does
+    m_liveBuild = std::future<SpectrumBuild>();
     if (m_front.texture == 0 && !m_job.active && m_programResolution == 0 && m_spectrumTexture == 0 &&
         m_scratchTexture == 0 && m_timers[0].queries[0] == 0) {
         return;
@@ -303,6 +308,23 @@ bool OceanSimulation::ensurePrograms(int resolution, bool live)
         releasePrograms();
         return false;
     }
+    m_uniforms.spectrumPatchSize = glGetUniformLocation(m_spectrumProgram, "u_PatchSize");
+    m_uniforms.spectrumTime = glGetUniformLocation(m_spectrumProgram, "u_Time");
+    m_uniforms.spectrumOmega0 = glGetUniformLocation(m_spectrumProgram, "u_Omega0");
+    m_uniforms.spectrumFrame = glGetUniformLocation(m_spectrumProgram, "u_Frame");
+    m_uniforms.spectrumFrames = glGetUniformLocation(m_spectrumProgram, "u_Frames");
+    m_uniforms.fftHorizontal = glGetUniformLocation(m_fftProgram, "u_Horizontal");
+    m_uniforms.finalizeTexel = glGetUniformLocation(m_finalizeProgram, "u_Texel");
+    m_uniforms.finalizeChoppiness = glGetUniformLocation(m_finalizeProgram, "u_Choppiness");
+    m_uniforms.finalizeFoamStrength = glGetUniformLocation(m_finalizeProgram, "u_FoamStrength");
+    m_uniforms.finalizeAccumulate = glGetUniformLocation(m_finalizeProgram, "u_Accumulate");
+    m_uniforms.finalizeReset = glGetUniformLocation(m_finalizeProgram, "u_Reset");
+    m_uniforms.finalizeRecovery = glGetUniformLocation(m_finalizeProgram, "u_Recovery");
+    m_uniforms.foamRecovery = glGetUniformLocation(m_foamProgram, "u_Recovery");
+    m_uniforms.foamLayer = glGetUniformLocation(m_foamProgram, "u_Layer");
+    m_uniforms.foamPreviousLayer = glGetUniformLocation(m_foamProgram, "u_PreviousLayer");
+    m_uniforms.mipLayerBase = glGetUniformLocation(m_mipProgram, "u_LayerBase");
+    m_uniforms.mipSize = glGetUniformLocation(m_mipProgram, "u_Size");
     m_programResolution = resolution;
     m_programLive = live;
     return true;
@@ -312,8 +334,15 @@ bool OceanSimulation::startJob(const Key& key)
 {
     const QualityInfo q = qualityInfo(key.quality, key.live);
     if (!ensurePrograms(q.resolution, key.live)) return false;
+    return installSpectrum(computeSpectrum(key));
+}
 
-    Set set;
+OceanSimulation::SpectrumBuild OceanSimulation::computeSpectrum(const Key& key)
+{
+    const auto start = profiling::Clock::now();
+    const QualityInfo q = qualityInfo(key.quality, key.live);
+    SpectrumBuild build;
+    Set& set = build.set;
     set.key = key;
     set.live = key.live;
     set.cascades = q.cascades;
@@ -338,7 +367,8 @@ bool OceanSimulation::startJob(const Key& key)
     const double travel = (static_cast<double>(key.windDirection) + 180.0) * kPi / 180.0;
     const double travelX = std::sin(travel), travelZ = std::cos(travel);
 
-    std::vector<float> spectrum(static_cast<size_t>(n) * n * 4u * q.cascades, 0.0f);
+    std::vector<float>& spectrum = build.spectrum;
+    spectrum.assign(static_cast<size_t>(n) * n * 4u * q.cascades, 0.0f);
     std::vector<double> amplitude(static_cast<size_t>(n) * n * 2u);
     double resolvedSlope = 0.0, heightVariance = 0.0;
     for (int c = 0; c < q.cascades; ++c) {
@@ -408,6 +438,18 @@ bool OceanSimulation::startJob(const Key& key)
     set.tailSlopeVariance = static_cast<float>(std::max(coxMunk - resolvedSlope, 0.0));
     set.resolvedSlopeVariance = static_cast<float>(resolvedSlope);
     set.significantWaveHeight = static_cast<float>(4.0 * std::sqrt(heightVariance));
+    build.wallMs = profiling::elapsedMs(start);
+    return build;
+}
+
+bool OceanSimulation::installSpectrum(SpectrumBuild build)
+{
+    Set& set = build.set;
+    const Key& key = set.key;
+    const QualityInfo q = qualityInfo(key.quality, key.live);
+    if (!ensurePrograms(q.resolution, key.live)) return false;
+    const int n = q.resolution;
+    const std::vector<float>& spectrum = build.spectrum;
 
     // GL objects: the scratch texture and the loop job's spectrum texture (kept between jobs), a live set's own
     // spectrum, the new set's array.
@@ -455,6 +497,34 @@ bool OceanSimulation::startJob(const Key& key)
     m_job.active = true;
     m_job.set = set;
     m_job.itemCount = key.live ? 0 : q.cascades * q.frames + 3 * q.cascades;
+    m_job.wallMs = build.wallMs;
+    return true;
+}
+
+bool OceanSimulation::updateLiveBackground(const Key& key, std::optional<SpectrumBuild>& build)
+{
+    if (m_liveBuild.valid() && m_liveBuild.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        try {
+            // Shown even when the setting has moved on, so the sea follows a drag; the next build starts from there.
+            build = m_liveBuild.get();
+            ++m_stats.liveBackgroundBuilds;
+            m_liveQuickStart = !(build->set.key == key);
+            return false;
+        } catch (const std::exception& error) {
+            ux3d::core::logWarning("Ocean: the Live spectrum worker failed (%s); building on the render thread", error.what());
+            m_liveBackgroundOff = true;
+            return false;
+        }
+    }
+    if (!m_liveBuild.valid()) {
+        try {
+            m_liveBuild = std::async(std::launch::async, [key]() { return computeSpectrum(key); });
+        } catch (const std::system_error& error) {
+            ux3d::core::logWarning("Ocean: no Live spectrum worker (%s); building on the render thread", error.what());
+            m_liveBackgroundOff = true;
+            return false;
+        }
+    }
     return true;
 }
 
@@ -470,21 +540,21 @@ void OceanSimulation::computeLayer(const Set& set, int c, int layer, int frame, 
     glUseProgram(m_spectrumProgram);
     glBindImageTexture(0, m_scratchTexture, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
     glBindImageTexture(1, set.live ? set.spectrum : m_spectrumTexture, 0, GL_FALSE, c, GL_READ_ONLY, GL_RGBA32F);
-    glUniform1f(glGetUniformLocation(m_spectrumProgram, "u_PatchSize"), cascade.patchSize);
+    glUniform1f(m_uniforms.spectrumPatchSize, cascade.patchSize);
     if (set.live) {
-        glUniform1d(glGetUniformLocation(m_spectrumProgram, "u_Time"), time);
+        glUniform1d(m_uniforms.spectrumTime, time);
     } else {
         const double omega0 = 2.0 * kPi * cascade.loopDivisor / std::max(static_cast<double>(set.key.period), 1.0);
-        glUniform1f(glGetUniformLocation(m_spectrumProgram, "u_Omega0"), static_cast<float>(omega0));
-        glUniform1i(glGetUniformLocation(m_spectrumProgram, "u_Frame"), frame);
-        glUniform1i(glGetUniformLocation(m_spectrumProgram, "u_Frames"), set.frames);
+        glUniform1f(m_uniforms.spectrumOmega0, static_cast<float>(omega0));
+        glUniform1i(m_uniforms.spectrumFrame, frame);
+        glUniform1i(m_uniforms.spectrumFrames, set.frames);
     }
     glDispatchCompute(groups, groups, 1);
     glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 
     glUseProgram(m_fftProgram);
     glBindImageTexture(0, m_scratchTexture, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32F);
-    const GLint horizontal = glGetUniformLocation(m_fftProgram, "u_Horizontal");
+    const GLint horizontal = m_uniforms.fftHorizontal;
     glUniform1i(horizontal, 1);
     glDispatchCompute(n, 1, 1);
     glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
@@ -495,12 +565,12 @@ void OceanSimulation::computeLayer(const Set& set, int c, int layer, int frame, 
     glUseProgram(m_finalizeProgram);
     glBindImageTexture(0, m_scratchTexture, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA32F);
     glBindImageTexture(2, set.texture, 0, GL_FALSE, layer, GL_READ_WRITE, GL_RGBA16F);
-    glUniform1f(glGetUniformLocation(m_finalizeProgram, "u_Texel"), cascade.patchSize / n);
-    glUniform1f(glGetUniformLocation(m_finalizeProgram, "u_Choppiness"), std::max(set.key.choppiness, 0.0f));
-    glUniform1f(glGetUniformLocation(m_finalizeProgram, "u_FoamStrength"), oceanFoamChoppiness(set.key.choppiness));
-    glUniform1i(glGetUniformLocation(m_finalizeProgram, "u_Accumulate"), accumulate ? 1 : 0);
-    glUniform1i(glGetUniformLocation(m_finalizeProgram, "u_Reset"), reset ? 1 : 0);
-    glUniform1f(glGetUniformLocation(m_finalizeProgram, "u_Recovery"), recovery);
+    glUniform1f(m_uniforms.finalizeTexel, cascade.patchSize / n);
+    glUniform1f(m_uniforms.finalizeChoppiness, std::max(set.key.choppiness, 0.0f));
+    glUniform1f(m_uniforms.finalizeFoamStrength, oceanFoamChoppiness(set.key.choppiness));
+    glUniform1i(m_uniforms.finalizeAccumulate, accumulate ? 1 : 0);
+    glUniform1i(m_uniforms.finalizeReset, reset ? 1 : 0);
+    glUniform1f(m_uniforms.finalizeRecovery, recovery);
     glDispatchCompute(groups, groups, 1);
     glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 }
@@ -527,9 +597,9 @@ void OceanSimulation::runItem(int item)
                 std::max(static_cast<double>(set.key.period), 1.0) / (cascade.loopDivisor * set.frames);
             glUseProgram(m_foamProgram);
             glBindImageTexture(2, set.texture, 0, GL_TRUE, 0, GL_READ_WRITE, GL_RGBA16F);
-            glUniform1f(glGetUniformLocation(m_foamProgram, "u_Recovery"), static_cast<float>(kFoamRecoveryPerSecond * frameSeconds));
-            const GLint layer = glGetUniformLocation(m_foamProgram, "u_Layer");
-            const GLint previous = glGetUniformLocation(m_foamProgram, "u_PreviousLayer");
+            glUniform1f(m_uniforms.foamRecovery, static_cast<float>(kFoamRecoveryPerSecond * frameSeconds));
+            const GLint layer = m_uniforms.foamLayer;
+            const GLint previous = m_uniforms.foamPreviousLayer;
             // Two turns: the second starts from the end of the first, so frame 0 also carries the foam of the loop's end.
             for (int frame = 0; frame < set.frames; ++frame) {
                 glUniform1i(layer, c * set.frames + frame);
@@ -540,8 +610,8 @@ void OceanSimulation::runItem(int item)
         } else {
             // The cascade's mip chain: 2 x 2 box averages, level by level, all its frames at once.
             glUseProgram(m_mipProgram);
-            const GLint base = glGetUniformLocation(m_mipProgram, "u_LayerBase");
-            const GLint size = glGetUniformLocation(m_mipProgram, "u_Size");
+            const GLint base = m_uniforms.mipLayerBase;
+            const GLint size = m_uniforms.mipSize;
             glUniform1i(base, c * set.frames);
             for (int level = 1; level < set.levels; ++level) {
                 const int side = std::max(n >> level, 1);
@@ -585,7 +655,9 @@ void OceanSimulation::stepLive(double time)
     if (timer != nullptr) glQueryCounter(timer->queries[0], GL_TIMESTAMP);
 
     const Set& set = m_front;
-    const int steps = reset ? kLivePreroll + 1 : 1;
+    // A set on the way to the settings' final value (a drag) starts without the foam history; the final set has it.
+    const int steps = reset && !m_liveQuickStart ? kLivePreroll + 1 : 1;
+    m_liveQuickStart = false;
     for (int step = 0; step < steps; ++step) {
         const double stepTime = reset ? time - kLivePrerollStep * (steps - 1 - step) : time;
         const bool first = reset && step == 0; // no history: the foam starts from the raw Jacobian
@@ -596,8 +668,8 @@ void OceanSimulation::stepLive(double time)
         }
     }
     glUseProgram(m_mipProgram);
-    const GLint base = glGetUniformLocation(m_mipProgram, "u_LayerBase");
-    const GLint size = glGetUniformLocation(m_mipProgram, "u_Size");
+    const GLint base = m_uniforms.mipLayerBase;
+    const GLint size = m_uniforms.mipSize;
     glUniform1i(base, 0);
     for (int level = 1; level < set.levels; ++level) {
         const int side = std::max(set.resolution >> level, 1);
@@ -703,6 +775,15 @@ bool OceanSimulation::update(const OceanSettings& settings, bool synchronous, do
     const Key key = keyOf(settings);
     const bool frontCurrent = m_front.texture != 0 && m_front.key == key;
     if (frontCurrent && !m_job.active) {
+        // The settings went back to the front set: a spectrum still on the worker is dropped when it ends.
+        if (m_liveBuild.valid() && m_liveBuild.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+            try {
+                m_liveBuild.get();
+            } catch (const std::exception&) {
+                m_liveBackgroundOff = true;
+            }
+            ++m_stats.liveBackgroundDropped;
+        }
         m_stats.lastSliceItems = 0;
         return true;
     }
@@ -710,6 +791,13 @@ bool OceanSimulation::update(const OceanSettings& settings, bool synchronous, do
         m_failed = false; // a new setting may succeed again
     }
     if (m_failed) return false;
+
+    // A Live set shows and a Live setting changed, in an interactive run: the set keeps stepping while the worker
+    // thread computes the new spectrum. Capture runs (synchronous) and mode changes build at once, as before.
+    std::optional<SpectrumBuild> backgroundBuild;
+    if (key.live && !synchronous && m_front.live && m_front.texture != 0 && !m_job.active && !m_liveBackgroundOff) {
+        if (updateLiveBackground(key, backgroundBuild)) return true;
+    }
 
     SavedState saved;
     saved.save();
@@ -727,7 +815,7 @@ bool OceanSimulation::update(const OceanSettings& settings, bool synchronous, do
             m_front = Set();
             m_liveValid = false;
         }
-        if (!startJob(key)) {
+        if (!(backgroundBuild ? installSpectrum(std::move(*backgroundBuild)) : startJob(key))) {
             m_failed = true;
             m_failedKey = key;
             saved.restore();
@@ -787,7 +875,7 @@ bool OceanSimulation::update(const OceanSettings& settings, bool synchronous, do
     }
     m_stats.lastSliceItems = m_job.nextItem - start;
     m_job.lastSliceUnits = units;
-    if (synchronous) {
+    if (synchronous && !backgroundBuild) {
         glFinish(); // the wall time of a synchronous set includes its GPU work
         pollTimers(true);
     }

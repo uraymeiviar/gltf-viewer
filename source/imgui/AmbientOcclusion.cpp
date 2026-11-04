@@ -104,19 +104,19 @@ bool AmbientOcclusion::compute(const Params& params)
     glUseProgram(m_gtao.id);
     bindTexture(0, params.depthTexture);
     bindTexture(1, params.normalTexture);
-    glUniform1i(m_gtao.loc("u_Depth"), 0);
-    glUniform1i(m_gtao.loc("u_Normal"), 1);
-    glUniform2i(m_gtao.loc("u_FullSize"), m_width, m_height);
-    glUniform2i(m_gtao.loc("u_AoSize"), m_aoWidth, m_aoHeight);
-    glUniform1i(m_gtao.loc("u_AoScale"), scale);
-    glUniformMatrix4fv(m_gtao.loc("u_InvProjection"), 1, GL_FALSE, glm::value_ptr(inverseProjection));
-    glUniformMatrix3fv(m_gtao.loc("u_ViewRotation"), 1, GL_FALSE, glm::value_ptr(viewRotation));
-    glUniform1f(m_gtao.loc("u_ProjScaleY"), params.projection[1][1]);
-    glUniform1i(m_gtao.loc("u_Orthographic"), params.orthographic ? 1 : 0);
-    glUniform1f(m_gtao.loc("u_Radius"), params.radius);
-    glUniform1f(m_gtao.loc("u_Intensity"), params.intensity);
-    glUniform1i(m_gtao.loc("u_SliceCount"), params.sliceCount);
-    glUniform1i(m_gtao.loc("u_StepCount"), params.stepCount);
+    glUniform1i(m_gtao.loc(kDepth), 0);
+    glUniform1i(m_gtao.loc(kNormal), 1);
+    glUniform2i(m_gtao.loc(kFullSize), m_width, m_height);
+    glUniform2i(m_gtao.loc(kAoSize), m_aoWidth, m_aoHeight);
+    glUniform1i(m_gtao.loc(kAoScale), scale);
+    glUniformMatrix4fv(m_gtao.loc(kInvProjection), 1, GL_FALSE, glm::value_ptr(inverseProjection));
+    glUniformMatrix3fv(m_gtao.loc(kViewRotation), 1, GL_FALSE, glm::value_ptr(viewRotation));
+    glUniform1f(m_gtao.loc(kProjScaleY), params.projection[1][1]);
+    glUniform1i(m_gtao.loc(kOrthographic), params.orthographic ? 1 : 0);
+    glUniform1f(m_gtao.loc(kRadius), params.radius);
+    glUniform1f(m_gtao.loc(kIntensity), params.intensity);
+    glUniform1i(m_gtao.loc(kSliceCount), params.sliceCount);
+    glUniform1i(m_gtao.loc(kStepCount), params.stepCount);
     glDrawArrays(GL_TRIANGLES, 0, 3);
     ux3d::imgui::profiling::countAppDrawCall("SSAO");
 
@@ -126,11 +126,11 @@ bool AmbientOcclusion::compute(const Params& params)
     glViewport(0, 0, m_aoWidth, m_aoHeight);
     glUseProgram(m_denoise.id);
     bindTexture(0, m_raw.texture);
-    glUniform1i(m_denoise.loc("u_Ao"), 0);
-    glUniform2i(m_denoise.loc("u_FullSize"), m_width, m_height);
-    glUniform2i(m_denoise.loc("u_AoSize"), m_aoWidth, m_aoHeight);
-    glUniform1i(m_denoise.loc("u_AoScale"), scale);
-    glUniform1f(m_denoise.loc("u_DepthTolerance"), kDenoiseDepthTolerance);
+    glUniform1i(m_denoise.loc(kAo), 0);
+    glUniform2i(m_denoise.loc(kFullSize), m_width, m_height);
+    glUniform2i(m_denoise.loc(kAoSize), m_aoWidth, m_aoHeight);
+    glUniform1i(m_denoise.loc(kAoScale), scale);
+    glUniform1f(m_denoise.loc(kDepthTolerance), kDenoiseDepthTolerance);
     glDrawArrays(GL_TRIANGLES, 0, 3);
     ux3d::imgui::profiling::countAppDrawCall("SSAO denoise");
 
@@ -141,13 +141,13 @@ bool AmbientOcclusion::compute(const Params& params)
         glUseProgram(m_upsample.id);
         bindTexture(0, m_denoised.texture);
         bindTexture(1, params.depthTexture);
-        glUniform1i(m_upsample.loc("u_Ao"), 0);
-        glUniform1i(m_upsample.loc("u_Depth"), 1);
-        glUniform2i(m_upsample.loc("u_FullSize"), m_width, m_height);
-        glUniform2i(m_upsample.loc("u_AoSize"), m_aoWidth, m_aoHeight);
-        glUniform1i(m_upsample.loc("u_AoScale"), scale);
-        glUniformMatrix4fv(m_upsample.loc("u_InvProjection"), 1, GL_FALSE, glm::value_ptr(inverseProjection));
-        glUniform1f(m_upsample.loc("u_DepthTolerance"), kUpsampleDepthTolerance);
+        glUniform1i(m_upsample.loc(kAo), 0);
+        glUniform1i(m_upsample.loc(kDepth), 1);
+        glUniform2i(m_upsample.loc(kFullSize), m_width, m_height);
+        glUniform2i(m_upsample.loc(kAoSize), m_aoWidth, m_aoHeight);
+        glUniform1i(m_upsample.loc(kAoScale), scale);
+        glUniformMatrix4fv(m_upsample.loc(kInvProjection), 1, GL_FALSE, glm::value_ptr(inverseProjection));
+        glUniform1f(m_upsample.loc(kDepthTolerance), kUpsampleDepthTolerance);
         glDrawArrays(GL_TRIANGLES, 0, 3);
         ux3d::imgui::profiling::countAppDrawCall("SSAO upsample");
     }
@@ -343,7 +343,33 @@ bool AmbientOcclusion::ensurePrograms()
         m_programsFailed = true;
         return false;
     }
+    m_gtao.lookUpLocations();
+    m_denoise.lookUpLocations();
+    m_upsample.lookUpLocations();
     return true;
+}
+
+void AmbientOcclusion::Program::lookUpLocations()
+{
+    // In the order of the Uniform enum.
+    static constexpr const char* kNames[kUniformCount] = {
+        "u_Depth",
+        "u_Normal",
+        "u_Ao",
+        "u_FullSize",
+        "u_AoSize",
+        "u_AoScale",
+        "u_InvProjection",
+        "u_ViewRotation",
+        "u_ProjScaleY",
+        "u_Orthographic",
+        "u_Radius",
+        "u_Intensity",
+        "u_SliceCount",
+        "u_StepCount",
+        "u_DepthTolerance"
+    };
+    for (int i = 0; i < kUniformCount; ++i) locations[static_cast<size_t>(i)] = glGetUniformLocation(id, kNames[i]);
 }
 
 void AmbientOcclusion::pollTimer()

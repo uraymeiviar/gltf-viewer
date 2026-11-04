@@ -29,13 +29,17 @@ SkyEnvironment::Result SkyEnvironment::update(const Inputs& in)
     if (!ensurePrograms()) return Result::Failed;
     const bool configChanged = !m_active || !(in.ibl == m_config);
     const bool atmosphereChanged = !m_active || !(in.atmosphere == m_atmosphere);
-    const bool sunChanged = !m_active || in.sunDirection != m_sunDirection;
+    const bool sunDiffers = in.sunDirection != m_sunDirection;
+    const bool sunChanged = !m_active ||
+        (sunDiffers && (!in.timeSlicing || !in.clockDrivesSun || glm::length(in.sunDirection - m_sunDirection) > kSunMoveChord));
+    m_sunPending = sunDiffers && !sunChanged && !configChanged && !atmosphereChanged;
     // C10: the converged (or settling) unchanged sky has no work this frame. Return before the GL state save
     // (GlState::kQueries glGet*/glIsEnabled, which sync with the driver thread) when nothing below would run:
     // no rebuild, no running job, and no job due (a fast job for a stale front, a refine after kSettleFrames).
     if (!configChanged && !atmosphereChanged && !sunChanged && !m_job.active && m_front != nullptr) {
         const bool idle = in.timeSlicing
-            ? (m_front->version == m_skyVersion && (m_front->full || m_frame - m_lastChangeFrame < kSettleFrames))
+            ? (m_front->version == m_skyVersion &&
+               (m_front->full || m_sunPending || m_frame - m_lastChangeFrame < kSettleFrames))
             : (m_front == &m_full && m_full.version == m_skyVersion);
         if (idle) {
             if (profiling::countingEnabled()) {
@@ -50,7 +54,7 @@ SkyEnvironment::Result SkyEnvironment::update(const Inputs& in)
     saved.save();
     prepareState();
     m_atmosphere = in.atmosphere;
-    m_sunDirection = in.sunDirection;
+    if (!m_sunPending) m_sunDirection = in.sunDirection; // every path below that rebuilds uses the latest sun
     if (configChanged) {
         // Activation or a new quality: everything is (re)built synchronously, like an HDR load.
         const auto start = profiling::Clock::now();
@@ -125,7 +129,7 @@ SkyEnvironment::Result SkyEnvironment::update(const Inputs& in)
             startJob(target, fastSpec(), false);
             usedMs += timedSegment(costKey(kKindSourceAtomic, m_job.source->size, 0, 0), sourceUnits(m_job.source->size));
             ++m_stats.fastJobs;
-        } else if (!m_front->full && m_frame - m_lastChangeFrame >= kSettleFrames) {
+        } else if (!m_front->full && !m_sunPending && m_frame - m_lastChangeFrame >= kSettleFrames) {
             // The sky is still: the configured quality, its source cube faces and mip chain as sliced work too
             // (the job is aborted if the sky changes before it completes).
             beginTiming();
@@ -184,6 +188,7 @@ void SkyEnvironment::release()
     }
     m_activeTimer = -1;
     m_active = false;
+    m_sunPending = false;
     m_front = nullptr;
     m_config = IblConfig();
 }

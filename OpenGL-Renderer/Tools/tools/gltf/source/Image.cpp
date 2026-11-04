@@ -33,6 +33,8 @@ Image::Image(uint32_t _id, const Image& _source)
     , m_xmpPacket(_source.m_xmpPacket)
     , m_storageFormat(_source.m_storageFormat)
     , m_isErrorImage(_source.m_isErrorImage)
+    , m_pixelsReleased(_source.m_pixelsReleased)
+    , m_releasedPixelBytes(_source.m_releasedPixelBytes)
     , m_encodedData(_source.m_encodedData)
 {
 }
@@ -72,6 +74,7 @@ GltfResult Image::loadDataToMemory(const std::optional<filesystem::Dir>& _gltfDi
     if (m_data.getPixels().empty() == false) {
         return GltfError::ObjectAlreadyExists;
     }
+    m_pixelsReleased = false;
 
     if (m_bufferView != nullptr) {
         setStorageFormat(StorageFormat::BufferView);
@@ -94,6 +97,50 @@ GltfResult Image::loadDataToMemory(const std::optional<filesystem::Dir>& _gltfDi
     }
 
     return GltfError::ObjectNotFound;
+}
+
+namespace {
+bool scaleToLimit(image::Image& data, uint32_t limit)
+{
+    uint32_t w = data.getWidth(), h = data.getHeight();
+    while (w > limit || h > limit) { w = std::max(1u,w/2); h = std::max(1u,h/2); }
+    core::Vector<uint8_t> scaled;
+    return imageformats::scaleImage(data,scaled,w,h) && data.initialize(scaled.data(),scaled.size(),w,h);
+}
+}
+
+void Image::releaseDecodedPixels()
+{
+    if (m_data.getPixels().empty() || m_encodedData.empty()) return;
+    m_releasedPixelBytes = m_data.getPixels().size();
+    m_data.releasePixels();
+    m_pixelsReleased = true;
+}
+
+bool Image::ensureDecoded()
+{
+    if (!m_pixelsReleased) return true;
+    try {
+        image::Image decoded;
+        if (core::Failed(imageformats::decodeImage(m_encodedData, decoded))) return false;
+        const uint32_t limit = core::loading::state.textureLimit;
+        if (limit && !decoded.isCompressed() && (decoded.getWidth() > limit || decoded.getHeight() > limit)
+            && !scaleToLimit(decoded, limit)) {
+            return false;
+        }
+        decoded.m_metaData = m_data.m_metaData;
+        m_data = std::move(decoded);
+    } catch (const std::bad_alloc&) {
+        return false;
+    }
+    m_pixelsReleased = false;
+    return true;
+}
+
+void Image::resetDecodedData()
+{
+    m_data = image::Image{};
+    m_pixelsReleased = false;
 }
 
 GltfResult Image::prepareLoad(const std::optional<filesystem::Dir>& directory)
@@ -127,6 +174,7 @@ GltfResult Image::prepareLoad(const std::optional<filesystem::Dir>& directory)
 GltfResult Image::decodePrepared()
 {
     if (!m_data.getPixels().empty()) return GltfResult::Success;
+    m_pixelsReleased = false;
     std::string reason;
     if (core::Failed(imageformats::decodeImage(m_encodedData, m_data, 0, &reason))) {
         core::logWarning("[Loading] image '%s' could not be decoded (%s); using error image", m_uri.c_str(),
@@ -135,11 +183,7 @@ GltfResult Image::decodePrepared()
     }
     const uint32_t limit = core::loading::state.textureLimit;
     if (limit && !m_data.isCompressed() && (m_data.getWidth() > limit || m_data.getHeight() > limit)) {
-        uint32_t w = m_data.getWidth(), h = m_data.getHeight();
-        while (w > limit || h > limit) { w = std::max(1u,w/2); h = std::max(1u,h/2); }
-        core::Vector<uint8_t> scaled;
-        if (imageformats::scaleImage(m_data,scaled,w,h) && m_data.initialize(scaled.data(),scaled.size(),w,h))
-            ++core::loading::state.reductions;
+        if (scaleToLimit(m_data, limit)) ++core::loading::state.reductions;
         else core::logWarning("[Loading] '%s': texture format cannot be resized",m_uri.substr(0,120).c_str());
     }
     if (limit && imageformats::estimateTextureBytes(m_encodedData, limit) < imageformats::estimateTextureBytes(m_encodedData, 0)) {
@@ -167,12 +211,16 @@ GltfResult Image::reloadDataToMemory(const filesystem::File& _imageFile)
         return GltfError::InvalidInput;
     }
 
+    const bool wasReleased = m_pixelsReleased;
+    ensureDecoded();
     if (decodedImage.getPixels() == m_data.getPixels()) {
         // The image hasn't changed
+        if (wasReleased) releaseDecodedPixels();
         return GltfError::InvalidInput;
     }
 
     m_data = decodedImage;
+    m_pixelsReleased = false;
     m_isErrorImage = false;
 
     if (!isValidEncoding(getMimeType())) {
@@ -229,6 +277,7 @@ GltfResult Image::loadDataFromBufferView()
 
 void Image::loadAsErrorImage()
 {
+    m_pixelsReleased = false;
     m_isErrorImage = true;
     m_Name = "Invalid image " + m_uri;
     m_uri = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAAXNSR0IA"
@@ -317,6 +366,7 @@ GltfResult Image::loadDataFromEmbedded()
 GltfResult Image::setData(image::Image&& _data)
 {
     m_data = std::move(_data);
+    m_pixelsReleased = false;
     m_imageChangedForRenderer = true;
     return GltfResult::Success;
 }

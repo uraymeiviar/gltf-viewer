@@ -73,6 +73,8 @@ namespace image {
         bool initialize(std::vector<uint8_t>&& _InPixels);
 
         const std::vector<uint8_t>& getPixels() const { return m_Pixels; }
+        // Frees the pixel memory; the layout (size, format, levels, metadata) stays.
+        void releasePixels() { std::vector<uint8_t>().swap(m_Pixels); }
 
         uint32_t getWidth() const { return m_Width; }
         uint32_t getHeight() const { return m_Height; }

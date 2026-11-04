@@ -87,7 +87,18 @@ public:
     GltfResult getInvalidProperties(core::Vector<core::string>& _invalidProperties) const override;
 
     void loadAsErrorImage();
-    bool isLoaded() const { return !m_isErrorImage && !m_data.getPixels().empty(); }
+    bool isLoaded() const { return !m_isErrorImage && (!m_data.getPixels().empty() || m_pixelsReleased); }
+
+    // After the GPU upload the decoded pixels are freed and only the encoded bytes stay. The layout of getData() (size,
+    // format, levels) stays valid; getData().getPixels() is empty until ensureDecoded(), which decodes the encoded bytes
+    // again (with the same texture limit as the load). Without encoded bytes to come back to, the pixels are kept.
+    void releaseDecodedPixels();
+    bool ensureDecoded();
+    bool pixelsReleased() const { return m_pixelsReleased; }
+    // The decoded size, released or not.
+    uint64_t decodedByteSize() const { return m_pixelsReleased ? m_releasedPixelBytes : m_data.getPixels().size(); }
+    // Forgets the decoded image altogether (a texture reload decodes it again).
+    void resetDecodedData();
     bool isErrorImage() const { return m_isErrorImage; }
     bool payloadOmitted() const { return m_payloadOmitted; }
     void setPayloadOmitted(bool omitted) { m_payloadOmitted = omitted; }
@@ -129,6 +140,8 @@ private:
     static uint32_t m_uniqueIdCounter;
     bool m_imageChangedForRenderer = false;
     bool m_isErrorImage = false;
+    bool m_pixelsReleased = false;
+    uint64_t m_releasedPixelBytes = 0;
     core::Vector<uint8_t> m_encodedData;
 };
 }

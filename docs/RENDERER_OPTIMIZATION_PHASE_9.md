@@ -491,3 +491,19 @@ New counters, C8 build, per frame (identical in every run):
 - **Suites, PASS against `7236d58`:** `settings_scopes`, `p4_exit_gate`, `sky`, `sun`, `sun_source`, `time_of_day`, `ocean`, `ground`, `review_fixes`, `viewport_image`, `p8_followup`, `asobo_decal_modes` and the ten self-checks. `sky` passed the first time (no swap-count flake).
 - **Glass / windshield scripts** (`validate_asobo_glass.py`, `validate_asobo_windshield_layers.py`, not in the runner) fail against their pinned old baselines (`ed36dd8`, `399c88b`, `99de26c`). The `7236d58` binary fails the same checks with the same MAE values, so these failures were already there and C8/C10 did not cause them.
 - No check or threshold was changed.
+
+## Audit tail, 2026-11-04: C12, C17, C18, C20, C22
+
+Measured against the 59a8387 baseline by `scripts/validate_interactive_costs.py` (one run, RTX-class GPU shared with an
+inference VM, 12 of 24 cores, vsync off, so read the ratios and not the absolute values).
+
+| Item | Change | Result |
+|---|---|---|
+| C12 | Live ocean: the spectrum of a changed setting is computed on a worker thread and each finished one is shown; no `glFinish` on that path | Round trip per setting change during a paced High drag, 48.8 -> 2.5 ms median, 50.9 -> 2.6 ms at the 90th percentile. Sets built 40 -> 13. The worst single round trip was 2.8 ms in one run and 91.1 ms in another (baseline 93.8 to 95.8 ms). The likely cause, not isolated, is the full foam preroll of a set that matches the current value, which also runs when a drag pauses or ends |
+| C17 | One `parseExtensions` per material per `updateGltf` | Not timed. Images byte-identical (`p8_1` against the baseline) |
+| C18 | Decoded pixels freed after the upload; decoded again on demand | E195 cockpit, private memory 6092 -> 4227 MiB. Decoded 1924 MiB, encoded 485 MiB stays. The peak during the load was not measured. `rendererUploadMs` read 669 -> 747 ms in the last run (the baseline value is cached), cause not investigated |
+| C20 | Uniform locations looked up once after linking (SSAO, ocean) | Not timed. Images byte-identical (`ssao`, `ocean`) |
+| C22 | While a running clock drives the sun, a move under 0.1 degrees is not a sky change | 1x clock, 4 s: frames with sky GPU work 2757 -> 0. 3600x still updates (549 LUT builds in 4 s). A stopped clock converges on the exact sun |
+
+The running-clock IBL can now lag the sun by up to 0.1 degrees. Capture runs use the reference path and are unchanged.
+The same synchronous spectrum remains on Looping drags, which were not in this batch.

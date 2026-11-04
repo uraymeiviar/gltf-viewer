@@ -190,6 +190,8 @@ bool isPackagedNormalMap(const ux3d::gltf::Gltf& gltfModel, const ux3d::gltf::Im
 void ensureImageDataDecoded(const ux3d::gltf::Image* img)
 {
     if (!img || img->payloadOmitted()) return;
+    // The panels read only the layout, which stays; the preview below decodes for itself.
+    if (img->pixelsReleased()) return;
     auto* mutableImg = const_cast<ux3d::gltf::Image*>(img);
 
     // If pixels are already loaded, we are good
@@ -309,7 +311,10 @@ static GLuint getOrCreateImagePreviewTexture(const ux3d::gltf::Image* img,
         return 0;
     }
 
-    // 4. Create a dedicated preview OpenGL texture
+    // 4. Create a dedicated preview OpenGL texture (an image with no renderer texture, e.g. unused by any material).
+    // Pixels that were released come back only for this upload.
+    const bool pixelsWereReleased = img->pixelsReleased();
+    if (pixelsWereReleased && !const_cast<ux3d::gltf::Image*>(img)->ensureDecoded()) return 0;
     ensureImageDataDecoded(img);
     const auto& data = img->getData();
     if (data.getPixels().empty() || data.getWidth() == 0 || data.getHeight() == 0) {
@@ -369,6 +374,7 @@ static GLuint getOrCreateImagePreviewTexture(const ux3d::gltf::Image* img,
                  0, format, type, data.getPixels().data());
     glGenerateMipmap(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, 0);
+    if (pixelsWereReleased) const_cast<ux3d::gltf::Image*>(img)->releaseDecodedPixels();
 
     ImagePreviewEntry entry;
     entry.textureId = texId;

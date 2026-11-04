@@ -284,6 +284,7 @@ void Application::updateSkyEnvironment(const ux3d::imgui::SceneEnvironmentState&
     SkyEnvironment::Inputs in;
     in.atmosphere = skyAtmosphere(environment);
     in.sunDirection = skySunDirection(environment);
+    in.clockDrivesSun = environment.clock.playing && ux3d::imgui::effectiveSunSource(environment) == ux3d::imgui::SunSource::Clock;
     // The effective render-quality IBL fields (RenderQuality::applyIblParameters keeps them in the layer).
     in.ibl.cubeSize = gltfLayer->iblParameters.textureSize;
     in.ibl.lambertianSize = gltfLayer->iblParameters.lambertianSize;
@@ -410,6 +411,7 @@ json Application::skyStateJson(const ux3d::imgui::SceneEnvironmentState& environ
                     {"frontSize", skyEnvironment.frontSize()},
                     {"frontMipCount", skyEnvironment.frontMipCount()},
                     {"targetSize", skyEnvironment.config().cubeSize},
+                    {"lutSunDirection", vec3Json(skyEnvironment.lutSunDirection())},
                     {"skyVersion", skyEnvironment.skyVersion()},
                     {"frontVersion", skyEnvironment.frontVersion()}}},
         {"stats", {{"synchronousBuilds", stats.synchronousBuilds},

@@ -188,6 +188,7 @@ nlohmann::json Application::oceanStateJson(const ux3d::imgui::ViewportInstance& 
                          {"maxSliceGpuMs", stats.maxSliceGpuMs},
                          {"slicesGpuMs", stats.slicesGpuMs},
                          {"lastSliceItems", stats.lastSliceItems}};
+    out["liveBackground"] = {{"builds", stats.liveBackgroundBuilds}, {"dropped", stats.liveBackgroundDropped}};
     out["live"] = {{"steps", stats.liveSteps},
                    {"measured", stats.liveMeasured},
                    {"gpuMs", stats.liveGpuMs},

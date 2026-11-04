@@ -157,6 +157,28 @@ void GltfRenderLayer::updateScene(const gltf::Gltf& gltf, const gltf::Scene& sce
     gl::checkGLError(m_resourceManager.m_gl, "GltfRenderLayer: Error");
 }
 
+void GltfRenderLayer::parseSyncMaterialExtensions(const gltf::Gltf& gltf)
+{
+    // A material without ASOBO extensions has no entry.
+    m_syncMaterialExtensions.clear();
+    for (const auto& material : gltf.getMaterials()) {
+        gltf::asobo::ExtensionSet extensions = gltf::asobo::parseExtensions(gltf, material, gltf::asobo::Scope::Material);
+        if (!extensions.empty()) {
+            m_syncMaterialExtensions.emplace(&material, std::make_shared<const gltf::asobo::ExtensionSet>(std::move(extensions)));
+        }
+    }
+}
+
+void GltfRenderLayer::finishMaterialSync(const gltf::Gltf& gltf)
+{
+    m_syncMaterialExtensions.clear();
+    m_syncingGltf = nullptr;
+    // Everything this sync needs is on the GPU: the decoded pixels, of unused images too, leave the CPU heap.
+    for (const gltf::Image& image : gltf.getImages()) {
+        const_cast<gltf::Image&>(image).releaseDecodedPixels();
+    }
+}
+
 void GltfRenderLayer::updateGltf(const gltf::Gltf& gltf)
 {
     ++m_gltfGeneration;
@@ -184,6 +206,13 @@ void GltfRenderLayer::updateGltf(const gltf::Gltf& gltf)
     // do not use it keep the previous transparent order byte for byte.
     m_assetDrawOrderDeclared = gltf.isExtensionDeclared("ASOBO_material_draw_order");
 
+    // Every reader below and updateMaterials share one parse per material for this sync.
+    parseSyncMaterialExtensions(gltf);
+    auto findSyncExtension = [this](const gltf::Material& material, const char* name) -> const gltf::asobo::ExtensionData* {
+        const auto entry = m_syncMaterialExtensions.find(&material);
+        return entry != m_syncMaterialExtensions.end() ? entry->second->find(name) : nullptr;
+    };
+
     // A2.1: the shared decal buffer exists only for a file that actually carries a decal
     // material. The declaration alone is not enough: both extensions may be declared by an
     // exporter and left unused. A2.2 tracks the two extensions separately for their switches.
@@ -193,12 +222,10 @@ void GltfRenderLayer::updateGltf(const gltf::Gltf& gltf)
     if (gltf.isExtensionDeclared("ASOBO_material_geometry_decal")
         || gltf.isExtensionDeclared("ASOBO_material_blend_gbuffer")) {
         for (const auto& material : gltf.getMaterials()) {
-            const gltf::asobo::ExtensionSet extensions =
-                gltf::asobo::parseExtensions(gltf, material, gltf::asobo::Scope::Material);
-            if (extensions.find("ASOBO_material_geometry_decal") != nullptr) {
+            if (findSyncExtension(material, "ASOBO_material_geometry_decal") != nullptr) {
                 m_assetHasGeometryDecalMaterials = true;
             }
-            if (extensions.find("ASOBO_material_blend_gbuffer") != nullptr) {
+            if (findSyncExtension(material, "ASOBO_material_blend_gbuffer") != nullptr) {
                 m_assetHasBlendGbufferMaterials = true;
             }
             if (m_assetHasGeometryDecalMaterials || m_assetHasBlendGbufferMaterials) {
@@ -296,9 +323,7 @@ void GltfRenderLayer::updateGltf(const gltf::Gltf& gltf)
         if (anisotropy.has_value()) {
             insertImage(anisotropy->getAnisotropyTextureInfo(), true);
         } else if (gltf.isExtensionDeclared("ASOBO_material_anisotropic_v2")) {
-            const gltf::asobo::ExtensionSet materialExtensions =
-                gltf::asobo::parseExtensions(gltf, material, gltf::asobo::Scope::Material);
-            if (const gltf::asobo::ExtensionData* asoboAnisotropy = materialExtensions.find("ASOBO_material_anisotropic_v2")) {
+            if (const gltf::asobo::ExtensionData* asoboAnisotropy = findSyncExtension(material, "ASOBO_material_anisotropic_v2")) {
                 const gltf::asobo::TextureRef* reference = asoboAnisotropy->texture("anisoDirectionRoughnessTexture");
                 if (reference != nullptr && reference->index >= 0
                     && static_cast<size_t>(reference->index) < gltf.getTextures().size()) {
@@ -326,9 +351,7 @@ void GltfRenderLayer::updateGltf(const gltf::Gltf& gltf)
 
         // A3.4: the ASOBO_material_SSS opacity map is linear.
         if (gltf.isExtensionDeclared("ASOBO_material_SSS")) {
-            const gltf::asobo::ExtensionSet materialExtensions =
-                gltf::asobo::parseExtensions(gltf, material, gltf::asobo::Scope::Material);
-            if (const gltf::asobo::ExtensionData* sss = materialExtensions.find("ASOBO_material_SSS")) {
+            if (const gltf::asobo::ExtensionData* sss = findSyncExtension(material, "ASOBO_material_SSS")) {
                 const gltf::asobo::TextureRef* reference = sss->texture("opacityTexture");
                 if (reference != nullptr && reference->index >= 0
                     && static_cast<size_t>(reference->index) < gltf.getTextures().size()) {
@@ -340,9 +363,7 @@ void GltfRenderLayer::updateGltf(const gltf::Gltf& gltf)
         // A5.1: the four ASOBO_material_detail_map textures are not core slots, so register
         // them here. The colour map is sRGB, the ORM, normal and blend-mask maps are linear.
         if (gltf.isExtensionDeclared("ASOBO_material_detail_map")) {
-            const gltf::asobo::ExtensionSet materialExtensions =
-                gltf::asobo::parseExtensions(gltf, material, gltf::asobo::Scope::Material);
-            if (const gltf::asobo::ExtensionData* detailMap = materialExtensions.find("ASOBO_material_detail_map")) {
+            if (const gltf::asobo::ExtensionData* detailMap = findSyncExtension(material, "ASOBO_material_detail_map")) {
                 auto insertDetailImage = [&gltf, &insertTextureImage, detailMap](const char* key, bool isLinear) {
                     const gltf::asobo::TextureRef* reference = detailMap->texture(key);
                     if (reference == nullptr || reference->index < 0
@@ -360,9 +381,7 @@ void GltfRenderLayer::updateGltf(const gltf::Gltf& gltf)
 
         // A2.3: the geometry decal's blend mask (mode blendMasked) is a linear mask texture.
         if (gltf.isExtensionDeclared("ASOBO_material_geometry_decal")) {
-            const gltf::asobo::ExtensionSet materialExtensions =
-                gltf::asobo::parseExtensions(gltf, material, gltf::asobo::Scope::Material);
-            if (const gltf::asobo::ExtensionData* geometryDecal = materialExtensions.find("ASOBO_material_geometry_decal")) {
+            if (const gltf::asobo::ExtensionData* geometryDecal = findSyncExtension(material, "ASOBO_material_geometry_decal")) {
                 const gltf::asobo::TextureRef* reference = geometryDecal->texture("blendMaskTexture");
                 if (reference != nullptr && reference->index >= 0
                     && static_cast<size_t>(reference->index) < gltf.getTextures().size()) {
@@ -373,9 +392,7 @@ void GltfRenderLayer::updateGltf(const gltf::Gltf& gltf)
 
         // A4.2: windshield v3 detail normal and micro-scratches normal textures.
         if (gltf.isExtensionDeclared("ASOBO_material_windshield_v3")) {
-            const gltf::asobo::ExtensionSet materialExtensions =
-                gltf::asobo::parseExtensions(gltf, material, gltf::asobo::Scope::Material);
-            if (const gltf::asobo::ExtensionData* windshieldV3 = materialExtensions.find("ASOBO_material_windshield_v3")) {
+            if (const gltf::asobo::ExtensionData* windshieldV3 = findSyncExtension(material, "ASOBO_material_windshield_v3")) {
                 auto insertWindshieldImage = [&gltf, &insertTextureImage, windshieldV3](const char* key, bool isLinear) {
                     const gltf::asobo::TextureRef* reference = windshieldV3->texture(key);
                     if (reference == nullptr || reference->index < 0
@@ -404,7 +421,7 @@ void GltfRenderLayer::updateGltf(const gltf::Gltf& gltf)
 
     // Materials: determine the fragment shader and which textures are used within that.
     updateMaterials(gltf.getMaterials());
-    m_syncingGltf = nullptr;
+    finishMaterialSync(gltf);
     m_buffersUploadedForScene = &gltf;
 }
 

@@ -75,6 +75,11 @@ generation retains the base level. Buffer/allocation exceptions stop the load sa
 replace the partial scene with an empty scene. A lost driver context can require closing the
 window. No application can guarantee recovery from OS process termination or a driver crash.
 
+After the renderer sync uploads the textures, `gltf::Image` frees its decoded pixels and keeps the encoded bytes and
+the layout (`releaseDecodedPixels`). A later upload or an inspector preview without a renderer texture decodes again with
+the same texture limit (`ensureDecoded`). `decodedImageBytes` in the startup report stays the decoded size;
+`retainedDecodedImageBytes` is what is still on the CPU heap, and it is the Statistics panel's per-image CPU value.
+
 ## Texture-only refresh
 
 Changing the texture maximum of the active preset re-decodes and re-uploads images without

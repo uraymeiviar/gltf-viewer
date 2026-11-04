@@ -102,6 +102,8 @@ Suites (equivalence against the baseline plus each feature's analytic acceptance
   switches and files without portals against the baseline),
   validate_time_of_day.py (A6.1 solar/lunar position against reference tables, presets, heading, fade, automatic
   day/night, registry/CLI; mode off against the baseline),
+  validate_interactive_costs.py (Live ocean drag on a worker thread, sky work under a slow clock, decoded pixels freed
+  after the upload: each against the baseline, images and the settled sea unchanged),
   validate_sky.py (A6.2/A6.3 procedural sky against a float64 reference, sunset, sun transmittance, IBL following the
   sky, time-sliced budget and swaps; the HDR source against the baseline),
   validate_sun_disk.py (A6.7 sun disk: position/size/radiance/limb darkening, not in the IBL, mirror highlight, glare
@@ -220,6 +222,9 @@ ASOBO_SUITES = ("asobo_model", "asobo_normal", "asobo_support", "asobo_draworder
                 "texture_ktx2")
 # (suites, path patterns), docs/BUILD_AND_TEST.md section 4.5; every pattern matches files in the tree.
 TRIGGERS = (
+    (("interactive_costs",),
+     ("OceanSimulation.*", "SkyEnvironment.*", "*/gltf/*/Image.*", "*/gltf/source/Image.cpp", "*/image/Image.h",
+      "ElementInspectorImages.cpp", "validate_interactive_costs.py")),
     (("p8_3", "p8_5", "p8_followup"),
      ("OpenGL-Renderer/renderer/*Command*", "GltfRenderLayer*", "Viewports.cpp", "DiagnosticsPicking.cpp",
       "picking.frag", "PickingRenderLayer.*", "TransformHierarchy*", "SceneRevisions.*",
@@ -499,6 +504,7 @@ serial_jobs = [
     ("emissive_units", ["scripts/validate_emissive_units.py", "--baseline-exe", str(baseline)]),
     ("sky_occlusion", ["scripts/validate_sky_occlusion.py", "--baseline-exe", str(baseline)]),
     ("ocean", ["scripts/validate_ocean.py", "--baseline-exe", str(baseline)]),
+    ("interactive_costs", ["scripts/validate_interactive_costs.py", "--baseline-exe", str(baseline)]),
     ("review_fixes", ["scripts/validate_review_fixes.py", "--baseline-exe", str(baseline)]),
     ("asobo_packaged", ["scripts/validate_asobo_packaged.py"]),
     ("asobo_decal_modes", ["scripts/validate_asobo_decal_modes.py", "--baseline-exe", str(baseline)]),

@@ -492,6 +492,7 @@ struct StartupProfile {
     uint64_t residentModelTextureBytes = 0;
     uint64_t encodedImageBytes = 0;
     uint64_t decodedImageBytes = 0;
+    uint64_t retainedDecodedImageBytes = 0; // the part of it still on the CPU heap after the upload
     uint64_t environmentLoads = 0;
 
     std::vector<StageSample> stages;

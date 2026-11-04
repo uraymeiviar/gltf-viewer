@@ -97,9 +97,16 @@ private:
         GLuint texture = 0;
         GLuint fbo = 0;
     };
+    // The uniforms of the three passes, looked up once after linking (the union: a pass has -1 for what it lacks).
+    enum Uniform : int {
+        kDepth, kNormal, kAo, kFullSize, kAoSize, kAoScale, kInvProjection, kViewRotation, kProjScaleY, kOrthographic,
+        kRadius, kIntensity, kSliceCount, kStepCount, kDepthTolerance, kUniformCount
+    };
     struct Program {
         GLuint id = 0;
-        GLint loc(const char* name) const { return glGetUniformLocation(id, name); }
+        std::array<GLint, kUniformCount> locations{};
+        GLint loc(Uniform uniform) const { return locations[uniform]; }
+        void lookUpLocations();
     };
     struct TimerPair {
         GLuint queries[2] = { 0, 0 };

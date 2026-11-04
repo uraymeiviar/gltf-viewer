@@ -763,7 +763,7 @@ void ElementInspector::render(SelectionState& selection,
                 if (bitsPerChannel == 0 && channels > 0 && srcData.getPixelSize() > 0) {
                     bitsPerChannel = (srcData.getPixelSize() * 8) / channels;
                 }
-                if (bitsPerChannel == 0 && !srcData.getPixels().empty()) {
+                if (bitsPerChannel == 0 && src->decodedByteSize() > 0) {
                     bitsPerChannel = (srcData.getFormat() == ux3d::image::Format::FLOAT) ? 32 : 8;
                 }
 
@@ -812,7 +812,7 @@ void ElementInspector::render(SelectionState& selection,
         if (!mimeStr.empty()) {
             ImGui::Text("MIME Type: %s", mimeStr.c_str());
         }
-        size_t byteSize = img->getData().getPixels().size();
+        size_t byteSize = img->decodedByteSize();
         if (byteSize == 0 && img->getEncodedBytes() != nullptr) {
             byteSize = img->getEncodedBytes()->size();
         }
@@ -863,7 +863,7 @@ void ElementInspector::render(SelectionState& selection,
             if (bitsPerChannel == 0 && channels > 0 && data.getPixelSize() > 0) {
                 bitsPerChannel = (data.getPixelSize() * 8) / channels;
             }
-            if (bitsPerChannel == 0 && !data.getPixels().empty()) {
+            if (bitsPerChannel == 0 && img->decodedByteSize() > 0) {
                 bitsPerChannel = (data.getFormat() == ux3d::image::Format::FLOAT) ? 32 : 8;
             }
 
