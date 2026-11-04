@@ -120,7 +120,7 @@ void AntiAliasing::renderLensFlare(int width, int height, const HdrPostProcessPa
                 1.0f / static_cast<float>(std::max(1, m_bloomMipH[1])));
     glBindVertexArray(m_quadVao);
     glDrawArrays(GL_TRIANGLES, 0, 6);
-    ux3d::imgui::profiling::countAppDrawCall();
+    ux3d::imgui::profiling::countAppDrawCall("Lens flare");
     glActiveTexture(GL_TEXTURE1);
     glBindTexture(GL_TEXTURE_2D, 0);
     glActiveTexture(GL_TEXTURE0);
@@ -164,7 +164,7 @@ GLuint AntiAliasing::renderBloom(GLuint inputHdrTexture, int width, int height, 
         glUniform1i(m_bdFirstPassLoc, (i == 0) ? 1 : 0);
 
         glDrawArrays(GL_TRIANGLES, 0, 6);
-        ux3d::imgui::profiling::countAppDrawCall();
+        ux3d::imgui::profiling::countAppDrawCall("Bloom downsample");
     }
 
     // A6.7: the lens effect reads the pure downsampled levels 1 and 3 and adds into level 0; the upsample below adds
@@ -194,7 +194,7 @@ GLuint AntiAliasing::renderBloom(GLuint inputHdrTexture, int width, int height, 
         glUniform2f(m_buTexelSizeLoc, stepX, stepY);
 
         glDrawArrays(GL_TRIANGLES, 0, 6);
-        ux3d::imgui::profiling::countAppDrawCall();
+        ux3d::imgui::profiling::countAppDrawCall("Bloom upsample");
     }
 
     glBindVertexArray(0);
@@ -363,7 +363,7 @@ void AntiAliasing::issueMeterReadback(GLuint inputHdrTexture, const HdrPostProce
         glBindVertexArray(m_quadVao);
         glDrawArrays(GL_TRIANGLES, 0, 6);
         glBindVertexArray(0);
-        ux3d::imgui::profiling::countAppDrawCall();
+        ux3d::imgui::profiling::countAppDrawCall("Exposure meter depth");
         if (slot->depthBuffer == 0) {
             glGenBuffers(1, &slot->depthBuffer);
             glBindBuffer(GL_PIXEL_PACK_BUFFER, slot->depthBuffer);
@@ -476,7 +476,7 @@ float AntiAliasing::updateAutoExposure(GLuint inputHdrTexture, int width, int he
     glBindVertexArray(m_quadVao);
     glDrawArrays(GL_TRIANGLES, 0, 6);
     glBindVertexArray(0);
-    ux3d::imgui::profiling::countAppDrawCall();
+    ux3d::imgui::profiling::countAppDrawCall("Exposure meter");
 
     const bool snap = params.snapExposure || m_snapExposureNext || (!m_exposureValid && !params.startFromManualEv);
     if (params.asyncMeterReadback && !snap && m_exposureValid && m_lastMeterTargetValid) {
@@ -741,7 +741,7 @@ void AntiAliasing::renderPostProcess(GLuint inputHdrTexture,
     glBindVertexArray(m_quadVao);
     glDrawArrays(GL_TRIANGLES, 0, 6);
     glBindVertexArray(0);
-    ux3d::imgui::profiling::countAppDrawCall();
+    ux3d::imgui::profiling::countAppDrawCall("Tone mapping");
 
     glActiveTexture(GL_TEXTURE1);
     glBindTexture(GL_TEXTURE_2D, 0);

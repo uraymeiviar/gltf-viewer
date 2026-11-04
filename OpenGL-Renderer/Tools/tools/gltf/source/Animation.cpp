@@ -46,7 +46,7 @@ Animation::Animation(uint32_t _id, const Animation& _source)
 Extensions Animation::getUsedExtensions() const
 {
     for (const AnimationChannel& sourceChannel : getChannels()) {
-        if (sourceChannel.getTarget().m_animationPointer.has_value())
+        if (sourceChannel.getTarget().m_animationPointer.has_value() && !sourceChannel.m_fromPropertyAnimation)
             return Extension::AnimationPointer;
     }
 

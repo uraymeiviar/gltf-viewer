@@ -255,7 +255,7 @@ flowchart TD
   instance, and an instance gets exactly the bytes a plain child node with the same TRS would. `CommandMapping`
   compiles `primitive.vert` with `USE_INSTANCING` for an instanced mesh (the P8.3 shader path, same program key) and
   sets `Command::instanceCount`, so every pass that builds commands from the scene drawables — opaque, BLEND
-  (one draw, no back-to-front order between the instances), transmission, shadow casters and the sky-occlusion
+  (one draw; `Mesh::sortInstancesBackToFront` keeps its buffer back to front for the active camera, with the plain draws' key, and uploads only on a change; a multi-primitive mesh still draws one primitive for all instances, then the next), transmission, shadow casters and the sky-occlusion
   bake, the decal / SSAO depth-normal prepass, picking, Wireframe shading and the Wireframe Overlay — draws all
   instances in one `glDraw*Instanced` call; such a command is never merged again by P8.3. More than eight vertex
   attributes leave no room for the streams: the mesh is drawn once with a warning. Morphed meshes are instanced

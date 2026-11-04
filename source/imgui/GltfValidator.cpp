@@ -757,7 +757,7 @@ ValidationReport GltfValidator::validate(const std::string& filePath, ux3d::gltf
         int cIdx = 0;
         for (const auto& ch : anim->getChannels()) {
             std::string chPtr = animPtr + "/channels/" + std::to_string(cIdx);
-            if (ch.getTarget().getNode() == nullptr) {
+            if (ch.getTarget().getNode() == nullptr && !ch.getTarget().m_animationPointer.has_value()) {
                 report.addIssue(ValidationSeverity::Warning, "ANIMATION_CHANNEL_UNTARGETED",
                                 "Animation channel does not specify a target node.", chPtr + "/target", SelectionType::Animation, animIdx, anim);
             }

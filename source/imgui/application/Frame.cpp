@@ -9,6 +9,7 @@
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_opengl3.h"
 #include <ImGuizmo.h>
+#include "imgui/Profiling.h"
 
 namespace ux3d::imgui::application {
 
@@ -64,6 +65,7 @@ void Application::runFrame()
     }
     previousFrameStart = frame.start;
     ux3d::imgui::profiling::resetFrameCounters();
+    ux3d::imgui::profiling::beginDrawTraceFrame();
 
     double currentTime = glfwGetTime();
     float deltaTime = static_cast<float>(currentTime - lastFrameTime);
@@ -130,7 +132,10 @@ void Application::runFrame()
     }
 
     ux3d::imgui::RuntimeTelemetry::get().record(ux3d::imgui::profiling::elapsedMs(frame.start),
-        ux3d::imgui::RenderQuality::gpuFrameMs(),s_sceneRenderTotal != sceneRendersAtFrameStart);
+        ux3d::imgui::RenderQuality::gpuFrameMs(),s_sceneRenderTotal != sceneRendersAtFrameStart,
+        ux3d::imgui::profiling::g_liveDrawCalls);
+    ux3d::imgui::profiling::endDrawTraceFrame(s_sceneRenderTotal != sceneRendersAtFrameStart,
+        ux3d::imgui::profiling::g_liveDrawCalls, frame.number, currentFilePath);
     // The next frame re-decodes textures when the preset changed. Grab the frame that is
     // about to be presented so the refresh can keep it on screen under the progress bar.
     if (ux3d::imgui::RenderQuality::textureRefreshPending() &&

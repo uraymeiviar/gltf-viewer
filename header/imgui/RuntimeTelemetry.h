@@ -20,6 +20,7 @@ struct RuntimeTelemetry {
     MemoryInfo memory;
     double fps = 0, renderFps = 0, cpuMs = 0, gpuMs = 0, cpuPercent = 0, p95CpuMs = 0, maxCpuMs = 0;
     uint64_t peakGpuUsage = 0, frames = 0, renderedFrames = 0;
+    uint64_t drawCalls = 0;   // of the last frame that redrew the scene; idle frames keep it
     bool lastFrameRendered = false;
     std::array<double,240> cpuHistory{};
     size_t historyCount = 0, historyIndex = 0;
@@ -27,8 +28,9 @@ struct RuntimeTelemetry {
     uint64_t lastCpu = 0, fpsFrames = 0, fpsRenders = 0;
 
     static RuntimeTelemetry& get() { static RuntimeTelemetry value; return value; }
-    void record(double frameCpuMs, double frameGpuMs, bool rendered)
+    void record(double frameCpuMs, double frameGpuMs, bool rendered, uint64_t frameDrawCalls)
     {
+        if (rendered) drawCalls = frameDrawCalls;
         const auto now = std::chrono::steady_clock::now();
         const bool first = fpsStart.time_since_epoch().count() == 0;
         if (first) fpsStart = now;

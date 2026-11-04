@@ -375,6 +375,9 @@ std::vector<ExtensionSupport> buildSupportTable()
         if (entry.renderTime) {
             entry.offMeans = "Rendered as if the file had no " + entry.name + " (applied while rendering; the file "
                              "is not reloaded). The MSFS (ASOBO) master switch turns it off too.";
+        } else if (info.loadSwitch) {
+            entry.offMeans = "Read as absent: material animation channels are not played; node channels still play. "
+                             "Applied at load: switching it reloads the open file.";
         } else if (!info.viewportSwitch) {
             // ASOBO_asset_optimized: how the package stores its vertex data (winding, packed attributes). Reading the
             // file without it would read other geometry, and --asobo-disable keeps it applied (A1.9).

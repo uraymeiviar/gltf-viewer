@@ -20,6 +20,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <unordered_set>
+#include "imgui/Profiling.h"
 
 namespace ux3d::imgui::application {
 
@@ -502,7 +503,7 @@ void Application::drawViewports(FrameContext& frame)
         const bool preExposurePending = autoPhysical && vp->physicalExposure && vp->autoPreExposure > 0.0f &&
                                         vp->autoPreExposure != vp->preExposure;
         const bool redrawScene = s_disableRedrawSkip || !keyUnchanged || pickingRendered || taaAccumulating || exposureAdapting
-            || preExposurePending || ux3d::imgui::RenderQuality::wantsSample();
+            || preExposurePending || ux3d::imgui::RenderQuality::wantsSample() || ux3d::imgui::profiling::g_drawTraceActive;
         if (redrawScene) {
             vp->taaStableRenders =
                 (keyUnchanged && isTaa && vp->antiAliasing.isHistoryValid()) ? vp->taaStableRenders + 1 : 0;

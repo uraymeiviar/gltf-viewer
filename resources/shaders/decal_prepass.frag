@@ -41,10 +41,12 @@ void main()
     vec3 ng = normalize(cross(dFdx(v_Position), dFdy(v_Position)));
 #endif
 
+#ifndef ASOBO_BACKFACE_NO_FLIP
     if (gl_FrontFacing == false)
     {
         ng *= -1.0;
     }
+#endif
 
     g_PrepassNormal = vec4(ng * 0.5 + 0.5, 1.0);
 }

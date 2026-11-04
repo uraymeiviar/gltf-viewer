@@ -272,6 +272,11 @@ void ux3d::renderer::CommandGenerator::emitCommands()
         }
         auto& pass = m_passCommands[bucket];
         const Material* material = desc->material;
+        // One instanced draw has no order of its own between the instances, so its buffer holds them back to front.
+        if (m_activeCamera != nullptr && desc->mesh != nullptr && desc->mesh->isInstanced()
+            && (bucket == RenderPassType::Transparent || bucket == RenderPassType::Transparent2)) {
+            desc->mesh->sortInstancesBackToFront(m_activeCamera->getPositon(), m_activeCamera->getView());
+        }
         // A2.2: the decal accumulation pass owns the decal draws; those never write depth.
         const bool decalPass = material != nullptr && desc->pass->getId() == RenderPassType::DecalAccumulation;
         const bool covered = material != nullptr

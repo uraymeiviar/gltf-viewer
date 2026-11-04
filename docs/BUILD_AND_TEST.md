@@ -164,8 +164,8 @@ python scripts/run_regression.py --tier full
   URIs, about 5 MB, generated into `build/gpu_instancing/fixtures`, never committed). Each instanced file has a plain
   twin with one child node per instance whose TRS is the instance's float32 value (dequantized like the loader), so
   renders are compared byte for byte: float TRS, quantized ROTATION / SCALE / TRANSLATION, a parent transform with a
-  node animation, BLEND (instances that do not overlap on screen, since one instanced draw has no back-to-front
-  order between its instances), a morphed mesh, sun + shadows + ground plane, SSAO, Wireframe mode and Overlay. It
+  node animation, BLEND (apart, and overlapping at scrambled depths from both sides and under the animation, since
+  instances are sorted back to front inside the draw), a morphed mesh, sun + shadows + ground plane, SSAO, Wireframe mode and Overlay. It
   also checks startup framing and `frame_node` against the twin, 399 window clicks (the instanced node wherever the
   twin selects an instance node) and pipe `pick`, the profile report's `gpuInstancing` summary and `list_nodes`,
   10,000 instances in the same renderer draw calls as 100 (opaque and BLEND; plain twins' draws and CPU frame times
@@ -241,6 +241,19 @@ python scripts/run_regression.py --tier full
   none; NRM = plain; no validator notice. The Khronos samples DiffuseTransmissionTest, DiffuseTransmissionPlant,
   DiffuseTransmissionTeacup and MandarinOrange (`build/khronos-samples`, downloaded by hand, not committed; INFO
   otherwise) are captured lit from behind and must differ with the extension off. Plain twins against the baseline.
+- **`draw_call_stat` suite** (`validate_draw_call_stat.py`; triggers: `Profiling.*`, `RuntimeTelemetry.h`,
+  `StatisticsPanel.cpp`, `Frame.cpp`, `CommandsState.cpp`, `CommandsHandlers.cpp`, `DrawTrace.h`, and itself): the
+  Statistics panel's live draw-call count through `get_state`: above zero without profiling, held while idle, exactly 5
+  more draws for 5 more distinct meshes, equal to the profile report's last redraw. `dump_draw_calls` on an idle view:
+  one row per draw, matching that count, each node once with its own material and `pbr.frag`. Generated fixtures, no
+  baseline comparison.
+- **`asobo_property_animation` suite** (`validate_asobo_property_animation.py`; triggers: `AnimationsFromJson.*`,
+  `AnimationChannel.h`, `AnimationsToJson.*`, `AnimationChannelsToJson.*`, `AsoboSupport.*`,
+  `GltfRenderLayerMaterials.cpp`, `GltfRenderLayerNodes.cpp`, `KHRAnimationPointerTarget.h`, the fixture and itself):
+  renders the real exporter file in `resources/test_models/asobo_property_animation` on its keys, byte-identical to
+  `KHR_animation_pointer` and static twins; checks the emissive channel at a visible scale, the load-time switch, an
+  undeclared file and malformed channels; plays UV options on a generated quad without the extension. No baseline
+  comparison.
 - **`animation_keys` suite** (`validate_animation_keys.py`; triggers: the runtime animation library
   `OpenGL-Renderer/Tools/Runtime/runtime/animation/*` (`Channel.h`, `Sampler.h`, `Animation.*`),
   `GltfRenderLayerNodes.cpp`, `AnimationPlayer.*`, `TransformAnimationTarget.h`, `KHRAnimationPointerTarget.h`,

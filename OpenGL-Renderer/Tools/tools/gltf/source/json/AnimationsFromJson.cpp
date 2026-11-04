@@ -4,7 +4,10 @@
 #include "gltf/animation/AnimationSampler.h"
 #include "gltf/json/GltfObjectFromJson.h"
 #include "gltf/json/PointerLookup.h"
+#include <algorithm>
+#include <cctype>
 #include <string>
+#include <string_view>
 #include <vector>
 
 using namespace ux3d;
@@ -127,6 +130,11 @@ ConversionResult AnimationsFromJson::resolve(const nlohmann::json& _jsonAnimatio
                         containsErrors = true;
                     }
                 }
+            }
+        } else if (key == "extensions" && value.is_object() && m_gltf.isExtensionDeclared("ASOBO_property_animation")) {
+            const auto extension = value.find("ASOBO_property_animation");
+            if (extension != value.end() && !resolvePropertyAnimation(*extension, _animation)) {
+                containsErrors = true;
             }
         }
     }
@@ -324,6 +332,69 @@ ConversionResult AnimationsFromJson::resolveChannelTarget(const nlohmann::json& 
                 _target.setAnimationPointer(_target.fromAnimationPointer(m_pointerLookup, globalPointer));
             }
         }
+    }
+
+    if (containsErrors) {
+        return ConversionError::SuccessWithErrors;
+    }
+
+    return ConversionResult::Success;
+}
+
+// ASOBO_property_animation (A7.3): each entry names one of the animation's samplers and a pointer-like target without
+// the leading '/', e.g. "materials/0/emissiveFactor". The exporter writes only material targets. A malformed entry is
+// skipped with a warning; the rest of the clip still plays.
+ConversionResult AnimationsFromJson::resolvePropertyAnimation(const nlohmann::json& _jsonExtension, Animation& _animation)
+{
+    const auto channels = _jsonExtension.is_object() ? _jsonExtension.find("channels") : _jsonExtension.end();
+    if (!_jsonExtension.is_object() || channels == _jsonExtension.end() || !channels->is_array()) {
+        core::logWarning("ASOBO_property_animation: 'channels' must be an array");
+        return ConversionError::SuccessWithErrors;
+    }
+
+    bool containsErrors = false;
+    for (const auto& jsonChannel : *channels) {
+        const auto skip = [&containsErrors, &jsonChannel](const char* reason) {
+            core::logWarning("ASOBO_property_animation: channel '%s' skipped: %s", jsonChannel.dump().c_str(), reason);
+            containsErrors = true;
+        };
+        if (!jsonChannel.is_object() || !jsonChannel.contains("sampler") || !jsonChannel.contains("target")
+            || !jsonChannel["sampler"].is_number_integer() || !jsonChannel["target"].is_string()) {
+            skip("needs an integer sampler and a string target");
+            continue;
+        }
+        const int64_t samplerIndex = jsonChannel["sampler"].get<int64_t>();
+        if (samplerIndex < 0 || static_cast<size_t>(samplerIndex) >= _animation.getSamplers().size()) {
+            skip("sampler index out of range");
+            continue;
+        }
+
+        std::string target = jsonChannel["target"].get<std::string>();
+        if (!target.empty() && target.front() == '/') {
+            target.erase(0, 1);
+        }
+        constexpr std::string_view prefix = "materials/";
+        const size_t indexEnd = target.find('/', prefix.size());
+        if (target.rfind(prefix, 0) != 0 || indexEnd == std::string::npos || indexEnd + 1 == target.size()) {
+            skip("only materials/<index>/<property> targets are supported");
+            continue;
+        }
+        const std::string indexText = target.substr(prefix.size(), indexEnd - prefix.size());
+        if (indexText.empty() || indexText.size() > 9
+            || !std::all_of(indexText.begin(), indexText.end(), [](unsigned char c) { return std::isdigit(c) != 0; })) {
+            skip("the material index is not a number");
+            continue;
+        }
+        if (static_cast<size_t>(std::stoul(indexText)) >= m_pointerLookup.Materials.size()) {
+            skip("material index out of range");
+            continue;
+        }
+
+        AnimationChannel* pChannel = _animation.createChannel();
+        pChannel->m_fromPropertyAnimation = true;
+        pChannel->setSampler(_animation.getSamplers().at(static_cast<size_t>(samplerIndex)));
+        pChannel->getTarget().setPath(AnimationPath::Pointer);
+        pChannel->getTarget().setAnimationPointer(AnimationChannelTarget::fromAnimationPointer(m_pointerLookup, "/" + target));
     }
 
     if (containsErrors) {

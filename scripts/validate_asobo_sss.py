@@ -385,7 +385,13 @@ def main():
     ratio = linear_ratio(white_back, core_front)
     check(abs(ratio - 0.5) <= 0.5 * HALF_TOLERANCE,
           f"back-lit / front-lit core (linear) = {ratio:.3f} (translucency 0.5, +-{HALF_TOLERANCE * 100:.0f}%)")
-    lit_side = shot(write("white_back", sss={}, light="back"), "white_back_lit_side", black + ["--camera-yaw", "180"])
+    # The core model flips its back face and the SSS file is an MSFS file, which needs the extension for the same flip.
+    lit_side_model = write("white_back_flip", sss={}, light="back")
+    lit_side_doc = json.loads(lit_side_model.read_text(encoding="utf-8"))
+    lit_side_doc["materials"][0].setdefault("extensions", {})["ASOBO_material_flip_back_face"] = {"enabled": True}
+    lit_side_doc["extensionsUsed"] = sorted(set(lit_side_doc["extensionsUsed"]) | {"ASOBO_material_flip_back_face"})
+    lit_side_model.write_text(json.dumps(lit_side_doc), encoding="utf-8")
+    lit_side = shot(lit_side_model, "white_back_lit_side", black + ["--camera-yaw", "180"])
     core_lit_side = shot(core_back_model, "core_back_lit_side", black + ["--camera-yaw", "180"])
     diff = max_level_diff(lit_side, core_lit_side)
     check(luminance(centre_mean(core_lit_side)) > 40 and diff <= FRONT_TOLERANCE,

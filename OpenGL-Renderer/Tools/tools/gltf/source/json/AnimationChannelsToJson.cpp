@@ -12,6 +12,10 @@ using namespace ux3d::gltf;
 
 void AnimationChannelsToJson::convert(const AnimationChannel& _channel, nlohmann::json& _jsonChannel)
 {
+    if (_channel.m_fromPropertyAnimation) {
+        return;
+    }
+
     if (m_exportOptions.conversionUsage == ConversionUsage::ValidGltf && _channel.getTarget().getNode() == nullptr) {
         // Invalid if no extension is used
         if (_channel.getTarget().m_animationPointer.has_value() == false) {

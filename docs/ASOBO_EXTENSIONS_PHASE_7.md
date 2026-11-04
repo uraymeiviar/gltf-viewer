@@ -24,9 +24,21 @@ classify every remaining extension, so the support matrix has no unknown entry.
   - **Tests:** each must equal its KHR counterpart at neutral settings.
 - [ ] **A7.2 — `ASOBO_material_sail` (R3). Owner: Claude.** Back-face lighting and translucency by
   `sailLightAbsorption`. Warn when the material is not double-sided.
-- [ ] **A7.3 — `ASOBO_property_animation` (R3). Owner: Claude, low priority.** Map its channels onto the existing
-  `KHR_animation_pointer` support. The team does not use it, so it needs a synthetic fixture.
-  - **Test:** frame-by-frame equality with the equivalent `KHR_animation_pointer` animation.
+- [x] **A7.3 — `ASOBO_property_animation` (R3). Owner: Claude.** **Done, 2026-11-03:** the loader turns each entry of
+  the animation's extension into a pointer channel (`AnimationChannel::m_fromPropertyAnimation`), so playback, the
+  timeline and clip conflicts are shared with `KHR_animation_pointer`. Only `materials/<index>/<property>` targets are
+  read, only when the file declares the extension; a malformed entry is skipped with a warning. Saving keeps the
+  extension as the stored form: these channels are not written to `animation.channels`.
+  - **Plays:** base colour, emissive, metallic, roughness (existing pointer targets) and `ASOBO_material_UV_options`
+    tiling, offset and rotation (new single-component targets; a material they animate gets the UV shader variant even
+    with no such extension of its own). Wiper, wear and tire targets have no effect: Glider does not draw them.
+  - **Switch:** applied at load (`SupportInfo::loadSwitch`), not per viewport, since the channels are shared scene
+    data; the MSFS master switch does not turn it off.
+  - **Emissive scale:** animated emissive goes through the MSFS emissive scale (default 0.001) like static emissive,
+    so small values are nearly invisible until the scale is raised (Scene Inspector, `--msfs-emissive-scale`).
+  - **Fixture:** `resources/test_models/asobo_property_animation`, a real `msfs-blender-5-addons` export.
+  - **Test:** `scripts/validate_asobo_property_animation.py`: byte equality on the keys with the equivalent
+    `KHR_animation_pointer` animation and with static twins.
 - [ ] **A7.4 — Collision and gizmo overlays (R1). Owner: GPT Astra.** For `ASOBO_collision_object`,
   `ASOBO_gizmo_object` and `ASOBO_tags`: draw the box, cylinder and sphere shapes as overlays, following the
   bounding-box renderer, colored by type and tag.

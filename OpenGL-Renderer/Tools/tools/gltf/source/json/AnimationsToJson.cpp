@@ -43,7 +43,9 @@ void AnimationsToJson::convertChannels(const Animation& _animation, nlohmann::js
     nlohmann::json jsonChannels = nlohmann::json::array();
     AnimationChannelsToJson converter(m_indices, m_exportOptions);
 
+    bool onlyPropertyAnimation = true;
     for (const AnimationChannel& channel : _animation.getChannels()) {
+        onlyPropertyAnimation = onlyPropertyAnimation && channel.m_fromPropertyAnimation;
         nlohmann::json jsonChannel = nlohmann::json::value_t::null;
         converter.convert(channel, jsonChannel);
         if (!jsonChannel.is_null()) {
@@ -51,7 +53,10 @@ void AnimationsToJson::convertChannels(const Animation& _animation, nlohmann::js
         }
     }
 
-    _jsonAnimation["channels"] = jsonChannels;
+    // The file had no animation.channels: its channels are all in ASOBO_property_animation.
+    if (!onlyPropertyAnimation) {
+        _jsonAnimation["channels"] = jsonChannels;
+    }
 }
 
 void AnimationsToJson::convertSamplers(const Animation& _animation, nlohmann::json& _jsonAnimation) const

@@ -23,5 +23,6 @@ private:
     ConversionResult resolveSampler(const nlohmann::json& _jsonSampler, AnimationSampler& _sampler);
     ConversionResult resolveChannelTarget(const nlohmann::json& _jsonTarget, AnimationChannelTarget& _target);
     ConversionResult resolveXMP(const nlohmann::json& _jsonXMP, Animation& _animation);
+    ConversionResult resolvePropertyAnimation(const nlohmann::json& _jsonExtension, Animation& _animation);
 };
 }

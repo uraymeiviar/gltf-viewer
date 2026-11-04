@@ -5,6 +5,7 @@
 
 #include "CommandsInternal.h"
 #include "renderer/TransformHierarchyNode.h"
+#include "imgui/Profiling.h"
 
 namespace ux3d::imgui::application {
 
@@ -90,6 +91,19 @@ void Application::registerAgentCommands()
         spec.help = "Model, counts, selection, isolation, viewports, camera, render mode, validation summary, loading state.";
         spec.run = [this](const json&, const CommandContext&) -> CommandOutcome { return CommandReply::success(agentStateJson()); };
         spec.legacyResult = [this](const json&, const json&) { return legacyStateJson(); };
+        agentRegistry.add(std::move(spec));
+    }
+    {
+        CommandSpec spec;
+        spec.name = "dump_draw_calls";
+        spec.help = "The draw-call list of Statistics -> Copy Draw Calls. The first call starts recording the next scene redraw and returns ready: false; call again until ready: true, which returns the text once.";
+        spec.run = [](const json&, const CommandContext&) -> CommandOutcome {
+            if (auto dump = ux3d::imgui::profiling::takeDrawCallDump()) {
+                return CommandReply::success({{"ready", true}, {"total", dump->total}, {"text", dump->text}});
+            }
+            if (!ux3d::imgui::profiling::g_drawTraceActive) ux3d::imgui::profiling::requestDrawCallDump();
+            return CommandReply::success({{"ready", false}});
+        };
         agentRegistry.add(std::move(spec));
     }
     {

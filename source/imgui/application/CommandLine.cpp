@@ -469,6 +469,28 @@ std::optional<int> Application::configure(int argc, char** argv)
             uiReportPath = argv[++i];
         } else if (arg == "--isolated" || arg == "--no-persist") {
             s_isolatedState = true; // Also applied by the pre-scan.
+        } else if (arg == "--set" && i + 1 < argc) {
+            // --set key=value: any registered setting, in whichever scope owns it (list_settings names them).
+            const std::string pair = argv[++i];
+            const size_t equals = pair.find('=');
+            if (equals == std::string::npos || equals == 0) {
+                std::fprintf(stderr, "--set expects key=value, got %s\n", pair.c_str());
+                return 1;
+            }
+            const std::string key = pair.substr(0, equals);
+            std::optional<SettingScope> scope;
+            for (const SettingScope candidate : {SettingScope::Viewport, SettingScope::Environment, SettingScope::Renderer}) {
+                const auto* spec = agentRegistry.findSetting(candidate, key);
+                if (spec != nullptr && (!scope.has_value() || !spec->compat)) {
+                    scope = candidate;
+                    if (!spec->compat) break;
+                }
+            }
+            if (!scope.has_value()) {
+                std::fprintf(stderr, "--set: unknown setting %s (see --agent-guide)\n", key.c_str());
+                return 1;
+            }
+            if (!applyCliSetting(*scope, key, pair.substr(equals + 1), "--set")) return 1;
         } else if (arg == "--control-pipe") {
             controlPipeArg = true;
         } else if (arg == "--agent-guide" || arg == "--format") {

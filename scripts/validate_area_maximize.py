@@ -60,6 +60,11 @@ INSPECTOR = " Inspector"
 failures = []
 
 
+# A label can name the Unicode test file; the output file's locale encoding must not end the run.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+
 def check(condition, label):
     print(("  PASS " if condition else "  FAIL ") + label, flush=True)
     if not condition:

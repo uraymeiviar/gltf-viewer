@@ -17,8 +17,7 @@ MSFS as practical, while still opening any glTF.
    - Files without ASOBO extensions keep rendering exactly as today, byte-identical (§2.1).
 2. **Only the glTF is read.** No MSFS XML (model behaviors), `model.cfg`, LOD sets or `systems.cfg`.
 3. **Animations already work.** Artists check that every frame of each exported clip is correct, and Glider plays
-   clips end to end. `ASOBO_property_animation` is low priority: the team does not use it, so it cannot be tested
-   on real data.
+   clips end to end. `ASOBO_property_animation` plays since A7.3, tested on a real export of our own Blender add-on.
 4. **LOD is out of scope** for now (it involves multiple glTF files).
 5. **Priorities:**
    1. Basic materials close to MSFS: occlusion/roughness/metallic (ORM), emissive, normals.
@@ -158,6 +157,7 @@ Argon's quota runs out, the task returns to Claude unchanged.
 ## 5. Status Log
 
 | Date | Change |
+| 2026-11-04 | `ASOBO_material_flip_back_face`: in a file declaring any `ASOBO_` extension, back faces of a double-sided material keep the front normal unless the material declares it (SDK default; semantics section 18a). This changes the look of MSFS double-sided materials. Check: `validate_asobo_flip_back_face.py`. |
 | 2026-10-30 | Background projection fix (maintainer-approved image change): `cubemap.vert` no longer adds 0.1 to the clip w of a perspective camera, so the HDR background shows each world direction where it projects (it was drawn up to about 9% towards the image centre); the procedural sky, sun disk, moon and stars were already on their true directions and stay there; orthographic views unchanged. The background also writes depth exactly 1, so the highlight meter no longer counts sky cells as surfaces. New HDR baselines accepted. `scripts/validate_background_projection.py`; details in [Phase 6](ASOBO_EXTENSIONS_PHASE_6.md) A6.7. |
 | 2026-10-29 | A6.8 FFT ocean ground (A6.8a core, A6.8b finish): `--ground ocean`, a looping precomputed Tessendorf sea (JONSWAP x Horvath 2015, 2 / 3 / 4 cascades, exact loop period) or a live per-frame FFT (up to 4 x 512²), GL 4.3 compute with a gate below it; settings UI, `--ocean-*` flags and registry keys, `ground.ocean` in `get_state` and `--profile-report`; whitecaps calibrated to Monahan's coverage, a shadow that keeps the sky terms, no ocean SSR. Details and numbers in [Phase 6](ASOBO_EXTENSIONS_PHASE_6.md) A6.8; `scripts/validate_ocean.py`, `scripts/review_ocean.py`. |
 | 2026-10-29 | A3.10 Sun Source replaces the implicit enable/mode/clock precedence, with separate HDR/sky choices and ordered legacy mappings. Auto ambient returns white k × outdoor horizontal illuminance / pi only where the A3.9 sky is hidden (uniform without a volume); sky default on/Auto, HDR default off. Manual retained. See [Phase A3](ASOBO_EXTENSIONS_PHASE_3.md), the fill sweep and task report for verified checks. |

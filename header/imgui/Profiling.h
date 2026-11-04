@@ -126,6 +126,22 @@ struct FrameCounters {
 };
 
 extern bool g_countingEnabled;
+// Draws since the frame started, counted with or without profiling for the Statistics panel.
+extern uint64_t g_liveDrawCalls;
+
+// The draw-call dump (Statistics -> Copy Draw Calls). A request records the next frame that redraws the scene, and
+// that frame's viewports redraw even when their images are still valid. Nothing is recorded otherwise.
+extern bool g_drawTraceActive;
+struct DrawCallDump {
+    uint64_t total = 0;
+    std::string text;
+};
+void requestDrawCallDump();
+void beginDrawTraceFrame();
+void endDrawTraceFrame(bool rendered, uint64_t total, uint64_t frame, const std::string& modelPath);
+// The finished dump, once; nullopt while none is ready.
+std::optional<DrawCallDump> takeDrawCallDump();
+void traceDraw(const char* label);
 
 FrameCounters& frameCounters();
 void resetFrameCounters();
@@ -150,6 +166,8 @@ inline void countGlCall()
 
 inline void countRendererDrawCall()
 {
+    ++g_liveDrawCalls;
+    if (g_drawTraceActive) traceDraw(nullptr);
     if (g_countingEnabled) {
         auto& counters = frameCounters();
         ++counters.drawCalls;
@@ -157,8 +175,11 @@ inline void countRendererDrawCall()
     }
 }
 
-inline void countAppDrawCall()
+// label: what this draw does, named by the draw-call dump.
+inline void countAppDrawCall(const char* label)
 {
+    ++g_liveDrawCalls;
+    if (g_drawTraceActive) traceDraw(label);
     if (g_countingEnabled) {
         auto& counters = frameCounters();
         ++counters.drawCalls;

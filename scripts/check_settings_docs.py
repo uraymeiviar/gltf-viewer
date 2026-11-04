@@ -72,7 +72,7 @@ def static_settings():
         # The runtime group table includes Rendered/Partial entries whose viewportSwitch is true (default).
         for line in source.splitlines():
             entry = re.search(r'\{"(ASOBO_[A-Za-z0-9_]+)", Support::(?:Rendered|Partial),', line)
-            if entry and not re.search(r',\s*false\s*\}', line):
+            if entry and not re.search(r',\s*false\s*(?:,\s*true\s*)?\}', line):
                 rows.append((entry[1], "renderer", "", "Generated ASOBO switch"))
     return rows
 

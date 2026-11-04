@@ -8,16 +8,16 @@ whose TRS is the instance's value, dequantized in float32 exactly as the loader 
 127 / 32767 / 255 / 65535, other integers as they are), so the twin's JSON numbers are those float32 values. The
 renderer composes an instance's world matrix with the expressions of a child node's (TransformHierarchyNode), so the
 per-instance matrices are the bytes the twin's child nodes get, and the twin's opaque copies are merged by P8.3 into
-the same instanced draw: the comparisons are byte for byte. They hold where the draw order of the instances cannot
-matter: opaque instances that do not touch, and transparent (BLEND) instances that do not overlap on screen (the
-instanced draw has no back-to-front order between its instances; the twin's separate draws do).
+the same instanced draw: the comparisons are byte for byte. BLEND instances are drawn back to front like the twin's
+separate draws (Mesh::sortInstancesBackToFront), so these hold for instances that overlap on screen too.
 
 Checks:
   * renders (isolated, 1280x720, AA none, frame 24 of a fixed 0.05 s clock) byte-identical to the plain twin:
     a 5 x 5 grid with float TRS (rotations about several axes, non-uniform scales); quantized accessors (ROTATION
     signed byte normalized, SCALE signed short normalized, TRANSLATION signed short with KHR_mesh_quantization);
     a parent transform with a node animation on the instanced node (mid-animation frame); transparent (BLEND)
-    instances; a morphed mesh; with the sun, shadows and the ground plane (shadow pass and cascade fit); SSAO
+    instances; overlapping BLEND instances at scrambled depths, seen from both sides and under the node animation;
+    a morphed mesh; with the sun, shadows and the ground plane (shadow pass and cascade fit); SSAO
     (depth/normal prepass); Wireframe shading mode and the Wireframe Overlay; each instanced render differs from
     the same node drawn once (the comparisons are not trivially equal);
   * framing: the startup camera (scene extents) equals the twin's; frame_node on the instanced node gives the camera
@@ -186,14 +186,16 @@ MATERIALS = [
 ]
 
 
-def grid_instances(nx, ny, spacing, rotate=True):
+def grid_instances(nx, ny, spacing, rotate=True, depth=False):
     """(translations, rotations xyzw, scales) of an nx x ny grid in the XY plane, as float64 values."""
     t, r, s = [], [], []
     axes = [(0, 1, 0), (1, 0, 0), (0, 0, 1), (1, 1, 0), (0, 1, 1)]
     k = 0
     for j in range(ny):
         for i in range(nx):
-            t.append([(i - (nx - 1) / 2) * spacing, (j - (ny - 1) / 2) * spacing, 0.0])
+            # depth: file order is unrelated to the distance from the camera on either side.
+            z = ((k * 7) % (nx * ny)) * 0.35 if depth else 0.0
+            t.append([(i - (nx - 1) / 2) * spacing, (j - (ny - 1) / 2) * spacing, z])
             r.append(quat_axis_angle(axes[k % len(axes)], (17 * k) % 80 + 5) if rotate else [0.0, 0.0, 0.0, 1.0])
             s.append([0.55 + 0.05 * (k % 5), 0.6 + 0.04 * (k % 7), 0.7] if rotate else [0.6, 0.6, 0.6])
             k += 1
@@ -201,11 +203,11 @@ def grid_instances(nx, ny, spacing, rotate=True):
 
 
 def write_case(name, nx, ny, spacing, mode, material=0, quantized=False, parent=False, animated=False, morph=False,
-               skinned=False, declare=True, rotate=True):
+               skinned=False, declare=True, rotate=True, depth=False):
     """One fixture. mode: inst (the extension), plain (one child node per instance), single (the node drawn once)."""
     doc = Doc()
     meshes = [cube_mesh(doc, material, morph=morph, skinned=skinned)]
-    t, r, s = grid_instances(nx, ny, spacing, rotate)
+    t, r, s = grid_instances(nx, ny, spacing, rotate, depth)
     count = len(t)
     used = []
     # The values the loader reads, as float32 (the plain twin writes exactly these).
@@ -297,6 +299,8 @@ CASES = {
     "quant": (5, 5, 3.0, {"quantized": True}),
     "anim": (4, 3, 2.5, {"parent": True, "animated": True}),
     "blend": (5, 4, 2.5, {"material": 1}),
+    "overlap": (5, 4, 0.5, {"material": 1, "depth": True}),
+    "overlapanim": (5, 4, 0.5, {"material": 1, "depth": True, "parent": True, "animated": True}),
     "morph": (3, 3, 3.0, {"morph": True}),
     "shadow": (4, 4, 2.0, {}),
 }
@@ -416,11 +420,12 @@ def main():
 
     print("[renders: instanced = plain twin, byte for byte]")
     images, reports = {}, {}
-    variants = [("grid", []), ("quant", []), ("anim", []), ("blend", []), ("morph", []), ("shadow", SUN),
+    variants = [("grid", []), ("quant", []), ("anim", []), ("blend", []), ("overlap", []),
+                ("overlap_back", ["--camera-yaw", "180"]), ("overlapanim", []), ("morph", []), ("shadow", SUN),
                 ("grid_ssao", ["--ssao", "on", "--ground", "plane"]), ("grid_wire", ["--render-mode", "wireframe"]),
                 ("grid_overlay", ["--wireframe-overlay"])]
     for variant, flags in variants:
-        case = variant.split("_", 1)[0] if variant.startswith("grid_") else variant
+        case = variant.split("_", 1)[0] if variant.startswith(("grid_", "overlap_")) else variant
         for mode in ("inst", "plain", "single"):
             image, report, log = render(EXE, files[(case, mode)], f"{variant}_{mode}", flags)
             images[(variant, mode)], reports[(variant, mode)] = image, report

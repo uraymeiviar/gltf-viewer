@@ -17,7 +17,7 @@ METADATA = {"ASOBO_unique_id", "ASOBO_tags", "ASOBO_animation_retargeting", "ASO
 EXCLUDED = METADATA | {"ASOBO_asset_optimized", "ASOBO_material_invisible", "ASOBO_material_environment_occluder",
                        "ASOBO_material_disable_motion_blur", "ASOBO_material_fake_terrain",
                        "ASOBO_normal_map_convention", "ASOBO_material_draw_order", "ASOBO_material_emissive",
-                       "ASOBO_material_detail_map", "ASOBO_material_UV_options", "ASOBO_occlusion_strength",
+                       "ASOBO_material_flip_back_face", "ASOBO_material_detail_map", "ASOBO_material_UV_options", "ASOBO_occlusion_strength",
                        "ASOBO_material_fresnel_fade", "ASOBO_material_ghost_effect", "ASOBO_material_alphamode_dither",
                        "ASOBO_material_anisotropic_v2", "ASOBO_material_shadow_options", "MSFT_texture_dds"}
 failures = []
@@ -80,7 +80,7 @@ def main():
     rep = report(model)
     check(rep is not None, "support report written")
     if rep is not None:
-        check(rep.get("specCount") == len(names) == 43, "specCount matches all 43 generated extension specs (including two MSFS 2020 glass schemas and the A3.7 sky portal)")
+        check(rep.get("specCount") == len(names) == 44, "specCount matches all 44 generated extension specs (including two MSFS 2020 glass schemas and the A3.7 sky portal)")
         support = rep.get("support", {})
         check(set(support) == expected | {"ASOBO_material_code"},
               "every spec plus MSFT_texture_dds and the extras material-code switch has a status, with no extra entries")
@@ -91,14 +91,14 @@ def main():
             status = "Metadata" if name in METADATA else "Not yet supported"
             if name in ("ASOBO_asset_optimized", "ASOBO_material_invisible", "ASOBO_material_environment_occluder",
                         "ASOBO_normal_map_convention", "ASOBO_material_draw_order", "ASOBO_material_emissive",
-                        "ASOBO_material_detail_map", "ASOBO_material_UV_options", "ASOBO_occlusion_strength",
+                        "ASOBO_material_flip_back_face", "ASOBO_material_detail_map", "ASOBO_material_UV_options", "ASOBO_occlusion_strength",
                         "ASOBO_material_fresnel_fade", "ASOBO_material_ghost_effect", "ASOBO_material_alphamode_dither",
                         "ASOBO_material_anisotropic_v2", "ASOBO_material_shadow_options", "MSFT_texture_dds"):
                 status = "Rendered"
             elif name in ("ASOBO_material_geometry_decal", "ASOBO_material_blend_gbuffer",
                           "ASOBO_material_windshield_v3", "ASOBO_material_glass_v2",
                           "ASOBO_material_windshield", "ASOBO_material_glass", "ASOBO_material_kitty_glass",
-                          "ASOBO_material_SSS", "ASOBO_sky_portal"):
+                          "ASOBO_material_SSS", "ASOBO_sky_portal", "ASOBO_property_animation"):
                 status = "Partial"
             elif name in ("ASOBO_material_disable_motion_blur", "ASOBO_material_fake_terrain"):
                 status = "Not applicable"

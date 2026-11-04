@@ -139,6 +139,7 @@ public:
     bool decalReceiverWithoutTransmission = false;
     RenderSettings renderSettings;
     std::string fragmentShader;
+    std::string debugName; // the glTF material, for the draw-call dump
     std::vector<gl::Sampler> samplers;
     std::vector<gl::Uniform> uniforms;
 

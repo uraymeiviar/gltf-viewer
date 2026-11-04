@@ -5,6 +5,7 @@
 #include "renderer/gl/FrameBuffer.h"
 #include "renderer/gl/Program.h"
 #include "renderer/gl/Util.h"
+#include "renderer/DrawTrace.h"
 
 ux3d::renderer::CommandExecutor::CommandExecutor(gl::GL* gl)
     : m_gl(gl)
@@ -205,6 +206,10 @@ void ux3d::renderer::CommandExecutor::draw(const Command& command)
 
     GLIDER_HOT_GL_CHECK(m_gl, "before draw failed");
 
+    if (drawtrace::active) {
+        drawtrace::command = &command;
+    }
+
     if (command.indexBuffer != nullptr) {
         m_gl->bindBuffer(GL_ELEMENT_ARRAY_BUFFER, command.indexBuffer->handle);
         const auto* offset = reinterpret_cast<const void*>(static_cast<size_t>(command.indexByteOffset));
@@ -230,6 +235,8 @@ void ux3d::renderer::CommandExecutor::draw(const Command& command)
             command.primitiveOffset,
             command.primitiveCount);
     }
+
+    drawtrace::command = nullptr;
 
     GLIDER_HOT_GL_CHECK(m_gl, "draw failed");
 }

@@ -68,6 +68,7 @@ void ExtensionInspector::loadAllSchemas()
         "ASOBO_material_emissive",
         "ASOBO_material_environment_occluder",
         "ASOBO_material_fake_terrain",
+        "ASOBO_material_flip_back_face",
         "ASOBO_material_fresnel_fade",
         "ASOBO_material_geometry_decal",
         "ASOBO_material_ghost_effect",

@@ -16,6 +16,8 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <string_view>
+#include <vector>
 #ifdef _WIN32
 #include <fcntl.h>
 #include <io.h>
@@ -504,10 +506,48 @@ int Application::run(int argc, char** argv)
 
 namespace ux3d::imgui {
 
+// --test and --capture stand for a list of flags. They are expanded here, in place, so every pre-scan and the
+// parser see the same list and a flag written after the preset overrides it.
+static std::vector<std::string> expandPresetArguments(int argc, char** argv)
+{
+    std::vector<std::string> expanded;
+    expanded.reserve(static_cast<size_t>(argc));
+    const auto addTestFlags = [&expanded]() {
+#ifdef _WIN32
+        _putenv_s("GLIDER_NO_FOCUS", "1");
+#else
+        setenv("GLIDER_NO_FOCUS", "1", 1);
+#endif
+        expanded.insert(expanded.end(), {"--isolated", "--window-size", "1280x720", "--fixed-frame-time", "0.05",
+                                         "--vsync", "off", "--aa", "none"});
+    };
+    for (int i = 0; i < argc; ++i) {
+        const std::string_view arg = argv[i];
+        if (i > 0 && arg == "--test") {
+            addTestFlags();
+        } else if (i > 0 && arg == "--capture" && i + 1 < argc) {
+            const std::string png = argv[++i];
+            addTestFlags();
+            expanded.insert(expanded.end(), {"--capture-viewport", png, "--capture-frame", "24", "--profile-report",
+                                             png + ".json", "--exit-after-profile"});
+        } else {
+            expanded.emplace_back(arg);
+        }
+    }
+    return expanded;
+}
+
 int runApplication(int argc, char** argv)
 {
+    std::vector<std::string> arguments = expandPresetArguments(argc, argv);
+    std::vector<char*> pointers;
+    pointers.reserve(arguments.size() + 1);
+    for (std::string& argument : arguments) {
+        pointers.push_back(argument.data());
+    }
+    pointers.push_back(nullptr);
     application::Application app;
-    return app.run(argc, argv);
+    return app.run(static_cast<int>(arguments.size()), pointers.data());
 }
 
 } // namespace ux3d::imgui

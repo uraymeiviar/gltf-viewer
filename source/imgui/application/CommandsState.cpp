@@ -5,6 +5,8 @@
 
 #include "CommandsInternal.h"
 
+#include "imgui/RuntimeTelemetry.h"
+
 namespace ux3d::imgui::application {
 
 json Application::legacyStateJson()
@@ -94,6 +96,7 @@ json Application::agentStateJson()
     st["sky"] = skyStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene));
     st["night"] = nightStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene));
     st["ssao"] = ssaoStateJson();
+    st["drawCalls"] = ux3d::imgui::RuntimeTelemetry::get().drawCalls;
     // Settings scopes: renderer-wide quality, the active scene's effects.
     st["quality"] = qualityStateJson();
     st["gltfExtensions"] = ux3d::imgui::GltfExtensionSettings::instance().stateJson();

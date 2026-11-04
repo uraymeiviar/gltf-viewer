@@ -93,7 +93,7 @@ Suites (equivalence against the baseline plus each feature's analytic acceptance
   then, one at a time: validate_asobo_model.py, validate_asobo_normal.py, validate_asobo_common.py,
   validate_asobo_support.py, validate_asobo_draworder.py, validate_asobo_packaged.py,
   validate_asobo_uv_options.py
-  validate_asobo_occlusion_strength.py, validate_asobo_fresnel_ghost.py, validate_asobo_dither.py,
+  validate_asobo_occlusion_strength.py, validate_asobo_fresnel_ghost.py, validate_asobo_flip_back_face.py, validate_cli_presets.py, validate_asobo_dither.py,
   validate_asobo_anisotropy.py, validate_asobo_sss.py, validate_sun.py (A3.1 sun; sun off against the baseline),
   validate_shadows.py (A3.2 cascaded sun shadows; sun off and shadows off against the baseline),
   validate_ground.py (A3.6 ground plane: shadow, lit value, IBL, model base, stability; Grid against the baseline),
@@ -149,6 +149,9 @@ Suites (equivalence against the baseline plus each feature's analytic acceptance
   diffuse_roughness: roughness 0 byte-identical, EON profiles and energy against a Python reference, texture,
   animated, pipe; MSFT_lod / MSFT_packing_*: render = core twins, ORM used only without core textures, required + off
   refused; Khronos samples lit from behind when present; validator; twins against the baseline),
+  validate_draw_call_stat.py (the Statistics panel's live draw-call count through get_state),
+  validate_asobo_property_animation.py (A7.3: a real exporter file against KHR_animation_pointer and static twins on
+  its keys, the switch, undeclared and malformed channels, animated UV options without the extension),
   validate_animation_keys.py (animation sampling against the glTF rules: STEP / LINEAR / CUBICSPLINE translation,
   LINEAR rotation, KHR_animation_pointer visibility, STEP and CUBICSPLINE morph weights at t = 0, exactly on each
   key, between keys, the clip end, past the end and before the first key through the pipe; the timeline's end,
@@ -305,6 +308,16 @@ TRIGGERS = (
      ("OpenGL-Renderer/Tools/Runtime/runtime/animation/*", "GltfRenderLayerNodes.cpp", "AnimationPlayer.*",
       "TransformAnimationTarget.h", "KHRAnimationPointerTarget.h", "AnimationChannelTarget.*", "AnimationsFromJson.*",
       "source/imgui/application/CommandsHandlers.cpp", "validate_animation_keys.py")),
+    # ASOBO_property_animation: the loader's channels, their switch and the animated ASOBO UV options.
+    (("asobo_property_animation",),
+     ("AnimationsFromJson.*", "AnimationChannel.h", "AnimationsToJson.*", "AnimationChannelsToJson.*",
+      "AsoboSupport.*", "GltfRenderLayerMaterials.cpp", "GltfRenderLayerNodes.cpp", "KHRAnimationPointerTarget.h",
+      "resources/test_models/asobo_property_animation/*", "validate_asobo_property_animation.py")),
+    # The live draw-call count of the Statistics panel and get_state.
+    (("draw_call_stat",),
+     ("Profiling.*", "RuntimeTelemetry.h", "StatisticsPanel.cpp", "source/imgui/application/Frame.cpp",
+      "source/imgui/application/CommandsState.cpp", "source/imgui/application/CommandsHandlers.cpp", "DrawTrace.h",
+      "validate_draw_call_stat.py")),
     (("settings_scopes", "viewport_image", "area_maximize", "agent_control", "review_fixes"),
      ("Settings*", "ViewportOverrides.*", "source/imgui/application/Commands*", "ControlPipe.*",
       "CommandRegistry.*", "AreaLayout.cpp", "Menus.cpp", "ViewportImage.cpp", "Panels.cpp", "AppSettings.*",
@@ -466,6 +479,8 @@ serial_jobs = [
     ("asobo_uv_options", ["scripts/validate_asobo_uv_options.py"]),
     ("asobo_occlusion", ["scripts/validate_asobo_occlusion_strength.py"]),
     ("asobo_fresnel_ghost", ["scripts/validate_asobo_fresnel_ghost.py", "--baseline-exe", str(baseline)]),
+    ("asobo_flip_back_face", ["scripts/validate_asobo_flip_back_face.py", "--baseline-exe", str(baseline)]),
+    ("cli_presets", ["scripts/validate_cli_presets.py"]),
     ("asobo_dither", ["scripts/validate_asobo_dither.py", "--baseline-exe", str(baseline)]),
     ("asobo_anisotropy", ["scripts/validate_asobo_anisotropy.py", "--baseline-exe", str(baseline)]),
     ("asobo_sss", ["scripts/validate_asobo_sss.py", "--baseline-exe", str(baseline)]),
@@ -498,6 +513,8 @@ serial_jobs = [
     ("extension_switches", ["scripts/validate_extension_switches.py", "--baseline-exe", str(baseline)]),
     ("node_visibility", ["scripts/validate_node_visibility.py", "--baseline-exe", str(baseline)]),
     ("animation_keys", ["scripts/validate_animation_keys.py", "--baseline-exe", str(baseline)]),
+    ("asobo_property_animation", ["scripts/validate_asobo_property_animation.py"]),
+    ("draw_call_stat", ["scripts/validate_draw_call_stat.py"]),
     ("trivial_extensions", ["scripts/validate_trivial_extensions.py", "--baseline-exe", str(baseline)]),
     ("diffuse_extensions", ["scripts/validate_diffuse_extensions.py", "--baseline-exe", str(baseline)]),
 ]

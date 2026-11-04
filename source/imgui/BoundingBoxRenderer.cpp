@@ -164,7 +164,7 @@ void BoundingBoxRenderer::draw(const glm::vec3& minBounds, const glm::vec3& maxB
     glBindVertexArray(m_vao);
     glDrawArrays(GL_LINES, 0, 24);
     glBindVertexArray(0);
-    ux3d::imgui::profiling::countAppDrawCall();
+    ux3d::imgui::profiling::countAppDrawCall("Bounding box");
     ux3d::imgui::profiling::countBufferUpload(sizeof(lineVertices));
 
     glDisable(GL_POLYGON_OFFSET_LINE);

@@ -1061,10 +1061,17 @@ void ElementInspector::render(SelectionState& selection,
                     case ux3d::gltf::AnimationPath::Weights: pathStr = "Weights"; break;
                     default: break;
                 }
+                // KHR_animation_pointer and ASOBO_property_animation channels target a property, not a node.
+                const auto& targetPointer = ch.getTarget().m_animationPointer;
+                if (targetPointer.has_value()) {
+                    pathStr = std::get<1>(*targetPointer).c_str();
+                    const auto* targetObject = std::get<0>(*targetPointer);
+                    targetNodeName = targetObject != nullptr && targetObject->hasName() ? targetObject->getName().c_str() : "Unnamed";
+                }
 
                 std::string chLabel = "Channel #" + std::to_string(chIdx) + " (" + pathStr + ")";
                 if (ImGui::TreeNode(chLabel.c_str())) {
-                    ImGui::Text("Target Node: %s", targetNodeName.c_str());
+                    ImGui::Text(targetPointer.has_value() ? "Target Object: %s" : "Target Node: %s", targetNodeName.c_str());
                     if (targetNode != nullptr) {
                         ImGui::SameLine();
                         std::string selBtn = "Inspect Node##Ch" + std::to_string(chIdx);

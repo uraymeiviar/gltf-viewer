@@ -452,6 +452,12 @@ std::tuple<RendererScene, ReverseMapping> GltfRenderLayer::createScene(const glt
             // A3.4: ASOBO_material_SSS per viewport; off compiles the core variant.
             entry.material->defines.defineIf(entry.material->asoboSss && asoboOptions.applies("ASOBO_material_SSS"),
                 "ASOBO_SSS");
+            // ASOBO_material_flip_back_face: in an MSFS file the back of a double-sided material keeps the front
+            // normal unless the material declares this extension; off (or any other file) is the core flip.
+            const auto* flipBackFace = extensions != nullptr ? extensions->find("ASOBO_material_flip_back_face") : nullptr;
+            const bool flipsBackFace = flipBackFace != nullptr && flipBackFace->boolean("enabled").value_or(true);
+            entry.material->defines.defineIf(m_assetHasAsoboExtensions && entry.material->isDoubleSided && !flipsBackFace
+                && asoboOptions.applies("ASOBO_material_flip_back_face"), "ASOBO_BACKFACE_NO_FLIP");
             entry.material->defines.defineIf(windshield, "ASOBO_MATERIAL_WINDSHIELD");
             entry.material->defines.defineIf(windshield && windshieldV3 != nullptr, "ASOBO_MATERIAL_WINDSHIELD_V3");
             entry.material->defines.defineIf(windshield && windshieldV3 == nullptr, "ASOBO_MATERIAL_WINDSHIELD_LEGACY");

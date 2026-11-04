@@ -140,6 +140,7 @@ The validator reports a switched-off extension a file declares like an unsupport
 | `ux3d_gestaltor` | ux3d | Metadata | Gestaltor's storage hints ignored (animations use their default playing state). |
 | `ASOBO_*` rendering switches | ASOBO | Rendered / Partial | Rendered as if the file had no such extension (no reload; also off with `ASOBO`). |
 | `ASOBO_animation_retargeting`, `ASOBO_softbody_mesh`, `ASOBO_tags`, `ASOBO_unique_id` | ASOBO | Metadata | Not read (not listed in the Inspector); applied at load, not by the master switch. |
+| `ASOBO_property_animation` | ASOBO | Partial | Material animation channels are not played; node channels still play. Applied at load, not by the master switch. |
 | `ASOBO_material_disable_motion_blur`, `ASOBO_material_fake_terrain` | ASOBO | Not applicable | Not read; nothing visible changes. |
 | `ASOBO_asset_optimized` | ASOBO | Rendered | No switch: it describes how the file stores its vertex data and is always read (`--asobo-disable` keeps it applied, A1.9). |
 

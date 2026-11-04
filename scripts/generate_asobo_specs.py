@@ -103,6 +103,8 @@ KEY_ALIASES = {
 EXTRA_EXTENSIONS = {
     "ASOBO_unique_id": {"id": ("String", None)},
     "ASOBO_asset_optimized": {},
+    # Written as {"enabled": true} only when double-sided and flip are both set (asobo_material_flip_back_face.py).
+    "ASOBO_material_flip_back_face": {"enabled": ("Boolean", True)},
     # The exporter's name and key for what the schema calls ASOBO_extra_occlusion_texture / extra_occlusion_texture;
     # it always writes texCoord 1.
     "ASOBO_extra_occlusion": {"extraOcclusionTexture": ("Texture", None)},

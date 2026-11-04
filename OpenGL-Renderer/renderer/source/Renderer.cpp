@@ -3,6 +3,7 @@
 #include "renderer/Renderer.h"
 #include "renderer/CommandGenerator.h"
 #include "renderer/gl/Util.h"
+#include "renderer/DrawTrace.h"
 
 ux3d::renderer::Renderer::Renderer(gl::GL* gl)
     : m_gl(gl)
@@ -104,6 +105,11 @@ bool ux3d::renderer::Renderer::onDrawScenes(const core::Vector<CommandGenerator*
                     ? ("pass" + std::to_string(passIndex))
                     : pass->getName();
                 m_gpuProfiler.beginPass(passName);
+                if (drawtrace::active) {
+                    drawtrace::stage = m_gpuLabel;
+                    drawtrace::viewport = m_gpuViewport;
+                    drawtrace::pass = passName;
+                }
                 if (!commands.empty()) {
                     m_lastExecutedPasses.push_back(passName);
                 }
@@ -123,6 +129,7 @@ bool ux3d::renderer::Renderer::onDrawScenes(const core::Vector<CommandGenerator*
                 }
 
                 pass->deinit(*this); // clean up
+                drawtrace::pass.clear();
                 m_gpuProfiler.endPass();
             }
             ++passIndex;

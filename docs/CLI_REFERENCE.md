@@ -49,6 +49,12 @@ scene ground, viewport postEffects and vendor tuning while retaining old diagnos
 
 - `--frame-margin <x>`: Distance multiplier for `--frame-node` (default 1.0; 2.0 frames twice as far away).
 
+- `--test`: the deterministic test preset, standing for `--isolated --window-size 1280x720 --fixed-frame-time 0.05 --vsync off --aa none`, and it sets `GLIDER_NO_FOCUS=1`. It expands in place, so a flag written after it overrides it.
+
+- `--capture <png>`: `--test` plus `--capture-viewport <png> --capture-frame 24 --profile-report <png>.json --exit-after-profile`: one image of frame 24, a report next to it, then exit.
+
+- `--set <key=value>` (repeatable): set any registered setting at startup, in whichever scope owns the key (the real setting before a compatibility key). The keys and values are those of `list_settings` and `--agent-guide`. An unknown key, a bad value or a missing `=` exits with code 1. A colour or vector takes comma-separated numbers. The older single-purpose flags stay as they are.
+
 - `--search-path <dir>` (repeatable): extra texture folder for this run, relative to the model; works with `--isolated`, which ignores `settings.ini`. In **File → Settings → Search Paths**, folders may use case-insensitive wildcards: `../texture*` matches sibling texture folders, `../*` searches immediate sibling folders, and `../**` searches recursively. Recursive expansion skips symlinks/junctions; reload the model to rescan newly created folders.
 
 - Search Paths starts with the ordinary, removable `../texture*` list item when `[SearchPaths]` is absent. Removing every item persists `[SearchPaths] count=0`, so the default stays removed after restarting. Existing saved lists are authoritative; restoring the default-only list removes the override section, consistent with saving only non-default values. The model's own folder remains the separate implicit lookup location.

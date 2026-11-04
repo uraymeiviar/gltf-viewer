@@ -37,10 +37,15 @@ public:
         : GltfObject(_source)
         , m_Target(_rootAnimation, _source.m_Target)
         , m_RootAnimation(_rootAnimation)
+        , m_fromPropertyAnimation(_source.m_fromPropertyAnimation)
     {
     }
 
     virtual ~AnimationChannel() = default;
+
+    // Built by the loader from the animation's ASOBO_property_animation extension, which stays the saved form: the
+    // channel plays like a KHR_animation_pointer channel but is never written to animation.channels.
+    bool m_fromPropertyAnimation = false;
 
     AnimationSampler* getSampler() { return m_pSampler; }
     const AnimationSampler* getSampler() const { return m_pSampler; }

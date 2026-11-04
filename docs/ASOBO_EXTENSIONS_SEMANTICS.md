@@ -1387,14 +1387,15 @@ For OPAQUE and MASK materials (BLEND, `KHR_materials_transmission` and unlit mat
 - `SSSColor = 0` adds exactly zero (byte-identical to the material without the extension). With the default
   white, a back-lit thin surface transmits half of the light a facing surface receives.
 - The direct-light term is one function, `asoboSssDirectDiffuse` (`resources/shaders/asobo_sss.glsl`), taking the
-  light's irradiance and direction; the A3.1 sun will call it like the punctual lights.
+  light's irradiance and direction; the A3.1 sun calls it like the punctual lights. With A3.2 shadows on, the wrapped
+  part takes the sun's visibility and the transmitted part (`asoboSssTransmittedDiffuse`) the visibility sampled at the
+  back side of the surface (normal offset along -ng), so a thin sheet lit from behind is not shadowed by itself.
 - Dither (A1.7) and the decal receiver path (A2.2) are independent of it: dithered SSS shells keep their pattern,
   decal layers change the base colour and normal before SSS reads them.
 - Switch `ASOBO_material_SSS` (File > Settings > glTF Extensions, `--asobo-disable ASOBO_material_SSS`,
   `--asobo off`): off compiles the core variant.
-- Not done: no screen-space or texture-space blur (no scattering radius), no thickness from geometry, no shadows
-  (A3.2), no sun (A3.1). With IBL only (the PMDG VC has no punctual lights), the visible effect is the
-  back-irradiance term.
+- Not done: no screen-space or texture-space blur (no scattering radius), no thickness from geometry. With IBL only
+  (the sun off, and the PMDG VC has no punctual lights), the visible effect is the back-irradiance term.
 
 **Open questions**
 
@@ -1402,6 +1403,28 @@ For OPAQUE and MASK materials (BLEND, `KHR_materials_transmission` and unlit mat
    Needs an MSFS capture of a white-SSS sphere under a known sun.
 2. Does `SSSColor` alpha mean anything (strength)? All files write 1.
 3. Is `opacityTexture` really unused, and if used, is it opacity (1 - transmission) or thickness?
+
+## 18a. `ASOBO_material_flip_back_face` (2026-11-04)
+
+**Coverage: rendered.** No schema ships; the generator lists it from the exporter.
+
+- **V** 2024 SDK (`models-and-textures/textures/materials/flightsim-materials/index.md:483,495`): on a double-sided
+  material "the normal of the back-side face is not flipped by default", and the option flips it. The 2020 SDK
+  (`Materials.htm:342`) says the same.
+- **V** 2024 Blender exporter (`io/com/extensions/material/asobo_material_flip_back_face.py`): writes `{"enabled": true}`
+  only when both double-sided and flip are set; it never writes `false`.
+- **I** A file counts as MSFS when `extensionsUsed` holds any `ASOBO_` extension (`declaresAsoboExtensions`). A file with
+  none keeps the core glTF rule, since nothing tells the two apart there.
+
+**Glider rendering**
+
+- MSFS file, double-sided material, extension absent or `enabled: false`: `ASOBO_BACKFACE_NO_FLIP` is defined, and the
+  forward shader (`material_info.glsl`) and the decal prepass keep the front `t`, `b` and `ng` on back faces. Facing away
+  from the viewer, `N.V` then clamps to 0, as the unflipped normal points the other way.
+- Extension present (`enabled` true or absent): the core flip.
+- Switch (`--asobo-disable ASOBO_material_flip_back_face`, `--asobo off`, File > Settings > glTF Extensions): the core
+  flip for every material. It is per viewport, like the other material variants.
+- Check: `scripts/validate_asobo_flip_back_face.py`.
 
 ## 19. `ASOBO_sky_portal` (A3.7, 2026-10-28)
 

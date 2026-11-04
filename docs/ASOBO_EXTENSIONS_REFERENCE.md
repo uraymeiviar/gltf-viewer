@@ -111,6 +111,7 @@ the planned behavior. Exact semantics are confirmed per task against the sources
 | `ASOBO_material_glass_v2` | `glassWidth` | MSFS glass shader | Ignored | A4 |
 | `ASOBO_material_windshield` | `rainDropScale`, `wiper1–4State`, `wiperMaskTexture` | Windshield (v1) | **Partial** (reflection + SSR, details 1/2, detail reflection, secondary details, icing; wipers/rain ignored) | A4 |
 | `ASOBO_material_windshield_v3` | detail roughness/opacity, micro-scratches, `detailNormalRefractScale`, wiper lines and state, three textures | Windshield with scratches, detail reflection, micro-scratches, icing | **Partial** (reflection + SSR, details 1/2, detail reflection, micro-scratches, secondary details, icing; wipers/rain/insects ignored; refraction not applicable) | A4 |
+| `ASOBO_material_flip_back_face` (no schema shipped) | `enabled` | Flips back-face normals of a double-sided material | **Rendered** (in an MSFS file, back faces of a double-sided material keep the front normal unless declared; semantics section 18a) | A7 |
 | `ASOBO_material_fresnel_fade` | `fresnelFactor`, `fresnelOpacityOffset` | View-angle-dependent opacity | **Rendered** (BLEND alpha x `clamp(pow(N.V, fresnelFactor) - fresnelOpacityOffset, 0, 1)`, inferred; OPAQUE/MASK unchanged) | A4.4 |
 | `ASOBO_material_ghost_effect` | `bias`, `scale`, `power` | Fresnel-style ghost transparency | **Rendered** (BLEND alpha x `clamp(bias + scale * pow(1 - N.V, power), 0, 1)`, inferred; OPAQUE/MASK unchanged) | A4.4 |
 
@@ -118,7 +119,7 @@ the planned behavior. Exact semantics are confirmed per task against the sources
 
 | Extension | Schema properties | Viewer meaning | Current | Phase |
 |---|---|---|---|---|
-| `ASOBO_material_SSS` | `SSSColor` (RGBA in every file and exporter; schema says 2 items), `opacityTexture` | Subsurface scattering approximation | **Partial** (OPAQUE/MASK: wrapped diffuse tinted by `SSSColor` and back-lit translucency, IBL from -N and lights behind, x `SSSColor` x base colour x `1 - opacityTexture.r`; default white; formulas inferred, no blur, no sun/shadows yet) | A3.4 |
+| `ASOBO_material_SSS` | `SSSColor` (RGBA in every file and exporter; schema says 2 items), `opacityTexture` | Subsurface scattering approximation | **Partial** (OPAQUE/MASK: wrapped diffuse tinted by `SSSColor` and back-lit translucency, IBL from -N and lights behind, x `SSSColor` x base colour x `1 - opacityTexture.r`; default white; formulas inferred, no blur; the sun and its shadow are included) | A3.4 |
 | `ASOBO_material_sail` | `sailLightAbsorption` (0–1, requires double-sided) | Back-face lighting and translucency | Ignored | A7 |
 | `ASOBO_material_parallax_window` | `parallaxScale`, `roomSizeX/YScale`, `roomNumberXY`, `behindWindowMapTexture` | Interior mapping behind a flat window | Ignored | A5 |
 | `ASOBO_material_wind_flex` | `windFlexNormal` | Wind-animated detail normal; needs a viewer time/wind setting | Ignored | A5 |
@@ -153,6 +154,6 @@ the planned behavior. Exact semantics are confirmed per task against the sources
 | `ASOBO_street_light` (no schema shipped) | macro_light parameters plus `random_phase`, `flare_enabled`, `flare_only` | MSFS 2024 successor of `ASOBO_macro_light` (scenery, vehicles) | Not listed | deferred |
 | `ASOBO_advanced_light` (no schema shipped) | shape (point, sphere, disc), source radius, inner/outer cone, colour, intensity, interior/exterior channels | Punctual or area light | Not listed | deferred |
 | `ASOBO_softbody_mesh` | `type` (`balloon`) | Metadata (physics) | Inspector | A7 |
-| `ASOBO_property_animation` | `channels[]` (sampler, target) | Animates material or other properties; map onto the existing `KHR_animation_pointer` support | Inspector | A7 (low priority) |
+| `ASOBO_property_animation` | `channels[]` (sampler, target) | Animates material properties through the `KHR_animation_pointer` path: base colour, emissive, metallic, roughness, UV tiling, offset, rotation | Partial: wiper, wear and tire targets not drawn | A7.3 done |
 | `ASOBO_animation_retargeting` | `id` | Node identity for retargeting animations between files | Inspector | A7 |
 | `ASOBO_unique_id` (no schema) | `id` | Node identity; show in the inspector and search | Inspector | A7 |

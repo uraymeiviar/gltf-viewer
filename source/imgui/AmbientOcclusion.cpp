@@ -3,6 +3,7 @@
 // AmbientOcclusion (A3.5, declared in AmbientOcclusion.h): the GTAO pass, its denoise / upsample and targets.
 
 #include "imgui/AmbientOcclusion.h"
+#include "imgui/Profiling.h"
 
 namespace ux3d::imgui {
 
@@ -117,6 +118,7 @@ bool AmbientOcclusion::compute(const Params& params)
     glUniform1i(m_gtao.loc("u_SliceCount"), params.sliceCount);
     glUniform1i(m_gtao.loc("u_StepCount"), params.stepCount);
     glDrawArrays(GL_TRIANGLES, 0, 3);
+    ux3d::imgui::profiling::countAppDrawCall("SSAO");
 
     // 2. Depth-aware denoise (into the result at full resolution, into the half target otherwise).
     const Target& denoiseTarget = m_half ? m_denoised : m_result;
@@ -130,6 +132,7 @@ bool AmbientOcclusion::compute(const Params& params)
     glUniform1i(m_denoise.loc("u_AoScale"), scale);
     glUniform1f(m_denoise.loc("u_DepthTolerance"), kDenoiseDepthTolerance);
     glDrawArrays(GL_TRIANGLES, 0, 3);
+    ux3d::imgui::profiling::countAppDrawCall("SSAO denoise");
 
     // 3. Half resolution: depth-aware upsample to the full-resolution result.
     if (m_half) {
@@ -146,6 +149,7 @@ bool AmbientOcclusion::compute(const Params& params)
         glUniformMatrix4fv(m_upsample.loc("u_InvProjection"), 1, GL_FALSE, glm::value_ptr(inverseProjection));
         glUniform1f(m_upsample.loc("u_DepthTolerance"), kUpsampleDepthTolerance);
         glDrawArrays(GL_TRIANGLES, 0, 3);
+        ux3d::imgui::profiling::countAppDrawCall("SSAO upsample");
     }
 
     for (GLuint unit = 0; unit < 2; ++unit) {

@@ -6,6 +6,27 @@
 #include "GltfRenderLayerInternal.h"
 
 namespace {
+constexpr std::string_view AsoboUVOptionsPointer = "extensions/ASOBO_material_UV_options/";
+
+// A7.3: ASOBO_property_animation drives this material's UV options, so it needs the UV shader variant even when the
+// file's own values are the defaults (and even when the material has no ASOBO_material_UV_options at all).
+bool hasAsoboUVAnimation(const gltf::Gltf* model, const gltf::Material* material)
+{
+    if (model == nullptr || !model->isExtensionDeclared("ASOBO_property_animation")) {
+        return false;
+    }
+    for (const gltf::Animation& animation : model->getAnimations()) {
+        for (const gltf::AnimationChannel& channel : animation.getChannels()) {
+            const auto& pointer = channel.getTarget().m_animationPointer;
+            if (channel.m_fromPropertyAnimation && pointer.has_value() && std::get<0>(*pointer) == material
+                && std::get<1>(*pointer).rfind(AsoboUVOptionsPointer, 0) == 0) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 // ASOBO_material_invisible (MSFS SDK schema, resources/schemas/asobo): the material is not
 // rendered when the extension is declared, present and "enabled" (its default is true).
 bool isAsoboInvisible(const gltf::asobo::ExtensionSet& extensions)
@@ -199,6 +220,7 @@ void GltfRenderLayer::initMaterialMapping(gl::GL* gl)
             return false;
         }
         material->gltfMaterialId = gltfMaterial->m_ID;
+        material->debugName = gltfMaterial->getName();
         material->nonTransmissivePass = gltfMaterial->getAlphaModeOrDefault() == gltf::AlphaMode::Blend
             ? static_cast<RenderPass*>(m_resourceManager.getTransparentPass()) : m_resourceManager.getOpaquePass();
         material->asobo.reset();
@@ -507,16 +529,19 @@ void GltfRenderLayer::initMaterialMapping(gl::GL* gl)
         }
 
         // A5.2: declared, typed extension only. Defaults stay on the original shader variant.
-        if (const gltf::asobo::ExtensionData* uv = material->asobo != nullptr
-                ? material->asobo->find("ASOBO_material_UV_options") : nullptr) {
-            const math::vec2 tiling(static_cast<float>(uv->number("UVTilingU").value_or(1.0)),
-                                    static_cast<float>(uv->number("UVTilingV").value_or(1.0)));
-            const math::vec2 offset(static_cast<float>(uv->number("UVOffsetU").value_or(0.0)),
-                                    static_cast<float>(uv->number("UVOffsetV").value_or(0.0)));
-            const float rotation = static_cast<float>(uv->number("UVRotation").value_or(0.0));
-            const bool clampU = uv->boolean("clampUVX").value_or(false);
-            const bool clampV = uv->boolean("clampUVY").value_or(false);
-            if (tiling != math::vec2(1.0f) || offset != math::vec2(0.0f) || rotation != 0.0f || clampU || clampV) {
+        const gltf::asobo::ExtensionData* asoboUV = material->asobo != nullptr
+            ? material->asobo->find("ASOBO_material_UV_options") : nullptr;
+        const bool asoboUVAnimated = hasAsoboUVAnimation(m_syncingGltf, gltfMaterial);
+        if (asoboUV != nullptr || asoboUVAnimated) {
+            const auto uvNumber = [asoboUV](const char* key, double fallback) {
+                return static_cast<float>(asoboUV != nullptr ? asoboUV->number(key).value_or(fallback) : fallback);
+            };
+            const math::vec2 tiling(uvNumber("UVTilingU", 1.0), uvNumber("UVTilingV", 1.0));
+            const math::vec2 offset(uvNumber("UVOffsetU", 0.0), uvNumber("UVOffsetV", 0.0));
+            const float rotation = uvNumber("UVRotation", 0.0);
+            const bool clampU = asoboUV != nullptr && asoboUV->boolean("clampUVX").value_or(false);
+            const bool clampV = asoboUV != nullptr && asoboUV->boolean("clampUVY").value_or(false);
+            if (asoboUVAnimated || tiling != math::vec2(1.0f) || offset != math::vec2(0.0f) || rotation != 0.0f || clampU || clampV) {
                 material->defines.define("ASOBO_MATERIAL_UV_OPTIONS");
                 material->setUniform<math::vec2>("u_AsoboUVTiling", tiling);
                 material->setUniform<math::vec2>("u_AsoboUVOffset", offset);
@@ -524,6 +549,32 @@ void GltfRenderLayer::initMaterialMapping(gl::GL* gl)
                 material->setUniform<math::vec2>("u_AsoboUVRotation", math::vec2(std::cos(angle), std::sin(angle)));
                 material->setUniform<math::vec2>("u_AsoboUVClamp", math::vec2(clampU ? 1.f : 0.f, clampV ? 1.f : 0.f));
             }
+            if (asoboUVAnimated) {
+                // A7.3: each channel drives one component, so the other one comes from this shared state. The next
+                // material sync restores the file's values and starts a new state.
+                const auto animatedTiling = std::make_shared<math::vec2>(tiling);
+                const auto animatedOffset = std::make_shared<math::vec2>(offset);
+                const auto component = [this, gltfMaterial, material](const char* key, std::shared_ptr<math::vec2> state, int index, const char* uniform) {
+                    m_animationPointerTargets[{ gltfMaterial, std::string(AsoboUVOptionsPointer) + key }].callback = KHRAnimationPointerTarget::Callback<float> {
+                        [material, state, index, uniform](const float& value) -> void {
+                            (*state)[index] = value;
+                            material->setUniform<math::vec2>(uniform, *state);
+                        }
+                    };
+                };
+                component("UVTilingU", animatedTiling, 0, "u_AsoboUVTiling");
+                component("UVTilingV", animatedTiling, 1, "u_AsoboUVTiling");
+                component("UVOffsetU", animatedOffset, 0, "u_AsoboUVOffset");
+                component("UVOffsetV", animatedOffset, 1, "u_AsoboUVOffset");
+                m_animationPointerTargets[{ gltfMaterial, std::string(AsoboUVOptionsPointer) + "UVRotation" }].callback = KHRAnimationPointerTarget::Callback<float> {
+                    [material](const float& value) -> void {
+                        const float angle = math::radians(value);
+                        material->setUniform<math::vec2>("u_AsoboUVRotation", math::vec2(std::cos(angle), std::sin(angle)));
+                    }
+                };
+            }
+        }
+        if (const gltf::asobo::ExtensionData* uv = asoboUV) {
             // The typed parser prefers the exporter spelling. Report an authored conflict
             // once per process, including material refreshes caused by Inspector edits.
             static bool reportedOffsetAlias = false;
@@ -944,6 +995,9 @@ void GltfRenderLayer::initMaterialMapping(gl::GL* gl)
     m_materialMapping.destroyRendererobjectFromGltf = [this](const gltf::Material* gltfMaterial, renderer::Material* material) {
         delete material;
 
+        for (const char* key : { "UVTilingU", "UVTilingV", "UVOffsetU", "UVOffsetV", "UVRotation" }) {
+            m_animationPointerTargets.erase({ gltfMaterial, std::string(AsoboUVOptionsPointer) + key });
+        }
         m_animationPointerTargets.erase({ gltfMaterial, "alphaCutoff" });
         m_animationPointerTargets.erase({ gltfMaterial, "emissiveFactor" });
         m_animationPointerTargets.erase({ gltfMaterial, "normalTexture/scale" });

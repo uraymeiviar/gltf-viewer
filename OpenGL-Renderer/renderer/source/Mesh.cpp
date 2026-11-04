@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <atomic>
 #include <mutex>
+#include <numeric>
 #include <string>
 #include <vector>
 
@@ -87,6 +88,7 @@ Mesh::Mesh(Mesh&& other)
     , uniforms(std::move(other.uniforms))
     , uniformBlocks(std::move(other.uniformBlocks))
     , vertexShader(std::move(other.vertexShader))
+    , debugName(std::move(other.debugName))
     , indexBuffer(other.indexBuffer)
     , m_transform(other.m_transform)
     , m_gl(other.m_gl)
@@ -122,6 +124,7 @@ Mesh::Mesh(const Mesh& other)
     , uniforms(other.uniforms)
     , uniformBlocks(other.uniformBlocks)
     , vertexShader(other.vertexShader)
+    , debugName(other.debugName)
     , indexBuffer(other.indexBuffer)
     , m_transform(other.m_transform)
     , m_gl(other.m_gl)
@@ -160,6 +163,8 @@ void Mesh::setInstances(std::vector<Instance> instances, bool boxValid, const ma
     }
     auto instancing = std::make_shared<Instancing>();
     instancing->instances = std::move(instances);
+    instancing->order.resize(instancing->instances.size());
+    std::iota(instancing->order.begin(), instancing->order.end(), 0u);
     instancing->buffer = std::make_unique<gl::Buffer>(m_gl);
     instancing->boxValid = boxValid;
     instancing->boxLo = boxLo;
@@ -213,6 +218,7 @@ void Mesh::updateInstances()
     const size_t count = instancing.instances.size();
     instancing.data.resize(count * 2);
     instancing.worldValid = false;
+    instancing.sortValid = false;
     for (size_t i = 0; i < count; ++i) {
         const Instance& instance = instancing.instances[i];
         // The same expressions as TransformHierarchyNode::traverse (a child node) and updateTransform, so an instance
@@ -233,11 +239,58 @@ void Mesh::updateInstances()
             }
         }
     }
+    uploadInstances();
+}
+
+void Mesh::uploadInstances()
+{
+    Instancing& instancing = *m_instancing;
+    const math::mat4x4* bytes = instancing.data.data();
+    if (!instancing.fileOrder) {
+        instancing.ordered.resize(instancing.data.size());
+        for (size_t slot = 0; slot < instancing.order.size(); ++slot) {
+            const size_t source = instancing.order[slot];
+            instancing.ordered[slot * 2] = instancing.data[source * 2];
+            instancing.ordered[slot * 2 + 1] = instancing.data[source * 2 + 1];
+        }
+        bytes = instancing.ordered.data();
+    }
     // Not gl::Buffer::write: that one reports load progress, and this runs on every transform change.
     m_gl->bindBuffer(GL_ARRAY_BUFFER, instancing.buffer->handle);
     m_gl->bufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(instancing.data.size() * sizeof(math::mat4x4)),
-                     instancing.data.data(), GL_DYNAMIC_DRAW);
+                     bytes, GL_DYNAMIC_DRAW);
     instancing.buffer->residentBytes = instancing.data.size() * sizeof(math::mat4x4);
+}
+
+void Mesh::sortInstancesBackToFront(const math::vec3& cameraPosition, const math::vec3& cameraView)
+{
+    if (!isInstanced()) {
+        return;
+    }
+    Instancing& instancing = *m_instancing;
+    const auto equal = [](const math::vec3& a, const math::vec3& b) { return a.x == b.x && a.y == b.y && a.z == b.z; };
+    if (instancing.sortValid && equal(instancing.sortCameraPosition, cameraPosition)
+        && equal(instancing.sortCameraView, cameraView)) {
+        return;
+    }
+    instancing.sortValid = true;
+    instancing.sortCameraPosition = cameraPosition;
+    instancing.sortCameraView = cameraView;
+
+    const size_t count = instancing.instances.size();
+    std::vector<float> keys(count);
+    for (size_t i = 0; i < count; ++i) {
+        keys[i] = math::dot(cameraView, cameraPosition - math::vec3(instancing.data[i * 2][3]));
+    }
+    std::vector<uint32_t> next(count);
+    std::iota(next.begin(), next.end(), 0u);
+    std::stable_sort(next.begin(), next.end(), [&keys](uint32_t a, uint32_t b) { return keys[a] > keys[b]; });
+    if (next == instancing.order) {
+        return;
+    }
+    instancing.fileOrder = std::is_sorted(next.begin(), next.end());
+    instancing.order = std::move(next);
+    uploadInstances();
 }
 
 bool Mesh::getInstanceWorldBounds(math::vec3& lo, math::vec3& hi) const

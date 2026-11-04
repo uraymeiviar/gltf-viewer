@@ -295,6 +295,7 @@ void GltfRenderLayer::initMeshMapping()
     // Mesh
     m_meshMapping.updateRendererobjectFromGltf = [this](std::tuple<const gltf::Node*, const gltf::Mesh*, const gltf::Primitive*> gltfTuple, renderer::Mesh* mesh) -> bool {
         auto [gltfNode, gltfMesh, gltfPrimitive] = gltfTuple;
+        mesh->debugName = gltfNode->getName();
 
         // A1.9: the packaged asset declares that its triangles are stored clockwise. Keep
         // the declaration on the drawable; CommandMapping combines it with the node rule

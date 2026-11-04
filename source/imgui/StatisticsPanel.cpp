@@ -421,6 +421,7 @@ void StatisticsPanel::render(const ux3d::gltf::Gltf& gltfModel, const std::strin
         {"Process private commit / peak",memoryText(memory.privateCommit) + " / " + memoryText(memory.peakPrivateCommit)},
         {"CPU frame (rolling 240 frames)",cpu},{"GPU render / refresh",gpu},{"Process CPU",process},
         {"Scene rendering",live.lastFrameRendered ? "Redrawn" : "Cached / idle"},
+        {"Draw calls (last scene redraw)",std::to_string(live.drawCalls)},
         {"Quality preset",RenderQuality::profileName(RenderQuality::selectedProfile())},
         {"Adaptive state",RenderQuality::autoStatus()},
         {"Image loading",core::loading::state.imagesOmitted ? "Intentionally omitted (material values only)" : "Enabled"},
@@ -448,9 +449,55 @@ void StatisticsPanel::render(const ux3d::gltf::Gltf& gltfModel, const std::strin
         for (const auto& row : runtime) text += row.label + ": " + row.value + "\n";
         ImGui::SetClipboardText(text.c_str());
     }
+    ImGui::SameLine();
+    static bool drawDumpWaiting = false;
+    static std::string drawDumpStatus;
+    if (ImGui::Button(ICON_MDI_FORMAT_LIST_BULLETED " Copy Draw Calls")) {
+        profiling::requestDrawCallDump();
+        drawDumpWaiting = true;
+        drawDumpStatus = "Recording...";
+    }
+    ImGui::SetItemTooltip("Redraws the scene once and copies each draw call's stage, pass, shader, material and node.");
+    if (drawDumpWaiting) {
+        if (auto dump = profiling::takeDrawCallDump()) {
+            ImGui::SetClipboardText(dump->text.c_str());
+            drawDumpWaiting = false;
+            drawDumpStatus = "Copied " + std::to_string(dump->total);
+        }
+    }
+    if (!drawDumpStatus.empty()) {
+        ImGui::SameLine();
+        ImGui::TextUnformatted(drawDumpStatus.c_str());
+    }
 
     ImGui::Separator();
-    ImGui::Text("CPU %.2f ms   GPU %.2f ms   %.1f FPS   Process %.1f%%",live.cpuMs,live.gpuMs,live.fps,live.cpuPercent);
+    // Equal, fixed column widths and right-aligned values, so a changing number moves nothing beside it.
+    if (ImGui::BeginTable("StatisticsLive", 5, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_BordersInnerV)) {
+        const char* titles[] = {"CPU", "GPU", "FPS", "Process", "Draw calls"};
+        char values[5][32];
+        std::snprintf(values[0], sizeof(values[0]), "%.2f ms", live.cpuMs);
+        std::snprintf(values[1], sizeof(values[1]), "%.2f ms", live.gpuMs);
+        std::snprintf(values[2], sizeof(values[2]), "%.1f", live.fps);
+        std::snprintf(values[3], sizeof(values[3]), "%.1f%%", live.cpuPercent);
+        std::snprintf(values[4], sizeof(values[4]), "%llu", static_cast<unsigned long long>(live.drawCalls));
+        auto rightAligned = [](const char* text) {
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.0f, ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize(text).x));
+            ImGui::TextUnformatted(text);
+        };
+        ImGui::TableNextRow();
+        for (int i = 0; i < 5; ++i) {
+            ImGui::TableSetColumnIndex(i);
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+            rightAligned(titles[i]);
+            ImGui::PopStyleColor();
+        }
+        ImGui::TableNextRow();
+        for (int i = 0; i < 5; ++i) {
+            ImGui::TableSetColumnIndex(i);
+            rightAligned(values[i]);
+        }
+        ImGui::EndTable();
+    }
 
     if (ImGui::BeginTabBar("StatisticsSections")) {
     const bool overview = ImGui::BeginTabItem("Overview");

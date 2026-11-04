@@ -17,6 +17,9 @@ struct SupportInfo {
     // False for extensions that are part of how the file is stored or read (for example
     // ASOBO_asset_optimized), so Viewport Settings lists a switch only where one has an effect.
     bool viewportSwitch = true;
+    // With viewportSwitch false: switchable in File > Settings > glTF Extensions, applied at load. The extension builds
+    // scene data every viewport shares (ASOBO_property_animation channels), so no viewport can opt out while rendering.
+    bool loadSwitch = false;
 };
 
 const std::vector<SupportInfo>& supportTable();

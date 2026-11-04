@@ -57,6 +57,8 @@ REPO = Path(__file__).resolve().parents[1]
 EXE = Path(os.environ.get("GLIDER_EXE") or subprocess.candidate_exe())
 OUT = REPO / "build" / "asobo_packaged"
 ASSET_OPTIMIZED = "ASOBO_asset_optimized"
+FLIP_BACK_FACE = "ASOBO_material_flip_back_face"
+FLIP_DECLARED_ONLY = "ASOBO_tags"  # declared by no material: it only makes the float quad an MSFS file
 WINDSHIELD = "ASOBO_material_windshield_v3"
 
 E190_SOURCE = Path(r"F:\new-fss-aircraft-ejet\msfs24-projects\fss-aircraft-e190\SimObjects\Airplanes\E190\model\E190-Exterior-LOD00.gltf")
@@ -418,9 +420,17 @@ def main():
           "--asobo-disable ASOBO_asset_optimized does not switch the winding or the decoding off")
 
     print("[double-sided from the back and a mirrored node]")
+    # Both sides of the comparison use the same back-face rule: the float quad is a core file (always flips), so the
+    # packaged MSFS quad declares the flip; the unflipped pair below is the MSFS default on both sides.
     source_back = texture_quad("packed_source_back", False, [], True, double_sided=True)
-    declared_back = texture_quad("packed_declared_back", True, [ASSET_OPTIMIZED], True, double_sided=True,
-                                 clockwise=True)
+    declared_back = texture_quad("packed_declared_back", True, [ASSET_OPTIMIZED, FLIP_BACK_FACE], True,
+                                 material_extension=FLIP_BACK_FACE, double_sided=True, clockwise=True)
+    source_back_unflipped = texture_quad("packed_source_back_unflipped", False, [FLIP_DECLARED_ONLY], True, double_sided=True)
+    declared_back_unflipped = texture_quad("packed_declared_back_unflipped", True, [ASSET_OPTIMIZED], True,
+                                           double_sided=True, clockwise=True)
+    data = json.loads(declared_back_unflipped.read_text(encoding="utf-8"))
+    data["asset"]["extensions"] = {ASSET_OPTIMIZED: {}}
+    declared_back_unflipped.write_text(json.dumps(data), encoding="utf-8")
     data = json.loads(declared_back.read_text(encoding="utf-8"))
     data["asset"]["extensions"] = {ASSET_OPTIMIZED: {}}
     declared_back.write_text(json.dumps(data), encoding="utf-8")
@@ -430,6 +440,9 @@ def main():
     declared_back_capture = render(EXE, declared_back, "packed_declared_back", back_flags, OUT)
     check_close(declared_back_capture, source_back_capture,
                 "double-sided clockwise packaged quad seen from the back is lit like the float quad", TOLERANCE)
+    check_close(render(EXE, declared_back_unflipped, "packed_declared_back_unflipped", back_flags, OUT),
+                render(EXE, source_back_unflipped, "packed_source_back_unflipped", back_flags, OUT),
+                "the same pair without the flip extension (the MSFS default) matches too", TOLERANCE)
 
     source_mirrored = texture_quad("packed_source_mirrored", False, [], True, node_scale=(-1.0, 1.0, 1.0))
     declared_mirrored = texture_quad("packed_declared_mirrored", True, [ASSET_OPTIMIZED], True, clockwise=True,

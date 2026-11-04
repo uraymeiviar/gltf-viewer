@@ -4,6 +4,7 @@
 // orthographic caster depth maps, and its GPU resources.
 
 #include "imgui/SkyOcclusion.h"
+#include "imgui/Profiling.h"
 
 namespace ux3d::imgui {
 
@@ -352,6 +353,7 @@ void SkyOcclusionVolume::accumulate(int count, const std::array<DirectionMatrice
         glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, m_accumulator, 0, z);
         glUniform1i(sliceLocation, z);
         glDrawArrays(GL_TRIANGLES, 0, 3);
+        ux3d::imgui::profiling::countAppDrawCall("Sky occlusion accumulate");
     }
     glDisable(GL_BLEND);
 }
@@ -385,6 +387,7 @@ bool SkyOcclusionVolume::finalize()
         if (!complete) break;
         glUniform1i(sliceLocation, z);
         glDrawArrays(GL_TRIANGLES, 0, 3);
+        ux3d::imgui::profiling::countAppDrawCall("Sky occlusion resolve");
     }
     if (!complete) {
         glDeleteTextures(1, &texture);

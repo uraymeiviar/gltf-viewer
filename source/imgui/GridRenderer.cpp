@@ -306,7 +306,7 @@ void GridRenderer::draw(const glm::mat4& view, const glm::mat4& proj, const glm:
     if (planeMesh) {
         glDisable(GL_DEPTH_CLAMP);
     }
-    ux3d::imgui::profiling::countAppDrawCall();
+    ux3d::imgui::profiling::countAppDrawCall("Grid");
 
     glDepthMask(GL_TRUE);
     glUseProgram(0);

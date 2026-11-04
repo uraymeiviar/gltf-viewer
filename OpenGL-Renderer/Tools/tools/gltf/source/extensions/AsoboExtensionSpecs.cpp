@@ -108,6 +108,9 @@ const std::vector<ExtensionSpec>& extensionSpecs()
         {"ASOBO_material_fake_terrain", Scope::Material, "ASOBO_material_fake_terrain/gltf.ASOBO_material_fake_terrain.schema.json", {
             {"enabled", ValueType::Boolean, Value{true}, DefaultSource::Schema, std::nullopt, std::nullopt, 0, 0, ""},
         }},
+        {"ASOBO_material_flip_back_face", Scope::Material, nullptr, {
+            {"enabled", ValueType::Boolean, Value{true}, DefaultSource::Exporter, std::nullopt, std::nullopt, 0, 0, ""},
+        }},
         {"ASOBO_material_fresnel_fade", Scope::Material, "ASOBO_material_fresnel_fade/gltf.ASOBO_material_fresnel_fade.schema.json", {
             {"fresnelFactor", ValueType::Number, Value{1.0}, DefaultSource::Exporter, std::nullopt, std::nullopt, 0, 0, ""},
             {"fresnelOpacityOffset", ValueType::Number, Value{1.0}, DefaultSource::Exporter, std::nullopt, std::nullopt, 0, 0, ""},

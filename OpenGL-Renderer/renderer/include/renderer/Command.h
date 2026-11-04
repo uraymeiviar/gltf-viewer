@@ -22,6 +22,9 @@ class Buffer;
 
 namespace ux3d::renderer {
 
+class Mesh;
+class Material;
+
 enum class CommandTag {
     Clear,
     Draw,
@@ -96,6 +99,9 @@ public:
 
     const gl::Program* program = nullptr;
     const gl::FrameBuffer* framebuffer = nullptr;
+    // The drawable this draw was built for, named by the draw-call dump only.
+    const Mesh* traceMesh = nullptr;
+    const Material* traceMaterial = nullptr;
 
     std::shared_ptr<gl::VertexLayout> vertexLayout;
 

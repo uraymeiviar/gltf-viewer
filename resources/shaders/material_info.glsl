@@ -165,13 +165,16 @@ NormalInfo getNormalInfo(vec3 v)
 #endif
 
 
-    // For a back-facing surface, the tangential basis vectors are negated.
+    // For a back-facing surface, the tangential basis vectors are negated. An MSFS double-sided
+    // material keeps them unless it declares ASOBO_material_flip_back_face (SDK: not flipped by default).
+#ifndef ASOBO_BACKFACE_NO_FLIP
     if (gl_FrontFacing == false)
     {
         t *= -1.0;
         b *= -1.0;
         ng *= -1.0;
     }
+#endif
 
     // Compute normals:
     NormalInfo info;

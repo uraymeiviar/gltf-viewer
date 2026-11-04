@@ -4,6 +4,10 @@
 #include "core/LoadProgress.h"
 #include "imgui/RenderQuality.h"
 #include "imgui/SceneRevisions.h"
+#include "renderer/Command.h"
+#include "renderer/DrawTrace.h"
+#include "renderer/Material.h"
+#include "renderer/Mesh.h"
 
 #include <nlohmann/json.hpp>
 
@@ -11,11 +15,127 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <numeric>
+#include <utility>
 
 namespace ux3d::imgui::profiling {
 
 bool g_countingEnabled = false;
+uint64_t g_liveDrawCalls = 0;
+bool g_drawTraceActive = false;
+
+namespace {
+
+struct TracedDraw {
+    uint32_t viewport = 0;
+    std::string stage;
+    std::string pass;
+    std::string shader;
+    std::string material;
+    std::string item;
+    int64_t elements = -1;
+    int64_t instances = 0;
+};
+
+bool s_drawDumpRequested = false;
+std::vector<TracedDraw> s_tracedDraws;
+std::optional<DrawCallDump> s_drawDump;
+
+void appendCounts(std::string& text, const char* title, const std::map<std::string, uint64_t>& counts)
+{
+    std::vector<std::pair<std::string, uint64_t>> rows(counts.begin(), counts.end());
+    std::stable_sort(rows.begin(), rows.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
+    text += std::string("\n") + title + "\n";
+    for (const auto& [name, count] : rows) text += std::to_string(count) + "\t" + name + "\n";
+}
+
+} // namespace
+
+void requestDrawCallDump()
+{
+    s_drawDumpRequested = true;
+    s_drawDump.reset();
+}
+
+void beginDrawTraceFrame()
+{
+    if (s_drawDumpRequested) {
+        s_drawDumpRequested = false;
+        g_drawTraceActive = true;
+        ux3d::renderer::drawtrace::active = true;
+    }
+    s_tracedDraws.clear();
+}
+
+void traceDraw(const char* label)
+{
+    namespace drawtrace = ux3d::renderer::drawtrace;
+    GLint program = 0;
+    glGetIntegerv(GL_CURRENT_PROGRAM, &program);
+    TracedDraw draw;
+    draw.pass = drawtrace::pass;
+    if (!draw.pass.empty()) {
+        draw.stage = drawtrace::stage;
+        draw.viewport = drawtrace::viewport;
+    }
+    const ux3d::renderer::Command* command = drawtrace::command;
+    const ux3d::renderer::Mesh* mesh = command != nullptr ? command->traceMesh : nullptr;
+    const ux3d::renderer::Material* material = command != nullptr ? command->traceMaterial : nullptr;
+    if (mesh != nullptr && material != nullptr) {
+        draw.shader = mesh->vertexShader + " + " + material->fragmentShader + " (program " + std::to_string(program) + ")";
+    } else {
+        draw.shader = "program " + std::to_string(program);
+    }
+    draw.material = material != nullptr && !material->debugName.empty() ? material->debugName : "(none)";
+    if (label != nullptr) {
+        draw.item = label;
+    } else if (mesh == nullptr) {
+        draw.item = "(renderer internal)";
+    } else {
+        draw.item = !mesh->debugName.empty() ? mesh->debugName : "(viewer object)";
+    }
+    if (command != nullptr) {
+        draw.elements = command->primitiveCount;
+        draw.instances = command->instanceCount;
+    }
+    s_tracedDraws.push_back(std::move(draw));
+}
+
+void endDrawTraceFrame(bool rendered, uint64_t total, uint64_t frame, const std::string& modelPath)
+{
+    if (!g_drawTraceActive || !rendered) return;
+    g_drawTraceActive = false;
+    ux3d::renderer::drawtrace::active = false;
+
+    std::map<std::string, uint64_t> passes, shaders, materials;
+    for (const TracedDraw& draw : s_tracedDraws) {
+        ++passes[draw.pass.empty() ? "(outside the render passes)" : draw.stage + " / " + draw.pass];
+        ++shaders[draw.shader];
+        ++materials[draw.material];
+    }
+    std::string text = "Glider draw calls: " + std::to_string(total) + "\n";
+    text += "Frame " + std::to_string(frame) + ", " + modelPath + "\n";
+    text += "One redraw of the scene: shadow and prepass draws included, UI excluded. This is what Glider draws, not what MSFS would submit.\n";
+    appendCounts(text, "By stage / pass", passes);
+    appendCounts(text, "By shader", shaders);
+    appendCounts(text, "By material", materials);
+    text += "\n#\tViewport\tStage\tPass\tShader\tMaterial\tItem\tElements\tInstances\n";
+    uint64_t number = 0;
+    for (const TracedDraw& draw : s_tracedDraws) {
+        text += std::to_string(++number) + "\t" + (draw.pass.empty() ? std::string() : std::to_string(draw.viewport)) + "\t" + draw.stage + "\t" + draw.pass + "\t"
+            + draw.shader + "\t" + draw.material + "\t" + draw.item + "\t"
+            + (draw.elements >= 0 ? std::to_string(draw.elements) : std::string()) + "\t"
+            + std::to_string(std::max<int64_t>(draw.instances, 1)) + "\n";
+    }
+    s_drawDump = DrawCallDump{total, std::move(text)};
+    s_tracedDraws.clear();
+}
+
+std::optional<DrawCallDump> takeDrawCallDump()
+{
+    return std::exchange(s_drawDump, std::nullopt);
+}
 
 FrameCounters& frameCounters()
 {
@@ -26,6 +146,7 @@ FrameCounters& frameCounters()
 void resetFrameCounters()
 {
     frameCounters() = FrameCounters();
+    g_liveDrawCalls = 0;
 }
 
 void setCountingEnabled(bool enabled)

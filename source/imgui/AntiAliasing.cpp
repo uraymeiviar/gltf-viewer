@@ -432,7 +432,7 @@ GLuint AntiAliasing::render(AntiAliasingMode mode,
         glBindVertexArray(m_quadVao);
         glDrawArrays(GL_TRIANGLES, 0, 6);
         glBindVertexArray(0);
-        ux3d::imgui::profiling::countAppDrawCall();
+        ux3d::imgui::profiling::countAppDrawCall("FXAA");
 
         // Always restore texture unit 0 before returning to ImGui
         glActiveTexture(GL_TEXTURE0);
@@ -517,7 +517,7 @@ GLuint AntiAliasing::render(AntiAliasingMode mode,
         glBindVertexArray(m_quadVao);
         glDrawArrays(GL_TRIANGLES, 0, 6);
         glBindVertexArray(0);
-        ux3d::imgui::profiling::countAppDrawCall();
+        ux3d::imgui::profiling::countAppDrawCall("TAA resolve");
 
         // Always restore active texture unit to GL_TEXTURE0 before returning to ImGui
         glActiveTexture(GL_TEXTURE1);

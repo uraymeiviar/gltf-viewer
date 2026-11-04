@@ -54,6 +54,10 @@ public:
     bool isInstanced() const { return m_instancing != nullptr && !m_instancing->instances.empty(); }
     uint32_t getInstanceCount() const { return isInstanced() ? static_cast<uint32_t>(m_instancing->instances.size()) : 0u; }
     const gl::Buffer* getInstanceBuffer() const { return m_instancing != nullptr ? m_instancing->buffer.get() : nullptr; }
+    // BLEND: reorders the per-instance buffer back to front for this camera, with the plain draws' key
+    // (Camera::getDistance of the instance's world position, larger first). Nothing else reads the instance order:
+    // the shaders do not use gl_InstanceID and the depth-tested passes do not depend on it. Uploads only on a change.
+    void sortInstancesBackToFront(const math::vec3& cameraPosition, const math::vec3& cameraView);
     // The world-space union of every instance's POSITION box (false without a static box).
     bool getInstanceWorldBounds(math::vec3& lo, math::vec3& hi) const;
 
@@ -111,6 +115,7 @@ public:
     const gl::Sampler* jointsSampler = nullptr;
     Defines defines;
     std::string vertexShader;
+    std::string debugName; // the glTF node, for the draw-call dump
     gl::Buffer* indexBuffer = nullptr;
 
 private:
@@ -127,7 +132,13 @@ private:
     struct Instancing {
         std::vector<Instance> instances;
         std::unique_ptr<gl::Buffer> buffer;
-        std::vector<math::mat4x4> data; // per instance: model matrix, normal matrix
+        std::vector<math::mat4x4> data; // per instance, in file order: model matrix, normal matrix
+        std::vector<uint32_t> order; // the instance drawn at each buffer slot
+        bool fileOrder = true; // order is the identity, so data is uploaded as it is
+        std::vector<math::mat4x4> ordered; // data in `order`, for the upload
+        bool sortValid = false; // order belongs to this camera and these matrices
+        math::vec3 sortCameraPosition = math::vec3(0.0f);
+        math::vec3 sortCameraView = math::vec3(0.0f);
         bool boxValid = false;
         math::vec3 boxLo = math::vec3(0.0f);
         math::vec3 boxHi = math::vec3(0.0f);
@@ -138,6 +149,7 @@ private:
     // Shared by copies (they draw the same instances); set by the mesh mapping, refreshed by updateTransform.
     std::shared_ptr<Instancing> m_instancing;
     void updateInstances();
+    void uploadInstances();
 
     bool weightsUpdated = false; // indicates whether the weights have been updated already this frame
 };

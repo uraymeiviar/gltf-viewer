@@ -4,6 +4,7 @@
 // time-sliced IBL filter jobs and their GPU timing.
 
 #include "imgui/SkyEnvironment.h"
+#include "imgui/Profiling.h"
 
 namespace ux3d::imgui {
 
@@ -516,6 +517,7 @@ void SkyEnvironment::drawFullscreen()
 {
     glBindVertexArray(m_vao);
     glDrawArrays(GL_TRIANGLES, 0, 3);
+    ux3d::imgui::profiling::countAppDrawCall("Procedural sky");
 }
 
 void SkyEnvironment::setAtmosphereUniforms(GLuint program) const

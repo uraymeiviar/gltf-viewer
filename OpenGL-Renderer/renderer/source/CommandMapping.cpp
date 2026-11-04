@@ -186,6 +186,8 @@ void CommandMapping::update(const core::LinkedList<MeshMaterialTuple>& drawables
         entry.desc = std::make_unique<CmdDesc>(std::move(*command));
         entry.desc->mesh = mesh;
         entry.desc->material = material;
+        entry.desc->command.traceMesh = mesh;
+        entry.desc->command.traceMaterial = material;
         entry.desc->revision = ++m_nextRevision;
         applyDecalDepthBias(*entry.desc, *mesh);
         prepareInstancing(*entry.desc);
@@ -393,6 +395,8 @@ void CommandMapping::mergeInstances(std::vector<CmdDesc*>& commands)
             m_gl->bufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(data.size()), data.data(), GL_DYNAMIC_DRAW);
         }
         group.desc->command.instanceCount = static_cast<GLsizei>(members.size());
+        group.desc->command.traceMesh = commands[members.front()]->mesh;
+        group.desc->command.traceMaterial = commands[members.front()]->material;
         group.desc->distanceSortKey = sortKey;
         replacement[members.front()] = group.desc.get();
         ++m_instancedDraws;
