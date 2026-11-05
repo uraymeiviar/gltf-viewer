@@ -283,6 +283,7 @@ Short forms of flags whose longer documentation lives in the phase documents (`R
 - `GLIDER_TEST_PANORAMA_IDLE_SECONDS=<s>` (environment, read once): the idle time after which the decoded HDR panorama kept for re-filters is freed, instead of 120 s. `GLIDER_TEST_PANORAMA_LOW_MEMORY=1` treats the system as low on memory (under 1 GiB available), which frees it at the next check. `get_state` reports `environment.decodedPanorama` (`bytes`, `decodes`, `reuses`).
 
 - `GLIDER_NO_FOCUS=1` (environment): shows and renders the window normally but creates it without keyboard focus (`GLFW_FOCUSED` / `GLFW_FOCUS_ON_SHOW` false); unset behaviour is unchanged.
+- `GLIDER_MONITOR=<left|right|primary|index>` (environment): opens the window on that monitor (`left` and `right` are the outermost ones, an index follows `glfwGetMonitors`). It is created hidden and shown once placed, so it never appears on the primary monitor first; a saved position and maximized state are ignored for that run. An unknown value prints a warning and uses the default position. It does not change the render. `run_regression.py --monitor <value>` sets it for a whole run.
 
 ## Invocation example
 

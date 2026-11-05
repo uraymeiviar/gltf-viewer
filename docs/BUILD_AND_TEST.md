@@ -332,6 +332,10 @@ python scripts/run_regression.py --tier full
 - **Harness launches never request keyboard focus**: they go through `scripts/harness_process.py`, which sets
   `GLIDER_NO_FOCUS=1` and starts Glider with `SW_SHOWNOACTIVATE`. Baselines older than the marker may still take
   focus when they are not served from the cache. `scripts/check_no_focus.py` checks the current build.
+- **Test windows on another monitor**: `run_regression.py --monitor left` sets `GLIDER_MONITOR` for every launch, so a
+  run stays off the monitor you are working on. A baseline without the option still opens on the primary monitor when it
+  is not served from the cache: `--baseline` should name a build that has it. `scripts/check_window_monitor.py` checks
+  that a window is never visible outside the chosen monitor.
 - **On-demand validators** (not in the regression; fast checks or ones that need special assets; run the one for the
   area you change): `validate_gl46.py`, `validate_live_control.py`, `validate_loading.py`,
   `validate_settings_storage.py`, `validate_tiff_images.py`,

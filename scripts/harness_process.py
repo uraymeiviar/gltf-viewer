@@ -560,7 +560,7 @@ _SAFE_OUTPUT_LIKE = {"--capture-frame", "--capture-time"}
 _ENV_NAMES = {"UI_SCENARIO_TRACE"}
 _ENV_PREFIXES = ("GLIDER_", "__GL", "MESA", "LIBGL", "GALLIUM", "GLFW", "DXVK", "VK_", "OPENGL", "NVIDIA", "AMD_")
 _ENV_IGNORED_PREFIXES = ("GLIDER_HARNESS_",)
-_ENV_IGNORED = {CACHE_SWITCH}
+_ENV_IGNORED = {CACHE_SWITCH, "GLIDER_MONITOR"}  # where the window opens does not change a render
 
 
 def cache_enabled():

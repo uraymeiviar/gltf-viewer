@@ -454,6 +454,8 @@ def classify(path, suites, closures, texts):
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 parser.add_argument("--tier", choices=["quick", "commit", "full"], default="quick")
 parser.add_argument("--budget", type=float, default=600.0, help="commit tier: the time to stay within, in seconds")
+parser.add_argument("--monitor", help="GLIDER_MONITOR for every launch (left, right, primary or an index), so test windows "
+                                      "stay off the monitor you work on; --baseline should name a build that has it")
 parser.add_argument("--baseline", help="reference binary (default: build/baselines/<HEAD short sha>.exe)")
 parser.add_argument("--jobs", type=int, default=3, help="harnesses run at the same time")
 parser.add_argument("--extra", action="append", default=[], help="extra Glider argument passed to both binaries")
@@ -472,6 +474,8 @@ parser.add_argument("--on-demand", dest="on_demand", default=None,
 parser.add_argument("--with-on-demand", action="store_true",
                     help="pass every on-demand flag of the selected suites (the full tier does not otherwise)")
 args = parser.parse_args()
+if args.monitor:
+    os.environ["GLIDER_MONITOR"] = args.monitor
 if args.no_cache:
     os.environ[subprocess.CACHE_SWITCH] = "0"
 

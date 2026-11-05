@@ -36,6 +36,44 @@ static bool noFocusRequested()
     return value != nullptr && std::strcmp(value, "1") == 0;
 }
 
+// GLIDER_MONITOR (left, right, primary or a glfwGetMonitors index): where the window opens, so test runs can stay off
+// the monitor someone is working on. Returns false when unset or not recognised.
+static bool requestedMonitorPosition(int& x, int& y)
+{
+    const char* value = std::getenv("GLIDER_MONITOR");
+    if (value == nullptr || *value == '\0') return false;
+    const std::string_view name(value);
+    int count = 0;
+    GLFWmonitor** monitors = glfwGetMonitors(&count);
+    GLFWmonitor* chosen = nullptr;
+    if (name == "primary") {
+        chosen = glfwGetPrimaryMonitor();
+    } else if (name == "left" || name == "right") {
+        int bestX = 0;
+        for (int i = 0; i < count; ++i) {
+            int monitorX = 0;
+            glfwGetMonitorPos(monitors[i], &monitorX, nullptr);
+            if (chosen == nullptr || (name == "left" ? monitorX < bestX : monitorX > bestX)) {
+                chosen = monitors[i];
+                bestX = monitorX;
+            }
+        }
+    } else if (name.find_first_not_of("0123456789") == std::string_view::npos && name.size() < 4) {
+        const int index = std::atoi(value);
+        if (index < count) chosen = monitors[index];
+    }
+    if (chosen == nullptr) {
+        std::fprintf(stderr, "GLIDER_MONITOR: no monitor '%s' (%d connected); using the default position\n", value, count);
+        return false;
+    }
+    int areaX = 0;
+    int areaY = 0;
+    glfwGetMonitorWorkarea(chosen, &areaX, &areaY, nullptr, nullptr);
+    x = areaX + 40;
+    y = areaY + 60;  // client area: leaves room for the title bar
+    return true;
+}
+
 int Application::run(int argc, char** argv)
 {
     // P0.1 pre-scan: window size and state isolation must be known before GLFW
@@ -152,6 +190,14 @@ int Application::run(int argc, char** argv)
     // Target OpenGL 4.6 Core Profile (compute shaders, SSBOs, image load/store); fall back to 4.5, 4.3 and
     // finally 4.1. Every existing shader stays at #version 410, so rendering does not depend on the version.
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    int monitorX = 0;
+    int monitorY = 0;
+    const bool monitorRequested = requestedMonitorPosition(monitorX, monitorY);
+    if (monitorRequested) {
+        // Created hidden and shown once placed, so it never appears on the primary monitor first.
+        winState.maximized = false;
+        glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+    }
     glfwWindowHint(GLFW_MAXIMIZED, winState.maximized ? GLFW_TRUE : GLFW_FALSE);
     if (noFocusRequested()) {
         // Harness runs show and render normally but must never activate the window (AGENTS.md 4.2).
@@ -176,7 +222,10 @@ int Application::run(int argc, char** argv)
         return 1;
     }
 
-    if (!winState.maximized) {
+    if (monitorRequested) {
+        glfwSetWindowPos(window, monitorX, monitorY);
+        glfwShowWindow(window);
+    } else if (!winState.maximized) {
         glfwSetWindowPos(window, winState.posX, winState.posY);
     }
 
