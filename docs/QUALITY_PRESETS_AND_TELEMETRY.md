@@ -16,7 +16,7 @@ Presets apply across viewports because uploaded textures and environment maps ar
 | Ultra | Unlimited | 4x / TAA | Full configured IBL | High / on | High | Screen ray |
 
 SSAO defaults (2026-10-31, maintainer's choice; before: off in every preset): Low off, Mid low (2 x 4 samples per
-side), High mid (3 x 6), Ultra high (4 x 8), full resolution. Auto targets Ultra, so interactive sessions run SSAO
+side), High mid (3 x 6), Ultra high (8 x 16), full resolution. Auto targets Ultra, so interactive sessions run SSAO
 high. A saved `profileN.ssaoEnabled` / `ssaoQuality` still wins; a `settings.ini` that never wrote them gets the new
 defaults. Capture and test launches (`--isolated`, `--no-persist`, `--dump-frame`, `--capture-viewport`,
 `--capture-first-frame`, `--fixed-frame-time`, `--ui-script`) apply no profile and keep SSAO off unless `--ssao` /

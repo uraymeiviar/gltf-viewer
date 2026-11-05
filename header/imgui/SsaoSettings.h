@@ -11,7 +11,7 @@ namespace ux3d::imgui {
 enum class SsaoQuality : int {
     Low = 0,    // 2 slices x 4 steps per side
     Medium = 1, // 3 slices x 6 steps
-    High = 2,   // 4 slices x 8 steps
+    High = 2,   // 8 slices x 16 steps: the fewest that keep flat surfaces free of stripes at high intensity
 };
 
 struct SsaoSettings {
@@ -22,8 +22,8 @@ struct SsaoSettings {
     bool halfResolution = false; // compute at half resolution, depth-aware upsample
     bool halfPrecision = false;  // RG16F targets instead of RG32F
 
-    static int sliceCount(SsaoQuality q) { return q == SsaoQuality::Low ? 2 : q == SsaoQuality::High ? 4 : 3; }
-    static int stepCount(SsaoQuality q) { return q == SsaoQuality::Low ? 4 : q == SsaoQuality::High ? 8 : 6; }
+    static int sliceCount(SsaoQuality q) { return q == SsaoQuality::Low ? 2 : q == SsaoQuality::High ? 8 : 3; }
+    static int stepCount(SsaoQuality q) { return q == SsaoQuality::Low ? 4 : q == SsaoQuality::High ? 16 : 6; }
 
     bool operator==(const SsaoSettings&) const = default;
 };

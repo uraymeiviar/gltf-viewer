@@ -198,9 +198,13 @@ lighting features of user priority 5. The sun's direction is set by hand here an
       distance falloff from 0.6 to 1.0 x radius. Two deviations from the paper, both for open surfaces: horizons
       are elevations above the tangent plane (`asin(dot(d, n) / |projected n|)`), so a sample that pixel rounding
       moves off the slice stays at elevation 0 on a plane (the paper's horizon cosine darkened a grazing plane to
-      0.94); and the slice sum is divided by the same slices' open-hemisphere value, so 2-4 slices give exactly 1 on
+      0.94); and the slice sum is divided by the same slices' open-hemisphere value, so a few slices give exactly 1 on
       an open tilted surface (they gave 0.96-0.997). Intensity = exponent on the visibility. Quality: low 2 slices
-      x 4 steps, medium 3 x 6, high 4 x 8 (per side).
+      x 4 steps, medium 3 x 6, high 8 x 16 (per side). High was 4 x 8 until 2026-11-05: the 16 fixed noise patterns
+      and the filter that averages exactly them leave a fixed sample set, so a flat surface near an edge steps into
+      stripes as samples cross that edge, visible at high intensity (E195 cockpit, radius 1, intensity 4: ripple 0.51
+      levels rms at 4 x 8, 0.20 at 8 x 16, 0.15 at 24 x 32). Rounding, falloff, step spacing and mesh normals did not
+      change it. 4 x 8 also under-darkened; GPU time about 3 x (0.6 to 1.8 ms at 918 x 896, noisy shared GPU).
     - **Denoise / upsample / temporal:** fixed 4 x 4 Bayer noise (slice rotation and step jitter), a depth-aware
       5 x 5 filter with [0.5 1 1 1 0.5] taps (every noise phase weighted equally; taps compared with the centre's
       depth plane, 1% tolerance), at half resolution a depth-aware bilinear upsample (2% tolerance, nearest-depth
@@ -208,7 +212,9 @@ lighting features of user priority 5. The sun's direction is set by hand here an
       temporal filter); no extra temporal pass.
     - **Application** (`pbr.frag` after the authored and decal AO, `ssao.glsl`): only the IBL terms of OPAQUE /
       MASK surfaces whose depth matches the prepass surface of the pixel (0.5% of the view depth; BLEND,
-      transmission and anything in front keep 1). Diffuse (incl. the A3.4 SSS back radiance) x Jimenez multi-bounce
+      transmission and anything in front keep 1). A surface that covers only some MSAA samples of a pixel takes the
+      closest depth among the 8 neighbours (2026-11-05: returning 1 there drew a light line along silhouettes;
+      E195 cockpit, raw view, radius 1, intensity 4: 6626 line pixels at MSAA 4x before, 859 after, 611 without AA). Diffuse (incl. the A3.4 SSS back radiance) x Jimenez multi-bounce
       (albedo = c_diff); specular, sheen and clearcoat x Lagarde's specular occlusion (NdotV, alpha = roughness^2 of
       the lobe). Combination with the authored occlusion: **min** per term, `min(authored, SSAO')`, authored =
       material AO with its strength x decal AO. MSFS's authored AO is already the ratio of total sky light incl.

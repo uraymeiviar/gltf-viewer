@@ -6,6 +6,8 @@ KHR_materials_specular 0, roughness 1, so the IBL diffuse term is the only light
   * open_plane: a 40 x 40 m floor and a 1 m cube floating 3 m above it (convex faces towards the sky);
   * halo: a 1 m green cube in front of a red 12 x 8 m wall 0.6 m behind its back face (beyond the 0.5 m radius:
     the wall must not darken around the cube's silhouette);
+  * ledge: a flat wall with a long 0.4 m ledge on it (the occlusion below the ledge must fade smoothly, no stripes);
+  * edges: the box interior with bars, a post and a cube in front of its walls (silhouettes on dark, occluded surfaces);
   * floating_cube: the 1 m cube alone, against the sky.
 """
 
@@ -40,6 +42,28 @@ def halo(path):
     b = Builder("A3.5 SSAO halo")
     b.box("Wall", (-6.0, -4.0, -1.2), (6.0, 4.0, -1.1), b.material("Wall", color=(1.0, 0.0, 0.0, 1.0)))
     b.box("Cube", (-0.5, -0.5, -0.5), (0.5, 0.5, 0.5), b.material("Cube", color=(0.0, 1.0, 0.0, 1.0)))
+    return b.write(path)
+
+
+def ledge(path):
+    b = Builder("A3.5 SSAO ledge")
+    m = b.material("Ledge", color=(0.8, 0.8, 0.8, 1.0))
+    b.box("Wall", (-4.0, -3.0, -0.1), (4.0, 3.0, 0.0), m)
+    b.box("Ledge", (-4.0, 0.5, 0.0), (4.0, 0.7, 0.4), m)
+    return b.write(path)
+
+
+def edges(path):
+    b = Builder("A3.5 SSAO MSAA edges")
+    m = b.material("Box", color=(0.8, 0.8, 0.8, 1.0))
+    b.box("Floor", (-1.0, -WALL, -1.0), (1.0, 0.0, 1.0), m)
+    b.box("Back", (-1.0, 0.0, -1.0 - WALL), (1.0, 2.0, -1.0), m)
+    b.box("Left", (-1.0 - WALL, 0.0, -1.0), (-1.0, 2.0, 1.0), m)
+    b.box("Right", (1.0, 0.0, -1.0), (1.0 + WALL, 2.0, 1.0), m)
+    b.box("BarLow", (-0.8, 0.25, -0.85), (0.8, 0.31, -0.78), m)
+    b.box("BarHigh", (-0.8, 0.8, -0.85), (0.8, 0.86, -0.78), m)
+    b.box("Post", (-0.2, 0.0, -0.75), (-0.14, 1.4, -0.69), m)
+    b.box("Cube", (0.2, 0.0, -0.6), (0.6, 0.4, -0.2), m)
     return b.write(path)
 
 

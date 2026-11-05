@@ -3,16 +3,33 @@
 // prepass surface it belongs to (-1 on the background). It is valid while u_SsaoEnabled != 0.
 uniform sampler2D u_SsaoTexture;
 
-// The visibility at this fragment, or 1 when the fragment is not the prepass surface of its pixel (BLEND,
-// transmission and other surfaces in front of it, which the prepass does not draw).
+// The visibility at this fragment, or 1 when the fragment is not a prepass surface of its neighbourhood (BLEND,
+// transmission and other surfaces in front of it, which the prepass does not draw). With MSAA a surface can cover
+// only some samples of a pixel whose centre belongs to another surface: the prepass value of the pixel is not its
+// own, so it takes the closest depth among the 8 neighbours (returning 1 there draws a light line along silhouettes).
 float ssaoVisibility(vec3 worldPosition)
 {
-    vec2 sampleValue = texelFetch(u_SsaoTexture, ivec2(gl_FragCoord.xy), 0).xy;
+    ivec2 center = ivec2(gl_FragCoord.xy);
+    vec2 sampleValue = texelFetch(u_SsaoTexture, center, 0).xy;
     float depth = -(u_ViewMatrix * vec4(worldPosition, 1.0)).z;
-    if (sampleValue.y < 0.0 || abs(depth - sampleValue.y) > 0.005 * abs(depth) + 1.0e-4) {
-        return 1.0;
+    float tolerance = 0.005 * abs(depth) + 1.0e-4;
+    if (sampleValue.y >= 0.0 && abs(depth - sampleValue.y) <= tolerance) {
+        return sampleValue.x;
     }
-    return sampleValue.x;
+    ivec2 last = textureSize(u_SsaoTexture, 0) - ivec2(1);
+    float closest = tolerance;
+    float visibility = 1.0;
+    for (int y = -1; y <= 1; ++y) {
+        for (int x = -1; x <= 1; ++x) {
+            vec2 neighbour = texelFetch(u_SsaoTexture, clamp(center + ivec2(x, y), ivec2(0), last), 0).xy;
+            float difference = abs(depth - neighbour.y);
+            if (neighbour.y >= 0.0 && difference <= closest) {
+                closest = difference;
+                visibility = neighbour.x;
+            }
+        }
+    }
+    return visibility;
 }
 
 // Multiple bounces (Jimenez et al. 2016, eq. 10): the geometric visibility of the SSAO term turned into the

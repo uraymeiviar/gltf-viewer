@@ -255,7 +255,7 @@ compatibility override. Lens intensity is Quality, default 1; modes preserve off
   and MASK surfaces, combined with the authored occlusion maps as `min(authored, SSAO)`; the sun, punctual lights,
   emissive, BLEND / transmission surfaces, the background and the A3.6 ground plane are never changed by it.
 - Keys: scene `ssao_radius` (world units, metres in MSFS files; default 0.5), `ssao_intensity` (exponent, default 1,
-  0 = no occlusion); renderer-wide quality `ssao_quality` (`low` 2 x 4, `medium` 3 x 6, `high` 4 x 8 samples per
+  0 = no occlusion); renderer-wide quality `ssao_quality` (`low` 2 x 4, `medium` 3 x 6, `high` 8 x 16 samples per
   side), `ssao_resolution` (`full`, or `half` with a depth-aware upsample), `ssao_precision` (`32bit`, or `16bit`: half
   the memory of the targets, coarser depth for the denoise far from the camera).
 - Debug view `ssao` (`set_viewport_setting render_mode ssao`): the raw visibility, 1 white (open) to 0 black; `probe`

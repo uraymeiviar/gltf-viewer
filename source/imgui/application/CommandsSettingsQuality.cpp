@@ -212,7 +212,7 @@ void Application::registerAgentQualitySettings()
     qualityEnum("ssr_quality", &ux3d::imgui::RenderQualitySettings::ssrQuality, {"low", "medium", "high"},
                 "SSR sample budget 256/512/1024 (every viewport).", "--ssr-quality <low|medium|high>", {}, [] { RQ::pinSsr(); });
     qualityEnum("ssao_quality", &ux3d::imgui::RenderQualitySettings::ssaoQuality, {"low", "medium", "high"},
-                "SSAO samples per pixel: low 2 slices x 4 steps, medium 3 x 6, high 4 x 8 (per side; every viewport).",
+                "SSAO samples per pixel: low 2 slices x 4 steps, medium 3 x 6, high 8 x 16 (per side; every viewport).",
                 "--ssao-quality <low|medium|high>", {}, nullptr);
     {
         SettingSpec resolution;

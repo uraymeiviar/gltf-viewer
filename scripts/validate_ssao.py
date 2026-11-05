@@ -29,6 +29,8 @@ Checks:
     TAA_MAX_LEVELS (mean TAA_MEAN_LEVELS) more than the same frames with SSAO off;
   * the sun term is unchanged: with a black environment (no IBL) and the sun on, SSAO on is byte-identical to off;
     with the uniform environment, (on - off) with the sun equals (on - off) without it (linear, within SUN_ABS);
+  * stripes: at high quality the occlusion on a flat wall below a ledge fades smoothly (ripple <= STRIPE_MAX);
+  * MSAA edges: on dark, occluded surfaces MSAA 4x shows no more thin light lines along silhouettes than no AA;
   * registry keys (ssao, ssao_radius, ssao_intensity, ssao_quality, ssao_resolution), get_state ssao, the debug
     view name, --ssao-* flags, invalid values rejected, intensity 0 = off;
   * zero GL errors.
@@ -74,6 +76,11 @@ HALO_PX_HALF = 2        # half resolution
 TAA_MAX_LEVELS = 2      # extra frame-to-frame change (8-bit) inside the box with SSAO on, frames 64 / 96
 TAA_MEAN_LEVELS = 0.05
 SUN_ABS = 1e-4          # linear HDR probe: (on - off) with and without the sun
+STRIPE_MAX = 0.7        # high quality: ripple (8-bit levels rms) on the flat wall below the ledge (4 x 8: 0.96, 8 x 16: 0.52)
+STRIPE_SENSITIVITY = 1.2  # medium's ripple is at least this much above high's, so the measure can see stripes
+EDGE_LEVELS = 40        # a pixel this far above its 7 x 7 surroundings, on a dark surface, is part of a thin line
+EDGE_MSAA_RATIO = 1.5   # MSAA 4x may show at most this many times the line pixels of no AA ...
+EDGE_MSAA_MIN = 50      # ... or this many
 
 gl_logs = []
 _processes = []
@@ -417,6 +424,66 @@ def check_precision(uniform, box):
     check(difference < 0.01, f"the box looks the same at 16bit: largest difference {difference:.5f} < 0.01")
 
 
+def check_stripes(uniform, ledge):
+    import numpy as np
+    print("[stripes on a flat wall below a ledge]")
+    flags = uniform + LOOK + ["--camera-target", "0,0,0", "--camera-yaw", "25", "--camera-pitch", "10", "--camera-distance", "2.6"]
+    _, report = render(ledge, "stripes_view", flags + ["--ssao", "on", "--ssao-radius", "1.0", "--debug-view", "ssao"])
+    if report is None:
+        check(False, "ledge view render")
+        return
+    cam = Camera(report)
+    a, c = np.array(cam.project((0.3, 0.46, 0.0))), np.array(cam.project((0.3, -0.9, 0.0)))
+    count = int(np.linalg.norm(c - a))
+    points = [tuple(int(round(v)) for v in a + (c - a) * t / count) for t in range(count)]
+    try:
+        session = Session(ledge, flags + ["--ssao", "on", "--ssao-radius", "1.0", "--debug-view", "ssao"])
+    except Exception as error:  # noqa: BLE001
+        check(False, f"pipe session started: {error}")
+        return
+    try:
+        ripple = {}
+        for quality in ("medium", "high"):
+            session.call("set_viewport_setting", key="ssao_quality", value=quality)
+            session.settle()
+            line = np.array([session.call("probe", x=x, y=y)["hdrLuminance"] for x, y in points]) * 255.0
+            ripple[quality] = (line - np.convolve(np.pad(line, 12, mode="edge"), np.ones(25) / 25, mode="valid")).std()
+        check(ripple["high"] <= STRIPE_MAX, f"high: ripple {ripple['high']:.3f} levels rms <= {STRIPE_MAX} along {count} px")
+        check(ripple["medium"] > ripple["high"] * STRIPE_SENSITIVITY,
+              f"sensitivity: medium's fewer samples show more ripple ({ripple['medium']:.3f} levels rms)")
+        errors = session.close()
+        check(errors == 0, f"pipe session: {errors} GL errors")
+    except Exception as error:  # noqa: BLE001
+        check(False, f"pipe session failed: {error}")
+        session.kill()
+
+
+def edge_line_pixels(png):
+    """Pixels at least EDGE_LEVELS above their 7 x 7 surroundings, on dark surfaces: thin light lines."""
+    import numpy as np
+    from PIL import Image, ImageFilter
+    grey = load(png)[..., 0]
+    local = np.asarray(Image.fromarray(grey.astype(np.uint8)).filter(ImageFilter.MedianFilter(7)), dtype=np.float64)
+    return int(((grey - local >= EDGE_LEVELS) & (local < 80)).sum())
+
+
+def check_msaa_edges(uniform, edges, exe=EXE):
+    print("[MSAA: no light line along silhouettes]")
+    flags = uniform + LOOK + BOX_VIEW + ["--ssao", "on", "--ssao-radius", "1.0", "--ssao-intensity", "4", "--debug-view", "ssao"]
+    counts = {}
+    for name, aa in (("none", "none"), ("msaa4", "2")):
+        common = list(COMMON)
+        common[common.index("--aa") + 1] = aa
+        png, _ = render(edges, f"edges_{name}", flags, exe=exe, common=common)
+        if png is None:
+            check(False, f"edges render with AA {name}")
+            return counts
+        counts[name] = edge_line_pixels(png)
+    limit = max(EDGE_MSAA_RATIO * counts["none"], EDGE_MSAA_MIN)
+    check(counts["msaa4"] <= limit, f"line pixels: MSAA 4x {counts['msaa4']} <= {limit:.0f} (no AA: {counts['none']})")
+    return counts
+
+
 def check_state(uniform, box):
     print("[registry, get_state, flags]")
     try:
@@ -447,9 +514,9 @@ def check_state(uniform, box):
         session.settle()
         state = session.call("get_state")["ssao"]["viewports"][0]
         check(state["memoryBytes"] == memory32, "32bit again: the same memory")
-        check(state["enabled"] and state["active"] and state["slices"] == 4 and state["steps"] == 8 and
+        check(state["enabled"] and state["active"] and state["slices"] == 8 and state["steps"] == 16 and
               state["resolution"] == "half" and abs(state["radius"] - 0.8) < 1e-6 and abs(state["intensity"] - 1.5) < 1e-6 and state["memoryBytes"] > 0,
-              f"set_viewport_setting: active, high (4 x 8), half, radius 0.8, intensity 1.5, {state['memoryBytes']} bytes")
+              f"set_viewport_setting: active, high (8 x 16), half, radius 0.8, intensity 1.5, {state['memoryBytes']} bytes")
         check(state["gpuMs"] is not None and state["gpuMs"] > 0.0, f"get_state reports the GPU time ({state['gpuMs']} ms)")
         session.call("set_viewport_setting", key="render_mode", value="ssao")
         mode = session.call("get_state")["renderMode"]
@@ -488,7 +555,7 @@ def check_state(uniform, box):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--baseline-exe", default=None)
-    parser.add_argument("--only", default=None, help="comma-separated: baseline,box,halo,taa,sun,state,precision")
+    parser.add_argument("--only", default=None, help="comma-separated: baseline,box,halo,taa,sun,stripes,edges,state,precision")
     args = parser.parse_args()
     only = set(args.only.split(",")) if args.only else None
 
@@ -514,6 +581,10 @@ def main():
         check_taa(uniform, box)
     if wanted("sun"):
         check_sun(black, uniform, box)
+    if wanted("stripes"):
+        check_stripes(uniform, ssao_fixtures.ledge(OUT / "ledge.gltf"))
+    if wanted("edges"):
+        check_msaa_edges(uniform, ssao_fixtures.edges(OUT / "edges.gltf"))
     if wanted("state"):
         check_state(uniform, box)
     if wanted("precision"):
