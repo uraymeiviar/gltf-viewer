@@ -546,7 +546,11 @@ image. Only the overlay's own line draws and the redrawn skybox survived.
 the overlay scene before switching meshes to line mode. The cube and all other drawables are kept exactly
 as before.
 
-#### 3. Evidence (`python scripts/validate_wireframe_overlay.py`; outputs in `build/wireframe_fix/`)
+#### 3. Evidence (`validate_wireframe_overlay.py` as it was then; outputs in `build/wireframe_fix/`)
+
+This records the before/after run of 2026-10-23. Since 2026-11-05 the validator no longer compares images with the
+pre-fix binary, which later renderer work made impossible. It reads computed answers and the regression baseline, and
+`--broken-exe build/wireframe_fix/before/Glider.exe` proves its wipe detector on the same bug.
 
 Pre-fix binary: `build/wireframe_fix/before/Glider.exe` (P4.4 + P4.5). The comparisons use the viewport
 area of full-window screenshots at 1280×800, for AA none and TAA.

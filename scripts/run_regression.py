@@ -161,6 +161,9 @@ Suites (equivalence against the baseline plus each feature's analytic acceptance
   animated, pipe; MSFT_lod / MSFT_packing_*: render = core twins, ORM used only without core textures, required + off
   refused; Khronos samples lit from behind when present; validator; twins against the baseline),
   validate_draw_call_stat.py (the Statistics panel's live draw-call count through get_state),
+  validate_wireframe_overlay.py (the overlay changes only pixels on projected edges, on a transmissive fixture too, with
+  and without the skybox; exact line colours and blends computed from the overlay-off image; Wireframe mode ignores the
+  overlay and its opacity; off, Wireframe mode and an explicit opaque overlay against the baseline; Inspector = flags),
   validate_asobo_property_animation.py (A7.3: a real exporter file against KHR_animation_pointer and static twins on
   its keys, the switch, undeclared and malformed channels, animated UV options without the extension),
   validate_animation_keys.py (animation sampling against the glTF rules: STEP / LINEAR / CUBICSPLINE translation,
@@ -246,6 +249,8 @@ TRIGGERS = (
     (("ground", "ocean", "review_fixes"),
      ("GroundSettings.*", "ground*.frag", "ground*.vert", "ground*.glsl", "ocean*", "OceanSimulation.*", "Ocean.cpp",
       "GridRenderer.*", "grid.frag", "grid.vert")),
+    (("wireframe_overlay",),
+     ("Viewports.cpp", "wireframe_material.frag", "validate_wireframe_overlay.py")),
     (("ssao", "ambient", "sky_occlusion", "review_fixes"),
      ("AmbientOcclusion.*", "Ssao*", "ssao*", "SkyOcclusion.*", "sky_occlusion*")),
     (("sky", "sun_disk", "background_projection", "night", "time_of_day", "sun_source", "emissive_units"),
@@ -514,6 +519,7 @@ serial_jobs = [
     ("sun_source", ["scripts/validate_sun_source.py", "--baseline-exe", str(baseline)]),
     ("emissive_units", ["scripts/validate_emissive_units.py", "--baseline-exe", str(baseline)]),
     ("sky_occlusion", ["scripts/validate_sky_occlusion.py", "--baseline-exe", str(baseline)]),
+    ("wireframe_overlay", ["scripts/validate_wireframe_overlay.py", "--baseline-exe", str(baseline)]),
     ("ocean", ["scripts/validate_ocean.py", "--baseline-exe", str(baseline)]),
     # Before and after: it compares with its own default baseline, the build from before these costs fell, since a
     # baseline that already has them would fail its "the baseline does this work" premises.

@@ -334,13 +334,13 @@ python scripts/run_regression.py --tier full
   focus when they are not served from the cache. `scripts/check_no_focus.py` checks the current build.
 - **On-demand validators** (not in the regression; fast checks or ones that need special assets; run the one for the
   area you change): `validate_gl46.py`, `validate_live_control.py`, `validate_loading.py`,
-  `validate_settings_storage.py`, `validate_tiff_images.py`, `validate_wireframe_overlay.py`,
+  `validate_settings_storage.py`, `validate_tiff_images.py`,
   `validate_extension_editing.py`, `validate_uri_warnings.py`, `validate_decal_visibility.py`,
   `validate_extreme_emissive.py`, `validate_asobo_base_vertex_picking.py`, `validate_asobo_decal.py`,
   `validate_asobo_primitive_ranges.py`, `validate_asobo_windshield_layers.py`, `validate_pmdg777_overhead.py`
   (uses `validate_msfs2020_materials.py`, also kept), `validate_asobo_glass.py`, `validate_p6_1.py --only reports`
   (validation reports against `--validation-full-read`) and `validate_p5_4.py` (event-driven idle loop).
-  `validate_wireframe_overlay.py`, `validate_decal_visibility.py`, `validate_pmdg777_overhead.py` and
+  `validate_decal_visibility.py`, `validate_pmdg777_overhead.py` and
   `validate_asobo_glass.py` compare some images against pinned older binaries and fail those comparisons since
   later intended render changes (glass: the HDR background projection fix `0e4fcfc`); their own feature checks pass.
   `validate_p5_4.py`'s idle-CPU comparison is noise-limited on a loaded machine; its frame-count checks pass.
