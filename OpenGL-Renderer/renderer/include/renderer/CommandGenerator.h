@@ -186,6 +186,14 @@ public:
         m_skyOcclusionTexture->handle = parameters.enabled ? parameters.texture : 0;
     }
     const SkyOcclusionParameters& getSkyOcclusion() const { return m_skyOcclusion; }
+    // The texture measures' table (sampler u_UvHeatmapTable, a borrowed GL_TEXTURE_2D handle); only materials compiled
+    // with UV_HEATMAP read it.
+    void setTextureMetrics(GLuint texture) { m_textureMetricsTexture->handle = texture; }
+    // The active viewport's heat opacity and UV grid (u_UvHeatmapView): a frame value, so a slider recompiles nothing.
+    void setTextureMetricsView(float opacity, float gridCells, bool labels, float gridOpacity)
+    {
+        m_textureMetricsViewUniform.write(math::vec4(opacity, gridCells, labels ? 1.0f : 0.0f, gridOpacity));
+    }
     // A3.7: the active viewport's sky portals (EnvironmentBlock u_SkyPortal*; at most kMaxSkyPortals are uploaded)
     // and its strength. Only materials compiled with ASOBO_SKY_PORTAL read them.
     void setSkyPortals(const std::vector<SkyPortalLight>& portals, float strength)
@@ -254,6 +262,7 @@ protected:
     gl::Uniform m_asoboWindshieldVertexColorMaskUniform;
     gl::Uniform m_asoboDecalReceiverUniform;
     gl::Uniform m_asoboGlassCopyValidUniform;
+    gl::Uniform m_textureMetricsViewUniform;
     gl::Uniform m_decalDepthToleranceUniform;
     gl::Uniform m_asoboEmissiveActiveUniform;
     gl::Uniform m_msfsEmissiveScaleUniform;
@@ -293,6 +302,8 @@ protected:
     SkyOcclusionParameters m_skyOcclusion;
     std::unique_ptr<gl::Texture> m_skyOcclusionTexture;
     std::unique_ptr<gl::Sampler> m_skyOcclusionSampler;
+    std::unique_ptr<gl::Texture> m_textureMetricsTexture;
+    std::unique_ptr<gl::Sampler> m_textureMetricsSampler;
     // A2.2: six borrowed views of the shared accumulation targets and their samplers. The
     // wrappers live as long as the generator; setDecalTargets refreshes only the handles.
     std::array<std::unique_ptr<gl::Texture>, 6> m_decalTextures;

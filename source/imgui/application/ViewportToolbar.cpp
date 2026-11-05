@@ -69,6 +69,28 @@ void Application::drawViewportToolbar(ux3d::imgui::ViewportInstance* vp)
                                                 : "Floor Grid (Hidden - click to show)");
     }
 
+    // UV grid: the texture views' own, otherwise the overlay
+    ImGui::SameLine();
+    const bool textureView = vp->settings.renderMode == ux3d::renderer::RenderMode::TextureDistortion ||
+                             vp->settings.renderMode == ux3d::renderer::RenderMode::TextureDensity;
+    bool& uvGridSwitch = textureView ? vp->settings.textureGrid : vp->settings.uvGridOverlay;
+    const bool uvGridActive = uvGridSwitch;
+    if (uvGridActive) {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.13f, 0.67f, 0.42f, 0.4f));
+    }
+    if (ImGui::SmallButton(ICON_MDI_CHECKERBOARD "##UvGridToggle")) {
+        uvGridSwitch = !uvGridSwitch;
+        vp->antiAliasing.resetHistory();
+        sceneRevisions.mark(ux3d::imgui::SceneChange::Environment);
+    }
+    ux3d::imgui::UiProbe::item("vp.toolbar.uv_grid", vp->id);
+    if (uvGridActive) {
+        ImGui::PopStyleColor();
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip(uvGridActive ? "UV Grid (Active - click to hide)" : "UV Grid (Hidden - click to show)");
+    }
+
     // 3. Toggle Bounding Box (E)
     ImGui::SameLine();
     bool bboxActive = vp->settings.showSceneBoundingBox || vp->settings.showSelectedBoundingBox;

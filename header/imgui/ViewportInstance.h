@@ -5,6 +5,7 @@
 #include "imgui/Framebuffer.h"
 #include "imgui/AntiAliasing.h"
 #include "imgui/AmbientOcclusion.h"
+#include "imgui/TextureMetrics.h"
 #include "imgui/ViewportSettingsPanel.h"
 #include "imgui/SceneRevisions.h"
 #include "imgui/SunShadowMap.h"
@@ -101,6 +102,8 @@ struct ViewportInstance {
     std::string name = "3D Viewport";
     bool isOpen = true;
     bool requestFocus = false;
+    // Open sections of the texture views' legend: UI only, outside the settings, whose changes sync the renderer.
+    TextureMetrics::LegendPanels textureLegendPanels;
 
     // glTF Camera attachment
     bool isAttachedToCamera = false;
@@ -187,6 +190,7 @@ struct ViewportInstance {
     uint64_t wireRenderSettingsRevision = 0;
     ViewportSettingsState wireMaterialSettings;
     std::unordered_map<ux3d::renderer::Material*, std::unique_ptr<ux3d::renderer::Material>> wireMaterials;
+    std::unordered_map<ux3d::renderer::Material*, std::unique_ptr<ux3d::renderer::Material>> uvGridMaterials;
 
     // Viewport camera
     ux3d::renderer::Camera rendererCamera;

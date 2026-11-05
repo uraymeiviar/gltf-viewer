@@ -32,6 +32,7 @@ ux3d::renderer::CommandGenerator::CommandGenerator(gl::GL* gl, const filesystem:
     , m_asoboWindshieldVertexColorMaskUniform("u_AsoboWindshieldVertexColorMask")
     , m_asoboDecalReceiverUniform("u_AsoboDecalReceiver")
     , m_asoboGlassCopyValidUniform("u_AsoboGlassCopyValid")
+    , m_textureMetricsViewUniform("u_UvHeatmapView")
     , m_decalDepthToleranceUniform("u_DecalDepthTolerance")
     , m_asoboEmissiveActiveUniform("u_AsoboEmissiveActive")
     , m_msfsEmissiveScaleUniform("u_MsfsEmissiveScale")
@@ -104,6 +105,10 @@ ux3d::renderer::CommandGenerator::CommandGenerator(gl::GL* gl, const filesystem:
     m_skyOcclusionTexture = std::make_unique<gl::Texture>(gl, 0, gl::TextureTarget::Texture3d, false);
     m_skyOcclusionSampler = std::make_unique<gl::Sampler>("u_SkyOcclusionVolume", m_skyOcclusionTexture.get(),
                                                           m_decalSamplerState.get());
+    // texelFetch of the texture measures' per-triangle table (nearest, clamped).
+    m_textureMetricsTexture = std::make_unique<gl::Texture>(gl, 0, gl::TextureTarget::Texture2d, false);
+    m_textureMetricsSampler = std::make_unique<gl::Sampler>("u_UvHeatmapTable", m_textureMetricsTexture.get(),
+                                                            m_decalSamplerState.get());
     setSsrOptions(true, 1, 0.5f);
     m_ssrDepthFloat.write(0);
     m_ssrFrame.write(0.0f);

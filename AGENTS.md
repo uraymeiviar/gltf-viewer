@@ -30,6 +30,7 @@ It uses C++20, Dear ImGui Docking, GLFW and OpenGL 4.6 (fallbacks 4.5, 4.3, 4.1)
 - [Quality presets and telemetry](docs/QUALITY_PRESETS_AND_TELEMETRY.md): read for editable profiles, Auto selection and Statistics telemetry.
 - [Loading and adaptive quality](docs/LOADING_AND_ADAPTIVE_QUALITY.md): read for loading progress, memory protection and quality adaptation.
 - [Texture-free loading](docs/LOADING_SPEED_AND_TEXTURE_FREE_OPEN.md): read for import performance and opening without textures.
+- [Texture metrics](docs/TEXTURE_METRICS.md): read for the Texture Distortion and Texture Density debug views, their parity with the FSS Blender heatmap and where glTF differs.
 - [ASOBO extension journal](docs/ASOBO_EXTENSIONS_JOURNAL.md): start here for MSFS support; follow its reference, semantics and phase 0–7 docs for the relevant extension.
 - [Renderer optimization journal](docs/RENDERER_OPTIMIZATION_JOURNAL.md): read for performance work and the relevant phase's correctness gates and evidence.
 - [ImGui migration plan](docs/MIGRATION_PLAN_IMGUI.md): read for historical Qt migration context.

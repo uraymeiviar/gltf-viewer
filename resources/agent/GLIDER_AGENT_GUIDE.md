@@ -337,6 +337,26 @@ compatibility override. Lens intensity is Quality, default 1; modes preserve off
   1 white (open) to 0 black; `probe` reads it. Walls thinner than a cell leak up to about a cell from the wall;
   `volume.cell` says how large that is.
 
+## Texture distortion and density
+
+- Debug views `texturedistortion` and `texturedensity` (`set_viewport_setting render_mode <name>`, `--debug-view`): the
+  FSS Blender heatmap's measures, one flat colour per triangle. Distortion: white none, blue shear, green area, cyan
+  both, full at 2.0; `texture_distortion_view` both / shear / area selects a half. Density: UV area / 3D area against the
+  material's area-weighted median, inside 0.9 to 1.1 neutral, 0.5 red, 2.0 blue. Magenta: a face without area in the UVs or
+  the model. Dark grey: no data (no such UV set, points, lines).
+- A UV grid lies over both views, on by default: `texture_grid`, `texture_grid_cells` (8, 16, 32, 64), `texture_grid_labels`,
+  `texture_grid_opacity`; `texture_heatmap_opacity` sets the heat colours. Violet lines: constant U. Orange lines: constant
+  V. Labels are other dark colours, column letter and row number, A1 at the image's lower left. For exact colour readings
+  of a face, set `texture_grid` off.
+- `uv_grid_overlay` (default off) shows the same grid over any other view; it needs no measurement table. It blends over the
+  image, so colour readings of a view need it off. `texture_grid_opacity` defaults to 0.5, 1 is the add-on's strength. The
+  wireframe overlay's opacity (alpha of `wireframe_color`) also defaults to 0.5; the Wireframe render mode draws opaque.
+- Density compares areas: 2.0 is twice the texels per square metre. The absolute value is per material:
+  `get_state` `textureMetrics.materials[].pixelsPerMetre` (its `texture`, `uvSet`, `textureWidth`, `textureHeight`).
+- The table is built when a view is selected and reflects that pose: playback does not update it. Blender's density marks
+  are not in glTF, so every node uses the default range. `textureMetrics` also has the shares of the surface over the
+  add-on's thresholds and `buildMilliseconds`; `built` is false while no viewport shows a view.
+
 ## Pitfalls
 
 - **Minimised window**: `capture` fails with `window_minimized`; restore the window first.

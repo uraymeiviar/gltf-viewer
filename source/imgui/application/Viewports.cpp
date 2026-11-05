@@ -146,6 +146,14 @@ void Application::drawViewports(FrameContext& frame)
     // Settings scopes: every viewport renders from its mirrors, resolved once per frame before any of them draws.
     resolveAllViewportSettings();
     const bool frameSceneDirty = lastFrameSceneChanges != 0;
+    // The Texture Distortion / Density table exists only while a viewport shows one of them.
+    if (textureMetrics.isBuilt()
+        && std::none_of(viewports.begin(), viewports.end(), [](const auto& vp) {
+               return vp && (vp->settings.renderMode == ux3d::renderer::RenderMode::TextureDistortion
+                             || vp->settings.renderMode == ux3d::renderer::RenderMode::TextureDensity);
+           })) {
+        textureMetrics.release();
+    }
     // -------------------------------------------------------------
     // Viewport Windows (Multi-Viewport)
     // -------------------------------------------------------------
@@ -595,6 +603,9 @@ void Application::drawViewports(FrameContext& frame)
             const bool isWireframeMode = shadingMode == ux3d::renderer::RenderMode::Wireframe;
             const bool hasWireframeOverlay = vp->settings.wireframeOverlay && !isWireframeMode;
             const bool drawWireframe = isWireframeMode || hasWireframeOverlay;
+            // The texture views have the grid in their surface.
+            const bool hasUvGridOverlay = vp->settings.uvGridOverlay && mode != ux3d::renderer::RenderMode::TextureDistortion &&
+                                          mode != ux3d::renderer::RenderMode::TextureDensity;
 
             // Persistent overrides (double-sidedness, winding) are rewritten only when
             // this viewport's overrides or the layer changed (P4.5). The DEBUG define
@@ -718,19 +729,23 @@ void Application::drawViewports(FrameContext& frame)
                 vp->wireRenderSettingsRevision != wireSettingsRevision ||
                 !(vp->wireMaterialSettings == vp->settings)) {
                 vp->wireMaterials.clear();
+                vp->uvGridMaterials.clear();
                 vp->wireMaterialLayer = gltfLayer.get();
                 vp->wireMaterialGeneration = gltfLayer->getGltfGeneration();
                 vp->wireRenderSettingsRevision = wireSettingsRevision;
                 vp->wireMaterialSettings = vp->settings;
             }
             std::vector<std::unique_ptr<ux3d::renderer::Material>> uncachedWireMaterials;
-            const auto wireMaterial = [this, &vp, &uncachedWireMaterials](ux3d::renderer::Material* material) {
-                auto configureMaterial = [&vp](ux3d::renderer::Material* copy) {
+            const auto wireMaterial = [this, &vp, &uncachedWireMaterials, isWireframeMode](ux3d::renderer::Material* material) {
+                auto configureMaterial = [&vp, isWireframeMode](ux3d::renderer::Material* copy) {
                     copy->fragmentShader = "wireframe_material.frag";
                     copy->overrideBlend = true;
                     copy->customBlend = true;
                     const auto blendMode = vp->settings.wireframeBlend;
-                    const auto& col = vp->settings.wireframeColor;
+                    auto col = vp->settings.wireframeColor;
+                    if (isWireframeMode) {
+                        col.a = 1.0f; // the opacity is the overlay's
+                    }
                     if (blendMode == ux3d::imgui::WireframeBlendMode::XOR) {
                         copy->logicOpEnabled = true;
                         copy->logicOp = GL_XOR;
@@ -788,6 +803,23 @@ void Application::drawViewports(FrameContext& frame)
                                             (shadingMode == ux3d::renderer::RenderMode::None ||
                                              mode == ux3d::renderer::RenderMode::SkyVisibility);
             vp->skyOcclusionActive = skyOcclusionActive;
+            // The Texture Distortion / Density debug views read the per-triangle table; the defines are absent otherwise,
+            // so every other view keeps its programs and sampler lists.
+            const bool textureDistortionView = mode == ux3d::renderer::RenderMode::TextureDistortion;
+            const bool textureMetricsActive = textureDistortionView || mode == ux3d::renderer::RenderMode::TextureDensity;
+            commandGenerator->setTextureMetrics(textureMetricsActive
+                                                    ? textureMetrics.ensure(*gltfLayer, gltfModel,
+                                                                           sceneRevisions.revision(ux3d::imgui::SceneChange::Topology)
+                                                                               + sceneRevisions.revision(ux3d::imgui::SceneChange::Transform)
+                                                                               + sceneRevisions.revision(ux3d::imgui::SceneChange::Material)
+                                                                               + sceneRevisions.revision(ux3d::imgui::SceneChange::Extension)
+                                                                               + sceneRevisions.revision(ux3d::imgui::SceneChange::AnimationSet))
+                                                    : 0);
+            if (textureMetricsActive) {
+                commandGenerator->setTextureMetricsView(vp->settings.textureHeatmapOpacity,
+                                                        vp->settings.textureGrid ? static_cast<float>(8 << vp->settings.textureGridCells) : 0.0f,
+                                                        vp->settings.textureGridLabels, vp->settings.textureGridOpacity);
+            }
             const int shadowFilter = static_cast<int>(ux3d::imgui::RenderQuality::effective().shadowFilter);
             for (auto& [mesh, material] : scene.drawables) {
                 if (mesh != nullptr && mesh != cubeMesh) {
@@ -799,6 +831,8 @@ void Application::drawViewports(FrameContext& frame)
                     material->defines.defineIf(ssrDebugOverlay, "RAW_SSR_OVERLAY");
                     if (material->fragmentShader == "pbr.frag") {
                         material->defines.defineIf(skyOcclusionActive, "SKY_OCCLUSION");
+                        material->defines.defineIf(textureMetricsActive, "UV_HEATMAP");
+                        material->defines.defineIf(textureDistortionView, "UV_DISTORTION_VIEW", vp->settings.textureDistortionView);
                         material->defines.define("SUN_SHADOW_FILTER", shadowFilter); // C19 (shadow.glsl)
                     }
                     if (vp->settings.forceDoubleSided) {
@@ -1330,7 +1364,7 @@ void Application::drawViewports(FrameContext& frame)
                 selection.selectedNode != nullptr;
             const bool hasOverlays =
                 vp->settings.showGrid || hasSceneBbox ||
-                hasSelectedBbox || drawWireframe;
+                hasSelectedBbox || drawWireframe || hasUvGridOverlay;
 
             const auto overlayDepthStart = ux3d::imgui::profiling::Clock::now();
             if (hasOverlays) {
@@ -1515,6 +1549,61 @@ void Application::drawViewports(FrameContext& frame)
                 glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
                 frame.markStage(isWireframeMode ? "scene.wireframe" : "scene.wireframeOverlay", wireframeStart);
             }
+
+            // The UV grid overlay: the scene's surfaces again, blended over the finished image like the wireframe overlay.
+            if (hasUvGridOverlay) {
+                const auto uvGridStart = ux3d::imgui::profiling::Clock::now();
+                textureMetrics.ensureUvMaps(*gltfLayer, sceneRevisions.revision(ux3d::imgui::SceneChange::Topology)
+                                                            + sceneRevisions.revision(ux3d::imgui::SceneChange::Transform)
+                                                            + sceneRevisions.revision(ux3d::imgui::SceneChange::Material)
+                                                            + sceneRevisions.revision(ux3d::imgui::SceneChange::Extension));
+                commandGenerator->setTextureMetricsView(vp->settings.textureHeatmapOpacity, static_cast<float>(8 << vp->settings.textureGridCells),
+                                                        vp->settings.textureGridLabels, vp->settings.textureGridOpacity);
+                glEnable(GL_POLYGON_OFFSET_FILL);
+                glPolygonOffset(-1.0f, -1.0f);
+                glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
+                gltfLayer->frustumCulling = !s_disableCulling;
+                gltfLayer->asoboOptions = vp->settings.asobo;
+                gltfLayer->materialExtensionOptions = vp->settings.materialExtensions;
+                auto [gridScene, gridMapping] = gltfLayer->createScene(activeScene);
+                gltfLayer->frustumCulling = false;
+                for (auto it = gridScene.drawables.begin(); it != gridScene.drawables.end();) {
+                    auto& [mesh, material] = *it;
+                    const auto passId = (material != nullptr && material->renderPass != nullptr)
+                                            ? material->renderPass->getId()
+                                            : ux3d::renderer::RenderPassType::MaxRenderPasses;
+                    if (passId == ux3d::renderer::RenderPassType::TransmissiveBlit ||
+                        passId == ux3d::renderer::RenderPassType::Opaque2 ||
+                        passId == ux3d::renderer::RenderPassType::Grid2 ||
+                        passId == ux3d::renderer::RenderPassType::Transparent2 ||
+                        mesh == nullptr || material == nullptr || mesh == cubeMesh ||
+                        !gridMapping.contains(mesh)) {
+                        it = gridScene.drawables.erase(it);
+                        continue;
+                    }
+                    mesh->polygonMode = ux3d::renderer::gl::PolygonMode::Fill;
+                    auto& copy = vp->uvGridMaterials[material];
+                    if (!copy || copy->defines.contentHash() != material->defines.contentHash()) {
+                        copy = std::make_unique<ux3d::renderer::Material>(*material);
+                        copy->fragmentShader = "uv_grid.frag";
+                        copy->overrideBlend = true;
+                        copy->customBlend = true;
+                        copy->logicOpEnabled = false;
+                        copy->blendingEnabled = true;
+                        copy->blendSrcFactor = GL_ONE; // premultiplied
+                        copy->blendDstFactor = GL_ONE_MINUS_SRC_ALPHA;
+                        copy->blendEquation = GL_FUNC_ADD;
+                    }
+                    material = copy.get();
+                    ++it;
+                }
+                commandGenerator->update(gridScene);
+                glRenderer->setGpuFrameContext(frame.number, vp->id, "uv-grid");
+                glRenderer->draw({commandGenerator.get()});
+                glDisable(GL_POLYGON_OFFSET_FILL);
+                glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+                frame.markStage("scene.uvGridOverlay", uvGridStart);
+            }
         } else if (redrawScene) {
             vp->groundPlaneActive = false;
             vp->oceanActive = false;
@@ -1620,6 +1709,19 @@ void Application::drawViewports(FrameContext& frame)
         ImVec2 imageSize = ImGui::GetItemRectSize();
 
         bool clickedCompass = false;
+
+        // The Texture Distortion / Density legend (the capture routes read the framebuffer, without it).
+        if (vp->settings.renderMode == ux3d::renderer::RenderMode::TextureDistortion ||
+            vp->settings.renderMode == ux3d::renderer::RenderMode::TextureDensity) {
+            ux3d::imgui::ViewportInstance* legendViewport = vp.get();
+            textureMetrics.drawLegend(imagePos, imageSize,
+                                      vp->settings.renderMode == ux3d::renderer::RenderMode::TextureDistortion,
+                                      vp->settings.textureDistortionView, vp->settings.textureGrid,
+                                      vp->settings.textureGridLabels, vp->textureLegendPanels, [&]() {
+                                          ux3d::imgui::ViewportSettingsPanel::renderTextureMetricsSettings(
+                                              legendViewport->settings, sceneRevisions, &legendViewport->antiAliasing, "texture_legend");
+                                      });
+        }
 
         // 3D Viewport Orientation Compass / Navigation Gizmo
         if (vp->settings.showOrientationGizmo) {

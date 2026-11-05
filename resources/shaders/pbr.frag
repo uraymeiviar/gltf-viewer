@@ -22,6 +22,7 @@ precision highp float;
 #include <tonemapping.glsl>
 #include <textures.glsl>
 #include <functions.glsl>
+#include <uv_grid.glsl>
 #include <brdf.glsl>
 #include <punctual.glsl>
 #include <ibl.glsl>
@@ -389,6 +390,56 @@ vec3 directDiffuseColor(MaterialInfo info, float NdotL, float NdotV, float LdotV
     }
 #endif
     return color;
+}
+#endif
+
+#if defined(UV_HEATMAP) && (DEBUG == DEBUG_TEXTURE_DISTORTION || DEBUG == DEBUG_TEXTURE_DENSITY)
+// Texture Distortion / Texture Density (imgui/TextureMetrics.h): the colours of the FSS Blender heatmap
+// (fss_blender_tools/uv_heatmap.py), one value per triangle from the table the application builds on the CPU:
+// r shear, g area distortion, b relative density, a 1 for a face without area in the UVs or the model.
+uniform sampler2D u_UvHeatmapTable;
+uniform int u_UvHeatmapOffset; // the primitive's first table entry + 1; 0: no data (no UVs, points, lines)
+vec3 uvHeatmapColor()
+{
+    const vec3 neutral = vec3(0.92);
+    const vec3 blue = vec3(0.10, 0.35, 0.95);
+    const vec3 red = vec3(0.95, 0.15, 0.15);
+    const vec3 green = vec3(0.15, 0.80, 0.30);
+    const vec3 cyan = vec3(0.10, 0.80, 0.95);
+    const vec3 error = vec3(1.0, 0.0, 1.0);
+    const vec3 noData = vec3(0.30);
+    vec3 colour = noData;
+    if (u_UvHeatmapOffset > 0) {
+        ivec2 size = textureSize(u_UvHeatmapTable, 0);
+        int index = u_UvHeatmapOffset - 1 + gl_PrimitiveID;
+        vec4 entry = texelFetch(u_UvHeatmapTable, ivec2(index % size.x, index / size.x), 0);
+        if (entry.a > 0.5) {
+            colour = error;
+        } else {
+#if DEBUG == DEBUG_TEXTURE_DISTORTION
+            float s = clamp(entry.r - 1.0, 0.0, 1.0);
+            float a = clamp(entry.g - 1.0, 0.0, 1.0); // AREA_TOP 2
+#if UV_DISTORTION_VIEW == 1
+            a = 0.0;
+#elif UV_DISTORTION_VIEW == 2
+            s = 0.0;
+#endif
+            colour = (1.0 - s) * (1.0 - a) * neutral + s * (1.0 - a) * blue + (1.0 - s) * a * green + s * a * cyan;
+#else
+            float t = clamp(log2(max(entry.b, 1e-12)), -1.0, 1.0);
+            colour = t >= 0.0 ? mix(neutral, blue, t) : mix(neutral, red, -t);
+#endif
+        }
+    }
+    // The opaque surface of the heatmap's shader: the colour over a grey base at the chosen opacity, the UV grid, and a
+    // headlight on the face's own normal.
+    vec3 faceNormal = normalize(mat3(u_ViewMatrix) * cross(dFdx(v_Position), dFdy(v_Position)));
+    vec3 surface = mix(vec3(0.8), colour, u_UvHeatmapView.x);
+    if (u_UvHeatmapOffset > 0 && u_UvHeatmapUvSet >= 0 && u_UvHeatmapView.y > 0.0) {
+        vec4 grid = uvGridLayer();
+        surface = surface * (1.0 - grid.a) + grid.rgb;
+    }
+    return surface * (0.7 + 0.3 * abs(faceNormal.z));
 }
 #endif
 
@@ -1383,6 +1434,9 @@ vec3 specularTexture = vec3(1.0);
 #else
     g_finalColor = vec4(vec3(1.0), 1.0);
 #endif
+#endif
+#if defined(UV_HEATMAP) && (DEBUG == DEBUG_TEXTURE_DISTORTION || DEBUG == DEBUG_TEXTURE_DENSITY)
+    g_finalColor = vec4(uvHeatmapColor(), 1.0);
 #endif
 #if DEBUG == DEBUG_SSR && defined(ASOBO_WINDSHIELD_SSR)
     vec4 ssrDebug = traceWindshield(n, v, normalInfo.ng, v_Position);

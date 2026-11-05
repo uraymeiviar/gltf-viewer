@@ -71,6 +71,9 @@ enum class RenderMode : uint32_t {
     SSAO,
     // A3.9: the sky visibility from the model's own geometry (cosine-weighted around the normal).
     SkyVisibility,
+    // The FSS Blender heatmap's UV measures (imgui/TextureMetrics.h): shear and area distortion, texel density.
+    TextureDistortion,
+    TextureDensity,
 
 };
 

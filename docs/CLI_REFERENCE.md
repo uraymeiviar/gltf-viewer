@@ -65,6 +65,9 @@ scene ground, viewport postEffects and vendor tuning while retaining old diagnos
 
 - `--msaa <0|2|4|8>` and `--post-aa <none|fxaa|taa>`: Renderer-wide geometry and post AA (every viewport; settings scopes), applied after `--aa` regardless of argument order. Default MSAA Off + TAA; a new viewport uses the global AA. File → Settings → Quality → Current Settings → Anti-Aliasing; registry `msaa`, `post_aa` (renderer).
 
+- `--debug-view texturedistortion`, `--debug-view texturedensity`, `--texture-distortion-view <both|shear|area>` (viewport, session only; registry `render_mode`, `texture_distortion_view`): UV shear, area distortion and texel density with the scale of the FSS Blender heatmap; `get_state` `textureMetrics` has the shares, each material's median and pixels per metre. See [TEXTURE_METRICS.md](TEXTURE_METRICS.md).
+- `--uv-grid-overlay` (viewport, session only; registry `uv_grid_overlay`): the UV grid and cell labels over any view but Texture Distortion / Density, which have `--texture-grid`. Cells, labels and opacity come from the settings below.
+- `--texture-heatmap-opacity <0.3..1>`, `--texture-grid <on|off>`, `--texture-grid-cells <8|16|32|64>`, `--texture-grid-labels <on|off>`, `--texture-grid-opacity <0..1>` (viewport, session only; registry `texture_heatmap_opacity`, `texture_grid`, `texture_grid_cells`, `texture_grid_labels`, `texture_grid_opacity`): those views' heat opacity and UV grid with cell labels. See [TEXTURE_METRICS.md](TEXTURE_METRICS.md#uv-grid-and-cell-labels).
 - `--debug-view <name>`: Selects a viewport Render Mode at startup, using the View menu's names with spaces,
   underscores and hyphens ignored (`occlusion`, `roughness`, `shadingnormal`, `geometrybitangent`,
   `normaltexture`, `decalprepassdepth`, `decalprepassnormal`, `ssr`, `ssrray`, ...).

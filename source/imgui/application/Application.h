@@ -20,6 +20,7 @@
 #include "imgui/GltfExtensionSettings.h"
 #include "imgui/SkyEnvironment.h"
 #include "imgui/SkyOcclusion.h"
+#include "imgui/TextureMetrics.h"
 #include "imgui/ViewportOverrides.h"
 #include "imgui/SelfCheckResult.h"
 #include "imgui/UiScenarioHarness.h"
@@ -593,6 +594,7 @@ private:
     // A3.9: the sky-visibility volume of the active scene (shared by all viewports), its caster pass (own material
     // pool) and the camera its depth maps draw with.
     ux3d::imgui::SkyOcclusionVolume skyOcclusionVolume;
+    ux3d::imgui::TextureMetrics textureMetrics; // the Texture Distortion / Density debug views
     std::unique_ptr<ux3d::renderer::ShadowCasterLayer> skyOcclusionCasterLayer;
     std::unique_ptr<ux3d::renderer::Camera> skyOcclusionCamera;
     bool skyOcclusionWanted = false;

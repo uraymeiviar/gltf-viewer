@@ -127,7 +127,8 @@ case("grid_msaa_taa", MANY, ["--aa", "taa"], ["wait 80"] + shots("grid_taa"))
 case("grid_close_culled", MANY, ["--aa", "msaa4", "--camera-distance", "6"], ["wait 10"] + shots("grid_close"))
 case("grid_ortho", MANY, ["--aa", "none", "--camera-projection", "orthographic", "--camera-pitch", "60"], ["wait 10"] + shots("grid_ortho"))
 case("grid_wireframe_mode", MANY, ["--aa", "none", "--render-mode", "wireframe"], ["wait 10"] + shots("grid_wire"))
-case("grid_overlay_doublesided", MANY, ["--aa", "none"], ["wait 8", "vpsetting 1 wireframe on", "vpsetting 1 doublesided on", "wait 8"] + shots("grid_overlay"))
+# The colour is explicit: this case compares instancing across binaries, not the overlay's default opacity.
+case("grid_overlay_doublesided", MANY, ["--aa", "none", "--wireframe-color", "1,1,1,1"], ["wait 8", "vpsetting 1 wireframe on", "vpsetting 1 doublesided on", "wait 8"] + shots("grid_overlay"))
 case("grid_hidden_node", MANY, ["--aa", "none", "--hide-node", "N_4_5"], ["wait 10"] + shots("grid_hidden"))
 case("leaf_playback", LEAF, ["--aa", "none"], ["wait 8", "animplay on", "wait 25", "shot @OUT@/leaf_a.png", "wait 15",
                                               "shot @OUT@/leaf_b.png", "animplay off", "wait 4"] + shots("leaf_stop"))

@@ -30,6 +30,66 @@ bool probed(const char* tag, Widget&& widget)
 }
 } // namespace
 
+void ViewportSettingsPanel::renderTextureMetricsSettings(ViewportSettingsState& state, SceneRevisions& revisions,
+                                                         AntiAliasing* antiAliasing, const char* probePrefix)
+{
+    const auto probe = [probePrefix](const char* name) {
+        UiProbe::item((std::string(probePrefix) + "." + name).c_str(), 0);
+    };
+    if (state.renderMode != ux3d::renderer::RenderMode::TextureDistortion &&
+        state.renderMode != ux3d::renderer::RenderMode::TextureDensity) {
+        return;
+    }
+    if (state.renderMode == ux3d::renderer::RenderMode::TextureDistortion) {
+        const char* views[] = { "Both", "Shear", "Area" };
+        if (ImGui::Combo("Distortion", &state.textureDistortionView, views, IM_ARRAYSIZE(views))) {
+            revisions.mark(SceneChange::ViewportSettings);
+        }
+        probe("texture_distortion_view");
+    }
+    // Frame values read by the shader: redraw without a renderer sync, even while a slider is dragged.
+    const auto redraw = [&]() {
+        if (antiAliasing) antiAliasing->resetHistory();
+        revisions.mark(SceneChange::Environment);
+    };
+    if (ImGui::SliderFloat("Heatmap Opacity", &state.textureHeatmapOpacity, 0.3f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp)) {
+        redraw();
+    }
+    probe("texture_heatmap_opacity");
+    if (ImGui::Checkbox("UV Grid", &state.textureGrid)) {
+        redraw();
+    }
+    probe("texture_grid");
+    renderUvGridOptions(state, revisions, antiAliasing, probePrefix, state.textureGrid);
+}
+
+void ViewportSettingsPanel::renderUvGridOptions(ViewportSettingsState& state, SceneRevisions& revisions,
+                                                AntiAliasing* antiAliasing, const char* probePrefix, bool enabled)
+{
+    const auto probe = [probePrefix](const char* name) {
+        UiProbe::item((std::string(probePrefix) + "." + name).c_str(), 0);
+    };
+    const auto redraw = [&]() {
+        if (antiAliasing) antiAliasing->resetHistory();
+        revisions.mark(SceneChange::Environment);
+    };
+    ImGui::BeginDisabled(!enabled);
+    const char* cells[] = { "8 x 8", "16 x 16", "32 x 32", "64 x 64" };
+    if (ImGui::Combo("Grid Cells", &state.textureGridCells, cells, IM_ARRAYSIZE(cells))) {
+        redraw();
+    }
+    probe("texture_grid_cells");
+    if (ImGui::Checkbox("Cell Labels", &state.textureGridLabels)) {
+        redraw();
+    }
+    probe("texture_grid_labels");
+    if (ImGui::SliderFloat("Grid Opacity", &state.textureGridOpacity, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp)) {
+        redraw();
+    }
+    probe("texture_grid_opacity");
+    ImGui::EndDisabled();
+}
+
 void ViewportSettingsPanel::render(ViewportSettingsState& state,
                                    ux3d::renderer::CommandGenerator* commandGenerator,
                                    ux3d::renderer::GltfRenderLayer* gltfLayer,
@@ -88,7 +148,7 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
                 "Clearcoat Factor", "Clearcoat Roughness", "Clearcoat Normal",
                 "Sheen Color", "Sheen Roughness", "Specular Factor", "Specular Color",
                 "Transmission Factor", "Volume Thickness", "Iridescence Factor", "Iridescence Thickness",
-                "SSR", "SSR Ray", "Shadow Cascades", "Shadow Visibility", "SSAO", "Sky Visibility", "Shaded"
+                "SSR", "SSR Ray", "Shadow Cascades", "Shadow Visibility", "SSAO", "Sky Visibility", "Shaded", "Texture Distortion", "Texture Density"
             };
 
             if (ImGui::Combo("Render Mode", &state.renderModeIdx, renderModes, IM_ARRAYSIZE(renderModes))) {
@@ -168,6 +228,10 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
         state.renderMode = ux3d::renderer::RenderMode::SSAO; break;
     case 37:
         state.renderMode = ux3d::renderer::RenderMode::SkyVisibility; break;
+    case 39:
+        state.renderMode = ux3d::renderer::RenderMode::TextureDistortion; break;
+    case 40:
+        state.renderMode = ux3d::renderer::RenderMode::TextureDensity; break;
     default:
         state.renderMode = ux3d::renderer::RenderMode::None; break;
     }
@@ -176,6 +240,7 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
             }
 
             UiProbe::item("vp.render_mode", 0);
+            renderTextureMetricsSettings(state, revisions, antiAliasing, "vp");
             ImGui::TextDisabled("Allows inspecting individual PBR channels, geometry, or UVs.");
 
             ImGui::TextWrapped("Quality levels apply to all views. Shaded omits post AA, bloom, lens effects, SSR and SSAO.");
@@ -210,6 +275,20 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
                     ImGui::SetTooltip("Gizmo for every portal: disc, inner circle and the direction into the cabin.");
                 }
                 ImGui::EndDisabled();
+            }
+            ImGui::Separator();
+            ImGui::Text("UV Grid:");
+            if (state.renderMode == ux3d::renderer::RenderMode::TextureDistortion ||
+                state.renderMode == ux3d::renderer::RenderMode::TextureDensity) {
+                ImGui::TextDisabled("This view has its own UV Grid switch, above.");
+            } else {
+                if (ImGui::Checkbox("UV Grid Overlay", &state.uvGridOverlay)) {
+                    if (antiAliasing) antiAliasing->resetHistory();
+                    revisions.mark(SceneChange::Environment);
+                }
+                UiProbe::item("vp.uv_grid_overlay", 0);
+                ImGui::TextDisabled("Superimposes the UV grid and cell labels on any view.");
+                renderUvGridOptions(state, revisions, antiAliasing, "vp", state.uvGridOverlay);
             }
             ImGui::Separator();
             ImGui::Text("Wireframe:");

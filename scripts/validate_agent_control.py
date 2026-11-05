@@ -419,7 +419,7 @@ def check_settings_and_probe(fixture):
         check(not unknown["ok"] and unknown["error"]["code"] == "unknown_setting", "an unknown key is refused")
         listed = session.call("list_settings")["settings"]
         keys = {entry["key"] for entry in listed}
-        wanted = {"reflections", "ssao_level", "shadow_map", "ibl_cube", "texture_max_size", "lens_flare", "ocean_mode", "aa", "msaa", "post_aa", "ssr", "ssr_quality", "interior_sky_reflection", "windshield_icing",
+        wanted = {"reflections", "ssao_level", "shadow_map", "ibl_cube", "texture_max_size", "lens_flare", "ocean_mode", "aa", "msaa", "post_aa", "ssr", "ssr_quality", "interior_sky_reflection", "windshield_icing", "texture_distortion_view", "texture_heatmap_opacity", "texture_grid", "texture_grid_cells", "texture_grid_labels", "texture_grid_opacity", "uv_grid_overlay",
                   "decal_tolerance_mm", "grid", "grid_mode", "render_mode", "wireframe_overlay", "wireframe_color",
                   "wireframe_blend", "asobo", FRESNEL, "show_invisible_materials", "exposure", "tone_mapping",
                   "hdr_rotation", "time_of_day", "msfs_emissive_scale", "msfs_emissive"}

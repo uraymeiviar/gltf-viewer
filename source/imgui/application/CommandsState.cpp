@@ -86,6 +86,7 @@ json Application::agentStateJson()
                   {"skippedSyncs", skippedSceneSyncCount},
                   {"animationOnlySyncs", animationOnlySyncCount},
                   {"marks", sceneRevisions.markCount()}};
+    st["textureMetrics"] = textureMetrics.stateJson();
     st["sun"] = sunStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene));
     st["ambient"] = ambientStateJson(getSceneEnvironment(sceneEnvironments, gltfModel, activeScene));
     const auto& environment = getSceneEnvironment(sceneEnvironments, gltfModel, activeScene);

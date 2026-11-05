@@ -83,7 +83,7 @@
   - 3D Tiles payloads: EXT_structural_metadata, EXT_mesh_features, EXT_instance_features, CESIUM_primitive_outline and CESIUM_RTC are recognised (optional or required); the geometry renders as plain glTF (in the RTC frame, near the origin), and Statistics, the Inspector and `get_state` list the metadata (schema, property tables, feature IDs, RTC center); outline edges are not drawn.
   - Node visibility: KHR_node_visibility (a node the file hides is not drawn, lit, picked or framed, with its whole subtree; animatable through KHR_animation_pointer; the Scene Hierarchy marks it and the Inspector shows the file's value, separate from the viewer's own Hide).
   - Real-time Image-Based Lighting (IBL) with spherical harmonics and environment radiance filtering supporting both Radiance HDR (`.hdr`) and OpenEXR (`.exr`) panoramic environment maps.
-  - Infinite fading ground grid and 30+ render debug modes (Wireframe, Normal, Roughness, Metallic, Base Color, UV, Clearcoat, Sheen, etc.).
+  - Infinite fading ground grid and 30+ render debug modes (Wireframe, Normal, Roughness, Metallic, Base Color, UV, Texture Distortion, Texture Density, Clearcoat, Sheen, etc.).
   - Window state and recent file history persistence across sessions.
 
 ---

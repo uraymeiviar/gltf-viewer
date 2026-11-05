@@ -35,6 +35,8 @@ constexpr ShadingModeInfo s_shadingModes[] = {
     {"", ux3d::renderer::RenderMode::None, nullptr, true},
     {"Texture Coordinates 0", ux3d::renderer::RenderMode::TexCoord_0, nullptr, false},
     {"Texture Coordinates 1", ux3d::renderer::RenderMode::TexCoord_1, nullptr, false},
+    {"Texture Distortion", ux3d::renderer::RenderMode::TextureDistortion, nullptr, false},
+    {"Texture Density", ux3d::renderer::RenderMode::TextureDensity, nullptr, false},
     {"Normal Texture", ux3d::renderer::RenderMode::NormalTexture, nullptr, false},
     {"Geometry Normal", ux3d::renderer::RenderMode::NormalGeometry, nullptr, false},
     {"Geometry Tangent", ux3d::renderer::RenderMode::Tangent, nullptr, false},
@@ -159,6 +161,10 @@ ux3d::renderer::RenderMode Application::getRenderModeFromIndex(int idx)
         return ux3d::renderer::RenderMode::SSAO;
     case 37:
         return ux3d::renderer::RenderMode::SkyVisibility;
+    case 39: // 38 is Shaded (RenderMode::None without post effects)
+        return ux3d::renderer::RenderMode::TextureDistortion;
+    case 40:
+        return ux3d::renderer::RenderMode::TextureDensity;
     default:
         return ux3d::renderer::RenderMode::None;
     }
@@ -308,6 +314,10 @@ int Application::getIndexFromRenderMode(ux3d::renderer::RenderMode mode)
         return 36;
     case RM::SkyVisibility:
         return 37;
+    case RM::TextureDistortion:
+        return 39;
+    case RM::TextureDensity:
+        return 40;
     default:
         return 0;
     }
@@ -349,6 +359,10 @@ const char* Application::getRenderModeLabel(ux3d::renderer::RenderMode mode)
         return "SSAO";
     case RM::SkyVisibility:
         return "Sky Visibility";
+    case RM::TextureDistortion:
+        return "Texture Distortion";
+    case RM::TextureDensity:
+        return "Texture Density";
     case RM::Alpha:
         return "Alpha";
     case RM::Occlusion:

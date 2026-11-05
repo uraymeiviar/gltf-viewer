@@ -126,6 +126,8 @@ Suites (equivalence against the baseline plus each feature's analytic acceptance
   validate_emissive_units.py (A1.6b ASOBO sky emissive in cd/m^2, HDR/core parity, explicit overrides and bloom),
   validate_sky_occlusion.py (A3.9 sky occlusion: open box against the analytic opening, occluders, thin-wall leak,
   open plane/spheres unchanged, bake completion and swap, real-asset bake cost; the HDR default against the baseline),
+  validate_texture_metrics.py (Texture Distortion / Density debug views: hand-computed shear, area and density colours,
+  pixels per metre, UV set and transform, node scale, packaged UVs; other views against the baseline),
   validate_ocean.py (A6.8a FFT ocean: loop seam, deterministic captures, CLI = pipe, GL 4.3 gate, hull depth, not
   pickable, model interior, GPU cost and precompute; Grid/Plane against the baseline),
   validate_asobo_decal_modes.py,
@@ -249,6 +251,8 @@ TRIGGERS = (
     (("ground", "ocean", "review_fixes"),
      ("GroundSettings.*", "ground*.frag", "ground*.vert", "ground*.glsl", "ocean*", "OceanSimulation.*", "Ocean.cpp",
       "GridRenderer.*", "grid.frag", "grid.vert")),
+    (("texture_metrics",),
+     ("TextureMetrics.*", "validate_texture_metrics.py", "CommandMapping.cpp")),
     (("wireframe_overlay",),
      ("Viewports.cpp", "wireframe_material.frag", "validate_wireframe_overlay.py")),
     (("ssao", "ambient", "sky_occlusion", "review_fixes"),
@@ -519,6 +523,7 @@ serial_jobs = [
     ("sun_source", ["scripts/validate_sun_source.py", "--baseline-exe", str(baseline)]),
     ("emissive_units", ["scripts/validate_emissive_units.py", "--baseline-exe", str(baseline)]),
     ("sky_occlusion", ["scripts/validate_sky_occlusion.py", "--baseline-exe", str(baseline)]),
+    ("texture_metrics", ["scripts/validate_texture_metrics.py", "--baseline-exe", str(baseline)]),
     ("wireframe_overlay", ["scripts/validate_wireframe_overlay.py", "--baseline-exe", str(baseline)]),
     ("ocean", ["scripts/validate_ocean.py", "--baseline-exe", str(baseline)]),
     # Before and after: it compares with its own default baseline, the build from before these costs fell, since a

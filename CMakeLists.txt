@@ -105,6 +105,7 @@ set(GLIDER_SOURCES
 	"source/imgui/Profiling.cpp"
 	"source/imgui/SkyEnvironment.cpp"
 	"source/imgui/SkyOcclusion.cpp"
+	"source/imgui/TextureMetrics.cpp"
 	"source/imgui/AmbientOcclusion.cpp"
 	"source/imgui/UiScenarioHarness.cpp"
 	"header/imgui/Profiling.h"

@@ -68,7 +68,8 @@ struct ViewportSettingsState {
 
     // Visual Inspection & Diagnostics
     bool wireframeOverlay = false;         // Overlay wireframe mesh edges on top of shaded model
-    glm::vec4 wireframeColor = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+    glm::vec4 wireframeColor = glm::vec4(1.0f, 1.0f, 1.0f, 0.5f); // alpha: the overlay's; the Wireframe mode draws opaque
+    bool uvGridOverlay = false;            // UV grid over any view but the two texture views, which have textureGrid
     WireframeBlendMode wireframeBlend = WireframeBlendMode::Normal;
     bool showSceneBoundingBox = false;     // Yellow AABB box for entire scene
     bool showSelectedBoundingBox = true;   // Orange OBB box for selected node (matching Blender)
@@ -77,6 +78,12 @@ struct ViewportSettingsState {
     bool turntable = false;                // Auto-rotate turntable
     float turntableSpeed = 30.0f;          // deg/sec
     bool showOrientationGizmo = true;      // 3D navigation axes compass in viewport corner
+    int textureDistortionView = 0;         // Texture Distortion debug view: 0 both, 1 shear, 2 area
+    float textureHeatmapOpacity = 0.75f;   // Both texture debug views: heat colour over the grey surface (the add-on's 0.3 to 1)
+    bool textureGrid = true;               // ... UV grid in them
+    int textureGridCells = 1;              // ... cells across the UV square, also of the overlay: 0 8, 1 16, 2 32, 3 64
+    bool textureGridLabels = true;         // ... a label in each cell, also in the overlay
+    float textureGridOpacity = 0.5f;       // ... lines and labels, also of the overlay; 1 is the add-on's strength
 
     // Compared whole by the cached scene redraw (P5.3): some controls change these
     // fields without marking a revision.
@@ -87,6 +94,13 @@ class AntiAliasing;
 
 class ViewportSettingsPanel {
 public:
+    // The Texture Distortion / Density settings, nothing in other views: in this panel and in the view's legend, tagged
+    // for --ui-script with the prefix.
+    static void renderTextureMetricsSettings(ViewportSettingsState& state, SceneRevisions& revisions,
+                                             AntiAliasing* antiAliasing, const char* probePrefix);
+    // The UV grid's cells, labels and opacity, shared by the texture views' grid and the overlay.
+    static void renderUvGridOptions(ViewportSettingsState& state, SceneRevisions& revisions, AntiAliasing* antiAliasing,
+                                    const char* probePrefix, bool enabled);
     static void render(ViewportSettingsState& state,
                        ux3d::renderer::CommandGenerator* commandGenerator,
                        ux3d::renderer::GltfRenderLayer* gltfLayer,

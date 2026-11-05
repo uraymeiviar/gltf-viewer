@@ -269,7 +269,8 @@ void CommandMapping::prepareInstancing(CmdDesc& desc) const
         || desc.command.tag != CommandTag::Draw || desc.command.program == nullptr || desc.command.instanceCount != 0
         || mesh->vertexShader != "primitive.vert" || !mesh->uniformBlocks.empty() || mesh->jointsSampler != nullptr
         || mesh->getMorphTargetSampler().texture != nullptr || mesh->defines.isDefined("USE_SKINNING")
-        || mesh->defines.isDefined("USE_MORPHING") || material->defines.isDefined("MATERIAL_TRANSMISSION")) {
+        || mesh->defines.isDefined("USE_MORPHING") || material->defines.isDefined("MATERIAL_TRANSMISSION")
+        || material->defines.isDefined("UV_HEATMAP")) { // each draw reads its own table span (u_UvHeatmapOffset)
         return;
     }
     desc.modelUniform = findUniform(*mesh, "u_ModelMatrix");
@@ -555,6 +556,8 @@ gl::Program* CommandMapping::buildProgram(const Mesh& meshRef, const Material& m
     fragmentDefines.define("DEBUG_SHADOW_VISIBILITY", static_cast<int>(RenderMode::ShadowVisibility));
     fragmentDefines.define("DEBUG_SSAO", static_cast<int>(RenderMode::SSAO));
     fragmentDefines.define("DEBUG_SKY_VISIBILITY", static_cast<int>(RenderMode::SkyVisibility));
+    fragmentDefines.define("DEBUG_TEXTURE_DISTORTION", static_cast<int>(RenderMode::TextureDistortion));
+    fragmentDefines.define("DEBUG_TEXTURE_DENSITY", static_cast<int>(RenderMode::TextureDensity));
     fragmentDefines.defineAllOf(mesh->defines);
     fragmentDefines.defineAllOf(material->defines);
 
@@ -836,6 +839,14 @@ std::optional<CmdDesc> CommandMapping::makeCommand(MeshMaterialTuple meshMat)
     if ((material->fragmentShader == "pbr.frag" || material->fragmentShader == "ocean.frag") &&
         material->defines.isDefined("SKY_OCCLUSION")) {
         command->samplers.push_back(m_scene.m_skyOcclusionSampler.get());
+    }
+    // The texture measures' per-triangle table (imgui/TextureMetrics.h), only for the programs of those two debug views.
+    if (material->fragmentShader == "pbr.frag" && material->defines.isDefined("UV_HEATMAP")) {
+        command->samplers.push_back(m_scene.m_textureMetricsSampler.get());
+        command->uniforms.push_back(&m_scene.m_textureMetricsViewUniform);
+    }
+    if (material->fragmentShader == "uv_grid.frag") { // the UV grid overlay: no table
+        command->uniforms.push_back(&m_scene.m_textureMetricsViewUniform);
     }
 
     // P8.1a: resolve the program's bindings once instead of by name on every draw, and

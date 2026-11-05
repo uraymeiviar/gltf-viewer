@@ -408,6 +408,20 @@ std::optional<int> Application::configure(int argc, char** argv)
                 std::fprintf(stderr, "Invalid --wireframe-color: %s\n", error.c_str());
                 return 1;
             }
+        } else if (arg == "--texture-distortion-view" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "texture_distortion_view", toLowerAscii(argv[++i]), "--texture-distortion-view")) return 1;
+        } else if (arg == "--uv-grid-overlay") {
+            if (!applyCliSetting(SettingScope::Viewport, "uv_grid_overlay", "on", "--uv-grid-overlay")) return 1;
+        } else if (arg == "--texture-heatmap-opacity" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "texture_heatmap_opacity", argv[++i], "--texture-heatmap-opacity")) return 1;
+        } else if (arg == "--texture-grid" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "texture_grid", toLowerAscii(argv[++i]), "--texture-grid")) return 1;
+        } else if (arg == "--texture-grid-cells" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "texture_grid_cells", argv[++i], "--texture-grid-cells")) return 1;
+        } else if (arg == "--texture-grid-labels" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "texture_grid_labels", toLowerAscii(argv[++i]), "--texture-grid-labels")) return 1;
+        } else if (arg == "--texture-grid-opacity" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "texture_grid_opacity", argv[++i], "--texture-grid-opacity")) return 1;
         } else if (arg == "--wireframe-blend" && i + 1 < argc) {
             if (!applyCliSetting(SettingScope::Viewport, "wireframe_blend", toLowerAscii(argv[++i]), "--wireframe-blend")) return 1;
         } else if (arg == "--disable-instancing") {

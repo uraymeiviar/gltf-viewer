@@ -86,6 +86,7 @@ gltf-viewer/
 │   │   ├── SceneHierarchySelfCheck.cpp # Hierarchy cache-invalidation self-check
 │   │   ├── SkyEnvironment.cpp    # A6.2/A6.3 procedural sky LUTs & time-sliced IBL (class in header/imgui/SkyEnvironment.h)
 │   │   ├── SkyOcclusion.cpp      # A3.9 sky-visibility volume bake (class in header/imgui/SkyOcclusion.h)
+│   │   ├── TextureMetrics.cpp    # Texture Distortion / Density per-triangle table and legend (docs/TEXTURE_METRICS.md)
 │   │   ├── UiScenarioHarness.cpp # Scripted UI scenario harness (class in header/imgui/UiScenarioHarness.h)
 │   │   ├── EmbeddedResources.cpp # Generated at build time (not committed): C++ byte array of the compressed VFS
 │   │   ├── EmbeddedVFS.cpp       # VFS decompression & path indexing

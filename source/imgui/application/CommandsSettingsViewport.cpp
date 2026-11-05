@@ -73,6 +73,26 @@ void Application::registerAgentViewportSettings()
         };
         addSetting(std::move(spec));
     }
+    addSetting(indexEnumSetting<VS>("texture_distortion_view", V, &VS::textureDistortionView, {"both", "shear", "area"},
+                                    "What the Texture Distortion debug view shows: both (default; shear blue, area green, cyan together), shear or area.",
+                                    "--texture-distortion-view <both|shear|area>"));
+    addSetting(floatSetting<VS>("texture_heatmap_opacity", V, &VS::textureHeatmapOpacity,
+                                "Texture Distortion / Density: how strongly the heat colours cover the grey surface (0.3 to 1, default 0.75).",
+                                "--texture-heatmap-opacity <0.3..1>", std::pair{0.3, 1.0}));
+    addSetting(boolSetting<VS>("uv_grid_overlay", V, &VS::uvGridOverlay,
+                               "UV grid and cell labels over any view but Texture Distortion / Density, which use texture_grid (default off).",
+                               "--uv-grid-overlay"));
+    addSetting(boolSetting<VS>("texture_grid", V, &VS::textureGrid,
+                               "Texture Distortion / Density: UV grid over the surface (default on).", "--texture-grid <on|off>"));
+    addSetting(indexEnumSetting<VS>("texture_grid_cells", V, &VS::textureGridCells, {"8", "16", "32", "64"},
+                                    "UV grid, in Texture Distortion / Density and the overlay: cells across the UV square (default 16).",
+                                    "--texture-grid-cells <8|16|32|64>"));
+    addSetting(boolSetting<VS>("texture_grid_labels", V, &VS::textureGridLabels,
+                               "UV grid, in Texture Distortion / Density and the overlay: a label in each cell, column letter and row number; A1 is the image's lower left (default on).",
+                               "--texture-grid-labels <on|off>"));
+    addSetting(floatSetting<VS>("texture_grid_opacity", V, &VS::textureGridOpacity,
+                                "UV grid, in Texture Distortion / Density and the overlay: strength of the lines and labels (0 to 1, default 0.5; 1 is the FSS add-on's).",
+                                "--texture-grid-opacity <0..1>", std::pair{0.0, 1.0}));
     {
         SettingSpec spec = boolSetting<VS>("grid", V, &VS::showGrid, "Ground grid.", "--hide-grid");
         spec.aliases = {"show_grid"};
