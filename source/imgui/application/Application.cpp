@@ -36,6 +36,8 @@ static bool noFocusRequested()
     return value != nullptr && std::strcmp(value, "1") == 0;
 }
 
+static bool s_monitorRequested = false;  // the window's place came from GLIDER_MONITOR: it is not saved
+
 // GLIDER_MONITOR (left, right, primary or a glfwGetMonitors index): where the window opens, so test runs can stay off
 // the monitor someone is working on. Returns false when unset or not recognised.
 static bool requestedMonitorPosition(int& x, int& y)
@@ -192,8 +194,8 @@ int Application::run(int argc, char** argv)
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     int monitorX = 0;
     int monitorY = 0;
-    const bool monitorRequested = requestedMonitorPosition(monitorX, monitorY);
-    if (monitorRequested) {
+    s_monitorRequested = requestedMonitorPosition(monitorX, monitorY);
+    if (s_monitorRequested) {
         // Created hidden and shown once placed, so it never appears on the primary monitor first.
         winState.maximized = false;
         glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
@@ -222,7 +224,7 @@ int Application::run(int argc, char** argv)
         return 1;
     }
 
-    if (monitorRequested) {
+    if (s_monitorRequested) {
         glfwSetWindowPos(window, monitorX, monitorY);
         glfwShowWindow(window);
     } else if (!winState.maximized) {
@@ -537,7 +539,7 @@ int Application::run(int argc, char** argv)
 
     ux3d::core::removeLoggerCallback(&consoleLogger);
 
-    if (!s_isolatedState && !s_windowSizeOverridden) {
+    if (!s_isolatedState && !s_windowSizeOverridden && !s_monitorRequested) {
         saveWindowState(window);
     }
 
