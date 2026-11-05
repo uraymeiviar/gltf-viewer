@@ -378,6 +378,16 @@ def preview_shot(exe, model, image, label):
     return png
 
 
+def same_preview(a, b):
+    """The inspector's "Image Preview" heading and image, in the 1280 x 720 default layout. This baseline is pinned to the
+    build before the pixels left the CPU, so the rest of the window, toolbars and text included, follows later UI changes."""
+    from PIL import Image, ImageChops
+    box = (1020, 280, 1280, 700)
+    with Image.open(a) as first, Image.open(b) as second:
+        return first.size == second.size and \
+            ImageChops.difference(first.convert("RGB").crop(box), second.convert("RGB").crop(box)).getbbox() is None
+
+
 def private_memory(exe, model):
     import psutil
     process, pipe = start_pipe_session([exe, model] + INTERACTIVE)
@@ -403,7 +413,7 @@ def check_images(baseline):
     for image, name in ((0, "a used image"), (1, "an image no material uses")):
         a = preview_shot(EXE, model, image, f"preview{image}_new")
         b = preview_shot(baseline, model, image, f"preview{image}_baseline")
-        check(a.exists() and b.exists() and same(a, b), f"the inspector shows {name} as before")
+        check(a.exists() and b.exists() and same_preview(a, b), f"the inspector shows {name} as before")
 
     if not E195.exists():
         print("  INFO the E195 cockpit is not here: the memory comparison is skipped")
