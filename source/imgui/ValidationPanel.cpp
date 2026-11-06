@@ -535,7 +535,7 @@ void ValidationPanel::render(bool* pOpen,
     ux3d::imgui::UiProbe::item("val.search", 0);
     if (s_searchBuffer[0] != '\0') {
         ImGui::SameLine();
-        if (ImGui::SmallButton(ICON_MDI_CLOSE)) {
+        if (ImGui::Button(ICON_MDI_CLOSE)) {
             s_searchBuffer[0] = '\0';
         }
     }
@@ -687,7 +687,7 @@ void ValidationPanel::renderStatusBarIndicator(bool* pOpenValidationPanel)
     const auto& report = GltfValidator::instance().getLastReport();
 
     if (!report.validated) {
-        if (ImGui::SmallButton(ICON_MDI_SHIELD_OUTLINE " Validate")) {
+        if (ImGui::Button(ICON_MDI_SHIELD_OUTLINE " Validate")) {
             if (pOpenValidationPanel) *pOpenValidationPanel = true;
             requestFocus();
         }
@@ -702,7 +702,7 @@ void ValidationPanel::renderStatusBarIndicator(bool* pOpenValidationPanel)
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.8f, 0.2f, 0.2f, 1.0f));
         char buf[64];
         std::snprintf(buf, sizeof(buf), "%s %d %s", ICON_MDI_ALERT_OCTAGON, report.errorCount, report.errorCount == 1 ? "Error" : "Errors");
-        if (ImGui::SmallButton(buf)) {
+        if (ImGui::Button(buf)) {
             if (pOpenValidationPanel) *pOpenValidationPanel = true;
             requestFocus();
         }
@@ -717,7 +717,7 @@ void ValidationPanel::renderStatusBarIndicator(bool* pOpenValidationPanel)
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.7f, 0.58f, 0.15f, 1.0f));
         char buf[64];
         std::snprintf(buf, sizeof(buf), "%s %d %s", ICON_MDI_ALERT, report.warningCount, report.warningCount == 1 ? "Warning" : "Warnings");
-        if (ImGui::SmallButton(buf)) {
+        if (ImGui::Button(buf)) {
             if (pOpenValidationPanel) *pOpenValidationPanel = true;
             requestFocus();
         }
@@ -729,7 +729,7 @@ void ValidationPanel::renderStatusBarIndicator(bool* pOpenValidationPanel)
     } else {
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.12f, 0.45f, 0.28f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.18f, 0.6f, 0.36f, 1.0f));
-        if (ImGui::SmallButton(ICON_MDI_CHECK_CIRCLE " glTF Valid")) {
+        if (ImGui::Button(ICON_MDI_CHECK_CIRCLE " glTF Valid")) {
             if (pOpenValidationPanel) *pOpenValidationPanel = true;
             requestFocus();
         }

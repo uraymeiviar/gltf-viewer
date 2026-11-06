@@ -799,9 +799,9 @@ void AnimationPlayer::renderToolbar(ux3d::gltf::Gltf& gltfModel, ux3d::renderer:
         return;
     }
 
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.13f, 0.14f, 0.17f, 0.95f));
-    ImGui::BeginChild("AnimationToolbar", ImVec2(0, 36), true, ImGuiWindowFlags_NoScrollbar);
+    ImGui::BeginChild("AnimationToolbar", ImVec2(0, ImGui::GetFrameHeight() + 2.0f * ImGui::GetStyle().WindowPadding.y), true,
+                      ImGuiWindowFlags_NoScrollbar);
 
     // 1. Animations Popup Menu Button (matching Gestaltor)
     size_t activeCount = 0;
@@ -948,7 +948,6 @@ void AnimationPlayer::renderToolbar(ux3d::gltf::Gltf& gltfModel, ux3d::renderer:
 
     ImGui::EndChild();
     ImGui::PopStyleColor();
-    ImGui::PopStyleVar();
 }
 
 } // namespace ux3d::imgui

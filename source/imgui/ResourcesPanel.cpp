@@ -648,6 +648,7 @@ void ResourcesPanel::render(ux3d::gltf::Gltf& gltfModel,
 
             std::string defLabel = opts.showIcon ? (std::string(ICON_MDI_PALETTE_SWATCH_OUTLINE) + " Default / Original") : "Default / Original";
             ImGui::TreeNodeEx(reinterpret_cast<void*>(static_cast<intptr_t>(999999)), defFlags, "%s", defLabel.c_str());
+            ux3d::imgui::UiProbe::item("res.variant.default", 0);
             if (ImGui::IsItemClicked()) {
                 if (gltfLayer) {
                     gltfLayer->setMaterialVariant(std::nullopt);

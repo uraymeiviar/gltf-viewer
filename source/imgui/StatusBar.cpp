@@ -94,7 +94,8 @@ void StatusBar::render(ux3d::gltf::Gltf& gltfModel,
         float validBadgeWidth = ImGui::CalcTextSize(valText).x + ImGui::GetStyle().FramePadding.x * 2.0f + 6.0f;
         float rightGroupWidth = logPillWidth + ImGui::GetStyle().ItemSpacing.x + validBadgeWidth + 4.0f;
         const bool telemetry = !RenderQuality::legacyCaptureUi();
-        const float telemetryWidth = telemetry && mainViewport->WorkSize.x > 1100 ? 385.0f : telemetry ? 200.0f : 0.0f;
+        const float em = ImGui::GetFontSize() / 16.0f; // Widths below were laid out for the 16 px UI font.
+        const float telemetryWidth = telemetry && mainViewport->WorkSize.x > 1100 * em ? 385.0f * em : telemetry ? 200.0f * em : 0.0f;
         rightGroupWidth += telemetryWidth;
 
         // -------------------------------------------------------------
@@ -177,7 +178,7 @@ void StatusBar::render(ux3d::gltf::Gltf& gltfModel,
         if (looping) {
             ImGui::SameLine();
             int loopCount = animationPlayer.getLoopCount();
-            ImGui::SetNextItemWidth(36.0f);
+            ImGui::SetNextItemWidth(36.0f * ImGui::GetFontSize() / 16.0f);
             if (ImGui::DragInt("##LoopCount", &loopCount, 0.1f, 0, 99, loopCount == 0 ? "∞" : "%d")) {
                 animationPlayer.setLoopCount(loopCount);
             }
@@ -186,7 +187,7 @@ void StatusBar::render(ux3d::gltf::Gltf& gltfModel,
 
         ImGui::SameLine();
         // 4. Playback speed
-        ImGui::SetNextItemWidth(56.0f);
+        ImGui::SetNextItemWidth(56.0f * ImGui::GetFontSize() / 16.0f);
         const char* speedOptions[] = { "0.25x", "0.5x", "1.0x", "1.5x", "2.0x" };
         static int speedIdx = 2;
         if (ImGui::Combo("##Speed", &speedIdx, speedOptions, 5)) {
@@ -243,14 +244,14 @@ void StatusBar::render(ux3d::gltf::Gltf& gltfModel,
         ImGui::SameLine(rightStart);
         if (telemetry) {
             const auto& live = RuntimeTelemetry::get();
-            if (telemetryWidth > 100) {
+            if (telemetryWidth > 100 * em) {
                 const auto& memory = live.memory;
                 char label[100];
                 if (memory.gpuKnown && memory.gpuBudget) {
                     std::snprintf(label,sizeof(label),"VRAM %.2f / %.2f GiB",memory.gpuUsage/double(1ull<<30),memory.gpuBudget/double(1ull<<30));
-                    ImGui::ProgressBar(static_cast<float>(std::min(1.0,double(memory.gpuUsage)/memory.gpuBudget)),ImVec2(180,ImGui::GetFrameHeight()),label);
+                    ImGui::ProgressBar(static_cast<float>(std::min(1.0,double(memory.gpuUsage)/memory.gpuBudget)),ImVec2(180 * em,ImGui::GetFrameHeight()),label);
                 } else {
-                    ImGui::ProgressBar(0,ImVec2(180,ImGui::GetFrameHeight()),"VRAM unknown");
+                    ImGui::ProgressBar(0,ImVec2(180 * em,ImGui::GetFrameHeight()),"VRAM unknown");
                 }
                 if (ImGui::IsItemHovered()) {
                     ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);

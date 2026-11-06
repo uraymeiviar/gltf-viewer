@@ -4,6 +4,8 @@
 // details), normal-map detection, on-demand decoding and the image preview widget.
 
 #include "ElementInspectorImages.h"
+#include "imgui/PropertyTree.h"
+#include <cstdio>
 
 namespace ux3d::imgui {
 
@@ -397,7 +399,7 @@ void renderImagePreview(const ux3d::gltf::Image* img, ux3d::renderer::GltfRender
 {
     if (!img) return;
     if (img->payloadOmitted()) {
-        ImGui::TextDisabled("Image intentionally omitted (opened without textures)");
+        prop::textRow(ICON_MDI_IMAGE_OUTLINE, "Preview", nullptr, "Image intentionally omitted (opened without textures)");
         return;
     }
 
@@ -420,8 +422,22 @@ void renderImagePreview(const ux3d::gltf::Image* img, ux3d::renderer::GltfRender
     }
 
     if (imgW == 0 || imgH == 0) {
-        ImGui::Spacing();
-        ImGui::TextDisabled("Preview unavailable (0x0 resolution)");
+        prop::textRow(ICON_MDI_IMAGE_OUTLINE, "Preview", nullptr, "Preview unavailable (0x0 resolution)");
+        return;
+    }
+
+    if (signedSquareNormal && headerInfo.isKtx2
+        && headerInfo.vkFormat == static_cast<uint32_t>(ux3d::gpu::Format::BC5_SNORM_BLOCK)) {
+        prop::textRow(ICON_MDI_TUNE, "Decoded As", "The packaged BC5 normal map is shown decoded.", "signed square");
+    }
+
+    // The preview fills the value cell (its key carries the size as the tooltip).
+    char previewTip[64];
+    std::snprintf(previewTip, sizeof(previewTip), "Image preview (%u x %u)", imgW, imgH);
+    prop::row(ICON_MDI_IMAGE_OUTLINE, "Preview", previewTip);
+    if (texId == 0) {
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("Preview texture unavailable");
         return;
     }
 
@@ -446,50 +462,37 @@ void renderImagePreview(const ux3d::gltf::Image* img, ux3d::renderer::GltfRender
         previewH = 16.0f;
     }
 
-    ImGui::Spacing();
-    ImGui::Separator();
-    ImGui::TextDisabled("Image Preview (%u x %u):", imgW, imgH);
-    if (signedSquareNormal && headerInfo.isKtx2
-        && headerInfo.vkFormat == static_cast<uint32_t>(ux3d::gpu::Format::BC5_SNORM_BLOCK)) {
-        ImGui::TextDisabled("decoded: signed square");
-    }
-    ImGui::Spacing();
+    ImGui::Image(static_cast<ImTextureID>(texId),
+                 ImVec2(previewW, previewH),
+                 ImVec2(0.0f, 0.0f),
+                 ImVec2(1.0f, 1.0f));
 
-    if (texId != 0) {
-        ImGui::Image(static_cast<ImTextureID>(texId),
-                     ImVec2(previewW, previewH),
-                     ImVec2(0.0f, 0.0f),
-                     ImVec2(1.0f, 1.0f));
+    ImVec2 rMin = ImGui::GetItemRectMin();
+    ImVec2 rMax = ImGui::GetItemRectMax();
+    ImGui::GetWindowDrawList()->AddRect(rMin, rMax, IM_COL32(70, 70, 78, 255));
 
-        ImVec2 rMin = ImGui::GetItemRectMin();
-        ImVec2 rMax = ImGui::GetItemRectMax();
-        ImGui::GetWindowDrawList()->AddRect(rMin, rMax, IM_COL32(70, 70, 78, 255));
-
-        if (ImGui::IsItemHovered()) {
-            ImGui::BeginTooltip();
-            ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", getImageDisplayName(img).c_str());
-            ImGui::Separator();
-            ImGui::Text("Dimensions: %u x %u px", imgW, imgH);
-            ImGui::Text("Aspect Ratio: %.2f:1", aspect);
-            if (headerInfo.isKtx2) {
-                ImGui::Text("KTX2: %s (vkFormat %u), %u mips, %llu bytes",
-                            headerInfo.vkFormatName.c_str(), headerInfo.vkFormat,
-                            headerInfo.ktx2LevelCount, static_cast<unsigned long long>(headerInfo.fileSize));
-            } else {
-                uint32_t chs = (headerInfo.hasHeader && headerInfo.channels > 0) ? headerInfo.channels : data.getChannelCount();
-                uint32_t bpc = (headerInfo.hasHeader && headerInfo.bitsPerChannel > 0) ? headerInfo.bitsPerChannel : data.getChannelSize(ux3d::image::Channel::RED);
-                uint32_t totBits = (headerInfo.hasHeader && headerInfo.totalBitDepth > 0) ? headerInfo.totalBitDepth : (bpc * (chs > 0 ? chs : 1));
-                if (chs > 0) {
-                    ImGui::Text("Channels: %u (%s)", chs, (chs == 1) ? "Grayscale" : (chs == 2) ? "RG" : (chs == 3) ? "RGB" : (chs == 4) ? "RGBA" : "");
-                }
-                if (bpc > 0) {
-                    ImGui::Text("Bit Depth: %u-bit per channel (%u-bit total)", bpc, totBits);
-                }
+    if (ImGui::IsItemHovered()) {
+        ImGui::BeginTooltip();
+        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", getImageDisplayName(img).c_str());
+        ImGui::Separator();
+        ImGui::Text("Dimensions: %u x %u px", imgW, imgH);
+        ImGui::Text("Aspect Ratio: %.2f:1", aspect);
+        if (headerInfo.isKtx2) {
+            ImGui::Text("KTX2: %s (vkFormat %u), %u mips, %llu bytes",
+                        headerInfo.vkFormatName.c_str(), headerInfo.vkFormat,
+                        headerInfo.ktx2LevelCount, static_cast<unsigned long long>(headerInfo.fileSize));
+        } else {
+            uint32_t chs = (headerInfo.hasHeader && headerInfo.channels > 0) ? headerInfo.channels : data.getChannelCount();
+            uint32_t bpc = (headerInfo.hasHeader && headerInfo.bitsPerChannel > 0) ? headerInfo.bitsPerChannel : data.getChannelSize(ux3d::image::Channel::RED);
+            uint32_t totBits = (headerInfo.hasHeader && headerInfo.totalBitDepth > 0) ? headerInfo.totalBitDepth : (bpc * (chs > 0 ? chs : 1));
+            if (chs > 0) {
+                ImGui::Text("Channels: %u (%s)", chs, (chs == 1) ? "Grayscale" : (chs == 2) ? "RG" : (chs == 3) ? "RGB" : (chs == 4) ? "RGBA" : "");
             }
-            ImGui::EndTooltip();
+            if (bpc > 0) {
+                ImGui::Text("Bit Depth: %u-bit per channel (%u-bit total)", bpc, totBits);
+            }
         }
-    } else {
-        ImGui::TextDisabled("Preview texture unavailable");
+        ImGui::EndTooltip();
     }
 }
 

@@ -208,6 +208,14 @@ const SettingsFile::Section* SettingsFile::findSection(const std::string& name) 
     return nullptr;
 }
 
+std::vector<std::string> SettingsFile::sectionNames() const
+{
+    std::vector<std::string> names;
+    names.reserve(m_sections.size());
+    for (const Section& s : m_sections) names.push_back(s.name);
+    return names;
+}
+
 bool SettingsFile::hasSection(const std::string& section) const
 {
     return findSection(section) != nullptr;

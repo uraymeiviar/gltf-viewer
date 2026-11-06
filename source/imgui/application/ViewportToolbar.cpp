@@ -28,7 +28,7 @@ void Application::drawViewportToolbar(ux3d::imgui::ViewportInstance* vp)
     ImGui::BeginGroup();
 
     if (!ux3d::imgui::RenderQuality::legacyCaptureUi()) {
-        if (ImGui::SmallButton(ICON_MDI_COG "##ViewportSettingsGear")) {
+        if (ImGui::Button(ICON_MDI_COG "##ViewportSettingsGear")) {
             activeViewport = vp;
             selection.selectViewport(vp->id);
             showInspector = true;
@@ -40,7 +40,7 @@ void Application::drawViewportToolbar(ux3d::imgui::ViewportInstance* vp)
     // 1. Perspective / Orthographic Toggle (E)
     bool isOrtho = (vp->rendererCamera.getType() == ux3d::renderer::Camera::Type::Orthographic);
     const char* projIcon = isOrtho ? ICON_MDI_PERSPECTIVE_LESS : ICON_MDI_PERSPECTIVE_MORE;
-    if (ImGui::SmallButton(projIcon)) {
+    if (ImGui::Button(projIcon)) {
         if (!vp->isAttachedToCamera) {
             vp->cameraActor.changeUserCameraType(isOrtho ? ux3d::renderer::Camera::Type::Perspective
                                                          : ux3d::renderer::Camera::Type::Orthographic);
@@ -58,7 +58,7 @@ void Application::drawViewportToolbar(ux3d::imgui::ViewportInstance* vp)
     if (gridActive) {
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.13f, 0.67f, 0.42f, 0.4f));
     }
-    if (ImGui::SmallButton(ICON_MDI_GRID "##GridToggle")) {
+    if (ImGui::Button(ICON_MDI_GRID "##GridToggle")) {
         vp->settings.showGrid = !vp->settings.showGrid;
     }
     if (gridActive) {
@@ -78,7 +78,7 @@ void Application::drawViewportToolbar(ux3d::imgui::ViewportInstance* vp)
     if (uvGridActive) {
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.13f, 0.67f, 0.42f, 0.4f));
     }
-    if (ImGui::SmallButton(ICON_MDI_CHECKERBOARD "##UvGridToggle")) {
+    if (ImGui::Button(ICON_MDI_CHECKERBOARD "##UvGridToggle")) {
         uvGridSwitch = !uvGridSwitch;
         vp->antiAliasing.resetHistory();
         sceneRevisions.mark(ux3d::imgui::SceneChange::Environment);
@@ -97,7 +97,7 @@ void Application::drawViewportToolbar(ux3d::imgui::ViewportInstance* vp)
     if (bboxActive) {
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.13f, 0.67f, 0.42f, 0.4f));
     }
-    if (ImGui::SmallButton(ICON_MDI_CUBE_OUTLINE "##BBoxToggle")) {
+    if (ImGui::Button(ICON_MDI_CUBE_OUTLINE "##BBoxToggle")) {
         bool next = !bboxActive;
         vp->settings.showSceneBoundingBox = next;
         vp->settings.showSelectedBoundingBox = next;
@@ -116,7 +116,7 @@ void Application::drawViewportToolbar(ux3d::imgui::ViewportInstance* vp)
     if (orbitActive) {
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.13f, 0.67f, 0.42f, 0.4f));
     }
-    if (ImGui::SmallButton(ICON_MDI_ROTATE_ORBIT "##OrbitToggle")) {
+    if (ImGui::Button(ICON_MDI_ROTATE_ORBIT "##OrbitToggle")) {
         vp->settings.turntable = !vp->settings.turntable;
     }
     if (orbitActive) {
@@ -211,7 +211,7 @@ void Application::drawViewportToolbar(ux3d::imgui::ViewportInstance* vp)
     if (vp->isAttachedToCamera) {
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.35f, 0.78f, 1.0f, 1.0f));
     }
-    if (ImGui::SmallButton(camPulldownLabel.c_str())) {
+    if (ImGui::Button(camPulldownLabel.c_str())) {
         ImGui::OpenPopup(camPopupId.c_str());
     }
     if (vp->isAttachedToCamera) {
@@ -259,7 +259,7 @@ void Application::drawViewportToolbar(ux3d::imgui::ViewportInstance* vp)
 
     // 2. Shading Mode pulldown
     std::string popupId = "##ShadingModePopup_" + std::to_string(vp->id);
-    if (ImGui::SmallButton(shadingPulldownLabel.c_str())) {
+    if (ImGui::Button(shadingPulldownLabel.c_str())) {
         ImGui::OpenPopup(popupId.c_str());
     }
     if (ImGui::IsItemHovered()) {

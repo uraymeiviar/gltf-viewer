@@ -639,7 +639,7 @@ void RenderQuality::drawProfileSelector(SceneRevisions& revisions, const char* p
 {
     // Narrow horizontal padding; the vertical padding stays the caller's so the combo lines up with the row.
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,ImVec2(4,ImGui::GetStyle().FramePadding.y));
-    ImGui::SetNextItemWidth(105);
+    ImGui::SetNextItemWidth(105.0f * ImGui::GetFontSize() / 16.0f);
     int choice = s_selectedProfile;
     const char* names[] = {"Auto", "Low", "Mid", "High", "Ultra"};
     if (ImGui::Combo("##QualityPreset", &choice, names, 5)) {

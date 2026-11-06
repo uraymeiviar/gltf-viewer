@@ -9,6 +9,7 @@ this view shows it. Vendor tuning lives with its glTF extension. This implements
 | Scene, per glTF scene | `SceneEnvironmentState`, `ground`, `effects` | Session only; Scene Inspector |
 | Viewport | `ViewportSettingsState` | Session only; toolbar gear selects that viewport in the Inspector |
 | glTF extensions, app | `GltfExtensionSettings` | `[GltfExtensions]`; File > Settings > glTF Extensions |
+| UI theme, app | `UiTheme` (ImGuiStyle) | `[UiTheme]` (current), `[UiTheme.<name>]` (saved themes, `User Modified`); File > Settings > UI Theme |
 
 ## Quality
 

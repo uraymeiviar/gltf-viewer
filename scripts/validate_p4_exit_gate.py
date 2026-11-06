@@ -40,12 +40,12 @@ NO_SYNC = {"Selection", "ViewCamera", "AnimationTime"}
 # IBL and punctual-light controls are Quality levels. These steps still drive actual UI widgets;
 # revisions, synchronization, visible changes and exact reference images retain their original checks.
 STEPS = [
-    ("variant_alt", "Material", True, ["click 110 800"]),
-    ("variant_default", "Material", True, ["click 110 778"]),
+    ("variant_alt", "Material", True, ["clickp Material_Variants 0"]),
+    ("variant_default", "Material", True, ["clickp res.variant.default 0"]),
     ("material_color", "Material", True, ["clickp Materials 0", "wait 6", "dclickp material.base.color.factor 0", "wait 4", "key a ctrl", "type 20", "key enter"]),
-    ("light_intensity", "Light", True, ["click 20 734", "wait 4", "click 140 756", "wait 6", "dclick 1620 124", "wait 4",
+    ("light_intensity", "Light", True, ["clickarrowp Lights -1", "wait 4", "clickp Lights 0", "wait 6", "dclickp insp.light.intensity 0", "wait 4",
                                         "key a ctrl", "type 400", "key enter"]),
-    ("camera_fov", "SceneCamera", False, ["click 20 712", "wait 4", "click 120 734", "wait 6", "click 1700 124"]),
+    ("camera_fov", "SceneCamera", False, ["clickarrowp Cameras -1", "wait 4", "clickp Cameras 0", "wait 6", "clickp insp.camera.fov 0"]),
     ("extension", "Extension", False, ["picknode 5", "wait 6", "clickp ext.EXT_glider_test.enabled 0"]),
     ("ibl_off", "RenderSettings", True, ["clickp hier.viewport 1", "wait 6", "clickp vp.open_quality 0", "wait 6", "clickp quality.summary 0", "clickp settings.quality.current 0", "wait 6", "scroll QualityPage top", "clickp quality.ibl_cube 0", "wait 3", "clickp quality.ibl.option 0"]),
     ("punctual_off", "RenderSettings", True, ["clickp quality.current.lights 0"]),

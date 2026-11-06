@@ -446,7 +446,7 @@ void GltfExtensionSettings::drawSettings(SceneRevisions& revisions)
             ImGui::SameLine();
         }
         ImGui::BeginDisabled(allOn);
-        if (ImGui::SmallButton(("Enable all##gltfext_enable_all_" + group.vendor).c_str())) {
+        if (ImGui::Button(("Enable all##gltfext_enable_all_" + group.vendor).c_str())) {
             if (!group.masterKey.empty()) setEnabled(group.vendor, true, true);
             for (const GltfExtensionEntry& entry : group.extensions) setEnabled(entry.name, true, true);
             revisions.mark(SceneChange::ViewportSettings);

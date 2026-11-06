@@ -7,6 +7,7 @@
 #include "imgui/IconsMaterialDesignIcons.h"
 #include "imgui/RenderQuality.h"
 #include "imgui/UiProbe.h"
+#include "imgui/UiTheme.h"
 
 #include <imgui.h>
 #include <portable-file-dialogs.h>
@@ -135,7 +136,7 @@ static void renderSearchPathsContent(bool* pOpen, std::function<void()> onReload
                 if (i == 0) {
                     ImGui::BeginDisabled();
                 }
-                if (ImGui::SmallButton(ICON_MDI_ARROW_UP "##Up")) {
+                if (ImGui::Button(ICON_MDI_ARROW_UP "##Up")) {
                     itemToMoveUp = static_cast<int>(i);
                 }
                 if (i == 0) {
@@ -146,7 +147,7 @@ static void renderSearchPathsContent(bool* pOpen, std::function<void()> onReload
                 if (i + 1 >= paths.size()) {
                     ImGui::BeginDisabled();
                 }
-                if (ImGui::SmallButton(ICON_MDI_ARROW_DOWN "##Down")) {
+                if (ImGui::Button(ICON_MDI_ARROW_DOWN "##Down")) {
                     itemToMoveDown = static_cast<int>(i);
                 }
                 if (i + 1 >= paths.size()) {
@@ -156,7 +157,7 @@ static void renderSearchPathsContent(bool* pOpen, std::function<void()> onReload
                 // Column 2: Remove button
                 ImGui::TableSetColumnIndex(2);
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.4f, 1.0f));
-                if (ImGui::SmallButton(ICON_MDI_DELETE_OUTLINE "##Del")) {
+                if (ImGui::Button(ICON_MDI_DELETE_OUTLINE "##Del")) {
                     itemToDelete = static_cast<int>(i);
                 }
                 UiProbe::item("settings.search.remove",static_cast<long long>(i));
@@ -290,6 +291,13 @@ void renderSearchPathsWindow(bool* pOpen, std::function<void()> onReloadModel, S
                 ImGui::EndChild();
                 if (ImGui::Button("Close")) { if (pOpen) *pOpen = false; }
                 UiProbe::item("settings.ext.close",0);
+                ImGui::EndTabItem();
+            }
+            // UI Theme: every ImGui color and size (Dear ImGui's style editor); changes saved as [UiTheme].
+            const bool theme = ImGui::BeginTabItem("UI Theme",nullptr,flagsFor(SettingsTab::UiTheme));
+            UiProbe::item("settings.tab.theme",0);
+            if (theme) {
+                UiTheme::drawSettings();
                 ImGui::EndTabItem();
             }
             const bool captures = ImGui::BeginTabItem("Captures",nullptr,flagsFor(SettingsTab::Captures));

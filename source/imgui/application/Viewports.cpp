@@ -1898,14 +1898,17 @@ void Application::drawViewports(FrameContext& frame)
                                 }
                             } else {
                                 selection = ux3d::imgui::SelectionState();
+                                selection.selectViewport(vp->id); // Nothing picked: inspect the clicked viewport.
                                 sceneRevisions.mark(ux3d::imgui::SceneChange::Selection);
                             }
                         } else {
                             selection = ux3d::imgui::SelectionState();
+                                selection.selectViewport(vp->id); // Nothing picked: inspect the clicked viewport.
                             sceneRevisions.mark(ux3d::imgui::SceneChange::Selection);
                         }
                     } else {
                         selection = ux3d::imgui::SelectionState();
+                                selection.selectViewport(vp->id); // Nothing picked: inspect the clicked viewport.
                         sceneRevisions.mark(ux3d::imgui::SceneChange::Selection);
                     }
                 }

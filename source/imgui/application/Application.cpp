@@ -7,6 +7,7 @@
 #include "imgui/RenderQuality.h"
 #include "imgui/GltfExtensionSettings.h"
 #include "imgui/Theme.h"
+#include "imgui/UiTheme.h"
 #include "imgui/ElementInspector.h"
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_opengl3.h"
@@ -274,8 +275,7 @@ int Application::run(int argc, char** argv)
     // Load FSS Fonts (fss-ui.ttf and fss-ui-mono.ttf with embedded MDI icons)
     ux3d::imgui::loadFssFonts(io);
 
-    // Apply FSS ImGui Theme (aviation dark palette with emerald green accents)
-    ux3d::imgui::applyFssTheme();
+    ux3d::imgui::UiTheme::apply(); // FSS theme, then the user's [UiTheme] overrides (File > Settings > UI Theme).
 
     // Platform/Renderer backends
     ImGui_ImplGlfw_InitForOpenGL(window, true);

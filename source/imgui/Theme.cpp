@@ -38,29 +38,29 @@ void applyFssTheme()
     ImVec4* colors = style->Colors;
 
     // FSS Aviation Theme with Emerald Accent (#21AB6B)
-    colors[ImGuiCol_Text]                      = ImVec4(1.00f, 1.00f, 1.00f, 0.90f);
+    colors[ImGuiCol_Text]                      = ImVec4(1.0f, 1.0f, 1.0f, 0.752941f);
     colors[ImGuiCol_TextDisabled]              = ImVec4(0.50f, 0.50f, 0.50f, 1.00f);
-    colors[ImGuiCol_WindowBg]                  = ImVec4(0.14f, 0.14f, 0.16f, 1.00f);
-    colors[ImGuiCol_ChildBg]                   = ImVec4(0.10f, 0.10f, 0.12f, 0.45f);
-    colors[ImGuiCol_PopupBg]                   = ImVec4(0.18f, 0.18f, 0.20f, 0.98f);
+    colors[ImGuiCol_WindowBg]                  = ImVec4(0.188235f, 0.188235f, 0.188235f, 1.0f);
+    colors[ImGuiCol_ChildBg]                   = ImVec4(0.12549f, 0.12549f, 0.12549f, 0.0f);
+    colors[ImGuiCol_PopupBg]                   = ImVec4(0.0313726f, 0.0313726f, 0.0313726f, 0.980392f);
     colors[ImGuiCol_Border]                    = ImVec4(0.00f, 0.00f, 0.00f, 0.40f);
     colors[ImGuiCol_BorderShadow]              = ImVec4(1.00f, 1.00f, 1.00f, 0.05f);
-    colors[ImGuiCol_FrameBg]                   = ImVec4(0.10f, 0.10f, 0.12f, 0.60f);
+    colors[ImGuiCol_FrameBg]                   = ImVec4(0.0941176f, 0.0941176f, 0.0941176f, 0.501961f);
     colors[ImGuiCol_FrameBgHovered]            = ImVec4(1.00f, 1.00f, 1.00f, 0.15f);
     colors[ImGuiCol_FrameBgActive]             = ImVec4(0.19f, 0.36f, 0.28f, 0.67f);
-    colors[ImGuiCol_TitleBg]                   = ImVec4(0.12f, 0.12f, 0.14f, 1.00f);
-    colors[ImGuiCol_TitleBgActive]             = ImVec4(0.15f, 0.15f, 0.18f, 1.00f);
+    colors[ImGuiCol_TitleBg]                   = ImVec4(0.188235f, 0.188235f, 0.188235f, 1.0f);
+    colors[ImGuiCol_TitleBgActive]             = ImVec4(0.188235f, 0.188235f, 0.188235f, 1.0f);
     colors[ImGuiCol_TitleBgCollapsed]          = ImVec4(0.12f, 0.12f, 0.14f, 0.75f);
-    colors[ImGuiCol_MenuBarBg]                 = ImVec4(0.14f, 0.14f, 0.16f, 1.00f);
+    colors[ImGuiCol_MenuBarBg]                 = ImVec4(0.0627451f, 0.0627451f, 0.0627451f, 0.752941f);
     colors[ImGuiCol_ScrollbarBg]               = ImVec4(0.08f, 0.08f, 0.10f, 0.60f);
     colors[ImGuiCol_ScrollbarGrab]             = ImVec4(1.00f, 1.00f, 1.00f, 0.22f);
     colors[ImGuiCol_ScrollbarGrabHovered]      = ImVec4(0.13f, 0.67f, 0.42f, 1.00f);
     colors[ImGuiCol_ScrollbarGrabActive]       = ImVec4(0.19f, 0.36f, 0.28f, 1.00f);
     colors[ImGuiCol_CheckMark]                 = ImVec4(0.13f, 0.67f, 0.42f, 1.00f);
-    colors[ImGuiCol_CheckboxSelectedBg]        = ImVec4(0.13f, 0.67f, 0.42f, 0.25f);
-    colors[ImGuiCol_SliderGrab]                = ImVec4(0.20f, 0.20f, 0.24f, 0.80f);
+    colors[ImGuiCol_CheckboxSelectedBg]        = ImVec4(0.129412f, 0.670588f, 0.419608f, 0.0f);
+    colors[ImGuiCol_SliderGrab]                = ImVec4(0.501961f, 0.501961f, 0.501961f, 0.752941f);
     colors[ImGuiCol_SliderGrabActive]          = ImVec4(0.13f, 0.67f, 0.42f, 1.00f);
-    colors[ImGuiCol_Button]                    = ImVec4(0.24f, 0.24f, 0.28f, 1.00f);
+    colors[ImGuiCol_Button]                    = ImVec4(0.25098f, 0.25098f, 0.25098f, 1.0f);
     colors[ImGuiCol_ButtonHovered]             = ImVec4(0.17f, 0.56f, 0.38f, 1.00f);
     colors[ImGuiCol_ButtonActive]              = ImVec4(0.11f, 0.79f, 0.48f, 1.00f);
     colors[ImGuiCol_Header]                    = ImVec4(1.00f, 1.00f, 1.00f, 0.06f);
@@ -74,7 +74,7 @@ void applyFssTheme()
     colors[ImGuiCol_ResizeGripActive]          = ImVec4(0.34f, 0.81f, 0.56f, 0.95f);
     colors[ImGuiCol_TabHovered]                = ImVec4(0.17f, 0.56f, 0.38f, 1.00f);
     colors[ImGuiCol_Tab]                       = ImVec4(0.00f, 0.00f, 0.00f, 0.25f);
-    colors[ImGuiCol_TabSelected]               = ImVec4(0.10f, 0.10f, 0.12f, 0.85f);
+    colors[ImGuiCol_TabSelected]               = ImVec4(0.129412f, 0.670588f, 0.419608f, 0.85098f);
     colors[ImGuiCol_TabSelectedOverline]       = ImVec4(0.13f, 0.67f, 0.42f, 1.00f);
     colors[ImGuiCol_TabDimmed]                 = ImVec4(0.00f, 0.00f, 0.00f, 0.25f);
     colors[ImGuiCol_TabDimmedSelected]         = ImVec4(0.00f, 0.00f, 0.00f, 0.71f);
@@ -98,34 +98,36 @@ void applyFssTheme()
     colors[ImGuiCol_NavWindowingDimBg]         = ImVec4(0.00f, 0.00f, 0.00f, 0.40f);
     colors[ImGuiCol_ModalWindowDimBg]          = ImVec4(0.00f, 0.00f, 0.00f, 0.50f);
 
-    style->ChildRounding      = 6.0f;
-    style->TabRounding        = 6.0f;
-    style->WindowRounding     = 6.0f;
-    style->FrameRounding      = 4.0f;
-    style->PopupRounding      = 5.0f;
+    style->ChildRounding      = 8.0f;
+    style->TabRounding        = 0.0f;
+    style->WindowRounding     = 8.0f;
+    style->FrameRounding      = 8.0f;
+    style->PopupRounding      = 8.0f;
     style->ScrollbarRounding  = 6.0f;
-    style->GrabRounding       = 4.0f;
+    style->GrabRounding       = 8.0f;
 
-    style->ScrollbarSize      = 14.0f;
-    style->GrabMinSize        = 14.0f;
+    style->ScrollbarSize      = 16.0f;
+    style->GrabMinSize        = 12.0f;
 
-    style->WindowBorderSize   = 1.0f;
-    style->ChildBorderSize    = 0.0f;
-    style->PopupBorderSize    = 1.0f;
-    style->FrameBorderSize    = 1.0f;
+    style->WindowBorderSize   = 0.0f;
+    style->ChildBorderSize    = 1.0f;
+    style->PopupBorderSize    = 0.0f;
+    style->FrameBorderSize    = 2.0f;
     style->TabBorderSize      = 0.0f;
-    style->TabBarBorderSize   = 0.0f;
+    style->TabBarBorderSize   = 1.0f;
 
-    style->IndentSpacing      = 20.0f;
+    style->IndentSpacing      = 8.0f;
     style->WindowPadding      = ImVec2(6.0f, 6.0f);
-    style->FramePadding       = ImVec2(6.0f, 5.0f);
-    style->CellPadding        = ImVec2(4.0f, 3.0f);
-    style->ItemSpacing        = ImVec2(6.0f, 6.0f);
-    style->ItemInnerSpacing   = ImVec2(6.0f, 4.0f);
+    style->FramePadding       = ImVec2(6.0f, 4.0f);
+    style->CellPadding        = ImVec2(4.0f, 4.0f);
+    style->ItemSpacing        = ImVec2(8.0f, 4.0f);
+    style->ItemInnerSpacing   = ImVec2(8.0f, 4.0f);
     style->WindowTitleAlign   = ImVec2(0.5f, 0.5f);
     style->WindowMenuButtonPosition = ImGuiDir_None;
 
     style->DockingSeparatorSize = 4.0f;
+    style->MenuItemRounding   = 8.0f;
+    style->AntiAliasedLineEnds = true;
 }
 
 void loadFssFonts(ImGuiIO& io)

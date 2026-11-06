@@ -41,6 +41,8 @@ public:
     std::string get(const std::string& section, const std::string& key,
                     const std::string& fallback = {}) const;
     std::vector<SettingsEntry> section(const std::string& section) const;
+    // Names of every section, in file order.
+    std::vector<std::string> sectionNames() const;
 
     // Replaces a section wholesale; an empty list removes it.
     void replaceSection(const std::string& section, std::vector<SettingsEntry> entries);

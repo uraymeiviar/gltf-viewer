@@ -12,7 +12,7 @@ namespace ux3d::imgui {
 class SceneRevisions;
 
 // The tabs of File > Settings that other panels open directly.
-enum class SettingsTab { None, SearchPaths, Quality, GltfExtensions, Captures, AgentControl };
+enum class SettingsTab { None, SearchPaths, Quality, GltfExtensions, UiTheme, Captures, AgentControl };
 
 // Asks for the Settings window to open on a tab (a button in a panel, a link). The application opens the window and
 // the window selects the tab once.

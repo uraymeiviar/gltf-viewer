@@ -36,6 +36,7 @@ gltf-viewer/
 │   │   ├── StatisticsPanel.h
 │   │   ├── StdFileSystem.h       # IFileSystem hook for EmbeddedVFS + disk
 │   │   ├── Theme.h               # FSS Aviation UI theme & font loader
+│   │   ├── UiTheme.h             # UI themes: Settings tab, style editor, [UiTheme.<name>]
 │   │   ├── ViewportSettingsPanel.h
 │   │   └── zstd.h                # Standalone Zstd header (linked via ktx.lib)
 │   └── renderViewInput/
@@ -93,6 +94,7 @@ gltf-viewer/
 │   │   ├── GltfExtensionSettings.cpp # Global glTF extension switches, vendor groups, persistence, Settings tab
 │   │   ├── StdFileSystem.cpp     # Hooks file queries to EmbeddedVFS with disk fallback
 │   │   ├── Theme.cpp             # FSS Aviation theme colors & in-memory font loader
+│   │   ├── UiTheme.cpp           # UI themes: Settings tab, style editor, [UiTheme.<name>]
 │   │   └── ... (panels and renderers)
 │   └── renderViewInput/
 │       └── CameraActor.cpp
@@ -434,11 +436,19 @@ Implemented in [`CameraActor.cpp`](file:///H:/git-repos/gltf-viewer/source/rende
 ### 3.5 FSS Aviation Theme & Typography
 
 - Defined in [`source/imgui/Theme.cpp`](file:///H:/git-repos/gltf-viewer/source/imgui/Theme.cpp):
-  - **Color Palette**: Dark charcoal background (`#1A1A1E`), subtle borders, with emerald green accents (`#21AB6B`) for active states, checkmarks, sliders, and highlights.
+  - **Color Palette**: Neutral grey windows (`#303030`), dark frames, 8 px rounding, 2 px frame borders and no window borders, with emerald green accents (`#21AB6B`) for active states, selected tabs, checkmarks and highlights. Widgets use normal frame height everywhere (no `SmallButton`), so toolbars, inspector rows and the status bar line up with `GetFrameHeight()`; status-bar widths scale with the font size.
   - **Fonts**: Loaded in-memory from `EmbeddedVFS`:
     - `fss-ui.ttf` (16px): UI interface font.
     - `fss-ui-mono.ttf` (15px): Monospace font for logs, tables, and numeric properties.
   - **Icons**: Material Design Icons (MDI) are embedded into the fonts in the unicode private use area (`0xE000` to `0xFD17`). Macros like `ICON_MDI_CUBE_OUTLINE`, `ICON_MDI_FOLDER_OPEN`, etc., are defined in [`IconsMaterialDesignIcons.h`](file:///H:/git-repos/gltf-viewer/header/imgui/IconsMaterialDesignIcons.h).
+- **UI themes** ([`source/imgui/UiTheme.cpp`](file:///H:/git-repos/gltf-viewer/source/imgui/UiTheme.cpp)): **File → Settings → UI Theme** has a theme list and a style editor (Dear ImGui's `ShowStyleEditor` adapted: every color and size; without ImGui's Dark/Light/Classic presets, font selector, Save/Revert Ref and color Export). The list holds **Default** (the built-in FSS theme with `FontSizeBase` = the UI font size, never stored) and every theme in `settings.ini`. Any edit applies at once and is written to the theme **User Modified** (the selected theme's values are copied there on the first edit); while it is selected, a name field (the theme it came from, or `My Theme` when that is Default) and **Save** store it under that name, remove User Modified and select the saved theme; **Discard** drops User Modified, **Delete** removes a saved theme. Per-color Revert restores the color of the theme it came from. Storage: `[UiTheme.<name>]` holds `version=1` and only the values that differ from Default (one key per `ImGuiStyle` field, e.g. `FrameRounding=0`, `WindowPadding=6,6`; colors `Color.<ImGuiCol name>=r,g,b,a`); `[UiTheme]` holds `current=<name>` (omitted for Default) and `base=<name>` while User Modified came from a saved theme. An edit is written when it ends (no item active), not on every frame of a drag. Unknown keys or bad values are skipped with a warning; a missing current theme falls back to Default. `FontScaleDpi` is not stored (it follows the monitor). `--isolated` never reads or writes themes (they live in memory for the session).
+
+### 3.5a Inspector Layout (`PropertyTree`)
+
+- Every Inspector view (scene, node, mesh, material, extensions, texture / image, viewport, ...) draws into one key/value tree ([`header/imgui/PropertyTree.h`](file:///H:/git-repos/gltf-viewer/header/imgui/PropertyTree.h)): a two-column table (key | value, resizable, 50% / 50% by default, table id `Inspector` so a resized width carries across selections) whose key column is a tree.
+- `prop::group(icon, label, defaultOpen, tooltip)` is a collapsible group (framed at the top level, plain below; sub-groups replace separators, headings and tab bars). `prop::row(icon, label, tooltip)` writes the key (icon first, description as tooltip) and moves to the value cell with the item width at the cell width; widgets there use hidden labels (`##name`). `prop::textRow` shows a read-only value (names are read only, status values are rows).
+- Descriptions are tooltips, not text lines. `UiProbe` tags stay on the equivalent widget or group row (validators click them); a group's tag follows its `prop::group` call.
+- Clicking a viewport where nothing is picked selects that viewport, so the Inspector shows its Viewport Settings instead of an empty panel.
 
 ### 3.6 Docking & Layout Persistence
 
@@ -493,7 +503,7 @@ Implemented in [`CameraActor.cpp`](file:///H:/git-repos/gltf-viewer/source/rende
   no-ops. `GltfExtensionSettings` owns switches plus ASOBO interior sky reflection and decal tolerance, saved in
   `[GltfExtensions]` with independent effective / saved values. Old-scope registry keys forward to their new owners.
   Resolved viewport mirrors keep renderer reads centralized in `Application::resolveAllViewportSettings`.
-- **Single Portable Settings File**: Every persisted preference lives in one `settings.ini` next to `Glider.exe`: window state `[Window]`, recent files `[RecentFiles]`, search paths `[SearchPaths]`, hierarchy/resource display `[SceneHierarchy]`/`[Resources]`, render quality `[RenderQuality]`, the glTF extension switches `[GltfExtensions]` (one key per switched-off extension name of any vendor, value `0`; `ASOBO=0` is the ASOBO group's master switch; see `docs/SETTINGS_SCOPES.md`), the viewport capture folder `[Captures]` (`folder`, stored only when set; see §3.8), the four quality presets `[QualityProfiles]` (`profile0.*` … `profile3.*`, `selection`; 0 = Auto, 1–4 = profiles; besides AA, SSR quality and the IBL / shadow fields also `ssaoQuality`, `ssaoResolution`, `skyOcclusionQuality`, `oceanQuality`) and the ImGui docking layout `[Layout]`. No settings folder (no `GliderData/`) is created next to the executable, so `Glider.exe` still runs as a single file.
+- **Single Portable Settings File**: Every persisted preference lives in one `settings.ini` next to `Glider.exe`: window state `[Window]`, recent files `[RecentFiles]`, search paths `[SearchPaths]`, hierarchy/resource display `[SceneHierarchy]`/`[Resources]`, render quality `[RenderQuality]`, the glTF extension switches `[GltfExtensions]` (one key per switched-off extension name of any vendor, value `0`; `ASOBO=0` is the ASOBO group's master switch; see `docs/SETTINGS_SCOPES.md`), the viewport capture folder `[Captures]` (`folder`, stored only when set; see §3.8), the UI themes `[UiTheme]` / `[UiTheme.<name>]` (see §3.5), the four quality presets `[QualityProfiles]` (`profile0.*` … `profile3.*`, `selection`; 0 = Auto, 1–4 = profiles; besides AA, SSR quality and the IBL / shadow fields also `ssaoQuality`, `ssaoResolution`, `skyOcclusionQuality`, `oceanQuality`) and the ImGui docking layout `[Layout]`. No settings folder (no `GliderData/`) is created next to the executable, so `Glider.exe` still runs as a single file.
   - **Only Non-Default Values**: writers compare every value with its built-in default and skip equal ones, empty sections are not serialized, and a pristine run creates no file at all. `SettingsFile::save()` compares the serialized content and never rewrites an unchanged file; a file whose values all match the defaults is removed.
   - **Fallback**: If the executable directory is not writable (e.g. under Program Files), Glider writes `%APPDATA%/Glider/settings.ini` (or `%TEMP%/Glider/settings.ini`), logging the fallback once. If every location is unwritable, changes are kept in memory for the session without crashing.
   - **One-Time Migration**: On first launch without a new-format file, existing state from `<exeDir>/GliderData/` (or legacy `<exeDir>/settings.ini`, `%APPDATA%/Glider/`, `%APPDATA%/Gestaltor/`) is merged in memory: list sections (`[SearchPaths]`, `[RecentFiles]`, `[Layout]`, `[QualityProfiles]`) come from the newest source as a whole, scalar sections fill only missing keys. The first save writes the consolidated file with a `; Glider settings file (schema 1)` marker; once that file exists, legacy files are never consulted again, so values the user resets to their defaults are not resurrected.

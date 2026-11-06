@@ -6,6 +6,7 @@
 #include "imgui/TextureUtils.h"
 #include "imgui/Theme.h"
 #include "imgui/UiProbe.h"
+#include "imgui/PropertyTree.h"
 #include "imgui/ViewportInstance.h"
 #include "imgui/GltfExtensionSettings.h"
 #include "gltf/Material.h"
@@ -514,14 +515,13 @@ bool ExtensionInspector::renderExtensions(ux3d::gltf::GltfObject* object,
         const ExtensionSchemaInfo* schema = getSchema(extName);
         std::string label = formatExtensionLabel(extName);
 
-        bool headerOpen = ImGui::TreeNodeEx(label.c_str(),
-                                           ImGuiTreeNodeFlags_DefaultOpen |
-                                           ImGuiTreeNodeFlags_Framed |
-                                           ImGuiTreeNodeFlags_SpanAvailWidth |
-                                           ImGuiTreeNodeFlags_AllowOverlap);
+        // One group per extension: its row holds the display switch (when there is one) and the support status; the
+        // schema description is the group's tooltip.
+        const char* description = schema != nullptr && !schema->description.empty() ? schema->description.c_str() : nullptr;
+        const std::string tooltip = description != nullptr ? extName + "\n" + description : extName;
+        const bool headerOpen = prop::groupValue(ICON_MDI_PUZZLE_OUTLINE, label.c_str(), true, tooltip.c_str());
 
         namespace asobo = ux3d::gltf::asobo;
-        bool hasViewportSwitch = false;
         if (asobo::isAsoboExtension(extName) || extName == "MSFT_texture_dds") {
             const auto info = asobo::supportOf(extName);
             const char* status = asobo::supportLabel(info.status);
@@ -533,7 +533,31 @@ bool ExtensionInspector::renderExtensions(ux3d::gltf::GltfObject* object,
                 case asobo::Support::Metadata: color = ImVec4(0.55f, 0.65f, 0.75f, 1.0f); break;
                 default: break;
             }
-            ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+
+            if (asobo::isAsoboExtension(extName) &&
+                (info.status == asobo::Support::Rendered || info.status == asobo::Support::Partial) &&
+                info.viewportSwitch) {
+                // The switch is the app setting of File > Settings > glTF Extensions (every viewport, saved).
+                auto& extensionSettings = GltfExtensionSettings::instance();
+                bool applied = extensionSettings.enabled(extName);
+                const bool switchEnabled = extensionSettings.enabled(GltfExtensionSettings::vendorOf(extName));
+
+                if (!switchEnabled) {
+                    ImGui::BeginDisabled();
+                }
+                if (ImGui::Checkbox("##viewportToggle", &applied)) {
+                    extensionSettings.setEnabled(extName, applied, true);
+                    revisions.mark(SceneChange::ViewportSettings);
+                }
+                if (!switchEnabled) {
+                    ImGui::EndDisabled();
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                    ImGui::SetTooltip("Display only: applies or ignores this extension in every viewport (app setting, saved;\nalso in File > Settings > glTF Extensions). The file is unchanged.");
+                }
+                ImGui::SameLine();
+            }
+            ImGui::AlignTextToFramePadding();
             ImGui::TextColored(color, "[%s]", status);
             if (ImGui::IsItemHovered()) {
                 ImGui::BeginTooltip();
@@ -542,54 +566,19 @@ bool ExtensionInspector::renderExtensions(ux3d::gltf::GltfObject* object,
                 if (!info.note.empty()) ImGui::TextUnformatted(info.note.data(), info.note.data() + info.note.size());
                 ImGui::EndTooltip();
             }
-
-            if (asobo::isAsoboExtension(extName) &&
-                (info.status == asobo::Support::Rendered || info.status == asobo::Support::Partial) &&
-                info.viewportSwitch) {
-                hasViewportSwitch = true;
-            }
-        }
-
-        if (hasViewportSwitch) {
-            ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x * 2.0f);
-            // The switch is the app setting of File > Settings > glTF Extensions (every viewport, saved).
-            auto& extensionSettings = GltfExtensionSettings::instance();
-            bool applied = extensionSettings.enabled(extName);
-            const bool switchEnabled = extensionSettings.enabled(GltfExtensionSettings::vendorOf(extName));
-
-            if (!switchEnabled) {
-                ImGui::BeginDisabled();
-            }
-            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f));
-            if (ImGui::Checkbox("##viewportToggle", &applied)) {
-                extensionSettings.setEnabled(extName, applied, true);
-                revisions.mark(SceneChange::ViewportSettings);
-            }
-            ImGui::PopStyleVar();
-            if (!switchEnabled) {
-                ImGui::EndDisabled();
-            }
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-                ImGui::SetTooltip("Display only: applies or ignores this extension in every viewport (app setting, saved;\nalso in File > Settings > glTF Extensions). The file is unchanged.");
-            }
         }
 
         if (headerOpen) {
-            if (schema != nullptr && !schema->description.empty()) {
-                ImGui::TextDisabled("%s", schema->description.c_str());
-                ImGui::Separator();
-            }
-
             if (!parseOk) {
-                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Malformed JSON syntax");
-                ImGui::TextWrapped("%s", jsonStr.c_str());
+                prop::colorTextRow(ICON_MDI_ALERT_OUTLINE, "JSON", jsonStr.c_str(), ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                                   "Malformed JSON syntax");
             } else {
                 if (renderSingleExtension(object, extName, extJson, schema, gltfModel, revisions)) {
                     anyModified = true;
                 }
             }
 
-            ImGui::TreePop();
+            prop::endGroup();
         }
 
         ImGui::PopID();
@@ -606,7 +595,8 @@ bool ExtensionInspector::renderSingleExtension(ux3d::gltf::GltfObject* object,
                                                SceneRevisions& revisions)
 {
     if (!extJson.is_object()) {
-        ImGui::TextDisabled("Value is not a JSON object: %s", extJson.dump().c_str());
+        const std::string dump = extJson.dump();
+        prop::textRow(ICON_MDI_CODE_JSON, "Value", "Not a JSON object.", "%s", dump.c_str());
         return false;
     }
 
@@ -615,7 +605,7 @@ bool ExtensionInspector::renderSingleExtension(ux3d::gltf::GltfObject* object,
 
     if (!isAsobo) {
         if (extJson.empty()) {
-            ImGui::TextDisabled("(No parameters)");
+            prop::textRow(ICON_MDI_INFORMATION_OUTLINE, "Parameters", nullptr, "None");
             return false;
         }
 
@@ -632,11 +622,12 @@ bool ExtensionInspector::renderSingleExtension(ux3d::gltf::GltfObject* object,
             }
             if (value.is_object() || value.is_array()) {
                 bool changed = false;
-                if (ImGui::TreeNode(key.c_str())) {
+                if (prop::group(value.is_array() ? ICON_MDI_CODE_BRACKETS : ICON_MDI_CODE_BRACES, key.c_str(), false,
+                                definition != nullptr && !definition->description.empty() ? definition->description.c_str() : nullptr)) {
                     for (auto& [child, v] : value.items()) {
                         changed |= self(self, key + "." + child, v, nullptr);
                     }
-                    ImGui::TreePop();
+                    prop::endGroup();
                 }
                 return changed;
             }
@@ -755,7 +746,7 @@ bool ExtensionInspector::renderSingleExtension(ux3d::gltf::GltfObject* object,
     }
 
     if (!anyRendered) {
-        ImGui::TextDisabled("(No parameters)");
+        prop::textRow(ICON_MDI_INFORMATION_OUTLINE, "Parameters", nullptr, "None");
     }
 
     return modified;
@@ -770,6 +761,7 @@ bool ExtensionInspector::renderAsoboPropertyWidget(const std::string& extName,
     ImGui::PushID(propKey.c_str());
     bool changed = false;
     const std::string desc = propDef ? propDef->description : "";
+    const char* tip = desc.empty() ? nullptr : desc.c_str();
     const std::string probeId = (ux3d::gltf::asobo::isAsoboExtension(extName) ? "asobo." : "ext.") + extName + "." + propKey;
 
     using ux3d::gltf::asobo::ValueType;
@@ -781,12 +773,13 @@ bool ExtensionInspector::renderAsoboPropertyWidget(const std::string& extName,
 
     if (vtype == ValueType::Boolean && propVal.is_boolean()) {
         bool v = propVal.get<bool>();
-        if (ImGui::Checkbox(propKey.c_str(), &v)) {
+        prop::row(ICON_MDI_TOGGLE_SWITCH_OUTLINE, propKey.c_str(), tip);
+        if (ImGui::Checkbox("##value", &v)) {
             propVal = v;
             changed = true;
         }
         UiProbe::item(probeId.c_str(), 0);
-        helpMarker(desc);
+        prop::tooltip(tip);
         ImGui::PopID();
         return changed;
     }
@@ -799,12 +792,13 @@ bool ExtensionInspector::renderAsoboPropertyWidget(const std::string& extName,
         const double maxD = (propSpec != nullptr && propSpec->maximum.has_value()) ? *propSpec->maximum
                           : (propDef != nullptr && propDef->hasMaximum) ? propDef->maximum : 0.0;
 
+        prop::row(ICON_MDI_NUMERIC, propKey.c_str(), tip);
         ImGui::PushFont(getMonoFont());
         if (isIntegerProperty(propKey, propDef)) {
             int v = static_cast<int>(std::lround(propVal.get<double>()));
             int vMin = hasMin ? static_cast<int>(std::lround(minD)) : (propKey == "drawOrderOffset" ? -999 : 0);
             int vMax = hasMax ? static_cast<int>(std::lround(maxD)) : (propKey == "drawOrderOffset" ? 999 : 0);
-            if (ImGui::DragInt(propKey.c_str(), &v, 1.0f, vMin, vMax)) {
+            if (ImGui::DragInt("##value", &v, 1.0f, vMin, vMax)) {
                 if (vMin < vMax) {
                     v = std::clamp(v, vMin, vMax);
                 }
@@ -832,7 +826,7 @@ bool ExtensionInspector::renderAsoboPropertyWidget(const std::string& extName,
                 speed = 0.002f;
             }
             const char* fmt = (propKey == "glassWidth") ? "%.4f" : "%.3f";
-            if (ImGui::DragFloat(propKey.c_str(), &v, speed, vMin, vMax, fmt)) {
+            if (ImGui::DragFloat("##value", &v, speed, vMin, vMax, fmt)) {
                 if (hasMin && v < vMin) v = vMin;
                 if (hasMax && v > vMax) v = vMax;
                 propVal = static_cast<double>(v);
@@ -841,7 +835,7 @@ bool ExtensionInspector::renderAsoboPropertyWidget(const std::string& extName,
         }
         ImGui::PopFont();
         UiProbe::item(probeId.c_str(), 0);
-        helpMarker(desc);
+        prop::tooltip(tip);
         ImGui::PopID();
         return changed;
     }
@@ -857,8 +851,9 @@ bool ExtensionInspector::renderAsoboPropertyWidget(const std::string& extName,
             enums = { "default", "frosted", "blendMasked" };
         }
 
+        prop::row(ICON_MDI_FORMAT_TEXT, propKey.c_str(), tip);
         if (!enums.empty()) {
-            if (ImGui::BeginCombo(propKey.c_str(), cur.c_str())) {
+            if (ImGui::BeginCombo("##value", cur.c_str())) {
                 for (const auto& opt : enums) {
                     bool selected = (cur == opt);
                     if (ImGui::Selectable(opt.c_str(), selected)) {
@@ -874,13 +869,13 @@ bool ExtensionInspector::renderAsoboPropertyWidget(const std::string& extName,
         } else {
             char buf[256] = {};
             std::strncpy(buf, cur.c_str(), sizeof(buf) - 1);
-            if (ImGui::InputText(propKey.c_str(), buf, sizeof(buf))) {
+            if (ImGui::InputText("##value", buf, sizeof(buf))) {
                 propVal = std::string(buf);
                 changed = true;
             }
         }
         UiProbe::item(probeId.c_str(), 0);
-        helpMarker(desc);
+        prop::tooltip(tip);
         ImGui::PopID();
         return changed;
     }
@@ -888,6 +883,7 @@ bool ExtensionInspector::renderAsoboPropertyWidget(const std::string& extName,
     if (vtype == ValueType::NumberArray && propVal.is_array()) {
         const size_t n = propVal.size();
         const bool isColor = isColorPropertyKey(propKey, propDef);
+        prop::row(isColor && (n == 3 || n == 4) ? ICON_MDI_PALETTE : ICON_MDI_CODE_BRACKETS, propKey.c_str(), tip);
         if (isColor && (n == 3 || n == 4)) {
             float col[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
             for (size_t i = 0; i < n; ++i) {
@@ -896,8 +892,8 @@ bool ExtensionInspector::renderAsoboPropertyWidget(const std::string& extName,
                 }
             }
             bool colChanged = (n == 3)
-                ? ImGui::ColorEdit3(propKey.c_str(), col)
-                : ImGui::ColorEdit4(propKey.c_str(), col);
+                ? ImGui::ColorEdit3("##value", col)
+                : ImGui::ColorEdit4("##value", col);
             if (colChanged) {
                 nlohmann::json arr = nlohmann::json::array();
                 for (size_t i = 0; i < n; ++i) {
@@ -915,9 +911,9 @@ bool ExtensionInspector::renderAsoboPropertyWidget(const std::string& extName,
             }
             ImGui::PushFont(getMonoFont());
             bool arrChanged = false;
-            if (n == 2) arrChanged = ImGui::DragFloat2(propKey.c_str(), vals, 0.01f, 0.0f, 0.0f, "%.3f");
-            else if (n == 3) arrChanged = ImGui::DragFloat3(propKey.c_str(), vals, 0.01f, 0.0f, 0.0f, "%.3f");
-            else if (n == 4) arrChanged = ImGui::DragFloat4(propKey.c_str(), vals, 0.01f, 0.0f, 0.0f, "%.3f");
+            if (n == 2) arrChanged = ImGui::DragFloat2("##value", vals, 0.01f, 0.0f, 0.0f, "%.3f");
+            else if (n == 3) arrChanged = ImGui::DragFloat3("##value", vals, 0.01f, 0.0f, 0.0f, "%.3f");
+            else if (n == 4) arrChanged = ImGui::DragFloat4("##value", vals, 0.01f, 0.0f, 0.0f, "%.3f");
             ImGui::PopFont();
             if (arrChanged) {
                 nlohmann::json arr = nlohmann::json::array();
@@ -927,9 +923,12 @@ bool ExtensionInspector::renderAsoboPropertyWidget(const std::string& extName,
                 propVal = std::move(arr);
                 changed = true;
             }
+        } else {
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextDisabled("%s", propVal.dump().c_str());
         }
         UiProbe::item(probeId.c_str(), 0);
-        helpMarker(desc);
+        prop::tooltip(tip);
         ImGui::PopID();
         return changed;
     }
@@ -945,6 +944,7 @@ void ExtensionInspector::renderPropertyReadOnly(const std::string& propKey,
 {
     std::string label = propKey;
     std::string desc = propDef ? propDef->description : "";
+    const char* tip = desc.empty() ? nullptr : desc.c_str();
 
     // Texture property
     if ((propDef && propDef->isTexture) ||
@@ -956,8 +956,7 @@ void ExtensionInspector::renderPropertyReadOnly(const std::string& propKey,
 
     // Boolean
     if (propVal.is_boolean()) {
-        ImGui::Text("%s: %s", label.c_str(), propVal.get<bool>() ? "true" : "false");
-        helpMarker(desc);
+        prop::textRow(ICON_MDI_TOGGLE_SWITCH_OUTLINE, label.c_str(), tip, "%s", propVal.get<bool>() ? "true" : "false");
         return;
     }
 
@@ -971,15 +970,13 @@ void ExtensionInspector::renderPropertyReadOnly(const std::string& propKey,
         } else {
             std::snprintf(buf, sizeof(buf), "%.3f", propVal.get<double>());
         }
-        ImGui::Text("%s: %s", label.c_str(), buf);
-        helpMarker(desc);
+        prop::textRow(ICON_MDI_NUMERIC, label.c_str(), tip, "%s", buf);
         return;
     }
 
     // String
     if (propVal.is_string()) {
-        ImGui::Text("%s: %s", label.c_str(), propVal.get<std::string>().c_str());
-        helpMarker(desc);
+        prop::textRow(ICON_MDI_FORMAT_TEXT, label.c_str(), tip, "%s", propVal.get<std::string>().c_str());
         return;
     }
 
@@ -1016,16 +1013,14 @@ void ExtensionInspector::renderPropertyReadOnly(const std::string& propKey,
                 }
             }
             ss << "]";
-            ImGui::Text("%s: %s", label.c_str(), ss.str().c_str());
-            helpMarker(desc);
+            prop::textRow(ICON_MDI_CODE_BRACKETS, label.c_str(), tip, "%s", ss.str().c_str());
         } else {
-            if (ImGui::TreeNode(label.c_str())) {
-                helpMarker(desc);
+            if (prop::group(ICON_MDI_CODE_BRACKETS, label.c_str(), false, tip)) {
                 for (size_t i = 0; i < propVal.size(); ++i) {
                     std::string itemKey = "[" + std::to_string(i) + "]";
                     renderPropertyReadOnly(itemKey, propVal[i], nullptr, gltfModel);
                 }
-                ImGui::TreePop();
+                prop::endGroup();
             }
         }
         return;
@@ -1033,25 +1028,22 @@ void ExtensionInspector::renderPropertyReadOnly(const std::string& propKey,
 
     // Generic Object
     if (propVal.is_object()) {
-        if (ImGui::TreeNode(label.c_str())) {
-            helpMarker(desc);
+        if (prop::group(ICON_MDI_CODE_BRACES, label.c_str(), false, tip)) {
             for (const auto& [subK, subV] : propVal.items()) {
                 renderPropertyReadOnly(subK, subV, nullptr, gltfModel);
             }
-            ImGui::TreePop();
+            prop::endGroup();
         }
         return;
     }
 
     // Null
     if (propVal.is_null()) {
-        ImGui::Text("%s: null", label.c_str());
-        helpMarker(desc);
+        prop::textRow(ICON_MDI_CODE_JSON, label.c_str(), tip, "null");
         return;
     }
 
-    ImGui::Text("%s: %s", label.c_str(), propVal.dump().c_str());
-    helpMarker(desc);
+    prop::textRow(ICON_MDI_CODE_JSON, label.c_str(), tip, "%s", propVal.dump().c_str());
 }
 
 void ExtensionInspector::renderTextureReadOnly(const std::string& label,
@@ -1077,9 +1069,9 @@ void ExtensionInspector::renderTextureReadOnly(const std::string& label,
         currentTexId = texVal.get<uint32_t>();
     }
 
+    const char* tip = desc.empty() ? nullptr : desc.c_str();
     if (!hasTex) {
-        ImGui::Text("%s: None", label.c_str());
-        helpMarker(desc);
+        prop::textRow(ICON_MDI_TEXTURE, label.c_str(), tip, "None");
         return;
     }
 
@@ -1110,8 +1102,7 @@ void ExtensionInspector::renderTextureReadOnly(const std::string& label,
         texDisplay += " (UV Set " + std::to_string(texCoord) + ")";
     }
 
-    ImGui::Text("%s: %s", label.c_str(), texDisplay.c_str());
-    helpMarker(desc);
+    prop::textRow(ICON_MDI_TEXTURE, label.c_str(), tip, "%s", texDisplay.c_str());
 }
 
 } // namespace ux3d::imgui

@@ -461,7 +461,8 @@ def check_ui(quads):
               "hoverp vp.render_mode 0","wait 3","snap render_hover","hoverp vp.toolbar.settings 1","wait 3","snap gear_hover",
               shot("toolbar_gear"),"hoverp status.quality 0","wait 3","snap status_hover",shot("status_quality_combo"),
               "clickp vp.tab.camera 0","wait 6","snap viewport_camera",shot("viewport_camera"),
-              "clickp vp.tab.render 0","wait 6","clickp vp.open_quality 0","wait 8","snap quality_presets",shot("quality_presets")]
+              # Render Modes is a group that stays open (clicking it would close it): no click is needed to reach Quality.
+              "clickp vp.open_quality 0","wait 8","snap quality_presets",shot("quality_presets")]
     for i in range(1,5):
         commands += ["scroll QualityPage top",f"clickp quality.tab {i}","wait 6",f"hoverp quality.reset {i}","wait 3",f"snap preset_{i}"]
     commands += ["scroll QualityPage top","clickp quality.summary 0","clickp settings.quality.current 0","wait 6",
