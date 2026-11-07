@@ -6,6 +6,9 @@
 #include "CommandsInternal.h"
 #include "renderer/TransformHierarchyNode.h"
 #include "imgui/Profiling.h"
+#include "imgui/ImageViewer.h"
+#include <imgui_internal.h>
+#include <utility>
 
 namespace ux3d::imgui::application {
 
@@ -1152,6 +1155,180 @@ void Application::registerAgentCommands()
                 out["explicit"] = explicitKeys;
             }
             return CommandReply::success(out);
+        };
+        agentRegistry.add(std::move(spec));
+    }
+    {
+        CommandSpec spec;
+        spec.name = "image_viewer";
+        spec.help = "Open (or focus) the Image Viewer of glTF image `image`, like clicking its Inspector preview, and set "
+                    "its view: zoom (fit or a percentage), channels (letters such as rgb, a, l or all), levels (full, data or "
+                    "low,high in stored values), background (checker, white, gray, black), raw (on/off, decoded normal maps), "
+                    "pixel (x,y: the readout pixel). '-' keeps a positional value. Crosshair and pixel grid (preferences "
+                    "shared by every viewer; saved only after set_persist(true)): crosshair, grid (on/off), major / minor "
+                    "(grid spacing in image pixels, 1..16384), major_color / minor_color (r,g,b,a or #rrggbbaa), "
+                    "grid_defaults=true, cursor (x,y: the crosshair pixel without the mouse, off). In script lines these "
+                    "are name=value tokens. Replies with the viewer state, including the stored values of the readout "
+                    "pixel and the crosshair / grid state; close=true closes the window.";
+        spec.args = objectSchema({{"image", prop("integer", "glTF image index.")},
+                                  {"zoom", prop("", "fit, or a zoom percentage (1..3200).")},
+                                  {"channels", prop("string", "Shown channels, e.g. rgba, rgb, a, l, rg, all.")},
+                                  {"levels", prop("", "full, data, or low,high in stored values.")},
+                                  {"background", prop("string", "checker, white, gray or black.")},
+                                  {"raw", prop("", "on: stored values of a decoded normal map; off: decoded.")},
+                                  {"pixel", prop("", "x,y or [x, y]: the image pixel of the readout (row 0 at the top).")},
+                                  {"signed_square", prop("boolean", "Override the packaged normal-map decode (default: as the Inspector).")},
+                                  {"close", withDefault(prop("boolean", "Close the image's viewer window."), false)},
+                                  {"window_pos", prop("", "x,y: move the window there (relative to the main window's "
+                                                          "top-left; outside it a window detaches with multi-viewport).")},
+                                  {"window_size", prop("", "w,h: resize the window.")},
+                                  {"crosshair", prop("", "on/off: lines through the centre of the hovered pixel (default off).")},
+                                  {"grid", prop("", "on/off: the pixel grid (default off).")},
+                                  {"major", prop("", "Major grid spacing in image pixels, 1..16384 (default 256).")},
+                                  {"minor", prop("", "Minor grid spacing in image pixels, 1..16384 (default 64).")},
+                                  {"major_color", prop("string", "Major grid colour r,g,b,a in 0..1 or #rrggbb[aa] (default 1,1,1,0.5).")},
+                                  {"minor_color", prop("string", "Minor grid colour r,g,b,a in 0..1 or #rrggbb[aa] (default 1,1,1,0.25).")},
+                                  {"grid_defaults", prop("boolean", "true: both grid levels back to their default colour and spacing.")},
+                                  {"cursor", prop("", "x,y: draw the crosshair at this image pixel while the mouse is not over the "
+                                                      "image; off removes it.")}},
+                                 {"image"});
+        spec.positional = {"image", "zoom", "channels", "levels", "background", "raw", "pixel", "window_pos", "window_size"};
+        spec.run = [this](const json& args, const CommandContext& context) -> CommandOutcome {
+            json result;
+            std::string code;
+            std::string message;
+            if (!ux3d::imgui::ImageViewer::script(gltfModel, gltfLayer.get(), args, context.persist, result, code, message)) {
+                return CommandReply::failure(code, message);
+            }
+            return CommandReply::success(result);
+        };
+        agentRegistry.add(std::move(spec));
+    }
+    {
+        CommandSpec spec;
+        spec.name = "image_viewer_wait";
+        spec.kind = CommandKind::MultiFrame;
+        spec.timeoutSeconds = 120.0;
+        spec.help = "Wait until the Image Viewer window of glTF image `image` is ready (full-resolution pixels, texture, "
+                    "histogram and UV overlay; image_viewer and uv_layout reply while it still loads), then reply with "
+                    "its state, which includes the per-phase load timings.";
+        spec.args = objectSchema({{"image", prop("integer", "glTF image index.")}}, {"image"});
+        spec.positional = {"image"};
+        spec.run = [this](const json& args, const CommandContext&) -> CommandOutcome {
+            const long long image = args.value("image", -1LL);
+            return agent::JobStep([this, image]() -> std::optional<CommandReply> {
+                json state;
+                bool ready = false;
+                std::string code;
+                std::string message;
+                if (!ux3d::imgui::ImageViewer::waitState(gltfModel, image, state, ready, code, message)) {
+                    return CommandReply::failure(code, message);
+                }
+                if (!ready) return std::nullopt;
+                return CommandReply::success(state);
+            });
+        };
+        agentRegistry.add(std::move(spec));
+    }
+    {
+        CommandSpec spec;
+        spec.name = "uv_layout";
+        spec.help = "Open the UV layout overlay of a material's texture slot in the Image Viewer, like the UV layout button "
+                    "of the Material Inspector: the triangle edges of every primitive with the material in the slot's "
+                    "TEXCOORD set, over the slot's image. wrap / fill / transform / show: on, off or '-' (keep). Replies "
+                    "with the viewer state; its uvLayout holds the counts.";
+        spec.args = objectSchema({{"material", prop("integer", "glTF material index.")},
+                                  {"slot", withDefault(prop("string", "baseColor, metallicRoughness, normal, occlusion or emissive."), "baseColor")},
+                                  {"wrap", prop("", "on: move each triangle into 0..1 by the tile of its centre.")},
+                                  {"fill", prop("", "on: a faint face fill.")},
+                                  {"transform", prop("", "on: apply the slot's KHR_texture_transform (default); off: raw UVs.")},
+                                  {"show", prop("", "off hides the overlay (the UV toggle).")},
+                                  {"opacity", prop("number", "Line opacity 0.05..1.")}},
+                                 {"material"});
+        spec.positional = {"material", "slot", "wrap", "fill", "transform", "show"};
+        spec.run = [this](const json& args, const CommandContext&) -> CommandOutcome {
+            json result;
+            std::string code;
+            std::string message;
+            if (!ux3d::imgui::ImageViewer::uvLayoutScript(gltfModel, gltfLayer.get(), args, result, code, message)) {
+                return CommandReply::failure(code, message);
+            }
+            return CommandReply::success(result);
+        };
+        agentRegistry.add(std::move(spec));
+    }
+    {
+        CommandSpec spec;
+        spec.name = "capture_window";
+        spec.kind = CommandKind::MultiFrame;
+        spec.timeoutSeconds = 30.0;
+        spec.help = "Save one ImGui window as a PNG: window = a case-insensitive part of its title. A window on the main "
+                    "OS window is cropped from the main framebuffer; a detached window (multi-viewport) is read back from "
+                    "its own OS window while it is rendered. Replies with path, size and whether it is detached.";
+        spec.args = objectSchema({{"path", prop("string", "Output .png.")},
+                                  {"window", prop("string", "Part of the window title, e.g. 'Image Viewer'.")},
+                                  {"settle_frames", withDefault(prop("integer", "Frames rendered before reading."), 3)}},
+                                 {"path", "window"});
+        spec.positional = {"path", "window", "settle_frames"};
+        spec.restIsText = false;
+        spec.run = [this](const json& args, const CommandContext&) -> CommandOutcome {
+            struct Job {
+                std::string path;
+                std::string window;
+                int settle = 3;
+                int elapsed = 0;
+                std::shared_ptr<WindowCaptureRequest> request;
+                bool detached = false;
+                std::string title;
+            };
+            auto job = std::make_shared<Job>();
+            job->path = args["path"].get<std::string>();
+            job->window = toLowerAscii(args["window"].get<std::string>());
+            job->settle = std::max<int>(1, static_cast<int>(args.value("settle_frames", 3LL)));
+            return agent::JobStep([this, job]() -> std::optional<CommandReply> {
+                if (job->request) {
+                    if (!job->request->done) return std::nullopt;
+                    const auto request = std::exchange(job->request, nullptr);
+                    if (windowCapture == request) windowCapture.reset();
+                    if (!request->ok) return CommandReply::failure("capture_failed", "capture failed: " + job->path);
+                    return CommandReply::success(json{{"path", job->path}, {"window", job->title}, {"detached", true},
+                                                      {"width", request->width}, {"height", request->height}});
+                }
+                if (++job->elapsed < job->settle) return std::nullopt;
+                ImGuiContext& g = *GImGui;
+                ImGuiWindow* found = nullptr;
+                for (ImGuiWindow* w : g.Windows) {
+                    if (w->ParentWindow != nullptr || w->Hidden || w->LastFrameActive < g.FrameCount - 1) continue;
+                    if (toLowerAscii(w->Name).find(job->window) != std::string::npos) found = w;
+                }
+                if (found == nullptr) return CommandReply::failure("window_not_found", "no visible window matches " + job->window);
+                job->title = found->Name;
+                const ImGuiViewport* mainViewport = ImGui::GetMainViewport();
+                if (found->Viewport != nullptr && found->Viewport->ID != mainViewport->ID) {
+                    job->request = std::make_shared<WindowCaptureRequest>();
+                    job->request->viewportId = found->Viewport->ID;
+                    job->request->path = job->path;
+                    windowCapture = job->request;
+                    return std::nullopt; // read back while that OS window renders next frame
+                }
+                int fbW = 0, fbH = 0;
+                glfwGetFramebufferSize(window, &fbW, &fbH);
+                const ImVec2 scale = ImGui::GetIO().DisplayFramebufferScale;
+                const int x0 = std::clamp(static_cast<int>((found->Pos.x - mainViewport->Pos.x) * scale.x), 0, fbW);
+                const int y0 = std::clamp(static_cast<int>((found->Pos.y - mainViewport->Pos.y) * scale.y), 0, fbH);
+                const int x1 = std::clamp(static_cast<int>((found->Pos.x + found->Size.x - mainViewport->Pos.x) * scale.x), 0, fbW);
+                const int y1 = std::clamp(static_cast<int>((found->Pos.y + found->Size.y - mainViewport->Pos.y) * scale.y), 0, fbH);
+                if (x1 <= x0 || y1 <= y0) return CommandReply::failure("capture_failed", "the window is outside the main window");
+                std::vector<uint8_t> pixels(static_cast<size_t>(x1 - x0) * (y1 - y0) * 4);
+                glPixelStorei(GL_PACK_ALIGNMENT, 1);
+                glReadBuffer(GL_BACK);
+                glReadPixels(x0, fbH - y1, x1 - x0, y1 - y0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+                if (!saveImage(job->path.c_str(), x1 - x0, y1 - y0, pixels.data())) {
+                    return CommandReply::failure("capture_failed", "capture failed: " + job->path);
+                }
+                return CommandReply::success(json{{"path", job->path}, {"window", job->title}, {"detached", false},
+                                                  {"width", x1 - x0}, {"height", y1 - y0}});
+            });
         };
         agentRegistry.add(std::move(spec));
     }

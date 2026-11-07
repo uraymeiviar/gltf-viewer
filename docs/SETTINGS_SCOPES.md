@@ -10,6 +10,7 @@ this view shows it. Vendor tuning lives with its glTF extension. This implements
 | Viewport | `ViewportSettingsState` | Session only; toolbar gear selects that viewport in the Inspector |
 | glTF extensions, app | `GltfExtensionSettings` | `[GltfExtensions]`; File > Settings > glTF Extensions |
 | UI theme, app | `UiTheme` (ImGuiStyle) | `[UiTheme]` (current), `[UiTheme.<name>]` (saved themes, `User Modified`); File > Settings > UI Theme |
+| Image Viewer crosshair / grid, app | `ViewerPrefs` (`ImageViewer.cpp`) | `[ImageViewer]` (non-default values only); the viewer's status bar and grid popup; script `image_viewer` (saved after `set_persist(true)`) |
 
 ## Quality
 

@@ -5,6 +5,7 @@
 // add-on's uv_heatmap.py; a change there is a change here.
 
 #include "imgui/TextureMetrics.h"
+#include "imgui/MeshAttributes.h"
 #include "imgui/UiProbe.h"
 
 #include "core/Logger.h"
@@ -47,104 +48,8 @@ constexpr double kDegeneracyRelative = 1e-12; // compute_triangle_measures' dege
 constexpr double kAreaTop = 2.0; // AREA_TOP
 constexpr GLsizei kTableWidth = 4096;
 
-// One float array per accessor: an MSFS package shares vertex accessors between many primitives.
-using Floats = std::shared_ptr<const std::vector<float>>;
-
-float readComponent(const uint8_t* p, gltf::ComponentType type, bool normalized, bool halfFloat)
-{
-    switch (type) {
-    case gltf::ComponentType::Float: {
-        float v;
-        std::memcpy(&v, p, sizeof(v));
-        return v;
-    }
-    case gltf::ComponentType::UnsignedByte:
-        return normalized ? *p / 255.0f : static_cast<float>(*p);
-    case gltf::ComponentType::Byte: {
-        const auto v = static_cast<float>(static_cast<int8_t>(*p));
-        return normalized ? std::max(v / 127.0f, -1.0f) : v;
-    }
-    case gltf::ComponentType::UnsignedShort: {
-        uint16_t v;
-        std::memcpy(&v, p, sizeof(v));
-        return halfFloat ? glm::unpackHalf1x16(v) : normalized ? v / 65535.0f : static_cast<float>(v);
-    }
-    case gltf::ComponentType::Short: {
-        int16_t v;
-        std::memcpy(&v, p, sizeof(v));
-        if (halfFloat) {
-            return glm::unpackHalf1x16(static_cast<uint16_t>(v));
-        }
-        return normalized ? std::max(v / 32767.0f, -1.0f) : static_cast<float>(v);
-    }
-    default:
-        return 0.0f;
-    }
-}
-
-class AccessorCache {
-public:
-    // components: how many are read per element (a packaged VEC4 NORMAL-style padding is skipped by the stride).
-    // halfFloat: A1.9, packaged TEXCOORD_n stored as half-floats in SHORT / USHORT.
-    Floats read(const gltf::Accessor* accessor, uint32_t components, bool halfFloat)
-    {
-        if (accessor == nullptr) {
-            return nullptr;
-        }
-        const auto it = m_cache.find(accessor);
-        if (it != m_cache.end()) {
-            return it->second;
-        }
-        Floats result = decode(*accessor, components, halfFloat);
-        m_cache.emplace(accessor, result);
-        return result;
-    }
-
-private:
-    static Floats decode(const gltf::Accessor& accessor, uint32_t components, bool halfFloat)
-    {
-        const uint32_t stored = accessor.getComponentCountFrom(accessor.getType());
-        if (stored < components || accessor.getCount() == 0) {
-            return nullptr;
-        }
-        const size_t componentSize = accessor.getByteLengthFrom(accessor.getComponentType());
-        const size_t elementSize = accessor.getByteLengthFrom(accessor.getComponentType(), accessor.getType(), false);
-        if (componentSize == 0 || elementSize == 0) {
-            return nullptr;
-        }
-        core::Slice<uint8_t> sparse;
-        core::MemoryRange<const uint8_t> range;
-        size_t stride = elementSize;
-        if (accessor.getBufferView() != nullptr) {
-            stride = accessor.getBufferView()->getByteStride().value_or(static_cast<uint32_t>(elementSize));
-        }
-        if (accessor.getSparse().has_value()) {
-            if (!accessor.getSparseDataAs(sparse)) {
-                return nullptr;
-            }
-            const auto bytes = sparse.getMemoryRange();
-            range = core::makeRange(static_cast<const uint8_t*>(bytes.data()), bytes.size());
-        } else if (!accessor.getData(range)) {
-            return nullptr;
-        }
-        const size_t count = accessor.getCount();
-        if (range.empty() || stride * (count - 1) + elementSize > range.size()) {
-            return nullptr;
-        }
-        auto out = std::make_shared<std::vector<float>>(count * components);
-        const bool normalized = accessor.isNormalized();
-        const auto type = accessor.getComponentType();
-        for (size_t i = 0; i < count; ++i) {
-            const uint8_t* element = range.data() + i * stride;
-            for (uint32_t c = 0; c < components; ++c) {
-                (*out)[i * components + c] = readComponent(element + c * componentSize, type, normalized, halfFloat);
-            }
-        }
-        return out;
-    }
-
-    std::unordered_map<const gltf::Accessor*, Floats> m_cache;
-};
+using mesh_attributes::AccessorCache;
+using mesh_attributes::Floats;
 
 // The texture a material's density is read from. Only its UV set, transform and pixel size matter: the colours are
 // relative to the material's own median. The first present of the slots an artist paints on one atlas.
@@ -276,59 +181,6 @@ struct DecodedPrimitive {
     uint32_t firstTriangle = 0; // within the glTF mesh, for the island labels
     bool drawnTriangles = false; // false: points or lines
 };
-
-bool readTriangles(const gltf::Primitive& primitive, const ux3d::renderer::Mesh& mesh, size_t vertexCount,
-                   std::vector<std::array<uint32_t, 3>>& triangles)
-{
-    const gltf::Accessor* indexAccessor = primitive.getIndicesAccessor();
-    const auto mode = primitive.getPrimitiveMode();
-    size_t count = vertexCount;
-    std::vector<uint32_t> indices;
-    if (indexAccessor != nullptr) {
-        core::MemoryRange<const uint8_t> range;
-        if (!indexAccessor->getData(range) || range.empty()) {
-            return false;
-        }
-        const size_t size = indexAccessor->getByteLengthFrom(indexAccessor->getComponentType());
-        count = mesh.indexCount;
-        if (size == 0 || mesh.indexByteOffset + count * size > range.size()) {
-            return false;
-        }
-        indices.resize(count);
-        const uint8_t* p = range.data() + mesh.indexByteOffset;
-        for (size_t i = 0; i < count; ++i) {
-            uint32_t value = 0;
-            std::memcpy(&value, p + i * size, size); // little endian, as the file
-            indices[i] = value + static_cast<uint32_t>(mesh.baseVertex);
-        }
-    }
-    const auto index = [&indices, indexAccessor](size_t i) {
-        return indexAccessor != nullptr ? indices[i] : static_cast<uint32_t>(i);
-    };
-    triangles.clear();
-    if (mode == gltf::PrimitiveMode::Triangles) {
-        triangles.reserve(count / 3);
-        for (size_t i = 0; i + 2 < count; i += 3) {
-            triangles.push_back({ index(i), index(i + 1), index(i + 2) });
-        }
-    } else if (mode == gltf::PrimitiveMode::TriangleStrip) {
-        for (size_t i = 0; i + 2 < count; ++i) {
-            triangles.push_back({ index(i), index(i + 1), index(i + 2) });
-        }
-    } else if (mode == gltf::PrimitiveMode::TriangleFan) {
-        for (size_t i = 0; i + 2 < count; ++i) {
-            triangles.push_back({ index(0), index(i + 1), index(i + 2) });
-        }
-    }
-    for (const auto& triangle : triangles) {
-        for (uint32_t vertex : triangle) {
-            if (vertex >= vertexCount) {
-                return false;
-            }
-        }
-    }
-    return true;
-}
 
 uint64_t mixHash(uint64_t h, uint64_t value)
 {
@@ -649,10 +501,7 @@ void TextureMetrics::build(ux3d::renderer::GltfRenderLayer& layer, const ux3d::g
                 || mode == gltf::PrimitiveMode::TriangleFan;
             item.positions = accessors.read(positionAccessor, 3, false);
             if (uvAccessor != nullptr) {
-                const auto type = uvAccessor->getComponentType();
-                const bool half = packaged && !uvAccessor->isNormalized()
-                    && (type == gltf::ComponentType::Short || type == gltf::ComponentType::UnsignedShort);
-                item.uvs = accessors.read(uvAccessor, 2, half);
+                item.uvs = accessors.read(uvAccessor, 2, mesh_attributes::uvIsHalfFloat(*uvAccessor, packaged));
             }
             item.joints = accessors.read(gltf::GltfUtils::getAttributeAccessor(primitive, "JOINTS_0"), 4, false);
             item.weights = accessors.read(gltf::GltfUtils::getAttributeAccessor(primitive, "WEIGHTS_0"), 4, false);
@@ -663,7 +512,8 @@ void TextureMetrics::build(ux3d::renderer::GltfRenderLayer& layer, const ux3d::g
                 ++m_stats.nonTrianglePrimitives;
             } else if (item.positions != nullptr && meshIt != layer.m_meshMapping.map.end()
                        && meshIt->second != nullptr
-                       && !readTriangles(primitive, *meshIt->second, item.positions->size() / 3, item.triangles)) {
+                       && !mesh_attributes::readTriangles(primitive, meshIt->second->indexCount, meshIt->second->indexByteOffset,
+                                                       meshIt->second->baseVertex, item.positions->size() / 3, item.triangles)) {
                 core::logWarning("[TextureMetrics] Unreadable indices in a primitive of '%s'; it shows as no data", gltfMesh.getName().c_str());
                 item.triangles.clear();
             }

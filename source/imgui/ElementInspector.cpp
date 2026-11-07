@@ -748,7 +748,7 @@ void renderTexture(SelectionState& selection, ux3d::gltf::Gltf& gltfModel, ux3d:
         }
     }
     if (texSrc != nullptr) {
-        renderImagePreview(texSrc, gltfLayer, packagedTextures && isPackagedNormalMap(gltfModel, texSrc, ddsDeclared));
+        renderImagePreview(gltfModel, texSrc, gltfLayer, packagedTextures && isPackagedNormalMap(gltfModel, texSrc, ddsDeclared));
     }
 }
 
@@ -779,7 +779,7 @@ void renderImage(SelectionState& selection, ux3d::gltf::Gltf& gltfModel, ux3d::r
     }
     imageFormatRows(img, headerInfo);
 
-    renderImagePreview(img, gltfLayer, packagedTextures && isPackagedNormalMap(gltfModel, img, ddsDeclared));
+    renderImagePreview(gltfModel, img, gltfLayer, packagedTextures && isPackagedNormalMap(gltfModel, img, ddsDeclared));
 }
 
 void renderAccessor(SelectionState& selection, ux3d::gltf::Gltf& gltfModel)

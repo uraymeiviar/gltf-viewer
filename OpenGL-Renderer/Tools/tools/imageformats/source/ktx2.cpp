@@ -291,6 +291,142 @@ bool imageformats::decodeKTX2Preview(const core::Vector<uint8_t>& _buffer, uint3
     return true;
 }
 
+bool imageformats::decodeBCnStoredPixels(gpu::Format _format, const uint8_t* _blocks, size_t _byteCount,
+                                         uint32_t _width, uint32_t _height, StoredPixels& _out)
+{
+    uint32_t channels = 0;
+    bool signedValues = false;
+    switch (_format) {
+    case gpu::Format::BC1_RGB_UNORM_BLOCK:
+    case gpu::Format::BC1_RGB_SRGB_BLOCK:
+        channels = 3;
+        break;
+    case gpu::Format::BC1_RGBA_UNORM_BLOCK:
+    case gpu::Format::BC1_RGBA_SRGB_BLOCK:
+    case gpu::Format::BC2_UNORM_BLOCK:
+    case gpu::Format::BC2_SRGB_BLOCK:
+    case gpu::Format::BC3_UNORM_BLOCK:
+    case gpu::Format::BC3_SRGB_BLOCK:
+    case gpu::Format::BC7_UNORM_BLOCK:
+    case gpu::Format::BC7_SRGB_BLOCK:
+        channels = 4;
+        break;
+    case gpu::Format::BC4_UNORM_BLOCK:
+        channels = 1;
+        break;
+    case gpu::Format::BC4_SNORM_BLOCK:
+        channels = 1;
+        signedValues = true;
+        break;
+    case gpu::Format::BC5_UNORM_BLOCK:
+        channels = 2;
+        break;
+    case gpu::Format::BC5_SNORM_BLOCK:
+        channels = 2;
+        signedValues = true;
+        break;
+    default:
+        return false;
+    }
+    if (_blocks == nullptr || _width == 0u || _height == 0u) {
+        return false;
+    }
+
+    const bool smallBlocks = _format == gpu::Format::BC1_RGB_UNORM_BLOCK || _format == gpu::Format::BC1_RGB_SRGB_BLOCK
+        || _format == gpu::Format::BC1_RGBA_UNORM_BLOCK || _format == gpu::Format::BC1_RGBA_SRGB_BLOCK
+        || _format == gpu::Format::BC4_UNORM_BLOCK || _format == gpu::Format::BC4_SNORM_BLOCK;
+    const size_t blockBytes = smallBlocks ? 8u : 16u;
+    const size_t blocksX = (static_cast<size_t>(_width) + 3u) / 4u;
+    const size_t blocksY = (static_cast<size_t>(_height) + 3u) / 4u;
+    if (blocksX * blocksY * blockBytes > _byteCount) {
+        return false;
+    }
+
+    _out = StoredPixels();
+    _out.width = _width;
+    _out.height = _height;
+    _out.channels = channels;
+    _out.signedValues = signedValues;
+    _out.pixels.resize(static_cast<size_t>(_width) * _height * channels);
+
+    // bcdec writes RGBA8 for BC1/2/3/7 and 1 or 2 bytes per texel for BC4/BC5 (int8 when signed).
+    uint8_t block[4u * 4u * 4u];
+    for (size_t blockY = 0u; blockY < blocksY; ++blockY) {
+        for (size_t blockX = 0u; blockX < blocksX; ++blockX) {
+            const uint8_t* source = _blocks + (blockY * blocksX + blockX) * blockBytes;
+            uint32_t texelBytes = 4u;
+            switch (_format) {
+            case gpu::Format::BC1_RGB_UNORM_BLOCK:
+            case gpu::Format::BC1_RGB_SRGB_BLOCK:
+            case gpu::Format::BC1_RGBA_UNORM_BLOCK:
+            case gpu::Format::BC1_RGBA_SRGB_BLOCK:
+                bcdec_bc1(source, block, 4 * 4);
+                break;
+            case gpu::Format::BC2_UNORM_BLOCK:
+            case gpu::Format::BC2_SRGB_BLOCK:
+                bcdec_bc2(source, block, 4 * 4);
+                break;
+            case gpu::Format::BC3_UNORM_BLOCK:
+            case gpu::Format::BC3_SRGB_BLOCK:
+                bcdec_bc3(source, block, 4 * 4);
+                break;
+            case gpu::Format::BC7_UNORM_BLOCK:
+            case gpu::Format::BC7_SRGB_BLOCK:
+                bcdec_bc7(source, block, 4 * 4);
+                break;
+            case gpu::Format::BC4_UNORM_BLOCK:
+            case gpu::Format::BC4_SNORM_BLOCK:
+                bcdec_bc4(source, block, 4, signedValues ? 1 : 0);
+                texelBytes = 1u;
+                break;
+            default: // BC5
+                bcdec_bc5(source, block, 4 * 2, signedValues ? 1 : 0);
+                texelBytes = 2u;
+                break;
+            }
+            for (uint32_t py = 0u; py < 4u; ++py) {
+                const size_t y = blockY * 4u + py;
+                if (y >= _height) {
+                    break;
+                }
+                for (uint32_t px = 0u; px < 4u; ++px) {
+                    const size_t x = blockX * 4u + px;
+                    if (x >= _width) {
+                        break;
+                    }
+                    const uint8_t* texel = block + (py * 4u + px) * texelBytes;
+                    uint8_t* target = _out.pixels.data() + (y * _width + x) * channels;
+                    std::memcpy(target, texel, channels);
+                }
+            }
+        }
+    }
+    return true;
+}
+
+bool imageformats::decodeKTX2StoredPixels(const core::Vector<uint8_t>& _buffer, StoredPixels& _out)
+{
+    KTX2ImageInfo info;
+    if (!getKTX2ImageInfo(_buffer, info) || !info.blockCompressed || info.supercompressionScheme != 0u
+        || info.depth != 1u || info.layerCount != 1u || info.faceCount != 1u || info.width == 0u || info.height == 0u) {
+        return false;
+    }
+    uint32_t blockWidth = 1u;
+    uint32_t blockHeight = 1u;
+    if (!image::getBlockSize(info.format, blockWidth, blockHeight) || blockWidth != 4u || blockHeight != 4u) {
+        return false;
+    }
+    const uint64_t blockBytes = image::getFormatSize(info.format);
+    const uint64_t levelSize = ((static_cast<uint64_t>(info.width) + 3u) / 4u) * ((static_cast<uint64_t>(info.height) + 3u) / 4u)
+        * blockBytes;
+    const uint64_t levelOffset = readU64LE(_buffer, 80u);
+    if (blockBytes == 0u || levelSize == 0u || levelOffset + levelSize > _buffer.size()) {
+        return false;
+    }
+    return decodeBCnStoredPixels(info.format, _buffer.data() + static_cast<size_t>(levelOffset),
+                                 static_cast<size_t>(levelSize), info.width, info.height, _out);
+}
+
 //START Copy from KTX-Software utils/scapp.h
 
 template <typename T>

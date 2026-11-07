@@ -608,7 +608,8 @@ ImageDecodingResult imageformats::decodeImage(
     // decoder allocation, so several 8K decodes cannot exhaust RAM at the same time.
     std::unique_ptr<uint8_t, decltype(&stbi_image_free)> decoded(imageDataStb, stbi_image_free);
     std::vector<uint8_t> resized;
-    const uint32_t limit = core::loading::state.memoryAware ? core::loading::state.textureLimit.load() : 0;
+    const uint32_t limit = core::loading::state.memoryAware && !core::loading::fullResolutionDecode
+        ? core::loading::state.textureLimit.load() : 0;
     if (limit && imageDataStb && encoding != ImageEncoding::HDR && (width > limit || height > limit)) {
         const size_t originalWidth = width, originalHeight = height;
         while (width > limit || height > limit) { width = std::max<size_t>(1, width/2); height = std::max<size_t>(1, height/2); }

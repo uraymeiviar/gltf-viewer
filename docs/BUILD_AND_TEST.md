@@ -336,6 +336,12 @@ python scripts/run_regression.py --tier full
   run stays off the monitor you are working on. A baseline without the option still opens on the primary monitor when it
   is not served from the cache: `--baseline` should name a build that has it. `scripts/check_window_monitor.py` checks
   that a window is never visible outside the chosen monitor.
+- **Multi-viewport in tests**: ImGui multi-viewport is off by default in `--ui-script`, `--ui-script-follow`,
+  `--dump-frame`, capture and `--fixed-frame-time` runs (so in `--test` and every harness that passes it), so raw
+  `click x y` / `drag` coordinates, region hashes and captures stay window-local and unchanged. A pipe session without
+  `--fixed-frame-time` runs with it on. To test a detached window, add `--viewports on` (harness coordinates then are
+  desktop coordinates), place the window outside the main one with `image_viewer ... window_pos` and save it with
+  `capture_window` (ARCHITECTURE.md §3.6, LIVE_SCRIPT_CONTROL.md §3.2).
 - **On-demand validators** (not in the regression; fast checks or ones that need special assets; run the one for the
   area you change): `validate_gl46.py`, `validate_live_control.py`, `validate_loading.py`,
   `validate_settings_storage.py`, `validate_tiff_images.py`,

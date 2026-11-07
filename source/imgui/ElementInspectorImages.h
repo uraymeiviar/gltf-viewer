@@ -63,7 +63,8 @@ bool isPackagedNormalMap(const ux3d::gltf::Gltf& gltfModel, const ux3d::gltf::Im
 
 void ensureImageDataDecoded(const ux3d::gltf::Image* img);
 
-void renderImagePreview(const ux3d::gltf::Image* img, ux3d::renderer::GltfRenderLayer* gltfLayer,
-                        bool signedSquareNormal);
+// The preview opens the Image Viewer on click (header/imgui/ImageViewer.h).
+void renderImagePreview(const ux3d::gltf::Gltf& gltfModel, const ux3d::gltf::Image* img,
+                        ux3d::renderer::GltfRenderLayer* gltfLayer, bool signedSquareNormal);
 
 } // namespace ux3d::imgui

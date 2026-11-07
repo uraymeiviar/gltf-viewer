@@ -139,7 +139,7 @@ if section("changed_value"):
               "Changed preference is stored ([QualityProfiles] selection=1)")
         check(ini.get("RenderQuality", {}).get("iblCubeSize") == "256",
               "Preset-specific render value is stored (iblCubeSize=256)")
-        check(all(name not in ini for name in ("SearchPaths", "SceneHierarchy", "Resources")),
+        check(all(name not in ini for name in ("SearchPaths", "SceneHierarchy", "Resources", "ImageViewer")),
               "Default-valued sections are not written")
         check(all(name not in ini for name in ("Window", "Layout")),
               "Default window size and layout are not written")

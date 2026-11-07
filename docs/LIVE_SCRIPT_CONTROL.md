@@ -109,8 +109,113 @@ list_settings environment
 Their results are the registry results (the same objects the pipe returns). `Glider.exe --agent-guide <file>`
 writes the full, generated command and settings reference. The UI-testing commands (`click`, `drag`, `snap`,
 `vpsetting`, `aamode`, `asoboparam`, ...) stay in the harness. `key <name> [mods]` accepts combined modifiers
-(`key space ctrl+alt`) and the digit keys (`key 7 ctrl`). A command that runs over several frames (`capture`,
+(`key space ctrl+alt`) and the digit keys (`key 7 ctrl`). A `name=value` token sets any argument of a registry command by
+name (`image_viewer 0 grid=on major=32`); the other tokens fill the positionals in order. This does not apply to commands
+whose last positional takes the rest of the line (`open`). A command that runs over several frames (`capture`,
 `open`, `reset`) holds back the following lines until it has replied, as before.
+
+### 3.2 Image Viewer (`image_viewer`)
+
+`image_viewer <image> [zoom] [channels] [levels] [background] [raw] [x,y] [window_pos] [window_size]` opens (or focuses) the Image Viewer
+window of glTF image `<image>` exactly like clicking its Inspector preview (ARCHITECTURE.md §3.5b) and sets its
+view. `-` keeps a positional value unchanged:
+
+- `zoom`: `fit` or a percentage (`200`, `137.5`; 1..3200).
+- `channels`: the shown channels as letters (`rgba`, `rgb`, `a`, `l`, `rg`, `all`).
+- `levels`: `full`, `data` (min-max of the shown channels) or `low,high` in stored values (`10,200`, `0.2,0.8`).
+- `background`: `checker`, `white`, `gray`, `black`.
+- `raw`: `on` shows the stored values of a decoded normal map (BC5), `off` the decoded view.
+- `x,y`: the readout pixel (row 0 at the top); the reply carries its stored values.
+- `window_pos`: `x,y` of the window's top-left corner relative to the main window's client area. With multi-viewport
+  on (`--viewports on`; off by default under `--ui-script` / `--ui-script-follow`, ARCHITECTURE.md §3.6) a position
+  outside the main window detaches the viewer into its own OS window; a position inside merges it back.
+- `window_size`: `w,h` of the window (at least `100,100`).
+
+Crosshair and pixel grid (ARCHITECTURE.md §3.5b), as `name=value` tokens. They are preferences shared by every viewer: kept
+for the session, and written to `settings.ini` `[ImageViewer]` only by a pipe client after `set_persist(true)`:
+
+- `crosshair=on|off`, `grid=on|off`.
+- `major=<px>`, `minor=<px>`: grid spacing in image pixels (1..16384; defaults 256 / 64).
+- `major_color=…`, `minor_color=…`: `r,g,b,a` in 0..1 or `#rrggbb[aa]` (defaults `1,1,1,0.5` / `1,1,1,0.25`).
+- `grid_defaults=true`: both levels back to their defaults.
+- `cursor=x,y`: the image pixel of the crosshair while the mouse is not over the image (the mouse wins while it is);
+  `cursor=off` removes it. The harness `move x y` hovers for real.
+
+```text
+image_viewer 0 800 grid=on major=32 minor=8 crosshair=on cursor=100,100
+image_viewer_wait 0
+shot build/iv_grid.png
+```
+
+The image loads in the background (ARCHITECTURE.md §3.5b): `image_viewer` and `uv_layout` reply at once, often
+before the full-resolution pixels are there. `image_viewer_wait <image>` (multi-frame, timeout 120 s) replies when the
+window is `ready` (pixels, texture, histogram, UV overlay) with the same state; scripts wait with it instead of fixed
+`wait` frames. Options that need the pixels (`channels`, `levels`, `raw`, `x,y`) are kept and applied when the pixels
+arrive (`levels data` when the data range does), so a reply sent while loading still shows the old values for them:
+
+```text
+image_viewer 0 - - - - - 1234,567
+image_viewer_wait 0
+```
+
+The reply is the viewer state: `key`, `title`, `width`, `height`, `channels`, `shown`, `type` (`uint8`, `int8`,
+`uint16`, `float32`), `storedBits`, `source`, `decodedView`, `raw`, `fit`, `zoomPercent`, `levels`, `fullRange`,
+`dataRange` per channel, `background`, `area` (the image area's screen rectangle of the last frame), `readout`
+`{x, y, values}`, `warnings`, `window` (the window's screen rectangle), `detached` (in its own OS window) and
+`splitFraction` (the picker/histogram split), `crosshair` (`on`, `drawn` in the last frame, `source` `mouse` / `script` /
+`none`, `pixel`, `screen`: the column and row it is drawn at) and `grid` (`on`, `minScreenSpacing`, and per `major` /
+`minor`: `spacing`, `color`, `screenSpacing`, `shown`, `lines` drawn in the last frame). Load state: `loading` (the phase: `reading`, `decoding`, `uploading`,
+`histogram`, `uv`, `ready`), `ready`, `pixelsReady`, `histogramReady`, `textureComplete`, `preview` (a preview texture
+is shown until the texture is complete) and `timings` (`copyMs`, `decodeMs`, `convertMs`, `variantMs`, `histogramMs`,
+`allocMs`, `uploadMs`, `uploadFrames`, `mipmapMs`, `sharpMs`, `readyMs`, `maxViewerMs`: the viewer's longest main-thread
+frame during the load, `maxFrameMs`: the longest frame). Until `pixelsReady`, `width` / `height` come from the image
+header and the readout, data range and histogram are not final. Pipe clients pass the same names as JSON (`zoom`, `levels` and `raw` accept a
+string or a number / boolean; `pixel` is `[x, y]`; `close: true` closes the window, `signed_square` overrides the
+packaged normal-map decode; `window_pos` / `window_size` also accept `[x, y]`). Whole-window screenshots: the
+harness's `shot <png>` (the main window's framebuffer including every ImGui window in it, never a detached one),
+e.g.
+
+```text
+image_viewer 0 200 rgb - checker - 12,8
+wait 4
+shot build/iv_rgba_200.png
+```
+
+`capture_window <path> <window> [settle_frames=3]` saves one visible ImGui window as PNG; `<window>` is a
+case-insensitive substring of its title (one word: script arguments split at spaces, e.g. the image file name).
+A window in the main window is cropped from the main framebuffer; a detached window is read from its own back
+buffer. The reply carries `path`, `window` (the full ImGui name), `detached`, `width` and `height`:
+
+```text
+image_viewer 0 fit - - - - 30,20 1700,100 900,650
+wait 12
+capture_window build/iv_detached.png rgba8.png
+```
+
+`uv_layout <material> [slot] [wrap] [fill] [transform] [show]` opens the UV layout overlay of a material's texture
+slot exactly like the UV layout button of the Material Inspector (ARCHITECTURE.md §3.5b): the slot image's viewer
+with the triangle edges of every primitive using the material in the slot's TEXCOORD set.
+
+- `slot`: `baseColor` (default), `metallicRoughness`, `normal`, `occlusion`, `emissive` (a `Texture` suffix is
+  accepted, case-insensitive). Other slots are opened from the Inspector.
+- `wrap`, `fill`, `transform`, `show`: `on`, `off` or `-` (keep). `transform off` shows the raw UVs; without a
+  KHR_texture_transform on the slot it has no effect. Pipe clients may also pass `opacity` (0.05..1).
+
+The reply is the viewer state with `imageRect` (the image's screen rectangle of the last frame: a UV point `u,v` is at
+`imageRect.x0 + u * width, imageRect.y0 + v * height`) and `uvLayout`: `material`, `materialName`, `slot`,
+`texCoord`, `hasTransform`, `transformApplied`, `transform` (column-major 3x3), `show`, `wrap`, `fill`, `opacity`,
+`primitives`, `triangles`, `outside` (triangles partly outside 0..1), `edges`, `fillTriangles`, `skippedPrimitives`
+(points / lines), `missingUvPrimitives`, `unreadablePrimitives`, `capped`, `gatherMs`, `buildMs`, `bufferUploadMs`,
+`building` (an edge build runs on a worker; the previous edges stay drawn and counted until it is adopted),
+`buildLongestViewerFrameMs` and `buildLongestFrameMs` (during the last build). Opening the same
+image with `image_viewer` keeps the overlay; another material or TEXCOORD set replaces it.
+
+```text
+uv_layout 1 baseColor - - off
+image_viewer 0 200
+image_viewer_wait 0
+shot build/uv_raw.png
+```
 
 ---
 

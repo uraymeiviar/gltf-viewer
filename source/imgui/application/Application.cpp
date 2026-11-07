@@ -9,6 +9,7 @@
 #include "imgui/Theme.h"
 #include "imgui/UiTheme.h"
 #include "imgui/ElementInspector.h"
+#include "imgui/ImageViewer.h"
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_opengl3.h"
 #include <cstdio>
@@ -88,6 +89,8 @@ int Application::run(int argc, char** argv)
     int requestedWidth = 0;
     int requestedHeight = 0;
     bool agentGuideArg = false;
+    bool automationViewportDefault = true; // ImGui multi-viewport default for this run
+    int viewportsArg = -1;                 // --viewports on|off
     std::string agentGuidePath;
     std::string agentGuideFormat;
     for (int i = 1; i < argc; ++i) {
@@ -102,6 +105,20 @@ int Application::run(int argc, char** argv)
             isolatedArg = true;
         } else if (arg == "--ui-script-follow") {
             isolatedArg = true;
+            automationViewportDefault = false;
+        } else if (arg == "--ui-script" || arg == "--dump-frame" || arg == "--capture-viewport" ||
+                   arg == "--capture-first-frame" || arg == "--capture-loading" || arg == "--fixed-frame-time") {
+            automationViewportDefault = false; // captures and script coordinates stay single-window
+        } else if (arg == "--viewports" && i + 1 < argc) {
+            const std::string value = toLowerAscii(argv[++i]);
+            if (value == "on" || value == "1" || value == "true") {
+                viewportsArg = 1;
+            } else if (value == "off" || value == "0" || value == "false") {
+                viewportsArg = 0;
+            } else {
+                std::fprintf(stderr, "Invalid --viewports '%s' (expected on|off)\n", value.c_str());
+                return 1;
+            }
         } else if (arg == "--profile") {
             profileArg = true;
         } else if (arg == "--no-profile") {
@@ -129,6 +146,7 @@ int Application::run(int argc, char** argv)
         }
     }
     s_isolatedState = isolatedArg;
+    s_viewportsEnabled = viewportsArg >= 0 ? viewportsArg == 1 : automationViewportDefault;
     // Phase 7 quality settings: persisted choice first, then command-line overrides,
     // all before the default environment is filtered.
     ux3d::imgui::RenderQuality::setPersistenceEnabled(!s_isolatedState);
@@ -267,6 +285,17 @@ int Application::run(int argc, char** argv)
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    // Multi-viewport: any window can be dragged out of the main window into its own OS window (Frame.cpp renders
+    // them). Defaults: a window dropped back over the main window merges into it (NoAutoMerge off), detached
+    // windows keep a taskbar entry so they can be found behind other apps, ImGui draws their title bar
+    // (NoDecoration on). Windows that own a viewport get no rounding in this ImGui version; the FSS theme's
+    // window background is opaque. Off by default in automation/capture runs (s_viewportsEnabled).
+    if (s_viewportsEnabled) {
+        io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+        io.ConfigViewportsNoAutoMerge = false;
+        io.ConfigViewportsNoTaskBarIcon = false;
+        io.ConfigViewportsNoDecoration = true;
+    }
     io.IniFilename = nullptr;
     if (!s_isolatedState) {
         loadImguiLayout();
@@ -454,7 +483,7 @@ int Application::run(int argc, char** argv)
         if (!s_disableIdleWait && !automationPending && idleQuietFrames >= kIdleQuietFrames) {
             const double waitStart = glfwGetTime();
             ux3d::imgui::waitForEvents(
-                window, kIdleWaitTimeoutSeconds, [] { return ImGui::GetCurrentContext()->InputEventsQueue.Size > 0; },
+                window, kIdleWaitTimeoutSeconds, [this] { return ImGui::GetCurrentContext()->InputEventsQueue.Size > 0 || platformWindowRequestsPending(); },
                 idleWaitStats);
             idleWaitSeconds += glfwGetTime() - waitStart;
             if (!s_idleStatsPath.empty() && idleWakesMs.size() < 200000) {
@@ -495,6 +524,7 @@ int Application::run(int argc, char** argv)
     releaseTextureRefreshSnapshot();
     ux3d::imgui::RenderQuality::releaseGpuSamples();
     ux3d::imgui::ElementInspector::clearPreviewCache();
+    ux3d::imgui::ImageViewer::shutdown();
     gridRenderer.cleanup();
     bboxRenderer.cleanup();
     viewports.clear();

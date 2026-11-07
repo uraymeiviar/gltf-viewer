@@ -479,6 +479,8 @@ std::optional<int> Application::configure(int argc, char** argv)
             debugViewArg = argv[++i];
         } else if (arg == "--window-size" && i + 1 < argc) {
             ++i; // Value was applied by the pre-scan before window creation.
+        } else if (arg == "--viewports" && i + 1 < argc) {
+            ++i; // ImGui multi-viewport on|off: applied by the pre-scan before the ImGui context exists.
         } else if (arg == "--ui-script" && i + 1 < argc) {
             uiScriptPath = argv[++i];
         } else if (arg == "--ui-report" && i + 1 < argc) {

@@ -369,11 +369,33 @@ std::optional<nlohmann::json> CommandRegistry::parseText(const CommandSpec& spec
 {
     nlohmann::json args = nlohmann::json::object();
     const nlohmann::json& properties = spec.args["properties"];
+    // name=value tokens set a named argument (any argument of the command, e.g. `image_viewer 0 grid=on`); the
+    // other tokens fill the positionals in order. Not for commands whose last positional takes the rest of the line.
+    std::vector<std::string> positionalTokens;
+    if (spec.restIsText) {
+        positionalTokens = tokens;
+    } else {
+        for (size_t t = 0; t < tokens.size(); ++t) {
+            const std::string& token = tokens[t];
+            const size_t equals = token.find('=');
+            if (t > 0 && equals != std::string::npos && equals > 0 && properties.contains(token.substr(0, equals))) {
+                const std::string key = token.substr(0, equals);
+                auto value = coerceText(properties[key], token.substr(equals + 1));
+                if (!value) {
+                    error = "invalid value '" + token.substr(equals + 1) + "' for " + key + ": " + line;
+                    return std::nullopt;
+                }
+                args[key] = *value;
+                continue;
+            }
+            positionalTokens.push_back(token);
+        }
+    }
     for (size_t i = 0; i < spec.positional.size(); ++i) {
         const std::string& key = spec.positional[i];
         const bool last = i + 1 == spec.positional.size();
-        if (i + 1 >= tokens.size()) break;
-        std::string token = tokens[i + 1];
+        if (i + 1 >= positionalTokens.size()) break;
+        std::string token = positionalTokens[i + 1];
         if (last && spec.restIsText) {
             // The rest of the line after the command and the earlier positionals.
             size_t pos = 0;

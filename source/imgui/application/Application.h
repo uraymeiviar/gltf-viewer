@@ -311,6 +311,10 @@ private:
     // captured in the frame that requested the refresh.
     void captureTextureRefreshSnapshot(int width, int height);
     void releaseTextureRefreshSnapshot();
+    // ImGui multi-viewport (Frame.cpp): updates and renders the detached OS windows after the main draw data,
+    // restoring the main GL context, and fulfils a pending capture_window of a detached window.
+    void renderPlatformWindows();
+    bool platformWindowRequestsPending() const;
     void processInput(float deltaTime);
     // A2.2: --material-edit-emissive <material> edits that material's emissive factor every
     // frame and marks SceneChange::Material, so the per-edit cost can be measured with
@@ -694,6 +698,21 @@ private:
     // P0.1 deterministic scenario state. When enabled, no user-persisted window, layout,
     // recent-file or application settings are read or written.
     bool s_isolatedState = false;
+    // ImGui multi-viewport: windows can be dragged out into their own OS windows. On in interactive sessions,
+    // off by default in automation/capture runs (--ui-script, --ui-script-follow, --dump-frame, --capture*,
+    // --fixed-frame-time / --test) so their captures and window-local script coordinates stay unchanged;
+    // --viewports on|off overrides.
+    bool s_viewportsEnabled = true;
+    // capture_window: a detached viewport's framebuffer is read back while it is rendered.
+    struct WindowCaptureRequest {
+        unsigned int viewportId = 0;
+        std::string path;
+        bool done = false;
+        bool ok = false;
+        int width = 0;
+        int height = 0;
+    };
+    std::shared_ptr<WindowCaptureRequest> windowCapture;
     bool s_windowSizeOverridden = false;
     static constexpr uint64_t SCENARIO_REPORT_FRAME = 8;
 

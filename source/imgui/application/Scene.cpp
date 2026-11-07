@@ -4,6 +4,7 @@
 #include "core/LoadProgress.h"
 #include "imgui/AppSettings.h"
 #include "imgui/ElementInspector.h"
+#include "imgui/ImageViewer.h"
 #include "imgui/GltfExtensionSettings.h"
 #include "imgui/StatisticsPanel.h"
 #include "imgui/GltfValidator.h"
@@ -276,6 +277,14 @@ bool Application::loadGltfModel(const std::string& filePath, ux3d::gltf::Gltf& g
         glDisable(GL_SCISSOR_TEST);
         glClearColor(.10f,.10f,.12f,1); glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+        if ((ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) != 0) {
+            // A texture-only refresh runs in the main context, which may have detached windows (multi-viewport):
+            // ImGui requires the platform update every frame. A fresh load's own context has no viewports.
+            GLFWwindow* previousContext = glfwGetCurrentContext();
+            ImGui::UpdatePlatformWindows();
+            ImGui::RenderPlatformWindowsDefault();
+            glfwMakeContextCurrent(previousContext);
+        }
         if (!loadingCapturePath.empty() && stage == ux3d::core::loading::Images && w > 0 && h > 0) {
             std::vector<uint8_t> pixels(size_t(w)*h*4);
             glReadPixels(0,0,w,h,GL_RGBA,GL_UNSIGNED_BYTE,pixels.data());
@@ -309,6 +318,12 @@ bool Application::loadGltfModel(const std::string& filePath, ux3d::gltf::Gltf& g
     ux3d::filesystem::File file = ux3d::imgui::StdFileSystem::instance().toFile(filePath.c_str());
 
     ux3d::imgui::ElementInspector::clearPreviewCache();
+    // A new model closes the Image Viewer windows; a texture reload decodes their images again.
+    if (texturesOnly) {
+        ux3d::imgui::ImageViewer::reloadAll();
+    } else {
+        ux3d::imgui::ImageViewer::closeAll();
+    }
     if (!texturesOnly && gltfLayer != nullptr) {
         for (auto& viewport : viewports) viewport->settings.materialExtensions.disabled.clear();
         gltfLayer->materialExtensionOptions.disabled.clear();

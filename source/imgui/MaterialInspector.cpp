@@ -3,6 +3,7 @@
 #include "imgui/MaterialInspector.h"
 #include "imgui/ElementInspector.h"
 #include "imgui/ExtensionInspector.h"
+#include "imgui/ImageViewer.h"
 #include "imgui/PropertyTree.h"
 #include "imgui/ResourcesPanel.h"
 #include "imgui/TextureUtils.h"
@@ -139,7 +140,8 @@ bool MaterialInspector::renderTextureSlot(const char* label,
         ? ElementInspector::getImagePreviewTextureId(source, gltfLayer, showScale)
         : 0;
 
-    prop::row(ICON_MDI_IMAGE_OUTLINE, "Texture", "Click the preview or the name to inspect the texture.");
+    prop::row(ICON_MDI_IMAGE_OUTLINE, "Texture",
+              "Click the preview to open the image in the Image Viewer; click the name to inspect the texture.");
     const ImVec2 previewMin = ImGui::GetCursorScreenPos();
     const ImVec2 previewMax(previewMin.x + previewSize, previewMin.y + previewSize);
     ImGui::InvisibleButton("##TexturePreview", ImVec2(previewSize, previewSize));
@@ -188,10 +190,22 @@ bool MaterialInspector::renderTextureSlot(const char* label,
 
     if (previewHovered) {
         ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-        ImGui::SetTooltip("Inspect %s", getTextureDisplayName(texture, source).c_str());
+        if (source != nullptr) {
+            ImGui::SetTooltip("Open %s in the Image Viewer", getImageDisplayName(source).c_str());
+        } else {
+            ImGui::SetTooltip("Inspect %s", getTextureDisplayName(texture, source).c_str());
+        }
     }
     if (previewClicked) {
-        selection.selectTextureFromMaterial(texture, material);
+        // The preview opens the full-resolution Image Viewer; the name next to it inspects the texture.
+        // A normal slot's image is signed-square decoded only in a packaged (ASOBO_asset_optimized) file,
+        // as in the Image / Texture Inspector, so both routes open the same view.
+        if (source != nullptr) {
+            ImageViewer::open(gltfModel, source, showScale && gltfModel.isExtensionDeclared("ASOBO_asset_optimized"),
+                              previewId);
+        } else {
+            selection.selectTextureFromMaterial(texture, material);
+        }
     }
     UiProbe::item(previewProbe.c_str(), 0);
 
@@ -228,7 +242,8 @@ bool MaterialInspector::renderTextureSlot(const char* label,
     }
     ImGui::EndGroup();
 
-    const uint32_t texCoord = texInfo->getTexCoordOrDefault();
+    // The set the renderer samples: texCoord, or KHR_texture_transform's texCoord override.
+    const uint32_t texCoord = texInfo->getEffectiveTexCoord();
     const std::string texCoordLabel = "TEXCOORD_" + std::to_string(texCoord);
     const TexCoordAccessorUsage usage = findTexCoordAccessor(gltfModel, material, texCoord);
     const bool canInspectTexCoord = usage.accessor != nullptr;
@@ -237,7 +252,10 @@ bool MaterialInspector::renderTextureSlot(const char* label,
         ImGui::BeginDisabled();
     }
     const std::string texCoordButton = ICON_MDI_VECTOR_SQUARE " " + texCoordLabel + "##InspectTexCoord";
-    if (ImGui::Button(texCoordButton.c_str(), ImVec2(-FLT_MIN, 0.0f)) && canInspectTexCoord) {
+    // With a source image, a UV layout button follows the TEXCOORD button.
+    const float uvButtonWidth = source != nullptr ? ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.x : 0.0f;
+    const float texCoordWidth = ImGui::GetContentRegionAvail().x - uvButtonWidth;
+    if (ImGui::Button(texCoordButton.c_str(), ImVec2(texCoordWidth > 1.0f ? texCoordWidth : -FLT_MIN, 0.0f)) && canInspectTexCoord) {
         selection.selectAccessorFromMaterial(usage.accessor, material);
     }
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
@@ -262,6 +280,19 @@ bool MaterialInspector::renderTextureSlot(const char* label,
     UiProbe::item(makeProbeTag("material.texcoord.", label).c_str(), 0);
     if (!canInspectTexCoord) {
         ImGui::EndDisabled();
+    }
+    if (source != nullptr) {
+        ImGui::SameLine();
+        if (ImGui::Button(ICON_MDI_VECTOR_TRIANGLE "##UvLayout", ImVec2(ImGui::GetFrameHeight(), 0.0f))) {
+            ImageViewer::openUvLayout(gltfModel, gltfLayer, source,
+                                      showScale && gltfModel.isExtensionDeclared("ASOBO_asset_optimized"),
+                                      ImageViewer::uvLayoutRequest(material, label, *texInfo), previewId);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+            ImGui::SetTooltip("Show the UV layout of this material on the texture");
+        }
+        UiProbe::item(makeProbeTag("material.uvlayout.", label).c_str(), 0);
     }
 
     // Normal map scale

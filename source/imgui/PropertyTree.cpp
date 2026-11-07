@@ -140,10 +140,17 @@ void row(const char* icon, const char* label, const char* tooltip)
     ImGui::TableNextRow();
     ImGui::TableSetColumnIndex(0);
     const std::string text = keyText(icon, label);
-    // A leaf tree node keeps the key aligned with the group labels at every depth.
+    // A leaf tree node keeps the key aligned with the group labels at every depth. It is not clickable, so it
+    // draws no hover/active/nav highlight (only group headers, which open and close, highlight). Hover still
+    // works for the tooltip.
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, IM_COL32(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_HeaderActive, IM_COL32(0, 0, 0, 0));
+    ImGui::PushItemFlag(ImGuiItemFlags_NoNav, true);
     ImGui::TreeNodeEx(label, ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen |
                                  ImGuiTreeNodeFlags_FramePadding | ImGuiTreeNodeFlags_SpanAvailWidth,
                       "%s", text.c_str());
+    ImGui::PopItemFlag();
+    ImGui::PopStyleColor(2);
     if (tooltip != nullptr && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("%s", tooltip);
     ImGui::TableSetColumnIndex(1);
     ImGui::PushItemWidth(-FLT_MIN);

@@ -5,6 +5,7 @@
 
 #include "ElementInspectorImages.h"
 #include "imgui/PropertyTree.h"
+#include "imgui/ImageViewer.h"
 #include <cstdio>
 
 namespace ux3d::imgui {
@@ -394,8 +395,8 @@ unsigned int ElementInspector::getImagePreviewTextureId(const ux3d::gltf::Image*
     return getOrCreateImagePreviewTexture(image, gltfLayer, signedSquareNormal);
 }
 
-void renderImagePreview(const ux3d::gltf::Image* img, ux3d::renderer::GltfRenderLayer* gltfLayer,
-                        bool signedSquareNormal)
+void renderImagePreview(const ux3d::gltf::Gltf& gltfModel, const ux3d::gltf::Image* img,
+                        ux3d::renderer::GltfRenderLayer* gltfLayer, bool signedSquareNormal)
 {
     if (!img) return;
     if (img->payloadOmitted()) {
@@ -462,16 +463,23 @@ void renderImagePreview(const ux3d::gltf::Image* img, ux3d::renderer::GltfRender
         previewH = 16.0f;
     }
 
-    ImGui::Image(static_cast<ImTextureID>(texId),
-                 ImVec2(previewW, previewH),
-                 ImVec2(0.0f, 0.0f),
-                 ImVec2(1.0f, 1.0f));
+    // A click opens the Image Viewer (full resolution, stored values).
+    ImGui::InvisibleButton("##ImagePreview", ImVec2(previewW, previewH));
+    const bool previewHovered = ImGui::IsItemHovered();
+    if (ImGui::IsItemClicked()) {
+        ImageViewer::open(gltfModel, img, signedSquareNormal, texId); // shown at once while the full image loads
+    }
+    UiProbe::item("inspector.imagePreview", img->m_ID);
 
     ImVec2 rMin = ImGui::GetItemRectMin();
     ImVec2 rMax = ImGui::GetItemRectMax();
-    ImGui::GetWindowDrawList()->AddRect(rMin, rMax, IM_COL32(70, 70, 78, 255));
+    ImDrawList* previewDrawList = ImGui::GetWindowDrawList();
+    previewDrawList->AddImage(static_cast<ImTextureID>(texId), rMin, rMax, ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f));
+    previewDrawList->AddRect(rMin, rMax, previewHovered ? IM_COL32(33, 171, 107, 255) : IM_COL32(70, 70, 78, 255),
+                             0.0f, 0, previewHovered ? 2.0f : 1.0f);
 
-    if (ImGui::IsItemHovered()) {
+    if (previewHovered) {
+        ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
         ImGui::BeginTooltip();
         ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", getImageDisplayName(img).c_str());
         ImGui::Separator();
@@ -492,6 +500,8 @@ void renderImagePreview(const ux3d::gltf::Image* img, ux3d::renderer::GltfRender
                 ImGui::Text("Bit Depth: %u-bit per channel (%u-bit total)", bpc, totBits);
             }
         }
+        ImGui::Separator();
+        ImGui::TextDisabled("Click to open in the Image Viewer");
         ImGui::EndTooltip();
     }
 }

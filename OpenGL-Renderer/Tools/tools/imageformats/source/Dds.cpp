@@ -74,9 +74,15 @@ inline uint32_t readU32LE(const uint8_t* p) {
           (static_cast<uint32_t>(p[3]) << 24);
 }
 
-} // anonymous namespace
+// The DDS header: size, the pixel format and where the top level's data starts.
+struct DdsHeader {
+    uint32_t width = 0;
+    uint32_t height = 0;
+    DdsFormat format = DdsFormat::Unknown;
+    size_t dataOffset = 128;
+};
 
-ImageDecodingResult decodeDDS(const core::Vector<uint8_t>& _buffer, image::Image& _image)
+ImageDecodingResult parseDdsHeader(const core::Vector<uint8_t>& _buffer, DdsHeader& _header)
 {
     // Minimal valid DDS file has 4 bytes magic + 124 bytes header = 128 bytes
     if (_buffer.size() < 128) {
@@ -84,7 +90,7 @@ ImageDecodingResult decodeDDS(const core::Vector<uint8_t>& _buffer, image::Image
     }
 
     const uint8_t* data = _buffer.data();
-    size_t size = _buffer.size();
+    const size_t size = _buffer.size();
 
     // Check "DDS " magic (0x20534444)
     if (data[0] != 'D' || data[1] != 'D' || data[2] != 'S' || data[3] != ' ') {
@@ -222,6 +228,29 @@ ImageDecodingResult decodeDDS(const core::Vector<uint8_t>& _buffer, image::Image
         core::logError("[DDS] Unknown or unsupported DDS format (FourCC: 0x%08X, pfFlags: 0x%08X)", pfFourCC, pfFlags);
         return ImageDecodingError::InvalidInput;
     }
+
+    _header.width = width;
+    _header.height = height;
+    _header.format = format;
+    _header.dataOffset = dataOffset;
+    return ImageDecodingResult::Success;
+}
+
+} // anonymous namespace
+
+ImageDecodingResult decodeDDS(const core::Vector<uint8_t>& _buffer, image::Image& _image)
+{
+    DdsHeader header;
+    const ImageDecodingResult parsed = parseDdsHeader(_buffer, header);
+    if (core::Failed(parsed)) {
+        return parsed;
+    }
+    const uint32_t width = header.width;
+    const uint32_t height = header.height;
+    const DdsFormat format = header.format;
+    const size_t dataOffset = header.dataOffset;
+    const uint8_t* data = _buffer.data();
+    const size_t size = _buffer.size();
 
     const uint8_t* pSrc = data + dataOffset;
     size_t availableBytes = (size > dataOffset) ? (size - dataOffset) : 0;
@@ -419,6 +448,53 @@ ImageDecodingResult decodeDDS(const core::Vector<uint8_t>& _buffer, image::Image
     }
 
     return ImageDecodingResult::Success;
+}
+
+bool decodeDDSStoredPixels(const core::Vector<uint8_t>& _buffer, StoredPixels& _out)
+{
+    DdsHeader header;
+    if (core::Failed(parseDdsHeader(_buffer, header))) {
+        return false;
+    }
+    const uint8_t* source = _buffer.data() + header.dataOffset;
+    const size_t available = _buffer.size() > header.dataOffset ? _buffer.size() - header.dataOffset : 0u;
+    const size_t pixelCount = static_cast<size_t>(header.width) * header.height;
+
+    auto copyUncompressed = [&](uint32_t sourceBytes, uint32_t channels, bool bgr) {
+        if (available < pixelCount * sourceBytes) return false;
+        _out = StoredPixels();
+        _out.width = header.width;
+        _out.height = header.height;
+        _out.channels = channels;
+        _out.pixels.resize(pixelCount * channels);
+        for (size_t i = 0; i < pixelCount; ++i) {
+            const uint8_t* texel = source + i * sourceBytes;
+            uint8_t* target = _out.pixels.data() + i * channels;
+            target[0] = bgr ? texel[2] : texel[0];
+            target[1] = texel[1];
+            target[2] = bgr ? texel[0] : texel[2];
+            if (channels == 4u) target[3] = texel[3];
+        }
+        return true;
+    };
+
+    gpu::Format format = gpu::Format::UNDEFINED;
+    switch (header.format) {
+    case DdsFormat::RGBA8: return copyUncompressed(4u, 4u, false);
+    case DdsFormat::BGRA8: return copyUncompressed(4u, 4u, true);
+    case DdsFormat::RGB8: return copyUncompressed(3u, 3u, false);
+    case DdsFormat::BGR8: return copyUncompressed(3u, 3u, true);
+    case DdsFormat::BC1: format = gpu::Format::BC1_RGBA_UNORM_BLOCK; break;
+    case DdsFormat::BC2: format = gpu::Format::BC2_UNORM_BLOCK; break;
+    case DdsFormat::BC3: format = gpu::Format::BC3_UNORM_BLOCK; break;
+    case DdsFormat::BC4: format = gpu::Format::BC4_UNORM_BLOCK; break;
+    case DdsFormat::BC4S: format = gpu::Format::BC4_SNORM_BLOCK; break;
+    case DdsFormat::BC5: format = gpu::Format::BC5_UNORM_BLOCK; break;
+    case DdsFormat::BC5S: format = gpu::Format::BC5_SNORM_BLOCK; break;
+    case DdsFormat::BC7: format = gpu::Format::BC7_UNORM_BLOCK; break;
+    default: return false; // BC6H holds float data
+    }
+    return decodeBCnStoredPixels(format, source, available, header.width, header.height, _out);
 }
 
 } // namespace ux3d::imageformats

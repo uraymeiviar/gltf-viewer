@@ -37,6 +37,9 @@ struct State {
     std::function<void()> yield;
 };
 inline State state;
+// Set on the calling thread only (Image Viewer): decodeImage then ignores the texture limit and decodes
+// the file at its full size. Loader threads are not affected.
+inline thread_local bool fullResolutionDecode = false;
 inline void reset()
 {
     std::lock_guard lock(state.mutex);

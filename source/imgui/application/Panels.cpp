@@ -5,6 +5,7 @@
 #include "imgui/ResourcesPanel.h"
 #include "imgui/SceneInspector.h"
 #include "imgui/ElementInspector.h"
+#include "imgui/ImageViewer.h"
 #include "imgui/StatisticsPanel.h"
 #include "imgui/ValidationPanel.h"
 #include "imgui/SearchPathsPanel.h"
@@ -87,6 +88,11 @@ void Application::drawPanels(FrameContext& frame)
                                              activeViewport ? activeViewport->cameraActor : dummyActor,
                                              gltfLayer.get());
     }
+
+    // -------------------------------------------------------------
+    // Image Viewer windows (opened from the image previews)
+    // -------------------------------------------------------------
+    ux3d::imgui::ImageViewer::render(gltfModel, [this](const char* name) { return areaShows(name); });
 
     // -------------------------------------------------------------
     // Search Paths Window

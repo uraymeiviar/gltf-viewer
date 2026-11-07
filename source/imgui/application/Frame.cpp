@@ -130,6 +130,8 @@ void Application::runFrame()
                                                 static_cast<uint64_t>(drawData->TotalVtxCount),
                                                 static_cast<uint64_t>(drawData->TotalIdxCount));
     }
+    // Detached windows (ImGui multi-viewport): their own OS windows, rendered after the main draw data.
+    renderPlatformWindows();
 
     ux3d::imgui::RuntimeTelemetry::get().record(ux3d::imgui::profiling::elapsedMs(frame.start),
         ux3d::imgui::RenderQuality::gpuFrameMs(),s_sceneRenderTotal != sceneRendersAtFrameStart,
@@ -179,9 +181,66 @@ void Application::runFrame()
                              sceneRevisions.hasPending() || animationPlayer.isPlaying() || turntableActive || timeOfDayPlaying || oceanActive ||
                              skyEnvironment.busy() || skyOcclusionVolume.busy() ||
                              io.WantTextInput || ImGui::IsAnyMouseDown() || areaRequestPending() ||
-                             !pendingDrops.empty() || !queuedLoadPath.empty();
+                             !pendingDrops.empty() || !queuedLoadPath.empty() || platformWindowRequestsPending();
     idleQuietFrames = frameActive ? 0 : idleQuietFrames + 1;
     frameInProgress = false;
+}
+
+void Application::renderPlatformWindows()
+{
+    if ((ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) == 0) return;
+    // As ImGui::RenderPlatformWindowsDefault (example_glfw_opengl3), plus the capture_window readback between a
+    // detached window's render and its swap. Each platform window has its own GL context (shared objects: the
+    // ImGui backend and the Image Viewer create no VAO or FBO that outlives a draw); the main one is restored.
+    GLFWwindow* previousContext = glfwGetCurrentContext();
+    ImGui::UpdatePlatformWindows();
+    ImGuiPlatformIO& platformIo = ImGui::GetPlatformIO();
+    for (int i = 1; i < platformIo.Viewports.Size; ++i) {
+        ImGuiViewport* viewport = platformIo.Viewports[i];
+        if ((viewport->Flags & ImGuiViewportFlags_IsMinimized) != 0) continue;
+        // Files dropped on a detached window open like a drop on the main window.
+        if (auto* handle = static_cast<GLFWwindow*>(viewport->PlatformHandle);
+            handle != nullptr && glfwGetWindowUserPointer(handle) == nullptr) {
+            glfwSetWindowUserPointer(handle, this);
+            glfwSetDropCallback(handle, glfwDropCallback);
+        }
+        if (platformIo.Platform_RenderWindow) platformIo.Platform_RenderWindow(viewport, nullptr);
+        if (platformIo.Renderer_RenderWindow) platformIo.Renderer_RenderWindow(viewport, nullptr);
+        if (windowCapture && !windowCapture->done && windowCapture->viewportId == viewport->ID) {
+            int width = 0, height = 0;
+            if (auto* handle = static_cast<GLFWwindow*>(viewport->PlatformHandle)) glfwGetFramebufferSize(handle, &width, &height);
+            windowCapture->done = true;
+            if (width > 0 && height > 0) {
+                std::vector<uint8_t> pixels(static_cast<size_t>(width) * height * 4);
+                glPixelStorei(GL_PACK_ALIGNMENT, 1);
+                glReadBuffer(GL_BACK);
+                glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+                windowCapture->ok = saveImage(windowCapture->path.c_str(), width, height, pixels.data());
+                windowCapture->width = width;
+                windowCapture->height = height;
+            }
+        }
+    }
+    for (int i = 1; i < platformIo.Viewports.Size; ++i) {
+        ImGuiViewport* viewport = platformIo.Viewports[i];
+        if ((viewport->Flags & ImGuiViewportFlags_IsMinimized) != 0) continue;
+        if (platformIo.Platform_SwapBuffers) platformIo.Platform_SwapBuffers(viewport, nullptr);
+        if (platformIo.Renderer_SwapBuffers) platformIo.Renderer_SwapBuffers(viewport, nullptr);
+    }
+    glfwMakeContextCurrent(previousContext);
+}
+
+bool Application::platformWindowRequestsPending() const
+{
+    if (ImGui::GetCurrentContext() == nullptr || (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) == 0) return false;
+    // A detached window moved, resized or closed by the OS sets these without an input event; the idle wait must
+    // still run a frame for it.
+    const ImGuiPlatformIO& platformIo = ImGui::GetPlatformIO();
+    for (int i = 1; i < platformIo.Viewports.Size; ++i) {
+        const ImGuiViewport* viewport = platformIo.Viewports[i];
+        if (viewport->PlatformRequestMove || viewport->PlatformRequestResize || viewport->PlatformRequestClose) return true;
+    }
+    return false;
 }
 
 void Application::captureTextureRefreshSnapshot(int width, int height)

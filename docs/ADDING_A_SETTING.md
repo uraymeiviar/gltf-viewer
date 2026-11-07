@@ -77,6 +77,12 @@ the flag needs its own parser branch. Decide the scope first ([SETTINGS_SCOPES.m
 7. Test: `validate_settings_scopes.py` (`check_persistence`: `--isolated` writes nothing, defaults leave no key) and the area validator
    (`validate_shadows.py`). A new `settings.ini` section also needs `validate_settings_storage.py`.
 
+A **tool UI preference** that changes no rendering and is no registry key (the Image Viewer's crosshair / grid, the
+capture folder, the UI theme) is owned by its own code and section (`[ImageViewer]`, `[Captures]`, `[UiTheme]`):
+read once through `SettingsFile` (not with `--isolated`), unreadable values warn and keep their defaults, only non-default
+values are written, script edits only after `set_persist(true)`. Add the section to `validate_settings_storage.py`'s
+default-section check.
+
 An **app setting** (glTF extensions) is the same registry entry with `spec.onPersist = [name] { GES::instance().commit(name); }`;
 its class owns the `SettingsFile` section (`GltfExtensionSettings::load/save`) and CLI/pipe edits stay session-only unless `set_persist(true)`.
 

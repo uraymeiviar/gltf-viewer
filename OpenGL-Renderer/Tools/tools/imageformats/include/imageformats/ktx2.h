@@ -6,6 +6,8 @@
 #include "gpu/Types.h"
 #include "imageformats/ImageDecodingResult.h"
 #include "imageformats/ImageEncodingResult.h"
+#include <cstddef>
+#include <vector>
 #
 
 struct ktxTexture2;
@@ -53,6 +55,25 @@ const char* getKTX2FormatName(gpu::Format _format);
 bool decodeKTX2Preview(const core::Vector<uint8_t>& _buffer, uint32_t _maxDimension,
                        core::Vector<uint8_t>& _rgba, uint32_t& _width, uint32_t& _height,
                        bool _signedSquareNormal);
+
+// The top mip level of a block-compressed image decoded to the channels the format stores, at full
+// size (Glider's Image Viewer): BC1 RGB = 3 channels, BC1 RGBA / BC2 / BC3 / BC7 = RGBA, BC4 = R,
+// BC5 = RG. 8 bits per channel; the signed formats (BC4/BC5 SNORM) hold int8 values (-127..127).
+// Nothing is reconstructed or remapped (no normal Z, no signed-square decode).
+struct StoredPixels {
+    uint32_t width = 0;
+    uint32_t height = 0;
+    uint32_t channels = 0;
+    bool signedValues = false;
+    std::vector<uint8_t> pixels; // width * height * channels bytes, row 0 at the top
+};
+
+// Decodes one level of BCn blocks (blocks in row-major order). BC6H is not supported (float data).
+bool decodeBCnStoredPixels(gpu::Format _format, const uint8_t* _blocks, size_t _byteCount, uint32_t _width,
+                           uint32_t _height, StoredPixels& _out);
+
+// Level 0 of a non-supercompressed 2D KTX2 file with one face and layer in a BC1..BC5 / BC7 format.
+bool decodeKTX2StoredPixels(const core::Vector<uint8_t>& _buffer, StoredPixels& _out);
 
 void fillKTXMetaData(const ktxTexture2* texture, image::Image& _image, const core::Vector<uint8_t>& _buffer);
 
