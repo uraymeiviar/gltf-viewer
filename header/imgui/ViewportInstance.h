@@ -6,6 +6,7 @@
 #include "imgui/AntiAliasing.h"
 #include "imgui/AmbientOcclusion.h"
 #include "imgui/TextureMetrics.h"
+#include "imgui/LuminanceView.h"
 #include "imgui/ViewportSettingsPanel.h"
 #include "imgui/SceneRevisions.h"
 #include "imgui/SunShadowMap.h"
@@ -104,6 +105,10 @@ struct ViewportInstance {
     bool requestFocus = false;
     // Open sections of the texture views' legend: UI only, outside the settings, whose changes sync the renderer.
     TextureMetrics::LegendPanels textureLegendPanels;
+    // The Luminance view's legend sections, and whether the cursor was over its image in the last frame (get_state).
+    luminance::LegendPanels luminanceLegendPanels;
+    bool luminanceHovered = false;
+    glm::vec4 luminanceImageRect{0.0f}; // the image in ImGui coordinates (x0, y0, x1, y1), for scripted hovers
 
     // glTF Camera attachment
     bool isAttachedToCamera = false;

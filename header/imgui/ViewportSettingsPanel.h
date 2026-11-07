@@ -84,6 +84,21 @@ struct ViewportSettingsState {
     int textureGridCells = 1;              // ... cells across the UV square, also of the overlay: 0 8, 1 16, 2 32, 3 64
     bool textureGridLabels = true;         // ... a label in each cell, also in the overlay
     float textureGridOpacity = 0.5f;       // ... lines and labels, also of the overlay; 1 is the add-on's strength
+    // Luminance debug view (imgui/LuminanceView.h): session-only view settings, never saved.
+    int luminanceScale = 0;                // 0 Absolute (log10 cd/m^2), 1 Exposure-relative (EV around middle grey)
+    float luminanceMin = 0.01f;            // Absolute: lower end of the scale in cd/m^2 (max > min > 0)
+    float luminanceMax = 100000.0f;        // Absolute: upper end in cd/m^2
+    float luminanceEvMin = -6.0f;          // Relative: lower end in EV relative to middle grey at the displayed exposure
+    float luminanceEvMax = 6.0f;           // Relative: upper end
+    bool luminanceBands = true;            // one band per decade (Absolute) or stop (Relative); off: continuous
+    bool luminanceEmissiveOnly = false;    // the emitted luminance alone (no lighting, black background)
+
+    // The scene is shaded like Shaded + post effects: the default view, or the Luminance view without "emissive only".
+    bool shadesNormally() const
+    {
+        return renderMode == ux3d::renderer::RenderMode::None ||
+               (renderMode == ux3d::renderer::RenderMode::Luminance && !luminanceEmissiveOnly);
+    }
 
     // Compared whole by the cached scene redraw (P5.3): some controls change these
     // fields without marking a revision.
@@ -98,6 +113,10 @@ public:
     // for --ui-script with the prefix.
     static void renderTextureMetricsSettings(ViewportSettingsState& state, SceneRevisions& revisions,
                                              AntiAliasing* antiAliasing, const char* probePrefix);
+    // The Luminance view's scale, ends, bands and emissive-only switch, nothing in other views: in this panel and in
+    // the view's legend, tagged for --ui-script with the prefix.
+    static void renderLuminanceSettings(ViewportSettingsState& state, SceneRevisions& revisions,
+                                        AntiAliasing* antiAliasing, const char* probePrefix);
     // The UV grid's cells, labels and opacity, shared by the texture views' grid and the overlay.
     static void renderUvGridOptions(ViewportSettingsState& state, SceneRevisions& revisions, AntiAliasing* antiAliasing,
                                     const char* probePrefix, bool enabled);

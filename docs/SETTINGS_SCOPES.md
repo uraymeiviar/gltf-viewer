@@ -58,6 +58,10 @@ SSAO, retaining geometry MSAA, shadows, exposure and tone mapping. Debug modes r
 The Texture Distortion and Texture Density debug views ([TEXTURE_METRICS.md](TEXTURE_METRICS.md)) and
 `texture_distortion_view`, `texture_heatmap_opacity`, `texture_grid`, `texture_grid_cells`, `texture_grid_labels`,
 `texture_grid_opacity` and `uv_grid_overlay` are view settings like the other debug modes: session only, nothing in `settings.ini`.
+The Luminance view's `luminance_scale`, `luminance_min`, `luminance_max`, `luminance_ev_min`, `luminance_ev_max`,
+`luminance_bands` and `luminance_emissive_only` are the same kind of session-only view settings (like
+`texture_distortion_view`). The view itself shades like Shaded + post effects (effects as Quality resolves them);
+only its post pass differs, and "emissive only" draws the emission alone.
 
 The ground grid is an independent overlay per viewport, at the scene ground height (including ocean sea level),
 or Y = 0 without ground. Show ground grid replaces the old grid-on-ground conjunction.

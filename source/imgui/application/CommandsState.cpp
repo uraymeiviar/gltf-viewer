@@ -9,6 +9,42 @@
 
 namespace ux3d::imgui::application {
 
+namespace {
+
+// The Luminance view of one viewport (LuminanceView.h): its settings and the last hovered pixel (null before the
+// first readback; "hovered" says whether the cursor is over the image now). imageRect: the image in ImGui coordinates
+// (the --ui-script move command's), for scripted hovers.
+json luminanceStateJson(const ux3d::imgui::ViewportInstance& vp)
+{
+    const auto& s = vp.settings;
+    const auto& sample = vp.antiAliasing.luminanceSample();
+    json hoveredValue = nullptr;
+    if (sample.valid) {
+        hoveredValue = {{"x", sample.x},
+                        {"y", vp.sceneFbo.getHeight() - 1 - sample.y},
+                        {"hdr", {agent::floatJson(sample.hdr[0]), agent::floatJson(sample.hdr[1]),
+                                 agent::floatJson(sample.hdr[2]), agent::floatJson(sample.hdr[3])}},
+                        {"luminance", agent::floatJson(sample.luminance)},
+                        {"cd", agent::floatJson(sample.cd)},
+                        {"ev", std::isfinite(sample.ev) ? agent::floatJson(sample.ev) : json(nullptr)},
+                        {"reads", sample.reads}};
+    }
+    return {{"active", s.renderMode == ux3d::renderer::RenderMode::Luminance},
+            {"scale", s.luminanceScale == 1 ? "relative" : "absolute"},
+            {"min", agent::floatJson(s.luminanceMin)},
+            {"max", agent::floatJson(s.luminanceMax)},
+            {"evMin", agent::floatJson(s.luminanceEvMin)},
+            {"evMax", agent::floatJson(s.luminanceEvMax)},
+            {"bands", s.luminanceBands},
+            {"emissiveOnly", s.luminanceEmissiveOnly},
+            {"displayedExposureEv", agent::floatJson(vp.displayedExposureEv)},
+            {"hovered", vp.luminanceHovered},
+            {"imageRect", {vp.luminanceImageRect.x, vp.luminanceImageRect.y, vp.luminanceImageRect.z, vp.luminanceImageRect.w}},
+            {"hoveredValue", hoveredValue}};
+}
+
+} // namespace
+
 json Application::legacyStateJson()
 {
     json st;
@@ -54,6 +90,7 @@ json Application::agentStateJson()
                         {"height", vp->sceneFbo.getHeight()},
                         {"renderMode", vp->settings.renderMode == ux3d::renderer::RenderMode::None && vp->settings.postEffects ? "shaded_post" : renderModeName(vp->settings.renderMode)},
                         {"postEffects", vp->settings.postEffects},
+                        {"luminance", luminanceStateJson(*vp)},
                         {"ground", groundStateJson(*vp)},
                         {"attachedCamera", vp->isAttachedToCamera ? json(vp->attachedCameraNodeName) : json(nullptr)},
                         // Settings scopes: this viewport's overrides of the scene's effects and what it renders with.

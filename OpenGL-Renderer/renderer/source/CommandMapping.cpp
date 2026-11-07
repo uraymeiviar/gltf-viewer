@@ -558,6 +558,7 @@ gl::Program* CommandMapping::buildProgram(const Mesh& meshRef, const Material& m
     fragmentDefines.define("DEBUG_SKY_VISIBILITY", static_cast<int>(RenderMode::SkyVisibility));
     fragmentDefines.define("DEBUG_TEXTURE_DISTORTION", static_cast<int>(RenderMode::TextureDistortion));
     fragmentDefines.define("DEBUG_TEXTURE_DENSITY", static_cast<int>(RenderMode::TextureDensity));
+    fragmentDefines.define("DEBUG_LUMINANCE", static_cast<int>(RenderMode::Luminance));
     fragmentDefines.defineAllOf(mesh->defines);
     fragmentDefines.defineAllOf(material->defines);
 

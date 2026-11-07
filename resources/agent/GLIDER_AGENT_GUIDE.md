@@ -357,6 +357,22 @@ compatibility override. Lens intensity is Quality, default 1; modes preserve off
   are not in glTF, so every node uses the default range. `textureMetrics` also has the shares of the surface over the
   add-on's thresholds and `buildMilliseconds`; `built` is false while no viewport shows a view.
 
+## Luminance view
+
+- Debug view `luminance` (`set_viewport_setting render_mode luminance`, `--debug-view luminance`): the shaded scene (as
+  Shaded + post effects) as a Turbo heatmap of luminance in cd/m² (12,800 cd/m² per environment unit, pre-exposure
+  removed), before exposure, bloom and lens effects. Black below the scale (and zero light, and the clear-colour
+  backdrop), magenta above it.
+- `luminance_scale absolute` (default): log10 cd/m² from `luminance_min` 0.01 to `luminance_max` 100000. `relative`: EV
+  from middle grey 0.18 at the exposure the tone map would use this frame (manual EV or Auto's result), from
+  `luminance_ev_min` -6 to `luminance_ev_max` +6. Ends must keep max > min (min > 0 in cd/m²); other values are refused.
+- `luminance_bands` (default on): one band per decade / stop, each in its centre's colour; off: continuous.
+- `luminance_emissive_only`: the emitted luminance alone (emissive factor, strength, ASOBO scale and day / night), no
+  lighting, black background.
+- `get_state` `viewports[].luminance`: the settings, `displayedExposureEv`, `hovered`, `imageRect` (ImGui coordinates,
+  for `move x y` in a script) and `hoveredValue` (`cd`, `ev`, environment-unit `luminance`, raw `hdr`, pixel x / y; read
+  back a frame or more after the cursor moves, null before). `probe` still reads the raw HDR at any pixel.
+
 ## Pitfalls
 
 - **Minimised window**: `capture` fails with `window_minimized`; restore the window first.

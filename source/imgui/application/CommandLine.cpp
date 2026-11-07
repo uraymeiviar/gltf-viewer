@@ -408,6 +408,20 @@ std::optional<int> Application::configure(int argc, char** argv)
                 std::fprintf(stderr, "Invalid --wireframe-color: %s\n", error.c_str());
                 return 1;
             }
+        } else if (arg == "--luminance-scale" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "luminance_scale", toLowerAscii(argv[++i]), "--luminance-scale")) return 1;
+        } else if (arg == "--luminance-min" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "luminance_min", argv[++i], "--luminance-min")) return 1;
+        } else if (arg == "--luminance-max" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "luminance_max", argv[++i], "--luminance-max")) return 1;
+        } else if (arg == "--luminance-ev-min" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "luminance_ev_min", argv[++i], "--luminance-ev-min")) return 1;
+        } else if (arg == "--luminance-ev-max" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "luminance_ev_max", argv[++i], "--luminance-ev-max")) return 1;
+        } else if (arg == "--luminance-bands" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "luminance_bands", toLowerAscii(argv[++i]), "--luminance-bands")) return 1;
+        } else if (arg == "--luminance-emissive-only" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Viewport, "luminance_emissive_only", toLowerAscii(argv[++i]), "--luminance-emissive-only")) return 1;
         } else if (arg == "--texture-distortion-view" && i + 1 < argc) {
             if (!applyCliSetting(SettingScope::Viewport, "texture_distortion_view", toLowerAscii(argv[++i]), "--texture-distortion-view")) return 1;
         } else if (arg == "--uv-grid-overlay") {

@@ -128,6 +128,9 @@ Suites (equivalence against the baseline plus each feature's analytic acceptance
   open plane/spheres unchanged, bake completion and swap, real-asset bake cost; the HDR default against the baseline),
   validate_texture_metrics.py (Texture Distortion / Density debug views: hand-computed shear, area and density colours,
   pixels per metre, UV set and transform, node scale, packaged UVs; other views against the baseline),
+  validate_luminance_view.py (Luminance debug view: computed Turbo colours of known emissive luminances, absolute /
+  relative / bands / emissive only / MSAA / TAA, hovered cd/m^2 readout, bloom-independent, CLI = pipe; Shaded +
+  post effects against the baseline),
   validate_ocean.py (A6.8a FFT ocean: loop seam, deterministic captures, CLI = pipe, GL 4.3 gate, hull depth, not
   pickable, model interior, GPU cost and precompute; Grid/Plane against the baseline),
   validate_asobo_decal_modes.py,
@@ -253,6 +256,10 @@ TRIGGERS = (
       "GridRenderer.*", "grid.frag", "grid.vert")),
     (("texture_metrics",),
      ("TextureMetrics.*", "validate_texture_metrics.py", "CommandMapping.cpp")),
+    # pbr.frag is BROAD; AntiAliasing.cpp / AntiAliasingBloom.cpp / AntiAliasingShaders.h stay unmatched, so a change
+    # there still selects every suite (a trigger here would narrow it to this one).
+    (("luminance_view",),
+     ("LuminanceView.*", "AntiAliasingLuminance.cpp", "validate_luminance_view.py", "CommandMapping.cpp", "Viewports.cpp")),
     (("wireframe_overlay",),
      ("Viewports.cpp", "wireframe_material.frag", "validate_wireframe_overlay.py")),
     (("ssao", "ambient", "sky_occlusion", "review_fixes"),
@@ -528,6 +535,7 @@ serial_jobs = [
     ("emissive_units", ["scripts/validate_emissive_units.py", "--baseline-exe", str(baseline)]),
     ("sky_occlusion", ["scripts/validate_sky_occlusion.py", "--baseline-exe", str(baseline)]),
     ("texture_metrics", ["scripts/validate_texture_metrics.py", "--baseline-exe", str(baseline)]),
+    ("luminance_view", ["scripts/validate_luminance_view.py", "--baseline-exe", str(baseline)]),
     ("wireframe_overlay", ["scripts/validate_wireframe_overlay.py", "--baseline-exe", str(baseline)]),
     ("ocean", ["scripts/validate_ocean.py", "--baseline-exe", str(baseline)]),
     # Before and after: it compares with its own default baseline, the build from before these costs fell, since a

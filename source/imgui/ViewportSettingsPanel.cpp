@@ -79,6 +79,72 @@ void ViewportSettingsPanel::renderTextureMetricsSettings(ViewportSettingsState& 
     renderUvGridOptions(state, revisions, antiAliasing, probePrefix, state.textureGrid);
 }
 
+void ViewportSettingsPanel::renderLuminanceSettings(ViewportSettingsState& state, SceneRevisions& revisions,
+                                                    AntiAliasing* antiAliasing, const char* probePrefix)
+{
+    if (state.renderMode != ux3d::renderer::RenderMode::Luminance) {
+        return;
+    }
+    const auto probe = [probePrefix](const char* name) {
+        UiProbe::item((std::string(probePrefix) + "." + name).c_str(), 0);
+    };
+    // The scale is read by the post pass only: a redraw without a renderer sync (TAA restarts like other view edits).
+    const auto redraw = [&]() {
+        if (antiAliasing) antiAliasing->resetHistory();
+        revisions.mark(SceneChange::Environment);
+    };
+    const char* scales[] = { "Absolute (cd/m\xC2\xB2)", "Exposure-relative (EV)" };
+    if (ImGui::Combo(field(ICON_MDI_BRIGHTNESS_6, "Scale", "luminanceScale",
+                           "Absolute: log10 cd/m\xC2\xB2 between Min and Max.\n"
+                           "Exposure-relative: stops from middle grey (0.18) at the displayed exposure.").c_str(),
+                     &state.luminanceScale, scales, IM_ARRAYSIZE(scales))) {
+        redraw();
+    }
+    probe("luminance_scale");
+    // A pair of ends (max > min, and min > 0 in cd/m^2); an edit that breaks it is undone.
+    const auto ends = [&](const char* lowLabel, const char* lowId, const char* lowProbe, float& low,
+                          const char* highLabel, const char* highId, const char* highProbe, float& high, bool positive) {
+        float editedLow = low;
+        if (ImGui::InputFloat(field(ICON_MDI_ARROW_EXPAND_HORIZONTAL, lowLabel, lowId).c_str(), &editedLow, 0.0f, 0.0f, "%g",
+                              ImGuiInputTextFlags_EnterReturnsTrue)) {
+            if (std::isfinite(editedLow) && editedLow < high && (!positive || editedLow > 0.0f)) {
+                low = editedLow;
+                redraw();
+            }
+        }
+        probe(lowProbe);
+        float editedHigh = high;
+        if (ImGui::InputFloat(field(ICON_MDI_ARROW_EXPAND_HORIZONTAL, highLabel, highId).c_str(), &editedHigh, 0.0f, 0.0f, "%g",
+                              ImGuiInputTextFlags_EnterReturnsTrue)) {
+            if (std::isfinite(editedHigh) && editedHigh > low) {
+                high = editedHigh;
+                redraw();
+            }
+        }
+        probe(highProbe);
+    };
+    if (state.luminanceScale == 1) {
+        ends("Min (EV)", "luminanceEvMin", "luminance_ev_min", state.luminanceEvMin,
+             "Max (EV)", "luminanceEvMax", "luminance_ev_max", state.luminanceEvMax, false);
+    } else {
+        ends("Min (cd/m\xC2\xB2)", "luminanceMin", "luminance_min", state.luminanceMin,
+             "Max (cd/m\xC2\xB2)", "luminanceMax", "luminance_max", state.luminanceMax, true);
+    }
+    if (ImGui::Checkbox(field(ICON_MDI_VIEW_SEQUENTIAL, "Bands", "luminanceBands",
+                              "One band per decade (Absolute) or stop (Relative); off: continuous.").c_str(),
+                        &state.luminanceBands)) {
+        redraw();
+    }
+    probe("luminance_bands");
+    if (ImGui::Checkbox(field(ICON_MDI_LIGHTBULB_ON_OUTLINE, "Emissive Only", "luminanceEmissiveOnly",
+                              "The emitted luminance alone: no lighting, black background.").c_str(),
+                        &state.luminanceEmissiveOnly)) {
+        if (antiAliasing) antiAliasing->resetHistory();
+        revisions.mark(SceneChange::ViewportSettings);
+    }
+    probe("luminance_emissive_only");
+}
+
 void ViewportSettingsPanel::renderUvGridOptions(ViewportSettingsState& state, SceneRevisions& revisions,
                                                 AntiAliasing* antiAliasing, const char* probePrefix, bool enabled)
 {
@@ -164,7 +230,8 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
             "Clearcoat Factor", "Clearcoat Roughness", "Clearcoat Normal",
             "Sheen Color", "Sheen Roughness", "Specular Factor", "Specular Color",
             "Transmission Factor", "Volume Thickness", "Iridescence Factor", "Iridescence Thickness",
-            "SSR", "SSR Ray", "Shadow Cascades", "Shadow Visibility", "SSAO", "Sky Visibility", "Shaded", "Texture Distortion", "Texture Density"
+            "SSR", "SSR Ray", "Shadow Cascades", "Shadow Visibility", "SSAO", "Sky Visibility", "Shaded", "Texture Distortion", "Texture Density",
+            "Luminance"
         };
 
         const char* renderModeTip = "Allows inspecting individual PBR channels, geometry, or UVs.\n"
@@ -212,6 +279,7 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
             case 37: state.renderMode = ux3d::renderer::RenderMode::SkyVisibility; break;
             case 39: state.renderMode = ux3d::renderer::RenderMode::TextureDistortion; break;
             case 40: state.renderMode = ux3d::renderer::RenderMode::TextureDensity; break;
+            case 41: state.renderMode = ux3d::renderer::RenderMode::Luminance; break;
             default: state.renderMode = ux3d::renderer::RenderMode::None; break;
             }
             if (antiAliasing) antiAliasing->resetHistory();
@@ -221,6 +289,9 @@ void ViewportSettingsPanel::render(ViewportSettingsState& state,
         prop::tooltip(renderModeTip);
         ImGui::PushID("textureMetrics"); // Its "UV Grid" row sits beside the "UV Grid" group.
         renderTextureMetricsSettings(state, revisions, antiAliasing, "vp");
+        ImGui::PopID();
+        ImGui::PushID("luminance");
+        renderLuminanceSettings(state, revisions, antiAliasing, "vp");
         ImGui::PopID();
 
         if (prop::group(ICON_MDI_FLIP_TO_BACK, "Face Culling & Winding", true)) {

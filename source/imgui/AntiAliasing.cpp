@@ -120,6 +120,8 @@ void AntiAliasing::cleanup()
     releaseTargets();
     releaseBloomTargets();
     releaseMeterTargets();
+    releaseLuminanceProbe();
+    releaseLuminanceProgram();
 
     if (m_quadVbo) {
         glDeleteBuffers(1, &m_quadVbo);

@@ -74,6 +74,9 @@ enum class RenderMode : uint32_t {
     // The FSS Blender heatmap's UV measures (imgui/TextureMetrics.h): shear and area distortion, texel density.
     TextureDistortion,
     TextureDensity,
+    // Luminance heatmap in cd/m^2 (imgui/LuminanceView.h). The scene is shaded normally (the renderer sees None);
+    // only with "emissive only" do the materials draw under this value (pbr.frag DEBUG_LUMINANCE: the emission alone).
+    Luminance,
 
 };
 

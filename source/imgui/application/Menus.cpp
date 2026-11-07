@@ -54,6 +54,7 @@ constexpr ShadingModeInfo s_shadingModes[] = {
     {"", ux3d::renderer::RenderMode::None, nullptr, true},
     {"Occlusion", ux3d::renderer::RenderMode::Occlusion, nullptr, false},
     {"Emissive", ux3d::renderer::RenderMode::Emissive, nullptr, false},
+    {"Luminance", ux3d::renderer::RenderMode::Luminance, nullptr, false},
     {"", ux3d::renderer::RenderMode::None, nullptr, true},
     {"Metallic Roughness", ux3d::renderer::RenderMode::MetallicRoughness, nullptr, false},
     {"    BaseColor", ux3d::renderer::RenderMode::BaseColor, nullptr, false},
@@ -165,6 +166,8 @@ ux3d::renderer::RenderMode Application::getRenderModeFromIndex(int idx)
         return ux3d::renderer::RenderMode::TextureDistortion;
     case 40:
         return ux3d::renderer::RenderMode::TextureDensity;
+    case 41:
+        return ux3d::renderer::RenderMode::Luminance;
     default:
         return ux3d::renderer::RenderMode::None;
     }
@@ -318,6 +321,8 @@ int Application::getIndexFromRenderMode(ux3d::renderer::RenderMode mode)
         return 39;
     case RM::TextureDensity:
         return 40;
+    case RM::Luminance:
+        return 41;
     default:
         return 0;
     }
@@ -363,6 +368,8 @@ const char* Application::getRenderModeLabel(ux3d::renderer::RenderMode mode)
         return "Texture Distortion";
     case RM::TextureDensity:
         return "Texture Density";
+    case RM::Luminance:
+        return "Luminance";
     case RM::Alpha:
         return "Alpha";
     case RM::Occlusion:

@@ -76,6 +76,49 @@ void Application::registerAgentViewportSettings()
     addSetting(indexEnumSetting<VS>("texture_distortion_view", V, &VS::textureDistortionView, {"both", "shear", "area"},
                                     "What the Texture Distortion debug view shows: both (default; shear blue, area green, cyan together), shear or area.",
                                     "--texture-distortion-view <both|shear|area>"));
+    // The Luminance view (LuminanceView.h): session-only view settings of the luminance render mode.
+    addSetting(indexEnumSetting<VS>("luminance_scale", V, &VS::luminanceScale, {"absolute", "relative"},
+                                    "Luminance view scale: absolute (default; log10 cd/m^2 from luminance_min to luminance_max) or relative "
+                                    "(EV from middle grey 0.18 at the displayed exposure, luminance_ev_min to luminance_ev_max).",
+                                    "--luminance-scale <absolute|relative>"));
+    {
+        // The ends of a scale: high > low (and, in cd/m^2, low > 0); a value that breaks it is refused.
+        const auto end = [&](const char* key, float VS::*member, float VS::*other, bool isLow, bool positive, std::string help,
+                             std::string cli, std::pair<double, double> range) {
+            SettingSpec spec = floatSetting<VS>(key, V, member, std::move(help), std::move(cli), range);
+            spec.set = [member, other, isLow, positive, key = std::string(key)](void* t, const json& v, std::string& error) {
+                auto* state = static_cast<VS*>(t);
+                const float value = static_cast<float>(v.get<double>());
+                const float otherValue = state->*other;
+                if (!std::isfinite(value) || (positive && !(value > 0.0f)) || (isLow ? !(value < otherValue) : !(value > otherValue))) {
+                    error = key + " must be " + (positive && isLow ? "> 0 and " : "") + (isLow ? "below " : "above ") +
+                            "the other end (" + std::to_string(otherValue) + ")";
+                    return false;
+                }
+                state->*member = value;
+                return true;
+            };
+            addSetting(std::move(spec));
+        };
+        end("luminance_min", &VS::luminanceMin, &VS::luminanceMax, true, true,
+            "Luminance view, absolute scale: lower end in cd/m^2 (default 0.01; > 0 and below luminance_max). Below it: black.",
+            "--luminance-min <cd/m^2>", std::pair{1.0e-9, 1.0e12});
+        end("luminance_max", &VS::luminanceMax, &VS::luminanceMin, false, true,
+            "Luminance view, absolute scale: upper end in cd/m^2 (default 100000; above luminance_min). Above it: magenta.",
+            "--luminance-max <cd/m^2>", std::pair{1.0e-9, 1.0e12});
+        end("luminance_ev_min", &VS::luminanceEvMin, &VS::luminanceEvMax, true, false,
+            "Luminance view, relative scale: lower end in EV from middle grey (default -6; below luminance_ev_max). Below it: black.",
+            "--luminance-ev-min <ev>", std::pair{-40.0, 40.0});
+        end("luminance_ev_max", &VS::luminanceEvMax, &VS::luminanceEvMin, false, false,
+            "Luminance view, relative scale: upper end in EV from middle grey (default +6; above luminance_ev_min). Above it: magenta.",
+            "--luminance-ev-max <ev>", std::pair{-40.0, 40.0});
+    }
+    addSetting(boolSetting<VS>("luminance_bands", V, &VS::luminanceBands,
+                               "Luminance view: one band per decade (absolute) or stop (relative), each in the colour of its centre (default on); off: continuous.",
+                               "--luminance-bands <on|off>"));
+    addSetting(boolSetting<VS>("luminance_emissive_only", V, &VS::luminanceEmissiveOnly,
+                               "Luminance view: the materials' emitted luminance alone, no lighting, black background (default off).",
+                               "--luminance-emissive-only <on|off>"));
     addSetting(floatSetting<VS>("texture_heatmap_opacity", V, &VS::textureHeatmapOpacity,
                                 "Texture Distortion / Density: how strongly the heat colours cover the grey surface (0.3 to 1, default 0.75).",
                                 "--texture-heatmap-opacity <0.3..1>", std::pair{0.3, 1.0}));

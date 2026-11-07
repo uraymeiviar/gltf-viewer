@@ -711,6 +711,12 @@ void AntiAliasing::renderPostProcess(GLuint inputHdrTexture,
     const float effectiveEv = updateAutoExposure(params.exposureHdrTexture != 0 ? params.exposureHdrTexture : inputHdrTexture,
                                                   width, height, params);
 
+    // Luminance view (AntiAliasingLuminance.cpp): the heatmap of the input instead of bloom, lens effect and tone map.
+    if (params.luminanceView != 0) {
+        renderLuminance(inputHdrTexture, targetLdrFbo, width, height, params, std::pow(2.0f, effectiveEv) / params.preExposure);
+        return;
+    }
+
     // Phase 2: Physically based bloom (Jimenez 2014)
     // A6.4: the input is pre-exposed; the displayed exposure removes it (exactly 2^EV while preExposure is 1).
     const GLuint bloomTex = renderBloom(inputHdrTexture, width, height, params, std::pow(2.0f, effectiveEv) / params.preExposure);

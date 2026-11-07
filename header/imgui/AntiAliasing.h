@@ -70,6 +70,16 @@ struct HdrPostProcessParams {
     // C3: this render's input differs from the previous render's (its render key changed: camera, scene, environment,
     // size, settings); the asynchronous meter then reads the readback of the render where it settles.
     bool meterInputChanged = true;
+    // Luminance debug view (LuminanceView.h): 0 off (bloom, lens effect and the tone map as before); 1 Absolute
+    // (log10 cd/m^2 from luminanceMin to luminanceMax), 2 Exposure-relative (EV around middle grey 0.18 at this
+    // render's displayed exposure, luminanceEvMin to luminanceEvMax). The pass then maps the HDR input to the Turbo
+    // heatmap instead of bloom and tone mapping; the exposure meter still runs.
+    int luminanceView = 0;
+    bool luminanceBands = true;
+    float luminanceMin = 0.01f;
+    float luminanceMax = 100000.0f;
+    float luminanceEvMin = -6.0f;
+    float luminanceEvMax = 6.0f;
 };
 
 class AntiAliasing {
@@ -168,6 +178,26 @@ public:
     bool lastMeterAsync() const { return m_lastMeterAsync; }
     // C3: drops pending asynchronous meter readbacks (viewport closed); the pixel buffers stay for reuse.
     void dropMeterReadbacks();
+
+    // Luminance view: the HDR value under the mouse cursor, read back without stalling (a 1x1 read into a pixel buffer
+    // with a fence; the result arrives one or more frames later). sampleLuminance(x, y) consumes a finished read and
+    // issues the next at GL pixel (x, y) of the last Luminance render's HDR input; call it only while the view is shown
+    // and the cursor is over the image. The sample keeps the conversion of the render it read (cd/m^2, EV).
+    struct LuminanceSample {
+        bool valid = false;
+        int x = 0; // GL pixel (origin lower left) of the render target
+        int y = 0;
+        float hdr[4] = {0.0f, 0.0f, 0.0f, 0.0f}; // as stored (pre-exposed)
+        float luminance = 0.0f;                    // Y of the input, environment units (pre-exposure removed)
+        float cd = 0.0f;                           // cd/m^2
+        float ev = 0.0f;                           // EV relative to middle grey at the displayed exposure (-inf at 0)
+        uint64_t reads = 0;                        // finished reads so far
+    };
+    void sampleLuminance(int x, int y);
+    const LuminanceSample& luminanceSample() const { return m_luminanceSample; }
+    // Frees the probe's buffers and forgets the sample (the view is not shown).
+    void releaseLuminanceProbe();
+    bool hasLuminanceProbe() const { return m_luminanceProbePbo != 0 || m_luminanceSample.valid; }
 
     static SelfCheckResult runTargetAllocationSelfCheck(bool forceFailure = false);
 
@@ -321,6 +351,39 @@ private:
     {
         return m_meterSettleSerial != 0 && m_meterConsumedSerial < m_meterSettleSerial && m_meterDrainRenders < kMeterDrainRenders;
     }
+
+    // Luminance view (AntiAliasingLuminance.cpp): its program (compiled on first use, so nothing exists while the view is
+    // off), the input of its last render and the hover probe.
+    void renderLuminance(GLuint inputHdrTexture, GLuint targetLdrFbo, int width, int height,
+                         const HdrPostProcessParams& params, float exposureLinear);
+    void releaseLuminanceProgram();
+    GLuint m_luminanceProgram = 0;
+    bool m_luminanceProgramTried = false;
+    GLint m_lumHdrTexLoc = -1;
+    GLint m_lumScaleLoc = -1;
+    GLint m_lumBandsLoc = -1;
+    GLint m_lumRangeLoc = -1;
+    GLint m_lumToUnitLoc = -1;
+    GLint m_lumHasClearColorLoc = -1;
+    GLint m_lumClearColorLoc = -1;
+    struct LuminanceInput {
+        GLuint texture = 0;
+        int width = 0;
+        int height = 0;
+        float cdPerUnit = 12800.0f;  // cd/m^2 per stored unit (12,800 / pre-exposure)
+        float preExposure = 1.0f;
+        float relativePerUnit = 1.0f; // displayed exposure / 0.18 per stored unit
+        bool hasClearColor = false;
+        glm::vec3 clearColor{0.0f};
+    };
+    LuminanceInput m_luminanceInput;
+    LuminanceInput m_luminancePendingInput;
+    GLuint m_luminanceProbeFbo = 0;
+    GLuint m_luminanceProbePbo = 0;
+    GLsync m_luminanceFence = nullptr;
+    int m_luminancePendingX = 0;
+    int m_luminancePendingY = 0;
+    LuminanceSample m_luminanceSample;
 
     GLuint m_taaFbo[2] = { 0, 0 };
     GLuint m_taaTexture[2] = { 0, 0 };

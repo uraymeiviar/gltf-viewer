@@ -1268,6 +1268,25 @@ void main()
     g_finalColor = vec4(toneMap(color), baseColor.a);
 #endif
 
+#elif DEBUG == DEBUG_LUMINANCE
+    // The Luminance view's "emissive only" (imgui/LuminanceView.h): the material's final emitted radiance alone
+    // (emissiveFactor, KHR_materials_emissive_strength, the ASOBO scale and day / night, the emissive map), no
+    // lighting, into the same linear HDR target and units as the shaded output.
+#if ALPHAMODE == ALPHAMODE_MASK
+    if (baseColor.a < u_AlphaCutoff)
+    {
+        discard;
+    }
+    baseColor.a = 1.0;
+#endif
+#ifdef LINEAR_OUTPUT
+    vec3 emitted = f_emissive;
+    if (u_PreExposure != 1.0) emitted *= u_PreExposure;
+    g_finalColor = vec4(fitHalfFloatHdr(emitted), baseColor.a);
+#else
+    g_finalColor = vec4(f_emissive, baseColor.a);
+#endif
+
 #else
     // In case of missing data for a debug view, render a checkerboard.
     g_finalColor = vec4(1.0);

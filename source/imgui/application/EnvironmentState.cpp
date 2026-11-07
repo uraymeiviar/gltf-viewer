@@ -257,7 +257,7 @@ const ux3d::imgui::ViewportInstance* Application::skyGroundViewport() const
         if (vp == nullptr || !vp->isOpen) continue;
         if ((vp->settings.ground.mode == ux3d::imgui::GroundMode::Plane ||
              vp->settings.ground.mode == ux3d::imgui::GroundMode::Ocean) &&
-            vp->settings.renderMode == ux3d::renderer::RenderMode::None) {
+            vp->settings.shadesNormally()) {
             return vp.get();
         }
     }

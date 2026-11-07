@@ -78,6 +78,7 @@ gltf-viewer/
 │   │   ├── AntiAliasing.cpp      # Per-viewport AA: targets, TAA jitter/history, FXAA/TAA passes
 │   │   ├── AntiAliasingBloom.cpp # Bloom, A6.7 lens flare, auto-exposure meter, tone-mapping composite
 │   │   ├── AntiAliasingSelfCheck.cpp # AA render-target allocation self-check
+│   │   ├── AntiAliasingLuminance.cpp # Luminance view: HDR to Turbo heatmap pass, hovered-pixel PBO readback
 │   │   ├── AntiAliasingShaders.h # Private: quad + GLSL sources of the post passes, compile/link helpers
 │   │   ├── AmbientOcclusion.cpp  # A3.5 GTAO pass (class in header/imgui/AmbientOcclusion.h)
 │   │   ├── ElementInspector.cpp  # ElementInspector::render (node, mesh, texture, accessor, ... views)
@@ -90,6 +91,7 @@ gltf-viewer/
 │   │   ├── SkyEnvironment.cpp    # A6.2/A6.3 procedural sky LUTs & time-sliced IBL (class in header/imgui/SkyEnvironment.h)
 │   │   ├── SkyOcclusion.cpp      # A3.9 sky-visibility volume bake (class in header/imgui/SkyOcclusion.h)
 │   │   ├── TextureMetrics.cpp    # Texture Distortion / Density per-triangle table and legend (docs/TEXTURE_METRICS.md)
+│   │   ├── LuminanceView.cpp     # Luminance debug view legend (colour bar, ticks, hovered value, settings)
 │   │   ├── MeshAttributes.cpp    # Shared CPU readers: normalized/half-float attributes, triangles of every mode (TextureMetrics, UV layout)
 │   │   ├── UiScenarioHarness.cpp # Scripted UI scenario harness (class in header/imgui/UiScenarioHarness.h)
 │   │   ├── EmbeddedResources.cpp # Generated at build time (not committed): C++ byte array of the compressed VFS
@@ -483,6 +485,23 @@ Implemented in [`CameraActor.cpp`](file:///H:/git-repos/gltf-viewer/source/rende
 - **Detached windows** (multi-viewport, §3.6): a viewer dragged out of the main window becomes its own OS window and renders the same. The draw callback creates no per-context GL object (no VAO or FBO is cached; textures, program and samplers are shared between the GLFW contexts), and the state reports `detached`.
 - **Image area**: black, aspect kept, Fit Window refits on resize; the wheel zooms ×1.05 per step around the cursor (1 %..3200 %), a left drag pans, clamped per axis (an axis smaller than the area stays centered). Row 0 is the top row.
 - **Scripts**: registry command `image_viewer <image> [zoom] [channels] [levels] [background] [raw] [x,y] [window_pos] [window_size]` replies at once, while the window may still load; `image_viewer_wait <image>` (multi-frame, 120 s) replies when it is `ready` (docs/LIVE_SCRIPT_CONTROL.md; `window_pos` is relative to the main window, so a position outside it detaches the viewer when multi-viewport is on); its state carries `window` (screen rectangle), `detached` and `splitFraction`. `capture_window <path> <window> [settle_frames]` saves any visible ImGui window (title substring) as PNG: a window in the main window is cropped from the main back buffer, a detached one is read from its own back buffer. Probes `inspector.imagePreview`, `imageViewer.area`, `imageViewer.histogram`, `imageViewer.splitter`, `imageViewer.channel`, mark `imageViewer.window`.
+
+### 3.5c Luminance Debug View
+
+Render Mode **Luminance** (`--debug-view luminance`, View menu after Emissive; `header/imgui/LuminanceView.h`), next to
+the texture metric views: a false-colour heatmap of each pixel's luminance in cd/m² for MSFS artists, like MSFS's
+luminance debug view. The scene renders exactly as Shaded + post effects (the renderer sees `RenderMode::None`:
+lighting, IBL, sun, emissive, sky, ground, SSR, SSAO, TAA/MSAA); `AntiAliasing::renderPostProcess` then runs the meter
+as usual and, instead of bloom, lens effect and the tone map, maps Y = 0.2126 R + 0.7152 G + 0.0722 B of the resolved
+HDR value (pre-exposure divided out, 12,800 cd/m² per environment unit; without a background the clear-colour backdrop
+counts as zero) to Turbo (`AntiAliasingLuminance.cpp`, compiled on first use). Absolute: log10 cd/m² between
+`luminance_min` and `luminance_max`; Exposure-relative: EV from middle grey at the exposure the tone map would have
+used. Below the scale black, above magenta; bands quantise to a decade / stop. The colormap values are written as
+display colours into the non-sRGB 8-bit target, so the sRGB encoding happens once. "Emissive only" renders the
+materials under `DEBUG_LUMINANCE` (pbr.frag: the final emitted radiance alone) with the background off. The legend
+(lower left, like the texture views') reads the hovered HDR pixel through a 1x1 pixel-buffer read with a fence,
+consumed a frame or more later, only while the view is shown and the cursor is over the image; the buffers are freed
+when the view is left. Every other mode keeps its programs and image; validated by `scripts/validate_luminance_view.py`.
 
 ### 3.6 Docking & Layout Persistence
 

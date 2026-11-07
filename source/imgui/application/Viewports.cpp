@@ -582,14 +582,18 @@ void Application::drawViewports(FrameContext& frame)
         // 1. Render glTF scene & background skybox
         if (redrawScene && gltfLayer != nullptr && glRenderer != nullptr && commandGenerator != nullptr) {
             const auto sceneBuildStart = ux3d::imgui::profiling::Clock::now();
-            gltfLayer->enableCubeMap(ux3d::imgui::RenderQuality::allowSkybox(activeEnvironment.showBackground));
+            // The Luminance view (LuminanceView.h) shades the scene like Shaded + post effects; with "emissive only" the
+            // materials draw their emission alone (pbr.frag DEBUG_LUMINANCE) over a black background.
+            const bool luminanceView = vp->settings.renderMode == ux3d::renderer::RenderMode::Luminance;
+            const bool luminanceEmissive = luminanceView && vp->settings.luminanceEmissiveOnly;
+            gltfLayer->enableCubeMap(ux3d::imgui::RenderQuality::allowSkybox(activeEnvironment.showBackground) && !luminanceEmissive);
             glRenderer->setClearColor(activeEnvironment.clearColor);
             gltfLayer->getResourceManager().setClearColor(activeEnvironment.clearColor);
 
-            auto mode = vp->settings.renderMode;
+            auto mode = luminanceView && !luminanceEmissive ? ux3d::renderer::RenderMode::None : vp->settings.renderMode;
             // With no IBL, offer a useful texture-colour inspection view even for
             // models without authored lights (the Low preset).
-            if (!ux3d::imgui::RenderQuality::allowIbl() && mode == ux3d::renderer::RenderMode::None)
+            if (!ux3d::imgui::RenderQuality::allowIbl() && mode == ux3d::renderer::RenderMode::None && !luminanceView)
                 mode = ux3d::renderer::RenderMode::BaseColor;
 
             // A2.1: the two decal debug views show the prepass targets instead of a PBR
@@ -664,7 +668,7 @@ void Application::drawViewports(FrameContext& frame)
             // A3.6: the ground plane is drawn in shaded views only (debug views and wireframe keep the sky), at the
             // model base, Y = 0 or a chosen height.
             const bool groundPlane = vp->settings.ground.mode == ux3d::imgui::GroundMode::Plane &&
-                                     vp->settings.renderMode == ux3d::renderer::RenderMode::None && !isWireframeMode &&
+                                     vp->settings.shadesNormally() && !isWireframeMode &&
                                      activeScene != nullptr && gltfLayer->getActiveCamera() != nullptr;
             float groundHeight = 0.0f;
             if (groundPlane) {
@@ -677,7 +681,7 @@ void Application::drawViewports(FrameContext& frame)
             }
             // A6.8: the ocean, under the same conditions at the same height (its sea level).
             const bool oceanSurface = oceanReady && vp->settings.ground.mode == ux3d::imgui::GroundMode::Ocean &&
-                                      vp->settings.renderMode == ux3d::renderer::RenderMode::None && !isWireframeMode &&
+                                      vp->settings.shadesNormally() && !isWireframeMode &&
                                       activeScene != nullptr && gltfLayer->getActiveCamera() != nullptr;
             if (oceanSurface) {
                 const auto& ground = vp->settings.ground;
@@ -1281,7 +1285,7 @@ void Application::drawViewports(FrameContext& frame)
             postParams.exposureHdrTexture = exposureHdrTexture;
             postParams.exposureEv = activeEnvironment.exposureEV;
             postParams.toneMappingMode = ux3d::imgui::effectiveToneMapping(activeEnvironment);
-            postParams.hasClearColor = !ux3d::imgui::RenderQuality::allowSkybox(activeEnvironment.showBackground);
+            postParams.hasClearColor = !ux3d::imgui::RenderQuality::allowSkybox(activeEnvironment.showBackground) || luminanceEmissive;
             postParams.clearColor = glm::vec3(activeEnvironment.clearColor.r,
                                               activeEnvironment.clearColor.g,
                                               activeEnvironment.clearColor.b);
@@ -1324,6 +1328,15 @@ void Application::drawViewports(FrameContext& frame)
             // synchronously (AntiAliasing::updateAutoExposure). --exposure-readback sync|async overrides the choice.
             postParams.asyncMeterReadback = s_exposureReadback == 2 || (s_exposureReadback == 0 && !s_deterministicExposure);
             postParams.meterInputChanged = !keyUnchanged;
+            if (luminanceView) {
+                const auto& lum = vp->settings;
+                postParams.luminanceView = lum.luminanceScale == 1 ? 2 : 1;
+                postParams.luminanceBands = lum.luminanceBands;
+                postParams.luminanceMin = lum.luminanceMin;
+                postParams.luminanceMax = lum.luminanceMax;
+                postParams.luminanceEvMin = lum.luminanceEvMin;
+                postParams.luminanceEvMax = lum.luminanceEvMax;
+            }
             {
                 // Exposure metering (with its readbacks), bloom, lens flare and tone mapping.
                 const auto postProcessStart = ux3d::imgui::profiling::Clock::now();
@@ -1684,9 +1697,13 @@ void Application::drawViewports(FrameContext& frame)
         }
 
         // Draw offscreen FBO texture inside ImGui viewport window
+        const bool luminanceShown = vp->settings.renderMode == ux3d::renderer::RenderMode::Luminance;
+        bool luminanceHovered = false;
         if (displayTexture != 0) {
             ImGui::Image(static_cast<ImTextureID>(displayTexture), viewportSize, ImVec2(0.0f, 1.0f),
                          ImVec2(1.0f, 0.0f));
+            // The Luminance legend is a child window over the image: the image is not hovered over it.
+            luminanceHovered = luminanceShown && ImGui::IsItemHovered();
 
             // Right-click: Object actions while a single node is selected, otherwise
             // the same items as the Viewport menu. Drawn inside the loop, so viewport
@@ -1721,6 +1738,28 @@ void Application::drawViewports(FrameContext& frame)
                                           ux3d::imgui::ViewportSettingsPanel::renderTextureMetricsSettings(
                                               legendViewport->settings, sceneRevisions, &legendViewport->antiAliasing, "texture_legend");
                                       });
+        }
+
+        // The Luminance legend and the hovered pixel's value (a 1x1 readback of the HDR input, one frame or more late).
+        if (luminanceShown) {
+            if (luminanceHovered && imageSize.x > 0.0f && imageSize.y > 0.0f) {
+                const ImVec2 mouse = ImGui::GetIO().MousePos;
+                const int px = static_cast<int>((mouse.x - imagePos.x) / imageSize.x * static_cast<float>(vpW));
+                const int py = static_cast<int>((mouse.y - imagePos.y) / imageSize.y * static_cast<float>(vpH));
+                vp->antiAliasing.sampleLuminance(std::clamp(px, 0, vpW - 1), vpH - 1 - std::clamp(py, 0, vpH - 1));
+            }
+            vp->luminanceHovered = luminanceHovered;
+            vp->luminanceImageRect = glm::vec4(imagePos.x, imagePos.y, imagePos.x + imageSize.x, imagePos.y + imageSize.y);
+            ux3d::imgui::ViewportInstance* legendViewport = vp.get();
+            ux3d::imgui::luminance::drawLegend(imagePos, imageSize, vp->settings, vp->antiAliasing.luminanceSample(),
+                                               luminanceHovered, vp->luminanceLegendPanels, [&]() {
+                                                   ux3d::imgui::ViewportSettingsPanel::renderLuminanceSettings(
+                                                       legendViewport->settings, sceneRevisions, &legendViewport->antiAliasing,
+                                                       "luminance_legend");
+                                               });
+        } else if (vp->antiAliasing.hasLuminanceProbe()) {
+            vp->antiAliasing.releaseLuminanceProbe();
+            vp->luminanceHovered = false;
         }
 
         // 3D Viewport Orientation Compass / Navigation Gizmo
