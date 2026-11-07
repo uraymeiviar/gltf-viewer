@@ -225,12 +225,12 @@ def main():
     edited = capture(fixture("edit", {}), "edited", ["--set-asobo-param", "edit", EXT, "UVTilingU", "2",
                                                        "--set-asobo-param", "edit", EXT, "UVTilingV", "2"])
     check(same(edited, OUT / "tile2.png"), "Inspector parameter edits refresh the UV variant")
-    baseline = REPO / "build/baselines/d0761e7.exe"
+    baseline = REPO / "build/baselines/97e010c.exe"
     for name, model in (("hello", REPO / "resources/sampleGltf/HelloCube.glb"),
                         ("non_asobo", REPO / "resources/test_models/hierarchy_animation_fixture.gltf")):
         a = capture(model, name, view=None, session=False)  # CLI against CLI
         b = capture(model, name + "_baseline", exe=baseline, view=None)
-        check(same(a, b), name + ": byte-identical to d0761e7")
+        check(same(a, b), name + ": byte-identical to 97e010c")
     (OUT / "results.json").write_text(json.dumps({"failures": failures}, indent=2))
     print("RESULT: " + ("PASS" if not failures else f"FAIL ({len(failures)})"), flush=True)
     return bool(failures)
