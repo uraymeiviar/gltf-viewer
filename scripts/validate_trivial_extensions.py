@@ -591,7 +591,8 @@ def selectability_checks(files, baseline):
 def click_script(model, name):
     """Window clicks over the viewport; the selected node name per click (None: nothing selected)."""
     lines = ["wait 8"]
-    points = [(x, y) for y in range(110, 640, 20) for x in range(300, 1000, 20)]
+    # 14 px steps: with the UI theme's smaller viewport a 20 px grid hit the non-selectable nodes only 20 times.
+    points = [(x, y) for y in range(110, 640, 14) for x in range(300, 1000, 14)]
     for x, y in points:
         lines += [f"click {x} {y}", "wait 4", f"snap c{x}_{y}"]
     script = OUT / f"{name}.txt"

@@ -661,7 +661,11 @@ def dr_checks(files, baseline, black):
 
     def limb_ratio(rows):
         c = min(rows, key=lambda row: abs(row[1][0]))[2][1]
-        limb = [row[2][1] for row in rows if 0.84 < abs(row[1][0]) < 0.88]
+        # The probe nearest |x| = 0.86 on each side: the fixed 0.84..0.88 window held no probe once the UI theme's
+        # smaller viewport changed the probe spacing in world x.
+        limb = [min((row for row in rows if side * row[1][0] > 0), key=lambda row: abs(abs(row[1][0]) - 0.86),
+                    default=None) for side in (-1, 1)]
+        limb = [row[2][1] for row in limb if row is not None and abs(abs(row[1][0]) - 0.86) < 0.03]
         return ratio(float(np.mean(limb)), c) if limb else float("nan")
     ratios = {label: limb_ratio(prof[label]["rows"]) for label in prof}
     check(ratios["zero"] < ratios["half"] < ratios["one"],
