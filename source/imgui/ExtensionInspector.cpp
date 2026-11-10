@@ -3,6 +3,7 @@
 #include "imgui/ExtensionInspector.h"
 #include "imgui/EmbeddedVFS.h"
 #include "imgui/IconsMaterialDesignIcons.h"
+#include "imgui/MaterialInspector.h"
 #include "imgui/TextureUtils.h"
 #include "imgui/Theme.h"
 #include "imgui/UiProbe.h"
@@ -17,6 +18,7 @@
 
 #include <imgui.h>
 #include <algorithm>
+#include <cctype>
 #include <cfloat>
 #include <cmath>
 #include <cstdio>
@@ -499,6 +501,7 @@ bool ExtensionInspector::renderExtensions(ux3d::gltf::GltfObject* object,
     }
 
     bool anyModified = false;
+    m_currentMaterial = dynamic_cast<ux3d::gltf::Material*>(object);
 
     for (const auto& [extNameStr, jsonStr] : unknownExts) {
         const std::string extName = extNameStr.c_str();
@@ -584,6 +587,7 @@ bool ExtensionInspector::renderExtensions(ux3d::gltf::GltfObject* object,
         ImGui::PopID();
     }
 
+    m_currentMaterial = nullptr;
     return anyModified;
 }
 
@@ -1081,6 +1085,19 @@ void ExtensionInspector::renderTextureReadOnly(const std::string& label,
             foundTex = &t;
             break;
         }
+    }
+
+    // On a material, the texture gets the same preview slot as a core texture.
+    if (foundTex != nullptr && m_currentMaterial != nullptr && m_selection != nullptr) {
+        std::string lowerKey = label;
+        std::transform(lowerKey.begin(), lowerKey.end(), lowerKey.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        const bool normalMap = lowerKey.find("normal") != std::string::npos;
+        MaterialInspector::renderExtensionTextureSlot(label.c_str(), const_cast<ux3d::gltf::Texture*>(foundTex),
+                                                      texCoord >= 0 ? static_cast<uint32_t>(texCoord) : 0u,
+                                                      gltfModel, m_currentMaterial, *m_selection, m_gltfLayer,
+                                                      normalMap);
+        return;
     }
 
     std::string texDisplay;

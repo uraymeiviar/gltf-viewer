@@ -1120,6 +1120,7 @@ void ElementInspector::render(SelectionState& selection,
         }
     }
     ExtensionInspector::instance().setActiveViewport(activeViewport);
+    ExtensionInspector::instance().setRenderContext(&selection, gltfLayer);
 
     const bool packagedTextures = gltfModel.isExtensionDeclared("ASOBO_asset_optimized");
     const bool ddsDeclared = gltfModel.isExtensionDeclared("MSFT_texture_dds");

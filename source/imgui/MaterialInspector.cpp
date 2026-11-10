@@ -107,10 +107,13 @@ bool MaterialInspector::renderTextureSlot(const char* label,
                                           SelectionState& selection,
                                           ux3d::renderer::GltfRenderLayer* gltfLayer,
                                           bool showScale,
-                                          bool showStrength)
+                                          bool showStrength,
+                                          bool normalMap)
 {
     bool modified = false;
     ImGui::PushID(label);
+    // A slot with a normal scale holds a normal map; an extension slot says so itself.
+    const bool signedSquare = showScale || normalMap;
 
     const bool hasTexture = texInfo.has_value() && (texInfo->getTexture() != nullptr);
     ux3d::gltf::Texture* texture = hasTexture ? texInfo->getTexture() : nullptr;
@@ -137,7 +140,7 @@ bool MaterialInspector::renderTextureSlot(const char* label,
     constexpr float previewSize = 64.0f;
     const std::string previewProbe = makeProbeTag("material.texture.", label);
     const unsigned int previewId = source != nullptr
-        ? ElementInspector::getImagePreviewTextureId(source, gltfLayer, showScale)
+        ? ElementInspector::getImagePreviewTextureId(source, gltfLayer, signedSquare)
         : 0;
 
     prop::row(ICON_MDI_IMAGE_OUTLINE, "Texture",
@@ -201,7 +204,7 @@ bool MaterialInspector::renderTextureSlot(const char* label,
         // A normal slot's image is signed-square decoded only in a packaged (ASOBO_asset_optimized) file,
         // as in the Image / Texture Inspector, so both routes open the same view.
         if (source != nullptr) {
-            ImageViewer::open(gltfModel, source, showScale && gltfModel.isExtensionDeclared("ASOBO_asset_optimized"),
+            ImageViewer::open(gltfModel, source, signedSquare && gltfModel.isExtensionDeclared("ASOBO_asset_optimized"),
                               previewId);
         } else {
             selection.selectTextureFromMaterial(texture, material);
@@ -285,7 +288,7 @@ bool MaterialInspector::renderTextureSlot(const char* label,
         ImGui::SameLine();
         if (ImGui::Button(ICON_MDI_VECTOR_TRIANGLE "##UvLayout", ImVec2(ImGui::GetFrameHeight(), 0.0f))) {
             ImageViewer::openUvLayout(gltfModel, gltfLayer, source,
-                                      showScale && gltfModel.isExtensionDeclared("ASOBO_asset_optimized"),
+                                      signedSquare && gltfModel.isExtensionDeclared("ASOBO_asset_optimized"),
                                       ImageViewer::uvLayoutRequest(material, label, *texInfo), previewId);
         }
         if (ImGui::IsItemHovered()) {
@@ -331,6 +334,25 @@ bool MaterialInspector::renderTextureSlot(const char* label,
     prop::endGroup();
     ImGui::PopID();
     return modified;
+}
+
+void MaterialInspector::renderExtensionTextureSlot(const char* label,
+                                                   ux3d::gltf::Texture* texture,
+                                                   uint32_t texCoord,
+                                                   ux3d::gltf::Gltf& gltfModel,
+                                                   ux3d::gltf::Material* material,
+                                                   SelectionState& selection,
+                                                   ux3d::renderer::GltfRenderLayer* gltfLayer,
+                                                   bool normalMap)
+{
+    // A temporary textureInfo: no scale or strength rows are shown, so nothing is written back.
+    std::optional<ux3d::gltf::TextureInfo> info;
+    if (texture != nullptr) {
+        info.emplace();
+        info->setTexture(*texture);
+        info->setTexCoord(texCoord);
+    }
+    renderTextureSlot(label, info, gltfModel, material, selection, gltfLayer, false, false, normalMap);
 }
 
 bool MaterialInspector::render(ux3d::gltf::Material* material,

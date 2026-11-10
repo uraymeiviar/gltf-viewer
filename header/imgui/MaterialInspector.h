@@ -25,6 +25,18 @@ public:
                        SelectionState& selection,
                        ux3d::renderer::GltfRenderLayer* gltfLayer = nullptr);
 
+    // A material extension's texture (ASOBO and other vendor extensions) as a read-only slot: the same preview,
+    // texture button, UV set and UV layout rows as a core slot, without scale or strength.
+    // normalMap: the image is a normal map (signed-square decoded in a packaged file).
+    static void renderExtensionTextureSlot(const char* label,
+                                           ux3d::gltf::Texture* texture,
+                                           uint32_t texCoord,
+                                           ux3d::gltf::Gltf& gltfModel,
+                                           ux3d::gltf::Material* material,
+                                           SelectionState& selection,
+                                           ux3d::renderer::GltfRenderLayer* gltfLayer,
+                                           bool normalMap);
+
 private:
     static bool renderTextureSlot(const char* label,
                                   std::optional<ux3d::gltf::TextureInfo>& texInfo,
@@ -33,7 +45,8 @@ private:
                                   SelectionState& selection,
                                   ux3d::renderer::GltfRenderLayer* gltfLayer,
                                   bool showScale = false,
-                                  bool showStrength = false);
+                                  bool showStrength = false,
+                                  bool normalMap = false);
 };
 
 } // namespace ux3d::imgui

@@ -11,9 +11,18 @@
 #include <unordered_map>
 #include <vector>
 
+namespace ux3d::gltf {
+class Material;
+}
+
+namespace ux3d::renderer {
+class GltfRenderLayer;
+}
+
 namespace ux3d::imgui {
 
 struct ViewportInstance;
+struct SelectionState;
 
 struct ExtensionSchemaProperty {
     std::string key;
@@ -44,6 +53,14 @@ public:
     // Sets the active viewport whose settings are controlled by per-extension display toggles
     void setActiveViewport(ViewportInstance* viewport) { m_activeViewport = viewport; }
     ViewportInstance* getActiveViewport() const { return m_activeViewport; }
+
+    // The Inspector frame's selection and render layer: a material extension's texture is then drawn with the
+    // same preview slot as a core texture. Without them it stays a text row.
+    void setRenderContext(SelectionState* selection, ux3d::renderer::GltfRenderLayer* gltfLayer)
+    {
+        m_selection = selection;
+        m_gltfLayer = gltfLayer;
+    }
 
     // Renders all vendor and unknown extensions found on a gltfObject.
     // ASOBO typed parameters and existing vendor values are editable in memory.
@@ -120,6 +137,10 @@ private:
     std::unordered_map<std::string, ExtensionSchemaInfo> m_schemas;
     std::vector<std::string> m_availableNames;
     ViewportInstance* m_activeViewport = nullptr;
+    SelectionState* m_selection = nullptr;
+    ux3d::renderer::GltfRenderLayer* m_gltfLayer = nullptr;
+    // The material whose extensions renderExtensions is drawing (null for other objects).
+    ux3d::gltf::Material* m_currentMaterial = nullptr;
 };
 
 } // namespace ux3d::imgui
