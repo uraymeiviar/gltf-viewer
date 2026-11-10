@@ -43,6 +43,7 @@ Run: python scripts/validate_ssao.py [--baseline-exe build/baselines/<sha>.exe] 
 import argparse
 import atexit
 import json
+import math
 import os
 import sys
 import time
@@ -392,16 +393,23 @@ def check_sun(black, uniform, box):
                 session.settle()
                 values[(sun_on, ssao_on)] = {k: session.call("probe", x=x, y=y)["hdrLuminance"]
                                              for k, (x, y) in pixels.items()}
-        worst, removed = 0.0, 0.0
+        # The scene target is 16-bit float: a probed value can only move in its half-float steps, so the limit per
+        # point is the larger of SUN_ABS and one step of the largest of its four values (2.44e-4 for 0.25..0.5;
+        # maintainer-approved after the UI theme's smaller viewport moved a probe onto a brighter pixel).
+        worst, removed, worst_limit, ok = 0.0, 0.0, SUN_ABS, True
         for k in points:
             with_sun = values[(True, True)][k] - values[(True, False)][k]
             without = values[(False, True)][k] - values[(False, False)][k]
-            worst = max(worst, abs(with_sun - without))
+            largest = max(abs(values[key][k]) for key in values)
+            limit = max(SUN_ABS, 2.0 ** (math.floor(math.log2(largest)) - 10) if largest > 0 else 0.0)
+            ok &= abs(with_sun - without) <= limit
+            if abs(with_sun - without) >= worst:
+                worst, worst_limit = abs(with_sun - without), limit
             removed = max(removed, -without)
         sunlit = max(values[(True, False)][k] - values[(False, False)][k] for k in points)
-        check(worst <= SUN_ABS and removed > 0.02 and sunlit > 0.05,
-              f"probes: (on - off) with the sun equals (on - off) without it within {worst:.2e} (<= {SUN_ABS}); "
-              f"SSAO removes up to {removed:.3f}, the sun adds up to {sunlit:.3f}")
+        check(ok and removed > 0.02 and sunlit > 0.05,
+              f"probes: (on - off) with the sun equals (on - off) without it within {worst:.2e} (<= {worst_limit:.2e}: "
+              f"{SUN_ABS} or one half-float step); SSAO removes up to {removed:.3f}, the sun adds up to {sunlit:.3f}")
         errors = session.close()
         check(errors == 0, f"pipe session: {errors} GL errors")
     except Exception as error:  # noqa: BLE001

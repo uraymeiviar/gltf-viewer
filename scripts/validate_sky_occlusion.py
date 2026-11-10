@@ -357,7 +357,16 @@ def check_open(uniform):
             points = [q for q in points if sum(q[i] * (cam.eye[i] - q[i]) for i in range(3)) > 0.3]
         image = load(png)[..., 0] / 255.0
         mask = load(png).max(axis=2) > 0
-        values = image[mask]
+        # Skip the 1-pixel outline: anti-aliased silhouette pixels blend with the black background (4 pixels of
+        # 4..6/255 on a sphere once the UI theme's smaller viewport moved the silhouette; maintainer-approved).
+        inner = mask.copy()
+        inner[1:, :] &= mask[:-1, :]
+        inner[:-1, :] &= mask[1:, :]
+        inner[:, 1:] &= mask[:, :-1]
+        inner[:, :-1] &= mask[:, 1:]
+        inner[0, :] = inner[-1, :] = False
+        inner[:, 0] = inner[:, -1] = False
+        values = image[inner]
         check(values.size > 1000 and values.min() >= OPEN_DEBUG_MIN,
               f"{label}: debug view min {values.min():.3f} >= {OPEN_DEBUG_MIN} over {values.size} px")
         try:

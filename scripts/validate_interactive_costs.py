@@ -359,13 +359,27 @@ def image_fixture():
     return path
 
 
-def capture_report(exe, model, label):
+def capture_report(exe, model, label, window="1280x720", extra=()):
     png, report = OUT / f"{label}.png", OUT / f"{label}.json"
-    subprocess.run([str(exe), str(model), "--isolated", "--window-size", "1280x720", "--vsync", "off",
+    subprocess.run([str(exe), str(model), "--isolated", "--window-size", window, "--vsync", "off",
                     "--fixed-frame-time", "0.05", "--capture-viewport", str(png), "--capture-frame", "12",
-                    "--profile-report", str(report), "--exit-after-profile"],
+                    "--profile-report", str(report), "--exit-after-profile", *extra],
                    cwd=REPO, capture_output=True, text=True, timeout=600)
     return png, json.loads(report.read_text(encoding="utf-8"))["startup"]
+
+
+def same_size_capture(exe, model, label, reference, extra=()):
+    """capture_report at 1280 x 720, again with the window grown by the difference when the viewport differs in size
+    from the reference capture's (the UI theme's taller toolbar left the viewport 2 px shorter than the pinned build's),
+    so the images compare byte for byte at the same viewport size."""
+    from PIL import Image
+    png, report = capture_report(exe, model, label, extra=extra)
+    with Image.open(png) as ours, Image.open(reference) as theirs:
+        dw, dh = theirs.size[0] - ours.size[0], theirs.size[1] - ours.size[1]
+    if dw or dh:
+        print(f"  INFO viewport {dw:+d} x {dh:+d} px against the baseline at 1280x720: window {1280 + dw}x{720 + dh}")
+        png, report = capture_report(exe, model, label, f"{1280 + dw}x{720 + dh}", extra)
+    return png, report
 
 
 def preview_shot(exe, model, image, label):
@@ -378,14 +392,30 @@ def preview_shot(exe, model, image, label):
     return png
 
 
-def same_preview(a, b):
-    """The inspector's "Image Preview" heading and image, in the 1280 x 720 default layout. This baseline is pinned to the
-    build before the pixels left the CPU, so the rest of the window, toolbars and text included, follows later UI changes."""
-    from PIL import Image, ImageChops
-    box = (1020, 280, 1280, 700)
-    with Image.open(a) as first, Image.open(b) as second:
-        return first.size == second.size and \
-            ImageChops.difference(first.convert("RGB").crop(box), second.convert("RGB").crop(box)).getbbox() is None
+# The fixture's images are one colour each (image_fixture): image index -> (shown RGB, width, height). Image 0 is the
+# base colour texture, uploaded as sRGB, so its preview shows the decoded value: (40, 200, 90) -> (5, 147, 26), in the
+# pinned build too.
+PREVIEW_IMAGES = {0: ((5, 147, 26), 256, 256), 1: ((220, 40, 60), 128, 64)}
+
+
+def preview_shown(png, image):
+    """The inspector (x >= 1020 in the 1280 x 720 default layout) shows the image: the pixels of exactly its colour form
+    one filled rectangle (>= 99.5 % of its bounding box, >= 1,000 px) with the image's aspect (within 3 %). Replaces a
+    byte comparison with the pinned build's crop, which the redesigned Inspector (97e010c) draws smaller and elsewhere
+    (maintainer's decision)."""
+    import numpy as np
+    from PIL import Image
+    colour, width, height = PREVIEW_IMAGES[image]
+    with Image.open(png) as shot:
+        pixels = np.asarray(shot.convert("RGB"), dtype=np.int16)[:, 1020:]
+    match = (pixels == np.array(colour, dtype=np.int16)).all(axis=2)
+    ys, xs = np.nonzero(match)
+    if len(xs) < 1000:
+        return False, f"{len(xs)} px of {colour}"
+    w, h = int(xs.max() - xs.min() + 1), int(ys.max() - ys.min() + 1)
+    fill = len(xs) / float(w * h)
+    aspect = (w / h) / (width / height)
+    return fill >= 0.995 and abs(aspect - 1.0) <= 0.03, f"{w}x{h} px, fill {fill * 100:.1f} %, aspect {w / h:.3f}"
 
 
 def private_memory(exe, model):
@@ -405,23 +435,30 @@ def private_memory(exe, model):
 def check_images(baseline):
     print("[images: pixels leave the CPU heap, and nothing else changes]")
     model = image_fixture()
-    new_png, new = capture_report(EXE, model, "fixture_new")
     old_png, old = capture_report(baseline, model, "fixture_baseline")
+    new_png, new = same_size_capture(EXE, model, "fixture_new", old_png)
     check(new["decodedImageBytes"] == old["decodedImageBytes"] > 0, f"the decoded size is still reported: {new['decodedImageBytes']}")
     check(new["retainedDecodedImageBytes"] == 0, f"pixels kept after the upload: {new['retainedDecodedImageBytes']}")
     check(same(new_png, old_png), "the rendered image is unchanged")
     for image, name in ((0, "a used image"), (1, "an image no material uses")):
         a = preview_shot(EXE, model, image, f"preview{image}_new")
         b = preview_shot(baseline, model, image, f"preview{image}_baseline")
-        check(a.exists() and b.exists() and same_preview(a, b), f"the inspector shows {name} as before")
+        shown_new = preview_shown(a, image) if a.exists() else (False, "no screenshot")
+        shown_old = preview_shown(b, image) if b.exists() else (False, "no screenshot")
+        check(shown_new[0] and shown_old[0],
+              f"the inspector shows {name} as before: its colour fills a rectangle of its aspect "
+              f"(new {shown_new[1]}; baseline {shown_old[1]})")
 
     if not E195.exists():
         print("  INFO the E195 cockpit is not here: the memory comparison is skipped")
         return
     from e195_assets import textured_copy
     copy = textured_copy(E195, OUT)
-    new_png, new = capture_report(EXE, copy, "e195_new")
-    old_png, old = capture_report(baseline, copy, "e195_baseline")
+    # SSAO off in both builds: since 97e010c the SSAO result depends on more than the viewport size (window size or
+    # the viewport's place in it), 1-3 levels on 11,102 pixels; with it off the builds are byte-identical, which still
+    # shows that freeing the pixels changes no render (maintainer's decision; the SSAO dependence is a backlog item).
+    old_png, old = capture_report(baseline, copy, "e195_baseline", extra=("--ssao", "off"))
+    new_png, new = same_size_capture(EXE, copy, "e195_new", old_png, extra=("--ssao", "off"))
     check(new["retainedDecodedImageBytes"] == 0, f"E195: pixels kept after the upload: {new['retainedDecodedImageBytes']}")
     check(same(new_png, old_png), "E195: the rendered image is unchanged")
     print(f"  INFO E195: decoded {new['decodedImageBytes'] / 1048576:.0f} MiB, encoded {new['encodedImageBytes'] / 1048576:.0f} MiB, "

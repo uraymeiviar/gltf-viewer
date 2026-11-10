@@ -51,6 +51,21 @@ sys.modules.setdefault("e195_assets", _e195_assets)
 
 from validate_asobo_common import COMMON, check, finish, render, same
 
+
+def near_same(a, b):
+    """(largest channel difference in levels, share of differing pixels) of two same-size PNGs; None if either is
+    missing or the sizes differ."""
+    if a is None or b is None:
+        return None
+    import numpy as np
+    from PIL import Image
+    x = np.asarray(Image.open(a).convert("RGBA"), dtype=np.int16)
+    y = np.asarray(Image.open(b).convert("RGBA"), dtype=np.int16)
+    if x.shape != y.shape:
+        return None
+    diff = np.abs(x - y).max(axis=2)
+    return int(diff.max()), float((diff > 0).mean())
+
 from PIL import Image, ImageChops, ImageStat
 
 REPO = Path(__file__).resolve().parents[1]
@@ -491,8 +506,14 @@ def main():
     tint_path = OUT / "standard_factor_tint.gltf"
     tint_path.write_text(json.dumps(tint_document), encoding="utf-8")
     tint_capture = render(EXE, tint_path, "standard_factor_tint", quad_flags, OUT)
-    check(same(standard_capture, tint_capture),
-          "standard vertex colour equals the same tint applied as baseColorFactor")
+    # At most 1 level on at most 0.01 % of the pixels: an interpolated COLOR_0 of 1.0 is not always exactly 1.0,
+    # which moved one pixel by one level once the UI theme's smaller viewport changed the raster
+    # (maintainer-approved; it was byte-identical before).
+    deviation = near_same(standard_capture, tint_capture)
+    check(deviation is not None and deviation[0] <= 1 and deviation[1] <= 1e-4,
+          "standard vertex colour equals the same tint applied as baseColorFactor "
+          f"(largest difference {deviation[0] if deviation else '-'} level, "
+          f"{deviation[1] * 100 if deviation else 0:.4f} % of pixels differ; <= 1 level, <= 0.01 %)")
 
     print("[real source/package pairs]")
     if not all(path.exists() for path in (E190_SOURCE, E190_PACKAGE, E195_SOURCE, E195_PACKAGE)):
