@@ -50,8 +50,9 @@ BEHIND = ["--camera-yaw", "160", "--camera-pitch", "10"]
 # --fixed-frame-time makes scripted runs deterministic, so they need not wait for vsync
 # (a 400-click case: 108 s with vsync, 4 s without, identical results).
 COMMON = ["--isolated", "--window-size", "1280x800", "--fixed-frame-time", "0.05", "--vsync", "off"]
-# Default 1280x800 layout: clickable viewport pixels are x 288..1013, y 70..765.
-LEFT, RIGHT, TOP, BOTTOM = 288, 1013, 70, 765
+# Default 1280x800 layout: clickable viewport pixels are x 288..1013, y 78..765 (the image is x 284..1018,
+# y 74..768 since the UI-theme commit's taller toolbar; get_state viewports[].luminance.imageRect).
+LEFT, RIGHT, TOP, BOTTOM = 288, 1013, 78, 765
 
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 parser.add_argument("--only", choices=["equivalence", "benchmark"])

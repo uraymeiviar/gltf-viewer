@@ -885,9 +885,12 @@ def check_runtime():
     ground = lambda index: (["clickp scene.ground.type 0", "wait 4"] + ["key down", "wait 2"] * max(index, 1) +
                             (["key up", "wait 2"] if index == 0 else []) + ["key enter", "wait 4"])
     combo = lambda tag, key: [f"clickp {tag} 0", "wait 4", f"key {key}", "wait 2", "key enter", "wait 4"]
-    # The wind speed slider by keyboard: from the Type combo down past Height, Enter opens its text input.
-    ui_steps = [("ocean", ground(2) + ["key down", "wait 2", "key down", "wait 2", "key enter", "wait 3", "key a ctrl",
-                                       "wait 1", "type 10.4", "wait 1", "key enter", "wait 4"],
+    # The wind speed slider: a click on its probe focuses it (and sets some value); up / down turns on keyboard
+    # navigation on it, so Enter opens its text input. (Arrowing down from the Type combo stopped reaching it with
+    # the redesigned Inspector tree, and Enter right after a mouse click or a double-click does not open the field.)
+    ui_steps = [("ocean", ground(2) + ["clickp scene.ocean.wind_speed 0", "wait 4", "key up", "wait 2", "key down",
+                                       "wait 2", "key enter", "wait 3", "key a ctrl", "wait 1", "type 10.4", "wait 1",
+                                       "key enter", "wait 4"],
                  {"ground": "ocean", "sliders": [("ocean_wind_speed", 10.4)]}),
                 ("sun_hdr", combo("scene.sun.source", "down"), {"sun": "hdr"}),
                 ("sky", ["clickp scene.sun_time 0", "wait 6", "clickp scene.sky 0", "wait 6"] + combo("scene.sky.source", "down"), {"environment": "sky"}),
