@@ -55,7 +55,7 @@ Images first retain their encoded data. Header preflight estimates a full RGBA m
 or the actual compressed KTX2 payload. The texture budget is the smaller of 70% of available
 VRAM and one third of available RAM. If VRAM is unknown, only the RAM budget is used. The
 reserve covers geometry, render targets and driver overhead. A common power-of-two maximum
-dimension is reduced until the estimate fits (down to 64). An Unlimited preset
+dimension is reduced until the estimate fits (down to 64). Test harnesses replace the free-memory budget with `GLIDER_TEST_TEXTURE_BUDGET_MIB` (CLI_REFERENCE.md), since the same build otherwise renders large models differently depending on the memory free at load. An Unlimited preset
 (`textureMaxSize = 0`, used by Ultra and Auto's target) skips this estimate-based reduction
 entirely, so textures upload at authored resolution and only the per-texture allocation
 fallback still applies. PNG/JPEG and other supported STB

@@ -144,9 +144,18 @@ def __getattr__(name):
     return getattr(_subprocess, name)
 
 
+# A fixed texture budget (MiB) for every child, so a build loads the same texture sizes whatever the free memory is
+# (Glider otherwise budgets textures from the RAM / VRAM free at load: an E195 cockpit loaded at full size with 10.5 GB
+# free and at 4096 px with 9.3 GB, 11,102 pixels apart). Builds before the variable ignore it. A caller's value wins;
+# an empty value keeps the free-memory budget.
+TEXTURE_BUDGET_ENV = "GLIDER_TEST_TEXTURE_BUDGET_MIB"
+TEXTURE_BUDGET_MIB = "16384"
+
+
 def _child_env(env=None):
     result = dict(os.environ if env is None else env)
     result[GLIDER_NO_FOCUS] = "1"
+    result.setdefault(TEXTURE_BUDGET_ENV, TEXTURE_BUDGET_MIB)
     return result
 
 

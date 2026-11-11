@@ -359,26 +359,26 @@ def image_fixture():
     return path
 
 
-def capture_report(exe, model, label, window="1280x720", extra=()):
+def capture_report(exe, model, label, window="1280x720", extra=(), env=None):
     png, report = OUT / f"{label}.png", OUT / f"{label}.json"
     subprocess.run([str(exe), str(model), "--isolated", "--window-size", window, "--vsync", "off",
                     "--fixed-frame-time", "0.05", "--capture-viewport", str(png), "--capture-frame", "12",
                     "--profile-report", str(report), "--exit-after-profile", *extra],
-                   cwd=REPO, capture_output=True, text=True, timeout=600)
+                   cwd=REPO, capture_output=True, text=True, timeout=600, env=env)
     return png, json.loads(report.read_text(encoding="utf-8"))["startup"]
 
 
-def same_size_capture(exe, model, label, reference, extra=()):
+def same_size_capture(exe, model, label, reference, extra=(), env=None):
     """capture_report at 1280 x 720, again with the window grown by the difference when the viewport differs in size
     from the reference capture's (the UI theme's taller toolbar left the viewport 2 px shorter than the pinned build's),
     so the images compare byte for byte at the same viewport size."""
     from PIL import Image
-    png, report = capture_report(exe, model, label, extra=extra)
+    png, report = capture_report(exe, model, label, extra=extra, env=env)
     with Image.open(png) as ours, Image.open(reference) as theirs:
         dw, dh = theirs.size[0] - ours.size[0], theirs.size[1] - ours.size[1]
     if dw or dh:
         print(f"  INFO viewport {dw:+d} x {dh:+d} px against the baseline at 1280x720: window {1280 + dw}x{720 + dh}")
-        png, report = capture_report(exe, model, label, f"{1280 + dw}x{720 + dh}", extra)
+        png, report = capture_report(exe, model, label, f"{1280 + dw}x{720 + dh}", extra, env)
     return png, report
 
 
@@ -418,9 +418,9 @@ def preview_shown(png, image):
     return fill >= 0.995 and abs(aspect - 1.0) <= 0.03, f"{w}x{h} px, fill {fill * 100:.1f} %, aspect {w / h:.3f}"
 
 
-def private_memory(exe, model):
+def private_memory(exe, model, env=None):
     import psutil
-    process, pipe = start_pipe_session([exe, model] + INTERACTIVE)
+    process, pipe = start_pipe_session([exe, model] + INTERACTIVE, env=env)
     try:
         assert wait_until(lambda: pipe.call("get_state").get("modelLoaded", True), 300)
         time.sleep(3.0)
@@ -454,16 +454,30 @@ def check_images(baseline):
         return
     from e195_assets import textured_copy
     copy = textured_copy(E195, OUT)
-    # SSAO off in both builds: since 97e010c the SSAO result depends on more than the viewport size (window size or
-    # the viewport's place in it), 1-3 levels on 11,102 pixels; with it off the builds are byte-identical, which still
-    # shows that freeing the pixels changes no render (maintainer's decision; the SSAO dependence is a backlog item).
-    old_png, old = capture_report(baseline, copy, "e195_baseline", extra=("--ssao", "off"))
-    new_png, new = same_size_capture(EXE, copy, "e195_new", old_png, extra=("--ssao", "off"))
+    # Both builds must load the textures at the same size. The pinned build ignores the harness's fixed texture budget
+    # (GLIDER_TEST_TEXTURE_BUDGET_MIB) and budgets from the memory free at load (4096 px instead of full size below
+    # about 10 GB free: 11,102 pixels apart), so both launch back to back with the free-memory budget and without the
+    # render cache, and must report the same texture limit.
+    free_env = dict(os.environ, **{subprocess.TEXTURE_BUDGET_ENV: ""})  # empty: the free-memory budget
+    cache = os.environ.get(subprocess.CACHE_SWITCH)
+    os.environ[subprocess.CACHE_SWITCH] = "0"
+    try:
+        old_png, old = capture_report(baseline, copy, "e195_baseline", env=free_env)
+        new_png, new = same_size_capture(EXE, copy, "e195_new", old_png, env=free_env)
+    finally:
+        if cache is None:
+            os.environ.pop(subprocess.CACHE_SWITCH, None)
+        else:
+            os.environ[subprocess.CACHE_SWITCH] = cache
+    check(new.get("textureMaxDimension") == old.get("textureMaxDimension"),
+          f"E195: both builds load the textures at the same limit ({old.get('textureMaxDimension')} / "
+          f"{new.get('textureMaxDimension')})")
     check(new["retainedDecodedImageBytes"] == 0, f"E195: pixels kept after the upload: {new['retainedDecodedImageBytes']}")
     check(same(new_png, old_png), "E195: the rendered image is unchanged")
     print(f"  INFO E195: decoded {new['decodedImageBytes'] / 1048576:.0f} MiB, encoded {new['encodedImageBytes'] / 1048576:.0f} MiB, "
           f"upload {old['rendererUploadMs']:.0f} -> {new['rendererUploadMs']:.0f} ms")
-    a, b = private_memory(baseline, copy), private_memory(EXE, copy)
+    # The free-memory texture budget for both, like the image comparison above: the pinned build ignores the fixed one.
+    a, b = private_memory(baseline, copy, free_env), private_memory(EXE, copy, free_env)
     print(f"  INFO E195 private memory: baseline {a / 1048576:.0f} MiB, new {b / 1048576:.0f} MiB")
     check(b < a, f"E195: private memory falls: {a / 1048576:.0f} -> {b / 1048576:.0f} MiB")
 

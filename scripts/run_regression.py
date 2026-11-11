@@ -481,6 +481,9 @@ parser.add_argument("--on-demand", dest="on_demand", default=None,
 parser.add_argument("--with-on-demand", action="store_true",
                     help="pass every on-demand flag of the selected suites (the full tier does not otherwise)")
 args = parser.parse_args()
+# Every suite and every launch it makes (harness_process, glider_ctl, plain subprocess) inherits the fixed texture
+# budget, so renders do not depend on the memory free at load (harness_process.TEXTURE_BUDGET_ENV).
+os.environ.setdefault(subprocess.TEXTURE_BUDGET_ENV, subprocess.TEXTURE_BUDGET_MIB)
 if args.monitor:
     os.environ["GLIDER_MONITOR"] = args.monitor
 if args.no_cache:

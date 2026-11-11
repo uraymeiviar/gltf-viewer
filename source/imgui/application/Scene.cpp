@@ -14,6 +14,7 @@
 #include "backends/imgui_impl_opengl3.h"
 #include <portable-file-dialogs.h>
 #include <imgui_internal.h>
+#include <cstdlib>
 #include <future>
 #include <thread>
 #include "gltf/GltfParsing.h"
@@ -144,6 +145,15 @@ bool Application::loadGltfModel(const std::string& filePath, ux3d::gltf::Gltf& g
     const uint64_t ramBudget = memory.availableRam ? memory.availableRam/3 : 512ull*1024*1024;
     progress.textureBudget = memory.gpuKnown ? std::min(ramBudget, memory.availableVram*7/10) : ramBudget;
     if (progress.textureBudget == 0) progress.textureBudget = 16ull*1024*1024;
+    // Test harnesses: a fixed texture budget instead of the free-memory one, so the same build loads the same texture
+    // sizes (and renders the same image) whatever else is running. Unset or invalid: the free-memory budget.
+    if (const char* fixed = std::getenv("GLIDER_TEST_TEXTURE_BUDGET_MIB"); fixed != nullptr && *fixed != '\0') {
+        char* end = nullptr;
+        const unsigned long long mib = std::strtoull(fixed, &end, 10);
+        if (end != fixed && *end == '\0' && mib > 0 && mib <= 1024ull * 1024ull) {
+            progress.textureBudget = mib * 1024ull * 1024ull;
+        }
+    }
     GLint maxTexture = 0;
     glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTexture);
     progress.maxTextureSize = static_cast<uint32_t>(std::max(64, maxTexture));
