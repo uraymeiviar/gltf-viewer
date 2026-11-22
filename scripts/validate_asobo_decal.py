@@ -135,7 +135,8 @@ def box_geometry(x_half, y_half, z_min, z_max):
 def write_fixture(name, *, decal_count=0, factors=None, receiver_alpha="OPAQUE",
                   receiver_color=(0.2, 0.4, 0.6), receiver_metallic=0.25,
                   receiver_roughness=0.75, receiver_emissive=(0.1, 0.2, 0.3),
-                  receiver_occlusion=128, receiver_glass=False, decal_occlusion=128,
+                  receiver_occlusion=128, receiver_glass=False, receiver_detail=False,
+                  receiver_clear_coat=False, decal_occlusion=128,
                   decals=None, normal_override=None, decal_z=0.01,
                   occluder_z=None, occluder_color=(0.05, 0.8, 0.1)):
     """Writes one fixture. The decal material always exists (so the buffer is active);
@@ -208,9 +209,18 @@ def write_fixture(name, *, decal_count=0, factors=None, receiver_alpha="OPAQUE",
         receiver["alphaCutoff"] = 0.5
     if receiver_occlusion is not None:
         receiver["occlusionTexture"] = {"index": 0, "strength": 1.0}
+    receiver_extensions = {}
     if receiver_glass:
-        receiver["extensions"] = {"ASOBO_material_glass_v2": {}}
-        document["extensionsUsed"].append("ASOBO_material_glass_v2")
+        receiver_extensions["ASOBO_material_glass_v2"] = {}
+    if receiver_clear_coat:
+        receiver_extensions["ASOBO_material_clear_coat_v2"] = {}
+    if receiver_detail:
+        # The exporter writes the detail map for any material with a detail texture; it is an
+        # option of the Standard type, not a type of its own (semantics section 14).
+        receiver_extensions["ASOBO_material_detail_map"] = {"detailColorTexture": {"index": 0}}
+    if receiver_extensions:
+        receiver["extensions"] = receiver_extensions
+        document["extensionsUsed"].extend(receiver_extensions)
     document["materials"].append(receiver)
 
     decal_specs = decals
@@ -406,11 +416,20 @@ def main():
         b = capture(without, "basecolor", label + "_no_decal")
         check(same(a, b), f"{label} receiver: decal leaves the base-colour view byte-identical")
 
+    print("[receivers with a detail map: Standard and clear coat both take the decal]")
+    decal_color = srgb3(DECAL_COLOR[:3])
+    for label, clear_coat in (("detail", False), ("clearcoat_detail", True)):
+        model = write_fixture(label + "_with_decal", decal_count=1,
+                              factors=property_factors("baseColorBlendFactor"),
+                              receiver_detail=True, receiver_clear_coat=clear_coat)
+        sample = pixels(capture(model, "basecolor", label + "_with_decal"))
+        check(sample is not None and close(sample["center"], decal_color),
+              f"{label} receiver: centre {sample['center'] if sample else None} is the decal {decal_color}")
+
     print("[depth: 1 mm accepted, 2 mm rejected at 0/45/70 degrees; 3 mm override and 2 cm occluder]")
     forward_only = ("--asobo-disable", "ASOBO_material_geometry_decal")
     behind = write_fixture("behind_1mm", decal_count=1,
                            factors=property_factors("baseColorBlendFactor"), decal_z=-0.001)
-    decal_color = srgb3(DECAL_COLOR[:3])
     behind_2mm = write_fixture("behind_2mm", decal_count=1,
                                factors=property_factors("baseColorBlendFactor"), decal_z=-0.002)
     receiver_color = srgb3((0.2, 0.4, 0.6))

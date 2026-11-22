@@ -87,7 +87,9 @@ A0 to `RGBA16F` or A3–A5 to 16-bit only if the tests show banding. Not a user 
   open question 3; until answered it behaves like `true`, and the support table says so.
 - Receiver classes: opaque materials with no ASOBO material type, `clear_coat`/`clear_coat_v2`, `anisotropic`/v2,
   `fake_terrain`, `SSS`. Everything else ignores the buffer. FakeTerrain is shaded as standard PBR (no terrain
-  renderer).
+  renderer). `ASOBO_material_detail_map` is not a type: the exporter writes it for any material with detail
+  textures (semantics section 14), so it does not change the class. Until 2026-11-23 Glider listed it as a type, and
+  the E2 cockpit panels (Standard + detail map) showed none of their decals.
 
 ### Decal modes and related extensions
 

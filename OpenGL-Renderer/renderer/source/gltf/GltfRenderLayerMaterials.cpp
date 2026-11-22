@@ -77,11 +77,13 @@ int asoboDrawOrderOffset(const gltf::asobo::ExtensionSet& extensions)
 
 // A2.2: the material-type extensions the MSFS exporter writes (docs/ASOBO_EXTENSIONS_REFERENCE
 // section 3). Options such as UV_options, draw_order or emissive are not types; a standard
-// material with only those is still a receiver.
+// material with only those is still a receiver. ASOBO_material_detail_map is not a type either:
+// the exporter writes it for any material with detail textures (semantics §14), and the E2
+// cockpit panels are Standard materials that carry it and receive decals.
 constexpr std::string_view kAsoboMaterialTypeExtensions[] = {
     "ASOBO_material_geometry_decal", "ASOBO_material_blend_gbuffer", "ASOBO_material_clear_coat",
     "ASOBO_material_clear_coat_v2", "ASOBO_material_iridescent",
-    "ASOBO_material_anisotropic", "ASOBO_material_anisotropic_v2", "ASOBO_material_detail_map",
+    "ASOBO_material_anisotropic", "ASOBO_material_anisotropic_v2",
     "ASOBO_material_glass_v2", "ASOBO_material_glass", "ASOBO_material_kitty_glass",
     "ASOBO_material_windshield", "ASOBO_material_windshield_v3",
     "ASOBO_material_fresnel_fade", "ASOBO_material_ghost_effect", "ASOBO_material_SSS",
