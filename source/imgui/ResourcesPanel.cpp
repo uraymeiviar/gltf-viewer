@@ -65,7 +65,15 @@ static std::string formatResourceLabel(const char* icon,
     }
     if (hasName) {
         if (hasTitle || hasIndex) res += " ";
-        res += "\"" + name + "\"";
+        res += name;
+    } else if (opts.showName && !hasTitle && !hasIndex) {
+        // Unnamed item with only the name column on: show "Title id" so the row is not blank.
+        if (title && title[0] != '\0') {
+            res += title;
+            res += " ";
+        }
+        res += std::to_string(id);
+        return res;
     }
 
     if (!hasTitle && !hasIndex && !hasName) {
@@ -372,7 +380,7 @@ SelfCheckResult ResourcesPanel::runCacheInvalidationSelfCheck(bool forceFailure)
     // Display-option changes after cache construction.
     const std::string labeledMesh = meshCache.items.empty() ? std::string() : meshCache.items[0].label;
     ResourceDisplayOptions compact = options;
-    compact.showIndex = false;
+    compact.showIndex = !options.showIndex;
     compact.showName = true;
     meshCache = ensureMeshes(*first.model, compact, "");
     check(meshCache.items.size() == 1 && meshCache.items[0].label == expectedMeshLabel(first.mesh, compact),

@@ -68,7 +68,12 @@ std::string formatLabel(const char* icon,
         res += " ";
     }
     if (opts.showName && !name.empty()) {
-        res += "\"" + name + "\"";
+        res += name;
+    } else if (opts.showName && !opts.showTitle && !opts.showIndex && title && title[0] != '\0') {
+        // Unnamed item with only the name column on: show "Title id" so the row is not blank.
+        res += title;
+        res += " ";
+        res += std::to_string(id);
     }
 
     // Trim trailing whitespace
@@ -78,7 +83,7 @@ std::string formatLabel(const char* icon,
 
     // Fallback if all options were unchecked so item remains clickable and visible
     if (res.empty()) {
-        if (!name.empty()) return "\"" + name + "\"";
+        if (!name.empty()) return name;
         if (title) return std::string(title) + " " + std::to_string(id);
         return std::to_string(id);
     }

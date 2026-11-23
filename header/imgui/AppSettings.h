@@ -11,8 +11,8 @@ namespace ux3d::imgui {
 
 struct HierarchyDisplayOptions {
     bool showIcon = true;
-    bool showTitle = true;
-    bool showIndex = true;
+    bool showTitle = false;
+    bool showIndex = false;
     bool showName = true;
 };
 
