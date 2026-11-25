@@ -366,6 +366,55 @@ void GltfRenderLayer::initNodeMappings(gl::GL* gl)
             skin.setRoot(rootIt->second);
         }
 
+        // Bind convention. Strict glTF ignores the skinned mesh node's transform: at rest,
+        // jointWorld * IBM equals the mesh node's world matrix (or varies per joint when the
+        // rest pose is not the bind pose). Asobo/MSFS exports keep the vertices local to a placed
+        // mesh node and leave its transform out of the IBMs: at rest every jointWorld * IBM is
+        // one shared matrix C (usually the identity) that is not the mesh node's. Strictly, those
+        // vertices land near C * v and pivot about joints metres away once a bone moves (torn
+        // yoke cables and boots); Blender and MSFS deform the placed mesh instead.
+        if (const auto meshRestIt = m_skinRestWorld.find(gltfNode); meshRestIt != m_skinRestWorld.end()) {
+            const math::dmat4x4& meshRest = meshRestIt->second;
+            const auto& gltfJoints = gltfSkin->getJoints();
+            double scale = 1.0;
+            for (int c = 0; c < 3; ++c) {
+                scale = std::max(scale, std::abs(meshRest[3][c]));
+            }
+            const double tolerance = 1e-3 * scale;
+            const auto maxDifference = [](const math::dmat4x4& a, const math::dmat4x4& b) {
+                double result = 0.0;
+                for (int c = 0; c < 4; ++c) {
+                    for (int r = 0; r < 4; ++r) {
+                        result = std::max(result, std::abs(a[c][r] - b[c][r]));
+                    }
+                }
+                return result;
+            };
+            bool shared = !gltfJoints.empty() && gltfJoints.size() == skin.getInverseBindMatrixCount();
+            math::dmat4x4 restBind(1.0);
+            for (size_t j = 0; shared && j < gltfJoints.size(); ++j) {
+                const auto jointRestIt = m_skinRestWorld.find(gltfJoints[j]);
+                if (jointRestIt == m_skinRestWorld.end()) {
+                    shared = false;
+                    break;
+                }
+                const math::dmat4x4 bind = jointRestIt->second * math::dmat4x4(skin.getInverseBindMatrix(j));
+                if (j == 0) {
+                    restBind = bind;
+                } else if (maxDifference(bind, restBind) > tolerance) {
+                    shared = false;
+                }
+            }
+            // A mesh node at the identity is the strict-glTF layout (an armature moved after
+            // binding moves the mesh with it), so only a placed mesh node switches convention.
+            if (shared && maxDifference(restBind, meshRest) > tolerance && maxDifference(meshRest, math::dmat4x4(1.0)) > tolerance) {
+                skin.setBindCorrection(math::mat4x4(math::inverse(restBind) * meshRest));
+                core::logInfo("Skin '%s' on node '%s': inverse bind matrices omit the mesh node transform; "
+                              "deforming the placed mesh (Blender/MSFS convention)",
+                    gltfSkin->getName().c_str(), gltfNode->getName().c_str());
+            }
+        }
+
         m_skinMapping.updateRendererobjectFromGltf(gltfTuple, &skin);
         recalculateBones = true;
         return &skin;
@@ -534,8 +583,11 @@ void GltfRenderLayer::applyAnimationTime(const std::optional<float>& animationTi
 void GltfRenderLayer::updateSkins(const core::Vector<gltf::Node*>& rootNodes)
 {
     core::LinkedList<std::tuple<const gltf::Node*, const gltf::Skin*>> gltfTuples;
-    std::function<void(const gltf::Node&)> gatherSkinRecursive;
-    gatherSkinRecursive = [&](const gltf::Node& gltfNode) {
+    m_skinRestWorld.clear();
+    std::function<void(const gltf::Node&, const math::dmat4x4&)> gatherSkinRecursive;
+    gatherSkinRecursive = [&](const gltf::Node& gltfNode, const math::dmat4x4& parentWorld) {
+        const math::dmat4x4 world = parentWorld * gltfNode.getTransformMatrix();
+        m_skinRestWorld[&gltfNode] = world;
         const gltf::Skin* gltfSkin = gltfNode.getSkin();
         const gltf::Mesh* gltfMesh = gltfNode.getMesh();
         if (gltfSkin != nullptr && gltfMesh != nullptr && !gltfMesh->getPrimitives().empty()) {
@@ -544,11 +596,11 @@ void GltfRenderLayer::updateSkins(const core::Vector<gltf::Node*>& rootNodes)
 
         // recurse into children
         for (const gltf::Node* child : gltfNode.getChildren()) {
-            gatherSkinRecursive(*child);
+            gatherSkinRecursive(*child, world);
         }
     };
     for (const gltf::Node* gltfNode : rootNodes) {
-        gatherSkinRecursive(*gltfNode);
+        gatherSkinRecursive(*gltfNode, math::dmat4x4(1.0));
     }
     m_skinMapping.update(gltfTuples);
 }

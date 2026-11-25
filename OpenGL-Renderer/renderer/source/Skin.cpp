@@ -45,8 +45,10 @@ ux3d::renderer::Skin::Skin(gl::GL* gl)
 ux3d::renderer::Skin::Skin(const Skin& _Other)
     : m_inverseBindMatrices(_Other.m_inverseBindMatrices)
     , m_joints(_Other.m_joints)
-    , m_root(_Other.m_root)
     , m_meshes(_Other.m_meshes)
+    , m_root(_Other.m_root)
+    , m_bindCorrection(_Other.m_bindCorrection)
+    , m_hasBindCorrection(_Other.m_hasBindCorrection)
     , m_jointsSamplerState(_Other.m_jointsSamplerState)
     , m_jointsSampler(_Other.m_jointsSampler)
     , m_jointsTexture(_Other.m_jointsTexture)
@@ -56,8 +58,10 @@ ux3d::renderer::Skin::Skin(const Skin& _Other)
 ux3d::renderer::Skin::Skin(Skin&& _Other) noexcept
     : m_inverseBindMatrices(std::move(_Other.m_inverseBindMatrices))
     , m_joints(std::move(_Other.m_joints))
-    , m_root(_Other.m_root)
     , m_meshes(std::move(_Other.m_meshes))
+    , m_root(_Other.m_root)
+    , m_bindCorrection(_Other.m_bindCorrection)
+    , m_hasBindCorrection(_Other.m_hasBindCorrection)
     , m_jointsSamplerState(_Other.m_jointsSamplerState)
     , m_jointsSampler(_Other.m_jointsSampler)
     , m_jointsTexture(std::move(_Other.m_jointsTexture))
@@ -133,7 +137,11 @@ void ux3d::renderer::Skin::computeJoints()
     math::mat4x4 worldInverse = math::inverse(m_root->getWorldTransform());
 
     for (size_t i = 0u; i < m_joints.size(); ++i) {
+        // Strict glTF: world = jointWorld * IBM * v (the mesh node transform is cancelled).
         auto jointMatrix = worldInverse * m_joints[i]->getWorldTransform() * m_inverseBindMatrices[i];
+        if (m_hasBindCorrection) {
+            jointMatrix = jointMatrix * m_bindCorrection;
+        }
         auto jointNormalMatrix = math::transpose(math::inverse(jointMatrix));
         std::copy(math::value_ptr(jointMatrix), math::value_ptr(jointMatrix) + 16, textureData.begin() + i * 32);
         std::copy(math::value_ptr(jointNormalMatrix), math::value_ptr(jointNormalMatrix) + 16, textureData.begin() + i * 32 + 16);

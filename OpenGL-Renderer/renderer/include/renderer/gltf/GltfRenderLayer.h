@@ -386,6 +386,9 @@ private:
     size_t m_max2DTextureSize = 0;
     size_t m_maxTextureArrayLength = 0;
     std::list<renderer::Skin> m_skins;
+    // Rest-pose world matrices of the scene's nodes (glTF TRS, no animation), filled by
+    // updateSkins for the bind convention check of new skins.
+    std::unordered_map<const gltf::Node*, math::dmat4x4> m_skinRestWorld;
     std::list<animation::Animation> m_animations;
 
     bool m_cpuProfilingEnabled = false;
