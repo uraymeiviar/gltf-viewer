@@ -3,13 +3,14 @@
 // forward PBR shader (same material_info helpers, same DirectX/packaged normal decoding),
 // then writes one weighted value per target:
 //   A0 base colour (rgb d*w, a w)
-//   A1 world-space shading normal (rgb d*w, a w)
+//   A1 world-space normal offset (rgb (n_decal - n_base)*w, a 0: a sum, not an over blend)
 //   A2 emissive (rgb d*w, a w)
 //   A3 metallic (r d*w, g 0, a w for the blend weight)
 //   A4 roughness (r d*w, g 0, a w for the blend weight)
 //   A5 occlusion factor lerp(1, O, w)
 // The pass supplies the blend rules: over for A0-A4 (with the alpha channel carrying the
-// accumulated T), multiply for A5. Coverage is the base-colour alpha, in one place.
+// accumulated T; A1 writes alpha 0, which makes it a sum), multiply for A5. Coverage is the
+// base-colour alpha x the mode mask, in one place; the normal uses the mode mask only.
 
 layout(location = 0) out vec4 g_DecalBaseColor;
 layout(location = 1) out vec4 g_DecalNormal;
@@ -113,17 +114,20 @@ void main()
     }
 
     vec4 baseColor = getBaseColor();
-    float coverage = clamp(baseColor.a, 0.0, 1.0);
+    // The mode mask (blendMasked ramp, frosted icing) applies to every property; the
+    // base-colour alpha applies to all but the normal (see the normal offset below).
+    float modeMask = 1.0;
 #ifdef ASOBO_DECAL_BLEND_MASKED
     // A2.3: blendMasked coverage = standard alpha (which already holds the vertex alpha, as
     // in the exporter preview) x the blend-mask ramp. "frosted" and "default" stop above.
-    coverage *= asoboDecalBlendMaskRamp();
+    modeMask *= asoboDecalBlendMaskRamp();
 #endif
 #ifdef ASOBO_DECAL_FROSTED
     // A2.3: "frosted" coverage follows the icing state (Viewport Settings icing, default 0 = no
     // frost), as MSFS drives it from the aircraft icing; at 1 the authored coverage is drawn.
-    coverage *= clamp(u_WindshieldIcing, 0.0, 1.0);
+    modeMask *= clamp(u_WindshieldIcing, 0.0, 1.0);
 #endif
+    float coverage = clamp(baseColor.a, 0.0, 1.0) * modeMask;
 
 #if ALPHAMODE == ALPHAMODE_MASK
     if (baseColor.a < u_AlphaCutoff)
@@ -132,11 +136,15 @@ void main()
     }
 #endif
 
-    // Each property has its own weight: w_p = factor_p * coverage (design open question 1).
+    // Each property has its own weight: w_p = factor_p * coverage (design open question 1),
+    // except the normal: its weight is factor x mode mask, without the base-colour alpha
+    // (2026-11-23, from MSFS debug views of the E2-190 pedestal: the legends show the whole
+    // bevel of their normal map, including the half where the alpha is 0, and the receiver's
+    // detail normal stays visible under the transparent part of the decal).
     float wBase = clamp(u_DecalBaseColorFactor, 0.0, 1.0) * coverage;
     float wMetallic = clamp(u_DecalMetallicFactor, 0.0, 1.0) * coverage;
     float wRoughness = clamp(u_DecalRoughnessFactor, 0.0, 1.0) * coverage;
-    float wNormal = clamp(u_DecalNormalFactor, 0.0, 1.0) * coverage;
+    float wNormal = clamp(u_DecalNormalFactor, 0.0, 1.0) * modeMask;
     float wEmissive = clamp(u_DecalEmissiveFactor, 0.0, 1.0) * coverage;
     float wOcclusion = clamp(u_DecalOcclusionFactor, 0.0, 1.0) * coverage;
 
@@ -162,19 +170,27 @@ void main()
     roughness = 1.0 - clamp(u_GlossinessFactor, 0.0, 1.0);
 #endif
 
-    // Decal normal in world space. normalOverrideFactor mixes the receiver's mesh normal
-    // (prepass G0) with the decal mesh normal as the base, before the decal normal map.
+    // Decal normal as a world-space offset that the receiver adds to its own shading normal:
+    // the decal's tangent-space map applied around its base normal, minus that base normal.
+    // A flat map is no offset, so the receiver keeps its own normal (and its normal and detail
+    // maps) wherever the decal has no relief. normalOverrideFactor picks the base the map is
+    // applied around: the receiver's mesh normal (prepass G0) at 0, the decal mesh normal at 1.
+    vec3 normalOffset = vec3(0.0);
+#ifdef HAS_NORMAL_MAP
     vec3 v = normalize(u_Camera - v_Position);
     NormalInfo normalInfo = getNormalInfo(v);
     vec3 baseNormal = normalize(mix(receiverNormal, normalInfo.ng, clamp(u_DecalNormalOverride, 0.0, 1.0)));
-    vec3 decalNormal = baseNormal;
-#ifdef HAS_NORMAL_MAP
-    // Rebuild the tangent frame around the overridden base normal, then apply the decal's
-    // tangent-space map (sampleTangentSpaceNormal already applies DirectX/packaged rules).
+    // Rebuild the tangent frame around the base normal, then apply the decal's tangent-space
+    // map (sampleTangentSpaceNormal already applies DirectX/packaged rules).
     vec3 t = normalize(normalInfo.t - baseNormal * dot(baseNormal, normalInfo.t));
     vec3 b = cross(baseNormal, t);
-    decalNormal = normalize(mat3(t, b, baseNormal) * normalInfo.ntex);
+    vec3 decalNormal = normalize(mat3(t, b, baseNormal) * normalInfo.ntex);
+    normalOffset = (decalNormal - baseNormal) * wNormal;
 #endif
+    // Nothing to accumulate: every other weight is 0 (alpha 0) and the map is flat here.
+    if (wBase + wMetallic + wRoughness + wEmissive + wOcclusion <= 0.0 && normalOffset == vec3(0.0)) {
+        discard;
+    }
 
     vec3 emissive = u_EmissiveFactor;
     if (u_AsoboEmissiveActive != 0) {
@@ -213,7 +229,9 @@ void main()
     occlusion = mix(1.0, occlusion, wOcclusion);
 
     g_DecalBaseColor = vec4(baseColor.rgb * wBase, wBase);
-    g_DecalNormal = vec4(decalNormal * wNormal, wNormal);
+    // A1 is a sum of offsets: with alpha 0 the pass's blend (src + dst * (1 - srcAlpha)) adds
+    // the colour and leaves the cleared alpha at 1, so stacked decals add their relief.
+    g_DecalNormal = vec4(normalOffset, 0.0);
     // Bound the unweighted radiance, then premultiply: over-composition stays
     // within the half-float target even for partially covered, stacked decals.
     g_DecalEmissive = vec4(fitHalfFloatHdr(emissive) * wEmissive, wEmissive);

@@ -59,7 +59,7 @@ own weight, so each blended group gets its own target (OpenGL 4.1 per-buffer ble
 | depth | `DEPTH_COMPONENT32F` | prepass depth | 1 |
 | G0 | `RGB10_A2` | receiver geometric normal (prepass only) | — |
 | A0 | `RGBA8` | base colour `V.rgb`, `T` | (0,0,0,1) |
-| A1 | `RGBA16F` | normal `V.xyz` (world), `T` | (0,0,0,1) |
+| A1 | `RGBA16F` | normal offset `sum f_N (n_decal - n_base)` (world), alpha unused (stays 1) | (0,0,0,1) |
 | A2 | `RGBA16F` | emissive `V.rgb` (HDR), `T` | (0,0,0,1) |
 | A3 | `RG8` | metallic `V`, `T` | (0,1) |
 | A4 | `RG8` | roughness `V`, `T` | (0,1) |
@@ -69,6 +69,16 @@ About 33 bytes per pixel, about 68 MB at 1920×1080 (render-scale resolution). T
 another, so **one** set is shared, sized to the largest viewport that needs it, created on first use and released
 when the model is unloaded or no viewport uses decals. Formats are an implementation choice: start here, and raise
 A0 to `RGBA16F` or A3–A5 to 16-bit only if the tests show banding. Not a user setting.
+
+**Normal (changed 2026-11-23).** The decal normal is not an over-blended value. The decal pass writes the offset
+`f_N x mode mask x (n_decal - n_base)` into A1 with alpha 0, so the over blend becomes a sum; `n_base` is the base
+that `normalOverrideFactor` picks (receiver G0 at 0, decal mesh normal at 1) and `n_decal` is the decal map applied
+around it. The receiver adds the sum to its own shading normal (its normal and detail maps included) and
+renormalizes; an offset of exactly 0 keeps it unchanged. The base-colour alpha does not weight the normal. Evidence:
+MSFS NdotL and world-normal debug views of the E2-190 pedestal (`MAT_DECAL_LIT`) show each legend's whole bevel
+ridge, whose outer half lies where the decal alpha is 0, and keep the receiver's detail-normal grain under the
+transparent part of the decal. With the earlier `w = f x alpha` lerp the outer half was lost and the legends looked
+flat. The mode mask (blendMasked ramp, frosted icing) still applies. The A1.4 forward fallback is unchanged.
 
 ### Receiver side (`pbr.frag`)
 
@@ -112,7 +122,9 @@ A0 to `RGBA16F` or A3–A5 to 16-bit only if the tests show banding. Not a user 
   Measured, not assumed (A2.5).
 - TAA and FXAA: no change (the prepass uses the jittered matrices of the frame).
 - Debug views (base colour, normal, metallic, …) show the properties after decals, which makes them the first test
-  tool.
+  tool. Normal Texture (since 2026-11-23) shows a decal's normal on a receiver too, as the decal-mixed shading
+  normal in the receiver's tangent frame, and a detail normal map on a material without its own normal map;
+  before, a receiver without a normal map showed the missing-data checkerboard under its decals.
 
 ### Why not a full deferred path
 
@@ -284,7 +296,8 @@ Run one at a time; each lands, is reviewed and committed before the next. Owners
 
 Numbers refer to [study §5](ASOBO_GBUFFER_STUDY.md). They do not block the design; each has a single place in code:
 
-- **1 — exact weight:** `w_p = f_p × coverage` in the decal shader.
+- **1 — exact weight:** `w_p = f_p × coverage` in the decal shader, except the normal (`f_N × mode mask`,
+  added as an offset; MSFS views of the E2-190 pedestal, 2026-11-23).
 - **2 — blendMasked direction:** the ramp function.
 - **3 — over-coat decals:** the receiver injection.
 - **5 — ties and depth bias:** the A1.4 sort and the decal depth state.

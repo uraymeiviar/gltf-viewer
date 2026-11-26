@@ -3,10 +3,12 @@
 // may be MSAA; gl_FragCoord is the pixel centre in both cases and matches the buffer's
 // texel grid (the shared buffer is bound with the same viewport origin and size).
 //
-// A0 base colour (rgb V, a T), A1 world normal (rgb V, a T), A2 emissive (rgb V, a T),
-// A3 metallic (r V, g T), A4 roughness (r V, g T), A5 occlusion product. p = V + T * p_below,
-// so a T of exactly 1 means "no decal" and an explicit branch keeps the receiver value
-// byte-identical. The targets are RGBA8/RGBA16F/RG8/R8 with nearest filtering.
+// A0 base colour (rgb V, a T), A2 emissive (rgb V, a T), A3 metallic (r V, g T), A4
+// roughness (r V, g T), A5 occlusion product. p = V + T * p_below, so a T of exactly 1 means
+// "no decal" and an explicit branch keeps the receiver value byte-identical. A1 is the sum
+// of the decals' world-space normal offsets (rgb; a stays 1): n = normalize(n_below + offset),
+// and an offset of exactly 0 keeps the receiver normal. The targets are
+// RGBA8/RGBA16F/RG8/R8 with nearest filtering.
 
 #ifdef ASOBO_DECAL_RECEIVER
 uniform sampler2D u_DecalA0;

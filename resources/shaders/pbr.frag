@@ -468,11 +468,11 @@ void main()
     vec3 v = normalize(u_Camera - v_Position);
     NormalInfo normalInfo = getNormalInfo(v);
 #ifdef ASOBO_DECAL_RECEIVER
-    // A2.2: the decal normal is world space; mix it with the receiver's shading normal
-    // and renormalize before any NdotV term is derived. The explicit branch keeps a
-    // receiver with T == 1 bit-for-bit unchanged.
-    if (decalReceiver.normal.a < 1.0) {
-        normalInfo.n = normalize(decalReceiver.normal.rgb + decalReceiver.normal.a * normalInfo.n);
+    // A2.2: the decals' summed world-space normal offset is added to the receiver's shading
+    // normal (its own normal and detail maps included) and renormalized before any NdotV term
+    // is derived. The explicit branch keeps a pixel without decal relief bit-for-bit unchanged.
+    if (decalReceiver.normal.rgb != vec3(0.0)) {
+        normalInfo.n = normalize(normalInfo.n + decalReceiver.normal.rgb);
     }
 #endif
     vec3 n = normalInfo.n;
@@ -1309,8 +1309,30 @@ void main()
 #if DEBUG == DEBUG_UV_1 && defined(HAS_TEXCOORD_1_VEC2)
     g_finalColor.rgb = vec3(v_texcoord_1, 0);
 #endif
-#if DEBUG == DEBUG_NORMAL_TEXTURE && defined(HAS_NORMAL_MAP)
-    g_finalColor.rgb = (normalInfo.ntex + 1.0) / 2.0;
+#if DEBUG == DEBUG_NORMAL_TEXTURE
+    // The tangent-space normal the shading uses. Besides the material's own normal map that is
+    // an ASOBO detail normal map on a material without one (A5.1) and, on a decal receiver, the
+    // decal normals (A2.2): those are world space, so the decal-mixed shading normal is shown in
+    // the receiver's tangent frame. Pixels with none of them keep the missing-data checkerboard.
+    {
+#ifdef HAS_NORMAL_MAP
+        bool hasTangentNormal = true;
+#elif defined(ASOBO_MATERIAL_DETAIL_MAP) && defined(HAS_DETAIL_NORMAL_MAP)
+        bool hasTangentNormal = u_AsoboDetailMapEnabled != 0;
+#else
+        bool hasTangentNormal = false;
+#endif
+        vec3 tangentNormal = normalInfo.ntex;
+#ifdef ASOBO_DECAL_RECEIVER
+        if (decalReceiver.normal.rgb != vec3(0.0)) {
+            tangentNormal = normalize(transpose(mat3(t, b, normalInfo.ng)) * n);
+            hasTangentNormal = true;
+        }
+#endif
+        if (hasTangentNormal) {
+            g_finalColor.rgb = (tangentNormal + 1.0) / 2.0;
+        }
+    }
 #endif
 #if DEBUG == DEBUG_NORMAL_SHADING
     g_finalColor.rgb = (n + 1.0) / 2.0;

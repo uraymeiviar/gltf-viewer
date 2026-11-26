@@ -12,7 +12,14 @@ byte-exact where the design asks for it:
   values       the changed view shows the decal value (base colour, metallic, roughness,
                shading normal, emissive) and occlusion is the receiver*decal product,
                including a receiver without an occlusion map.
-  order        two 0.5-weight decals, values 1 then 0: 0.25 in that order, 0.5 reversed.
+  normal       the decal normal map is an offset added to the receiver normal: weighted by
+               normalBlendFactor without the base-colour alpha (an alpha-0 decal still adds
+               relief and changes nothing else), no offset without relief, and
+               normalOverrideFactor choosing the base the map is applied around.
+  normal tex   the Normal Texture view shows the decal normal in the receiver's tangent
+               frame on a receiver without a normal map; outside it and at factor 0 it is
+               byte-identical to no decal.
+  order       two 0.5-weight decals, values 1 then 0: 0.25 in that order, 0.5 reversed.
   untouched    a MASK receiver and a BLEND glass material do not read the decal buffer.
   switch       the decal switch off renders the A1.4 forward fallback (decal visible),
                while the draw-order switch off leaves the offset at 0.
@@ -26,6 +33,7 @@ Run: python scripts/validate_asobo_decal.py
 import base64
 import hashlib
 import json
+import math
 import re
 import struct
 import sys
@@ -60,6 +68,12 @@ DECAL_METALLIC = 1.0
 DECAL_ROUGHNESS = 0.1
 DECAL_EMISSIVE = (0.8, 0.4, 0.1)
 DECAL_NORMAL = (0.6, 0.0, 0.8)
+# The decal's tangent-space normal map (one texel), encoded (n + 1) / 2 in 8 bits.
+DECAL_TANGENT_NORMAL = (0.6, 0.0, 0.8)
+
+
+def encode_normal(n):
+    return tuple(round((c + 1.0) * 0.5 * 255.0) for c in n)
 
 failures = []
 
@@ -93,11 +107,14 @@ def close(actual, expected, tolerance=3):
 
 
 def make_png(value):
+    """A 1x1 RGBA8 PNG: value is a grey level or an (r, g, b) tuple."""
+    rgb = tuple(value) if isinstance(value, (tuple, list)) else (value, value, value)
+
     def chunk(tag, payload):
         return struct.pack(">I", len(payload)) + tag + payload + struct.pack(
             ">I", zlib.crc32(tag + payload) & 0xFFFFFFFF)
 
-    raw = b"\x00" + bytes([value, value, value, 255])
+    raw = b"\x00" + bytes([*rgb, 255])
     return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 6, 0, 0, 0))
             + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b""))
 
@@ -138,12 +155,14 @@ def write_fixture(name, *, decal_count=0, factors=None, receiver_alpha="OPAQUE",
                   receiver_occlusion=128, receiver_glass=False, receiver_detail=False,
                   receiver_clear_coat=False, decal_occlusion=128,
                   decals=None, normal_override=None, decal_z=0.01,
+                  decal_normal_map=DECAL_TANGENT_NORMAL, decal_mesh_normal=DECAL_NORMAL,
                   occluder_z=None, occluder_color=(0.05, 0.8, 0.1)):
     """Writes one fixture. The decal material always exists (so the buffer is active);
     decal_count controls how many decal nodes are in the scene. decals overrides the
     per-decal (color4, offset) list for the overlap case. decal_z places the decal relative
     to the receiver (negative is behind it); occluder_z adds a box whose front face is at
-    that z, in front of the decal."""
+    that z, in front of the decal. decal_normal_map is the decal's tangent-space normal
+    (None: no normal texture); decal_mesh_normal is the decal quad's vertex normal."""
     document = {
         "asset": {"version": "2.0", "generator": "A2.2 decal validation fixture"},
         "scene": 0,
@@ -243,6 +262,8 @@ def write_fixture(name, *, decal_count=0, factors=None, receiver_alpha="OPAQUE",
                 "ASOBO_material_draw_order": {"drawOrderOffset": offset},
             },
         }
+        if decal_normal_map is not None:
+            material["normalTexture"] = {"index": 2}
         document["materials"].append(material)
 
     if occluder_z is not None:
@@ -258,7 +279,7 @@ def write_fixture(name, *, decal_count=0, factors=None, receiver_alpha="OPAQUE",
     receiver_mesh = add_quad(0.0, (0.0, 0.0, 1.0), 1.0, 0, "Receiver")
     assert receiver_mesh == 0
     for index in range(decal_count):
-        add_quad(decal_z, DECAL_NORMAL, 0.5, 1 + index, "Decal" + (str(index) if index else ""))
+        add_quad(decal_z, decal_mesh_normal, 0.5, 1 + index, "Decal" + (str(index) if index else ""))
         document["scenes"][0]["nodes"].append(len(document["nodes"]) - 1)
     if occluder_z is not None:
         occluder_material = len(document["materials"]) - 1
@@ -271,8 +292,10 @@ def write_fixture(name, *, decal_count=0, factors=None, receiver_alpha="OPAQUE",
     document["images"] = [
         {"uri": "data:image/png;base64," + base64.b64encode(make_png(receiver_occlusion or 255)).decode("ascii")},
         {"uri": "data:image/png;base64," + base64.b64encode(make_png(decal_occlusion)).decode("ascii")},
+        {"uri": "data:image/png;base64,"
+                + base64.b64encode(make_png(encode_normal(decal_normal_map or (0.0, 0.0, 1.0)))).decode("ascii")},
     ]
-    document["textures"] = [{"source": 0}, {"source": 1}]
+    document["textures"] = [{"source": 0}, {"source": 1}, {"source": 2}]
     path = OUT / f"{name}.gltf"
     path.write_text(json.dumps(document, indent=1), encoding="utf-8")
     return path
@@ -308,6 +331,30 @@ def pixels(path):
         offset = (y * width + x) * channels
         result[name] = tuple(data[offset:offset + 3])
     return result
+
+
+def expected_shading_normal(mesh_normal, override, tangent_normal):
+    """The receiver (mesh normal +z, no normal map) plus the decal's normal offset, as the
+    shaders compute it: the decal map is applied around base = mix(+z, decal mesh normal,
+    override) with the UV tangent +x, the offset is that minus base, the receiver adds it.
+    Returns the 8-bit Shading Normal colour (n + 1) / 2."""
+    def norm(v):
+        length = math.sqrt(sum(c * c for c in v))
+        return tuple(c / length for c in v)
+
+    def dot(a, b):
+        return sum(x * y for x, y in zip(a, b))
+
+    def cross(a, b):
+        return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+
+    ntex = norm(tuple(c / 255.0 * 2.0 - 1.0 for c in encode_normal(tangent_normal)))
+    base = norm(tuple((1.0 - override) * r + override * m for r, m in zip((0.0, 0.0, 1.0), norm(mesh_normal))))
+    t = norm(tuple(x - b * dot(base, (1.0, 0.0, 0.0)) for x, b in zip((1.0, 0.0, 0.0), base)))
+    bt = cross(base, t)
+    decal = norm(tuple(ntex[0] * t[i] + ntex[1] * bt[i] + ntex[2] * base[i] for i in range(3)))
+    n = norm(tuple(r + d - b for r, d, b in zip((0.0, 0.0, 1.0), decal, base)))
+    return tuple(round((c + 1.0) * 0.5 * 255.0) for c in n)
 
 
 def property_factors(property_name):
@@ -360,13 +407,56 @@ def main():
         check(close(sample["center"], expected),
               f"{property_name}: centre {sample['center']} is the decal value {expected}")
 
-    # normalOverrideFactor 0 must use the receiver mesh normal (prepass G0) as the base.
-    override_model = write_fixture("normal_override_0", decal_count=1,
-                                   factors=property_factors("normalBlendFactor"), normal_override=0.0)
-    sample = pixels(capture(override_model, "shadingnormal", "normal_override_0"))
+    print("[normal: an offset added to the receiver normal, weighted without the alpha]")
+    # normalOverrideFactor picks the base the decal map is applied around: the receiver mesh
+    # normal (prepass G0) at 0, the tilted decal mesh normal at 1 (the default).
+    tilt_back = (-0.6, 0.0, 0.8)
+    for override in (0.0, 1.0):
+        label = f"normal_override_{int(override)}"
+        model = write_fixture(label, decal_count=1, factors=property_factors("normalBlendFactor"),
+                              normal_override=override, decal_normal_map=tilt_back)
+        expected = expected_shading_normal(DECAL_NORMAL, override, tilt_back)
+        sample = pixels(capture(model, "shadingnormal", label))
+        if sample:
+            check(close(sample["center"], expected),
+                  f"normalOverrideFactor {override:g}: centre {sample['center']} == {expected}")
+    # A flat (absent) decal normal map is no offset: the receiver normal stays byte-identical,
+    # even though the decal mesh normal is tilted.
+    flat_model = write_fixture("normal_flat", decal_count=1, factors=property_factors("normalBlendFactor"),
+                               decal_normal_map=None)
+    check(same(capture(flat_model, "shadingnormal", "normal_flat"), baseline["shadingnormal"]),
+          "a decal without normal relief leaves the shading normal byte-identical")
+    # The base-colour alpha does not weight the normal: a fully transparent decal still adds its
+    # relief (MSFS shows legend bevels beyond the legend alpha) and changes nothing else.
+    transparent_model = write_fixture("normal_alpha_0", decal_count=1, factors={},
+                                      decals=[((*DECAL_COLOR[:3], 0.0), 10)])
+    sample = pixels(capture(transparent_model, "shadingnormal", "normal_alpha_0"))
+    expected = expected_shading_normal(DECAL_NORMAL, 1.0, DECAL_TANGENT_NORMAL)
     if sample:
-        check(close(sample["center"], (128, 128, 255), tolerance=2),
-              f"normalOverrideFactor 0: centre {sample['center']} is the receiver G0 normal")
+        check(close(sample["center"], expected),
+              f"alpha 0 decal: centre {sample['center']} carries the decal relief {expected}")
+    for view in ("basecolor", "metallic", "roughness", "emissive", "occlusion"):
+        check(same(capture(transparent_model, view, "normal_alpha_0"), baseline[view]),
+              f"alpha 0 decal: {view} stays byte-identical")
+
+    # The Normal Texture view shows decal normals too: on a receiver without a normal map the
+    # decal-offset normal in the receiver's tangent frame (here t = +x, b = +y, so the shading
+    # normal (0.6, 0, 0.8) reads as itself), and the missing-data checkerboard outside the decal.
+    print("[normal texture view: the decal normal on a receiver without a normal map]")
+    texture_model = write_fixture("normal_texture", decal_count=1, factors=property_factors("normalBlendFactor"))
+    texture_view = capture(texture_model, "normaltexture", "normal_texture")
+    texture_baseline = capture(baseline_model, "normaltexture", "no_decal")
+    sample = pixels(texture_view)
+    base_sample = pixels(texture_baseline)
+    if sample and base_sample:
+        check(close(sample["center"], (204, 128, 230)),
+              f"normal texture view: centre {sample['center']} is the decal normal (204, 128, 230)")
+        check(sample["outside"] == base_sample["outside"],
+              f"normal texture view: outside {sample['outside']} keeps the no-decal value {base_sample['outside']}")
+        check(base_sample["center"] != sample["center"],
+              f"normal texture view without the decal: centre {base_sample['center']} is not the decal normal")
+    zero_texture = capture(zero_model, "normaltexture", "zero")
+    check(same(zero_texture, texture_baseline), "normal texture view: factor 0 is byte-identical to no decal")
 
     print("[occlusion: receiver * decal, and without a receiver occlusion map]")
     occlusion_model = write_fixture("occlusion", decal_count=1, factors=property_factors("occlusionBlendFactor"))
