@@ -175,6 +175,8 @@ Suites (equivalence against the baseline plus each feature's analytic acceptance
   LINEAR rotation, KHR_animation_pointer visibility, STEP and CUBICSPLINE morph weights at t = 0, exactly on each
   key, between keys, the clip end, past the end and before the first key through the pipe; the timeline's end,
   loop wrap and stop; --anim-time renders on a key = static twins; twins against the baseline),
+  validate_skin_node_transform.py (Skinned mesh node transform: auto / spec / msfs per file with and without an
+  ASOBO extension in get_state and in renders against unskinned twins, live pipe edits, settings.ini persistence),
   validate_extension_switches.py (File > Settings > glTF Extensions: per representative extension off renders
   byte-identical to the file without it and on byte-identical to the baseline; required + off refuses the load with
   the reason; validator "switched off" notices; a switch change reloads the open file like a fresh open; ASOBO
@@ -338,6 +340,10 @@ TRIGGERS = (
      ("OpenGL-Renderer/Tools/Runtime/runtime/animation/*", "GltfRenderLayerNodes.cpp", "AnimationPlayer.*",
       "TransformAnimationTarget.h", "KHRAnimationPointerTarget.h", "AnimationChannelTarget.*", "AnimationsFromJson.*",
       "source/imgui/application/CommandsHandlers.cpp", "validate_animation_keys.py")),
+    # Skinned mesh node transform: the skin bind correction and the app setting that applies it.
+    (("skin_node_transform",),
+     ("OpenGL-Renderer/renderer/source/Skin.cpp", "OpenGL-Renderer/renderer/include/renderer/Skin.h",
+      "GltfRenderLayerNodes.cpp", "GltfRenderLayer.h", "GltfExtensionSettings.*", "validate_skin_node_transform.py")),
     # ASOBO_property_animation: the loader's channels, their switch and the animated ASOBO UV options.
     (("asobo_property_animation",),
      ("AnimationsFromJson.*", "AnimationChannel.h", "AnimationsToJson.*", "AnimationChannelsToJson.*",
@@ -558,6 +564,7 @@ serial_jobs = [
     ("extension_switches", ["scripts/validate_extension_switches.py", "--baseline-exe", str(baseline)]),
     ("node_visibility", ["scripts/validate_node_visibility.py", "--baseline-exe", str(baseline)]),
     ("animation_keys", ["scripts/validate_animation_keys.py", "--baseline-exe", str(baseline)]),
+    ("skin_node_transform", ["scripts/validate_skin_node_transform.py"]),
     ("asobo_property_animation", ["scripts/validate_asobo_property_animation.py"]),
     ("draw_call_stat", ["scripts/validate_draw_call_stat.py"]),
     ("trivial_extensions", ["scripts/validate_trivial_extensions.py", "--baseline-exe", str(baseline)]),

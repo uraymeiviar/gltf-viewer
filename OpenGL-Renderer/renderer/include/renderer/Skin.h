@@ -36,12 +36,16 @@ namespace renderer {
         // that is not the mesh node's world matrix. The joint deltas then deform the placed
         // mesh, as Blender's armature does: world = jointWorld x IBM x correction x v with
         // correction = inverse(C) x meshRestWorld, instead of strict glTF's jointWorld x IBM x v.
+        // The correction is detected once per skin; whether it is used is the app's skinned mesh
+        // node transform setting (GltfRenderLayer::skinNodeTransform), so it can change live.
         void setBindCorrection(const math::mat4x4& correction)
         {
             m_bindCorrection = correction;
             m_hasBindCorrection = true;
         }
         bool hasBindCorrection() const { return m_hasBindCorrection; }
+        void setBindCorrectionActive(bool active) { m_bindCorrectionActive = active; }
+        bool bindCorrectionApplied() const { return m_hasBindCorrection && m_bindCorrectionActive; }
 
         // Joint texture uploads issued and suppressed as unchanged (P4.7).
         struct JointUploadStats {
@@ -58,6 +62,7 @@ namespace renderer {
         TransformHierarchyNode* m_root; //Node in which the skin is used
         math::mat4x4 m_bindCorrection = math::mat4x4(1.0f);
         bool m_hasBindCorrection = false;
+        bool m_bindCorrectionActive = false;
 
         std::shared_ptr<gl::Texture> m_jointsTexture = nullptr;
         // Reused between frames. Never part of the skin's observable state; its

@@ -89,6 +89,31 @@ void Application::registerAgentSceneEffectSettings()
         addSetting(std::move(spec));
     }
 
+    {
+        // How glTF skins are read (renderer::SkinNodeTransform); app setting next to the extension switches.
+        using GES = ux3d::imgui::GltfExtensionSettings;
+        SettingSpec spec;
+        spec.key = GES::kSkinNodeTransformKey;
+        spec.scope = R;
+        spec.type = SettingType::Enum;
+        spec.help = "Skinned mesh node transform: spec = strict glTF (the skinned mesh node's own transform is ignored); "
+                    "msfs = Blender / MSFS (a skin whose rest pose shows inverse bind matrices without the placed mesh "
+                    "node's transform deforms the mesh where its node places it); auto (default) = msfs in files that "
+                    "declare an ASOBO extension, spec otherwise. App setting; session-only unless set_persist(true).";
+        spec.cliFlag = "--skinned-mesh-node-transform <auto|spec|msfs>";
+        spec.enumValues = {"auto", "spec", "msfs"};
+        spec.defaultValue = "auto";
+        spec.get = [](void*) { return json(GES::skinNodeTransformName(GES::instance().skinNodeTransform())); };
+        spec.set = [](void*, const json& v, std::string&) {
+            ux3d::renderer::SkinNodeTransform mode;
+            if (!GES::parseSkinNodeTransform(v.get<std::string>(), mode)) return false;
+            GES::instance().setSkinNodeTransform(mode, false);
+            return true;
+        };
+        spec.onPersist = [] { auto& e = GES::instance(); e.setSkinNodeTransform(e.skinNodeTransform(), true); };
+        addSetting(std::move(spec));
+    }
+
     // glTF extension switches are an app setting (docs/SETTINGS_SCOPES.md): one global set for every viewport and
     // model, saved in settings.ini [GltfExtensions]. The canonical keys are in the renderer scope, keyed by the
     // extension name ("asobo" is the ASOBO group's master switch); the former viewport keys are compatibility keys.

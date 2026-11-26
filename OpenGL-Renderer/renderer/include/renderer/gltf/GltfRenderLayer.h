@@ -58,6 +58,17 @@ struct AnimationProfileTimes {
     double skinsMs = 0.0;
 };
 
+// Whether a skinned mesh node's own transform is applied (an app setting, docs/SETTINGS_SCOPES.md). glTF ignores it:
+// vertices go where jointWorld x IBM puts them. Blender and MSFS keep the mesh where its node places it, and the
+// MSFS exporter writes inverse bind matrices without that node's transform, so strictly such meshes drift and pivot
+// about joints metres away. A skin is only corrected when its rest pose shows that layout (every joint gives one
+// shared jointWorld x IBM that is not the placed, non-identity mesh node's world matrix).
+enum class SkinNodeTransform {
+    Auto,      // corrected in files that declare an ASOBO_* extension (MSFS exports); the default
+    Spec,      // never: strict glTF
+    MeshNode,  // in every file (Blender / MSFS convention)
+};
+
 // Which declared ASOBO (MSFS) extensions a viewport applies (docs/ASOBO_EXTENSIONS_PHASE_0.md, A0.4).
 // Defaults apply all of them; with everything off, rendering matches a build without ASOBO support.
 struct AsoboOptions {
@@ -278,6 +289,11 @@ public:
     // ASOBO_material_invisible not applied, materials it marks invisible are drawn.
     AsoboOptions asoboOptions;
     MaterialExtensionOptions materialExtensionOptions;
+    // Applied by applyAnimationTime, so a change needs one more pose update (SceneChange::AnimationTime).
+    SkinNodeTransform skinNodeTransform = SkinNodeTransform::Auto;
+    // Skins whose rest pose shows the mesh-node-relative layout, and how many of them are corrected now.
+    size_t detectedSkinCorrections() const;
+    size_t appliedSkinCorrections() const;
 
     // A1.2: the asset's ASOBO_normal_map_convention is "DirectX". Whether the viewport
     // applies it is a separate AsoboOptions switch, so the shader flag combines both.

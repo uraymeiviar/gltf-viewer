@@ -99,7 +99,7 @@ the Inspector. Cells, labels and grid opacity are shared.
 | **Scope** | Selected objects; shares over the selection. | The whole scene in every view; shares over the scene. |
 | **Islands** | Blender's vertices and UVs. | glTF has no welded topology: a corner's exact position and its UV rounded to 1e-6 stand for Blender's vertex and UV, within one node (all its primitives, as one object). Two distinct Blender vertices that coincide with equal UVs join here. |
 | **Triangles** | Blender's own tessellation. | The file's. An exported n-gon may be split differently. |
-| **Pose** | Evaluated mesh at the current frame; **Refresh** after a change. | The pose when the table is built: node world matrices, and joints for a skinned mesh (the node's own transform does not apply). Files with animations are measured as Glider first shows them, not in the rest pose. Playback does not rebuild the table; choose the view again to measure the current pose. |
+| **Pose** | Evaluated mesh at the current frame; **Refresh** after a change. | The pose when the table is built: node world matrices, and joints for a skinned mesh (its node's own transform applies only as the skinned mesh node transform setting says). Files with animations are measured as Glider first shows them, not in the rest pose. Playback does not rebuild the table; choose the view again to measure the current pose. |
 | **Morph targets** | Evaluated with shape keys. | The base shape (`morphedPrimitives` counts them). |
 | **EXT_mesh_gpu_instancing** | Separate objects on import. | One draw: every instance shows the measures at the *first* instance's scale; its area counts once per instance. |
 | **No UVs** | Skipped, listed in the legend. | "No data" grey, listed in the legend. Points and lines too. |

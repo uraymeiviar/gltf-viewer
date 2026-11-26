@@ -122,6 +122,11 @@ void Application::resolveAllViewportSettings()
         lastGltfExtensionRevision = extensions.revision();
         sceneRevisions.mark(ux3d::imgui::SceneChange::ViewportSettings);
     }
+    // The skinned mesh node transform is applied with the pose (applyAnimationTime), so a change poses once more.
+    if (gltfLayer != nullptr && gltfLayer->skinNodeTransform != extensions.skinNodeTransform()) {
+        gltfLayer->skinNodeTransform = extensions.skinNodeTransform();
+        sceneRevisions.mark(ux3d::imgui::SceneChange::AnimationTime);
+    }
     for (auto& vp : viewports) {
         if (!vp) continue;
         vp->oceanClock = environment.oceanClock;

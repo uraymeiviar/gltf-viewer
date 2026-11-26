@@ -301,6 +301,9 @@ std::optional<int> Application::configure(int argc, char** argv)
             if (!applyCliSetting(SettingScope::Viewport, "ocean_wind_speed", argv[++i], "--ocean-wind-speed")) return 1;
         } else if (arg == "--ocean-wind-dir" && i + 1 < argc) {
             if (!applyCliSetting(SettingScope::Viewport, "ocean_wind_dir", argv[++i], "--ocean-wind-dir")) return 1;
+        } else if (arg == "--skinned-mesh-node-transform" && i + 1 < argc) {
+            if (!applyCliSetting(SettingScope::Renderer, "skinned_mesh_node_transform", toLowerAscii(argv[++i]),
+                                 "--skinned-mesh-node-transform")) return 1;
         } else if (arg == "--ocean-quality" && i + 1 < argc) {
             if (!applyCliSetting(SettingScope::Renderer, "ocean_quality", toLowerAscii(argv[++i]), "--ocean-quality")) return 1;
         } else if (arg == "--ocean-time" && i + 1 < argc) {

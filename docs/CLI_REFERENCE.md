@@ -25,6 +25,13 @@ Quality. The old environment / viewport names forward where applicable. Scene ke
 `--ground-grid` and `--hide-grid` now control the same per-viewport overlay (later flags win), drawn at the scene
 surface height. Ocean simulation mode / play are global Quality; time / period remain scene values.
 
+`--skinned-mesh-node-transform <auto|spec|msfs>` / `skinned_mesh_node_transform` (app setting, File → Settings → glTF
+Extensions → Skinned mesh node transform, saved as `skinned_mesh_node_transform=` in `[GltfExtensions]` only when not
+`auto`; the flag is session-only): whether a skinned mesh keeps the position its own node gives it. `spec` is strict glTF
+(the node's transform is ignored). `msfs` corrects every skin whose rest pose shows inverse bind matrices without the
+placed mesh node's transform (Blender / MSFS convention). `auto` (default) does that only in files that declare an
+`ASOBO_*` extension. Changes apply at once; `get_state.skinning` reports the mode and the detected / applied skin counts.
+
 `--interior-sky-reflection` / `interior_sky_reflection` and `--decal-tolerance` / `decal_tolerance_mm` are ASOBO
 app tuning in `[GltfExtensions]`, saved only by UI or a requested pipe commit. Sky portals are implicit at default
 strength 0.35 with either source; disable ASOBO_sky_portal to remove them. `--sky-portal-strength` /

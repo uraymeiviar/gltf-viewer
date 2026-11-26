@@ -86,6 +86,14 @@ public:
     const std::map<std::string, float>& tuningSnapshot() const { return m_tuning; }
     void restoreTuning(const std::map<std::string, float>& values);
 
+    // Skinned mesh node transform (renderer::SkinNodeTransform): not an extension, but how glTF skins are read, so it
+    // shares this class's effective / saved handling. Saved as skinned_mesh_node_transform=spec|msfs (Auto: no key).
+    static constexpr const char* kSkinNodeTransformKey = "skinned_mesh_node_transform";
+    static const char* skinNodeTransformName(ux3d::renderer::SkinNodeTransform mode);
+    static bool parseSkinNodeTransform(std::string_view name, ux3d::renderer::SkinNodeTransform& mode);
+    ux3d::renderer::SkinNodeTransform skinNodeTransform() const { return m_skinNodeTransform; }
+    void setSkinNodeTransform(ux3d::renderer::SkinNodeTransform mode, bool persist);
+
     // Everything applied again, in both sets.
     void resetToDefaults();
     // Back to the saved set (this run's overrides dropped).
@@ -111,6 +119,8 @@ private:
     std::set<std::string> m_saved;
     std::map<std::string, float> m_tuning{{"interior_sky_reflection", 0.5f}, {"decal_tolerance_mm", 1.2f}};
     std::map<std::string, float> m_savedTuning = m_tuning;
+    ux3d::renderer::SkinNodeTransform m_skinNodeTransform = ux3d::renderer::SkinNodeTransform::Auto;
+    ux3d::renderer::SkinNodeTransform m_savedSkinNodeTransform = ux3d::renderer::SkinNodeTransform::Auto;
     uint64_t m_revision = 0;
     std::string m_filter; // the tab's search filter
 };

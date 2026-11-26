@@ -12,8 +12,7 @@ the XY plane, looked at along -Z, each with hand-computed answers:
   * magenta for a face without UV area, grey for a primitive without UVs;
   * TEXCOORD_n of the material's base colour, KHR_texture_transform and ASOBO_material_UV_options scale, node scale
     (uniform: density only; non-uniform: shear too), one mesh under nodes of different scale (draws must not merge),
-    triangle strips, several primitives in one mesh (table offsets), EXT_mesh_gpu_instancing (first instance's scale),
-    a skinned mesh (joint scale, the node's own transform ignored);
+    triangle strips, several primitives in one mesh (table offsets), EXT_mesh_gpu_instancing (first instance's scale);
   * a packaged ASOBO_asset_optimized file: half-float UVs, a shared index accessor sliced by ASOBO_primitive.
 The UV grid and cell labels, with the add-on's cell layout: every font pixel of each label read back at its computed
 place (A1 at the image's lower left, two-letter columns, two-digit rows, tiled UVs, KHR_texture_transform, TEXCOORD_1),
@@ -324,7 +323,8 @@ def build_main(path):
     add(f, "first primitive", 5, 3, shear=1.0, offset=(-0.5, 0))
     add(f, "second primitive", 5, 3, shear=2.0, offset=(0.5, 0))
 
-    # Row 4: EXT_mesh_gpu_instancing and a skin, for the reference and pixels per metre.
+    # Row 4: EXT_mesh_gpu_instancing, for the reference and pixels per metre. No skinned mesh: skinning has its own
+    # checks (validate_skin_node_transform.py), and a skinning bug would show here as a texture metrics failure.
     m_gpu = f.material("gpu_instanced", texture=(512, 128))
     gpu = f.mesh(f.primitive(quad(.5, .5), rect(1, 1), m_gpu, QUAD))
     translations = f.accessor(struct.pack("<6f", -1.2, 0, 0, 1.2, 0, 0), 5126, "VEC3", 2, target=None)
@@ -333,16 +333,6 @@ def build_main(path):
     f.node("gpu", gpu, cell(0, 4), extensions={"EXT_mesh_gpu_instancing": {"attributes": {"TRANSLATION": translations, "SCALE": scales}}})
     add(f, "EXT_mesh_gpu_instancing", 0, 4, offset=(-1.2, 0))
 
-    m_skin = f.material("skinned", texture=(256, 256))
-    joints = f.accessor(bytes([0, 0, 0, 0] * 4), 5121, "VEC4", 4)
-    weights = f.floats([(1, 0, 0, 0)] * 4, "VEC4")
-    skinned = f.mesh(f.primitive(quad(.5, .5), rect(1, 1), m_skin, QUAD, extra_attributes={"JOINTS_0": joints, "WEIGHTS_0": weights}))
-    identity = [1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 1.0]
-    ibm = f.accessor(struct.pack("<16f", *identity), 5126, "MAT4", 1, target=None)
-    joint = f.node("joint", translation=cell(2, 4), scale=(2, 2, 1))
-    f.gltf.setdefault("skins", []).append({"joints": [joint], "inverseBindMatrices": ibm})
-    f.node("skinned", skinned, (100, 100, 0), skin=0)  # glTF: a skinned mesh ignores its node's transform
-    add(f, "skinned", 2, 4)
     f.write(path)
     return f
 
@@ -780,14 +770,13 @@ def main():
     check(materials["density"]["texture"] == "baseColorTexture" and materials["density"]["textureWidth"] == 256, "density: reads the base colour's size")
     near(materials["gpu_instanced"]["pixelsPerMetre"], math.sqrt(0.25 * 512 * 128), "EXT_mesh_gpu_instancing: scale 2, 512 x 128 texture")
     check(materials["gpu_instanced"]["triangles"] == 4, "EXT_mesh_gpu_instancing: both instances count")
-    near(materials["skinned"]["pixelsPerMetre"], 128.0, "skin: joint scale 2 (the node's transform does not apply)")
     near(materials["scale"]["pixelsPerMetre"], math.sqrt(0.04 / 16.0) * 128, "node scale 2 sets the median by area")
     check(materials["uv1"]["uvSet"] == 1 and materials["uv0"]["uvSet"] == 0, "UV set of the base colour")
     check(materials["shear"]["pixelsPerMetre"] == 0 and materials["shear"]["texture"] == "", "no texture: no pixels per metre")
     check(state["degenerateTriangles"] == 2, "two triangles without UV area")
     check("no_uvs" in state["skippedNoUvs"], "the node without UVs is listed")
     check(state["islands"]["count"] > 0, "islands counted")
-    check(state["triangles"] == 56, f"56 triangles measured, instances counted, the no-UV primitive not ({state['triangles']})")
+    check(state["triangles"] == 54, f"54 triangles measured, instances counted, the no-UV primitive not ({state['triangles']})")
     check(state["shear"]["over125"] > 0.0 and state["density"]["under"] > 0.0 and state["density"]["over"] > 0.0, "shares are reported")
 
     session.set("render_mode", "shaded_post")

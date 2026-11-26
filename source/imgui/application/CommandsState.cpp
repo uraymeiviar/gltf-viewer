@@ -138,6 +138,13 @@ json Application::agentStateJson()
     // Settings scopes: renderer-wide quality, the active scene's effects.
     st["quality"] = qualityStateJson();
     st["gltfExtensions"] = ux3d::imgui::GltfExtensionSettings::instance().stateJson();
+    // Skinned mesh node transform: the setting, the skins whose rest pose shows inverse bind matrices without the
+    // placed mesh node's transform, and how many of them the current mode corrects.
+    st["skinning"] = {{"meshNodeTransform", ux3d::imgui::GltfExtensionSettings::skinNodeTransformName(
+                                                ux3d::imgui::GltfExtensionSettings::instance().skinNodeTransform())},
+                      {"detected", gltfLayer != nullptr ? gltfLayer->detectedSkinCorrections() : 0},
+                      {"applied", gltfLayer != nullptr ? gltfLayer->appliedSkinCorrections() : 0},
+                      {"declaresAsobo", gltfLayer != nullptr && gltfLayer->declaresAsoboExtensions()}};
     // The last model load and the switches it was read with: declared = the file's extensionsUsed/Required, switchedOff
     // = those read as absent (or that refused the file); reloads counts reopenings after a switch change.
     {

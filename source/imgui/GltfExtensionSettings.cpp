@@ -193,6 +193,30 @@ void GltfExtensionSettings::setTuning(const std::string& key, float value, bool 
     if (persist && m_savedTuning[key] != value) { m_savedTuning[key] = value; save(); }
 }
 
+const char* GltfExtensionSettings::skinNodeTransformName(ux3d::renderer::SkinNodeTransform mode)
+{
+    switch (mode) {
+    case ux3d::renderer::SkinNodeTransform::Spec: return "spec";
+    case ux3d::renderer::SkinNodeTransform::MeshNode: return "msfs";
+    default: return "auto";
+    }
+}
+
+bool GltfExtensionSettings::parseSkinNodeTransform(std::string_view name, ux3d::renderer::SkinNodeTransform& mode)
+{
+    if (name == "auto") mode = ux3d::renderer::SkinNodeTransform::Auto;
+    else if (name == "spec") mode = ux3d::renderer::SkinNodeTransform::Spec;
+    else if (name == "msfs") mode = ux3d::renderer::SkinNodeTransform::MeshNode;
+    else return false;
+    return true;
+}
+
+void GltfExtensionSettings::setSkinNodeTransform(ux3d::renderer::SkinNodeTransform mode, bool persist)
+{
+    if (m_skinNodeTransform != mode) { m_skinNodeTransform = mode; ++m_revision; }
+    if (persist && m_savedSkinNodeTransform != mode) { m_savedSkinNodeTransform = mode; save(); }
+}
+
 void GltfExtensionSettings::restoreTuning(const std::map<std::string, float>& values)
 {
     if (m_tuning != values) { m_tuning = values; ++m_revision; }
@@ -207,8 +231,13 @@ void GltfExtensionSettings::commit(const std::string& key)
 
 void GltfExtensionSettings::resetToDefaults()
 {
-    const bool changed = !m_effective.empty() || m_tuning != std::map<std::string,float>{{"interior_sky_reflection",0.5f},{"decal_tolerance_mm",1.2f}};
-    const bool savedChanged = !m_saved.empty() || m_savedTuning != std::map<std::string,float>{{"interior_sky_reflection",0.5f},{"decal_tolerance_mm",1.2f}};
+    using ux3d::renderer::SkinNodeTransform;
+    const bool changed = !m_effective.empty() || m_tuning != std::map<std::string,float>{{"interior_sky_reflection",0.5f},{"decal_tolerance_mm",1.2f}} ||
+                         m_skinNodeTransform != SkinNodeTransform::Auto;
+    const bool savedChanged = !m_saved.empty() || m_savedTuning != std::map<std::string,float>{{"interior_sky_reflection",0.5f},{"decal_tolerance_mm",1.2f}} ||
+                              m_savedSkinNodeTransform != SkinNodeTransform::Auto;
+    m_skinNodeTransform = SkinNodeTransform::Auto;
+    m_savedSkinNodeTransform = SkinNodeTransform::Auto;
     m_tuning = {{"interior_sky_reflection", 0.5f}, {"decal_tolerance_mm", 1.2f}};
     m_savedTuning = m_tuning;
     m_effective.clear();
@@ -219,8 +248,9 @@ void GltfExtensionSettings::resetToDefaults()
 
 void GltfExtensionSettings::discardSessionChanges()
 {
-    if (m_effective == m_saved && m_tuning == m_savedTuning) return;
+    if (m_effective == m_saved && m_tuning == m_savedTuning && m_skinNodeTransform == m_savedSkinNodeTransform) return;
     m_tuning = m_savedTuning;
+    m_skinNodeTransform = m_savedSkinNodeTransform;
     m_effective = m_saved;
     ++m_revision;
 }
@@ -239,7 +269,12 @@ void GltfExtensionSettings::load()
     if (!store.load()) return;
     std::set<std::string> parsed;
     bool invalid = false;
+    ux3d::renderer::SkinNodeTransform skinMode = ux3d::renderer::SkinNodeTransform::Auto;
     for (const SettingsEntry& entry : store.section(kSection)) {
+        if (entry.first == kSkinNodeTransformKey) {
+            if (!parseSkinNodeTransform(entry.second, skinMode)) invalid = true;
+            continue;
+        }
         if (m_tuning.contains(entry.first)) {
             char* end = nullptr;
             const float value = std::strtof(entry.second.c_str(), &end);
@@ -258,6 +293,9 @@ void GltfExtensionSettings::load()
         logSettingsMessage("Ignoring invalid glTF extension values in settings.ini.", true);
     }
     m_savedTuning = m_tuning;
+    if (m_skinNodeTransform != skinMode) ++m_revision;
+    m_skinNodeTransform = skinMode;
+    m_savedSkinNodeTransform = skinMode;
     m_saved = parsed;
     if (m_effective != parsed) ++m_revision;
     m_effective = parsed;
@@ -273,6 +311,9 @@ void GltfExtensionSettings::save()
     for (const auto& [key, value] : m_savedTuning) {
         const float def = key == "decal_tolerance_mm" ? 1.2f : 0.5f;
         if (value != def) { std::ostringstream out; out.precision(9); out << value; entries.emplace_back(key, out.str()); }
+    }
+    if (m_savedSkinNodeTransform != ux3d::renderer::SkinNodeTransform::Auto) {
+        entries.emplace_back(kSkinNodeTransformKey, skinNodeTransformName(m_savedSkinNodeTransform));
     }
     store.replaceSection(kSection, std::move(entries));
     store.save();
@@ -310,7 +351,9 @@ nlohmann::json GltfExtensionSettings::stateJson() const
             {"tuning", m_tuning},
             {"savedTuning", m_savedTuning},
             {"skyPortalStrength", 0.35f},
-            {"differsFromSaved", m_effective != m_saved || m_tuning != m_savedTuning},
+            {"skinnedMeshNodeTransform", skinNodeTransformName(m_skinNodeTransform)},
+            {"savedSkinnedMeshNodeTransform", skinNodeTransformName(m_savedSkinNodeTransform)},
+            {"differsFromSaved", m_effective != m_saved || m_tuning != m_savedTuning || m_skinNodeTransform != m_savedSkinNodeTransform},
             {"persistence", SettingsFile::instance().persistenceEnabled()}};
 }
 
@@ -324,8 +367,10 @@ void GltfExtensionSettings::drawSettings(SceneRevisions& revisions)
                        "(framed again, as File > Open does). The file itself is never changed.");
     ImGui::Spacing();
 
-    const bool differs = m_effective != m_saved || m_tuning != m_savedTuning;
-    const bool anyOff = !m_effective.empty() || !m_saved.empty() || tuning("interior_sky_reflection") != 0.5f ||
+    using ux3d::renderer::SkinNodeTransform;
+    const bool differs = m_effective != m_saved || m_tuning != m_savedTuning || m_skinNodeTransform != m_savedSkinNodeTransform;
+    const bool anyOff = !m_effective.empty() || !m_saved.empty() || m_skinNodeTransform != SkinNodeTransform::Auto ||
+                        m_savedSkinNodeTransform != SkinNodeTransform::Auto || tuning("interior_sky_reflection") != 0.5f ||
                         tuning("decal_tolerance_mm") != 1.2f || m_savedTuning.at("interior_sky_reflection") != 0.5f ||
                         m_savedTuning.at("decal_tolerance_mm") != 1.2f;
     ImGui::BeginDisabled(!anyOff);
@@ -347,6 +392,29 @@ void GltfExtensionSettings::drawSettings(SceneRevisions& revisions)
     }
     if (!SettingsFile::instance().persistenceEnabled()) {
         ImGui::TextDisabled("Settings are not saved in this session (--isolated).");
+    }
+    ImGui::Spacing();
+
+    // Not an extension: how skins are read. Shown above the filter and never filtered out.
+    {
+        static const char* labels[] = {"Auto (MSFS files)", "glTF spec (ignore)", "Blender / MSFS (apply)"};
+        static const SkinNodeTransform modes[] = {SkinNodeTransform::Auto, SkinNodeTransform::Spec, SkinNodeTransform::MeshNode};
+        int current = 0;
+        for (int i = 0; i < 3; ++i) if (modes[i] == m_skinNodeTransform) current = i;
+        ImGui::SetNextItemWidth(std::min(220.0f, ImGui::GetContentRegionAvail().x));
+        if (ImGui::Combo("Skinned mesh node transform", &current, labels, 3)) {
+            setSkinNodeTransform(modes[current], true);
+            revisions.mark(SceneChange::AnimationTime);
+        }
+        UiProbe::item("settings.ext.skinned_mesh_node_transform", 0);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Whether a skinned mesh keeps the position its own node gives it.\n"
+                              "glTF spec: the node's transform is ignored; joints and inverse bind matrices alone place the mesh.\n"
+                              "Blender / MSFS: the mesh stays where its node places it. MSFS exports write inverse bind matrices\n"
+                              "without that transform, so read strictly their skinned parts drift and pivot about joints metres away.\n"
+                              "Only skins whose rest pose shows that layout are changed. Auto does this in files that declare an\n"
+                              "ASOBO extension (MSFS exports) and keeps every other file to the spec.");
+        }
     }
     ImGui::Spacing();
     char filter[128] = {};

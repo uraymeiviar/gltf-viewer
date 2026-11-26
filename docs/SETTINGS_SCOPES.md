@@ -78,6 +78,8 @@ depth tolerance (default 1.2 mm). Switches and tuning have separate effective an
 the changed key; pipe edits commit only that key under `set_persist(true)`. CLI and ordinary script edits stay
 session-only, including through an unrelated save. `[GltfExtensions]` contains disabled `name=0` switches and
 non-default numeric tuning. Unknown future switch names are retained; invalid tuning warns and uses defaults.
+The same section holds the skinned mesh node transform (`skinned_mesh_node_transform=spec|msfs`; Auto writes no key),
+which is not an extension but how glTF skins are read: same effective / saved handling, reset and restore.
 
 ### Extension switches (File > Settings > glTF Extensions)
 

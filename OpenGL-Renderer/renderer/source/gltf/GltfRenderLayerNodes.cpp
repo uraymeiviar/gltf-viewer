@@ -410,7 +410,8 @@ void GltfRenderLayer::initNodeMappings(gl::GL* gl)
             if (shared && maxDifference(restBind, meshRest) > tolerance && maxDifference(meshRest, math::dmat4x4(1.0)) > tolerance) {
                 skin.setBindCorrection(math::mat4x4(math::inverse(restBind) * meshRest));
                 core::logInfo("Skin '%s' on node '%s': inverse bind matrices omit the mesh node transform; "
-                              "deforming the placed mesh (Blender/MSFS convention)",
+                              "the placed mesh is deformed when the skinned mesh node transform setting applies it "
+                              "(Blender/MSFS; Auto: files with ASOBO extensions)",
                     gltfSkin->getName().c_str(), gltfNode->getName().c_str());
             }
         }
@@ -565,7 +566,10 @@ void GltfRenderLayer::applyAnimationTime(const std::optional<float>& animationTi
     m_resourceManager.m_transformHierarchy.apply();
     const auto afterTransforms = std::chrono::steady_clock::now();
 
+    const bool correct = skinNodeTransform == SkinNodeTransform::MeshNode ||
+                         (skinNodeTransform == SkinNodeTransform::Auto && m_assetHasAsoboExtensions);
     for (auto& skin : m_skins) {
+        skin.setBindCorrectionActive(correct);
         skin.computeJoints();
     }
     const auto afterSkins = std::chrono::steady_clock::now();
@@ -578,6 +582,16 @@ void GltfRenderLayer::applyAnimationTime(const std::optional<float>& animationTi
         m_lastAnimationProfile.transformsMs = toMs(afterTransforms - afterChannels);
         m_lastAnimationProfile.skinsMs = toMs(afterSkins - afterTransforms);
     }
+}
+
+size_t GltfRenderLayer::detectedSkinCorrections() const
+{
+    return static_cast<size_t>(std::count_if(m_skins.begin(), m_skins.end(), [](const renderer::Skin& s) { return s.hasBindCorrection(); }));
+}
+
+size_t GltfRenderLayer::appliedSkinCorrections() const
+{
+    return static_cast<size_t>(std::count_if(m_skins.begin(), m_skins.end(), [](const renderer::Skin& s) { return s.bindCorrectionApplied(); }));
 }
 
 void GltfRenderLayer::updateSkins(const core::Vector<gltf::Node*>& rootNodes)
