@@ -209,7 +209,7 @@ Nodes are addressed by name (exact, then case-insensitive, then unique substring
 
 | Command | Kind | Description |
 |---|---|---|
-| `frame_node(node, view?, margin?)` | immediate | Frame a node like `F` (`CameraActor::presentFocusNode`), optionally from a preset direction (`front`, `back`, `left`, `right`, `top`, `bottom`, `iso`). Without a node, frame the whole scene (`fitCameraToScene`). |
+| `frame_node(node, view?, margin?)` | immediate | Frame a node like `F` (`CameraActor::presentFocusNode`), optionally from a preset direction (`front`, `back`, `left`, `right`, `top`, `bottom`, `iso`). Without a node, frame the whole scene (`fitCameraToScene`): from the isometric home angle, or from `view` when given. |
 | `set_view(view)` | immediate | Orientation preset on the current target (`orientUserCamera`). |
 | `orbit(yaw_deg, pitch_deg)` | immediate | Rotate around the current target by angles (not mouse pixels). |
 | `zoom(factor)` / `pan(dx, dy)` | immediate | Relative adjustments; pan in view-plane units of the current target distance. |

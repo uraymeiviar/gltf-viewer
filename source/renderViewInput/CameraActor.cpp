@@ -10,6 +10,8 @@
 #include "renderer/gltf/GltfRenderLayer.h"
 #include <algorithm>
 #include <cmath>
+#include <limits>
+#include <vector>
 
 using namespace ux3d;
 using namespace ux3d::editor;
@@ -114,20 +116,24 @@ void CameraActor::presentFocusNode(const renderer::GltfRenderLayer* renderLayer,
     }
 }
 
-void CameraActor::fitCameraToScene(const gltf::Scene& _scene, const gltf::Gltf* _gltf)
+void CameraActor::fitCameraToScene(const gltf::Scene& _scene, const gltf::Gltf* _gltf, bool _keepRotation)
 {
     if (m_pUserCamera == nullptr || _gltf == nullptr) {
         return;
     }
 
-    // Gestaltor standard initial rotation: looking at front
-    m_rotationX = 0.f;
-    m_rotationY = 0.f;
+    // Home view: isometric angle (perspective), unless the caller already chose an orientation.
+    if (!_keepRotation) {
+        m_rotationX = isometricYaw;
+        m_rotationY = isometricPitch;
+    }
 
     constexpr float aspectRatio = 1.f;
     constexpr float yFov = math::radians(45.f);
 
-    gltf::Extends extends = gltf::utils::getExtends(_scene.getNodes(), _gltf);
+    // Only what is drawn: camera, light and attach-point positions would make the box far larger than the model.
+    std::vector<math::dvec3> points;
+    gltf::Extends extends = gltf::utils::getExtends(_scene.getNodes(), _gltf, math::identity<math::dmat4>(), true, &points);
 
     if (math::distance(extends.max, extends.min) <= 0.00001f) {
         extends.min = extends.center - math::dvec3(1, 1, 1);
@@ -137,10 +143,62 @@ void CameraActor::fitCameraToScene(const gltf::Scene& _scene, const gltf::Gltf* 
     m_zoomMin = zoomMin;
     m_zoomMax = std::numeric_limits<float>::infinity();
     updateCameraSpeeds(extends, yFov, aspectRatio);
-    m_lookTarget = extends.center;
+    fitPointsToView(extends, points);
+    m_zoomBase = m_zoom; // zoom and pan speeds scale from the fitted distance
     updateUserCameraTransform();
 
     updateClippingPlanes(extends);
+}
+
+void CameraActor::fitPointsToView(const gltf::Extends& _extends, const std::vector<math::dvec3>& _points)
+{
+    // The framed points fill this share of the limiting viewport dimension.
+    constexpr double fill = 0.95;
+
+    float aspect = m_pUserCamera->getAspectRatio();
+    if (!(aspect > 0.01f && aspect < 100.f)) aspect = 1.f;
+    float yFov = m_pUserCamera->getYFoV();
+    if (!(yFov > 0.01f && yFov < 3.1f)) yFov = math::radians(45.f);
+    const double tanV = std::tan(static_cast<double>(yFov) * 0.5) * fill;
+    const double tanH = tanV * static_cast<double>(aspect);
+
+    // Camera basis for the current orbit rotation (the eye sits along +back from the target).
+    const math::dvec3 right(toLocalRotation(math::vec3(1.f, 0.f, 0.f)));
+    const math::dvec3 up(toLocalRotation(math::vec3(0.f, 1.f, 0.f)));
+    const math::dvec3 back(toLocalRotation(math::vec3(0.f, 0.f, 1.f)));
+    const math::dvec3 center = (_extends.min + _extends.max) * 0.5;
+
+    // Points to keep in view: the primitives' box corners, or the 8 corners of the overall box without them.
+    std::vector<math::dvec3> boxCorners;
+    if (_points.empty()) {
+        for (int i = 0; i < 8; ++i) {
+            boxCorners.emplace_back((i & 1) ? _extends.max.x : _extends.min.x, (i & 2) ? _extends.max.y : _extends.min.y,
+                (i & 4) ? _extends.max.z : _extends.min.z);
+        }
+    }
+    const std::vector<math::dvec3>& points = _points.empty() ? boxCorners : _points;
+
+    // For a point at (a, b, c) in that basis, relative to the target, an eye at distance d sees it
+    // when |a - shiftRight| <= (d - c) tanH and |b - shiftUp| <= (d - c) tanV. Each axis gives
+    // d >= max(P - s / tan, Q + s / tan); the smallest d is (P + Q) / 2 at s = (P - Q) tan / 2,
+    // which also centres the projected points on screen.
+    double pH = -std::numeric_limits<double>::infinity(), qH = pH, pV = pH, qV = pH;
+    for (const math::dvec3& point : points) {
+        const math::dvec3 rel = point - center;
+        const double a = math::dot(rel, right);
+        const double b = math::dot(rel, up);
+        const double c = math::dot(rel, back);
+        pH = std::max(pH, c + a / tanH);
+        qH = std::max(qH, c - a / tanH);
+        pV = std::max(pV, c + b / tanV);
+        qV = std::max(qV, c - b / tanV);
+    }
+    const double shiftRight = (pH - qH) * tanH * 0.5;
+    const double shiftUp = (pV - qV) * tanV * 0.5;
+    const double distance = std::max({ (pH + qH) * 0.5, (pV + qV) * 0.5, 1.0e-4 });
+
+    m_lookTarget = math::vec3(center + right * shiftRight + up * shiftUp);
+    setZoom(static_cast<float>(distance));
 }
 
 void CameraActor::updateClippingPlanes(const gltf::Extends& extents)
@@ -274,7 +332,7 @@ void CameraActor::orientUserCamera(CameraOrientation orientation)
         setCameraRotation(math::pi<float>(), 0.f);
         break;
     case CameraOrientation::Isometric:
-        setCameraRotation(math::pi<float>() * 0.25f, math::radians(30.f));
+        setCameraRotation(isometricYaw, isometricPitch);
         break;
     }
 }

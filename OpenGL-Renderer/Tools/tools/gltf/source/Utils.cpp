@@ -6,12 +6,15 @@
 #include "gltf/GlTypes.h"
 #include "gltf/Gltf.h"
 #include "gltf/Image.h"
+#include "gltf/Material.h"
 #include "gltf/Mesh.h"
 #include "gltf/Node.h"
 #include "gltf/Scene.h"
 #include "gltf/Skin.h"
+#include "gltf/extensions/AsoboExtensions.h"
 
 #include <functional>
+#include <unordered_map>
 #include <unordered_set>
 
 using namespace ux3d;
@@ -37,8 +40,36 @@ ClippingPlanes utils::getFittingClippingPlanes(const Extends& _Extends, double _
     return { zNear, zFar };
 }
 
+namespace {
+// The 8 corners of the accessor's min/max box (normalized integers mapped to their float range), transformed.
+void accessorCorners(const Accessor& _Accessor, const math::dmat4& _Transform, math::dvec3 (&_corners)[8])
+{
+    math::dvec3 boxMin(_Accessor.getMin()[0], _Accessor.getMin()[1], _Accessor.getMin()[2]);
+    math::dvec3 boxMax(_Accessor.getMax()[0], _Accessor.getMax()[1], _Accessor.getMax()[2]);
+
+    if (_Accessor.isNormalized()) {
+        double minValueFromComponentType = fabs(GlTypes::minimumValueFromComponentType(_Accessor.getComponentType()));
+        double maxValueFromComponentType = fabs(GlTypes::maximumValueFromComponentType(_Accessor.getComponentType()));
+        if (minValueFromComponentType != 0) {
+            boxMin /= minValueFromComponentType;
+        } else {
+            boxMin /= maxValueFromComponentType;
+        }
+        if (maxValueFromComponentType != 0) {
+            boxMax /= maxValueFromComponentType;
+        }
+    }
+
+    for (int i = 0; i < 8; ++i) {
+        const math::dvec3 corner((i & 1) ? boxMax.x : boxMin.x, (i & 2) ? boxMax.y : boxMin.y, (i & 4) ? boxMax.z : boxMin.z);
+        _corners[i] = math::dvec3(_Transform * math::dvec4(corner, 1));
+    }
+}
+} // namespace
+
 // from https://github.com/KhronosGroup/glTF-Sample-Viewer/blob/master/src/gltf_utils.js
-Extends utils::getExtends(const core::Vector<Node*>& _nodes, const Gltf* _pGltf, const math::dmat4& _rootTransform)
+Extends utils::getExtends(const core::Vector<Node*>& _nodes, const Gltf* _pGltf, const math::dmat4& _rootTransform, bool _geometryOnly,
+    std::vector<math::dvec3>* _points)
 {
     NodeTransforms nodeTransforms;
     fillNodeTransforms(_nodes, nodeTransforms, _rootTransform);
@@ -63,7 +94,30 @@ Extends utils::getExtends(const core::Vector<Node*>& _nodes, const Gltf* _pGltf,
     math::dvec3 min(std::numeric_limits<double>::max());
     math::dvec3 max(std::numeric_limits<double>::lowest());
 
-    const auto accumulate = [&](bool includeHidden) {
+    // Geometry only: primitives of never-rendered materials (MSFS ASOBO_material_invisible collision meshes and
+    // ASOBO_material_environment_occluder cabin volumes) do not count either, as for the A3.6 model base.
+    std::unordered_map<const Material*, bool> neverRendered;
+    const auto skipPrimitive = [&](const Primitive& primitive) {
+        const Material* material = primitive.getMaterial();
+        if (!_geometryOnly || material == nullptr) {
+            return false;
+        }
+        if (const auto it = neverRendered.find(material); it != neverRendered.end()) {
+            return it->second;
+        }
+        const auto extensions = asobo::parseExtensions(*_pGltf, *material, asobo::Scope::Material);
+        bool skip = false;
+        if (const auto* invisible = extensions.find("ASOBO_material_invisible")) {
+            skip = invisible->boolean("enabled").value_or(true);
+        }
+        if (const auto* occluder = extensions.find("ASOBO_material_environment_occluder")) {
+            skip = skip || occluder->boolean("enabled").value_or(true);
+        }
+        neverRendered.emplace(material, skip);
+        return skip;
+    };
+
+    const auto accumulate = [&](bool includeHidden, bool includePoints) {
         for (auto& [pNode, transform] : nodeTransforms) {
             if (!includeHidden && fileHidden.count(pNode) != 0) {
                 continue;
@@ -71,15 +125,21 @@ Extends utils::getExtends(const core::Vector<Node*>& _nodes, const Gltf* _pGltf,
             const Mesh* pMesh = pNode->getMesh();
             // if node has no mesh attached but has a light or camera consider it in the extends calculation
             if (pMesh == nullptr) {
-                if (pNode->getCamera() != nullptr || pNode->getLight() != nullptr || isNodeUsedAsJointInSkin(_pGltf, pNode)) {
+                if (includePoints && (pNode->getCamera() != nullptr || pNode->getLight() != nullptr || isNodeUsedAsJointInSkin(_pGltf, pNode))) {
                     auto nodePos = transform * math::vec4(0, 0, 0, 1);
                     min = math::min(min, { nodePos.x, nodePos.y, nodePos.z });
                     max = math::max(max, { nodePos.x, nodePos.y, nodePos.z });
+                    if (_points != nullptr) {
+                        _points->emplace_back(nodePos.x, nodePos.y, nodePos.z);
+                    }
                 }
                 continue;
             }
 
             for (const Primitive& primitive : pMesh->getPrimitives()) {
+                if (skipPrimitive(primitive)) {
+                    continue;
+                }
                 for (const Attribute& attribute : primitive.getAttributes()) {
                     constexpr auto name = "POSITION";
                     if (attribute.getName() != name) {
@@ -96,6 +156,11 @@ Extends utils::getExtends(const core::Vector<Node*>& _nodes, const Gltf* _pGltf,
 
                     const auto add = [&](const math::dmat4& instanceTransform) {
                         Extends accessorExtends = getAccessorExtends(*pAccessoor, instanceTransform);
+                        if (_points != nullptr) {
+                            math::dvec3 corners[8];
+                            accessorCorners(*pAccessoor, instanceTransform, corners);
+                            _points->insert(_points->end(), std::begin(corners), std::end(corners));
+                        }
 
                         min.x = math::min(min.x, accessorExtends.min.x);
                         min.y = math::min(min.y, accessorExtends.min.y);
@@ -117,10 +182,19 @@ Extends utils::getExtends(const core::Vector<Node*>& _nodes, const Gltf* _pGltf,
             }
         }
     };
-    accumulate(false);
-    if (!fileHidden.empty() && min == math::dvec3(std::numeric_limits<double>::max())
-        && max == math::dvec3(std::numeric_limits<double>::lowest())) {
-        accumulate(true);
+    const auto empty = [&] {
+        return min == math::dvec3(std::numeric_limits<double>::max()) && max == math::dvec3(std::numeric_limits<double>::lowest());
+    };
+    accumulate(false, !_geometryOnly);
+    if (!fileHidden.empty() && empty()) {
+        accumulate(true, !_geometryOnly);
+    }
+    // Geometry only, but there is none: frame the cameras, lights and joints after all.
+    if (_geometryOnly && empty()) {
+        accumulate(false, true);
+        if (!fileHidden.empty() && empty()) {
+            accumulate(true, true);
+        }
     }
 
     if (min == math::dvec3(std::numeric_limits<double>::max()) && max == math::dvec3(std::numeric_limits<double>::lowest())) {
@@ -135,33 +209,18 @@ Extends utils::getExtends(const core::Vector<Node*>& _nodes, const Gltf* _pGltf,
 // from https://github.com/KhronosGroup/glTF-Sample-Viewer/blob/master/src/gltf_utils.js
 Extends utils::getAccessorExtends(const Accessor& _Accessor, const math::dmat4& _Transform)
 {
-    math::dvec3 boxMin(_Accessor.getMin()[0], _Accessor.getMin()[1], _Accessor.getMin()[2]);
-    math::dvec3 boxMax(_Accessor.getMax()[0], _Accessor.getMax()[1], _Accessor.getMax()[2]);
-
-    if (_Accessor.isNormalized()) {
-        double minValueFromComponentType = fabs(GlTypes::minimumValueFromComponentType(_Accessor.getComponentType()));
-        double maxValueFromComponentType = fabs(GlTypes::maximumValueFromComponentType(_Accessor.getComponentType()));
-        if (minValueFromComponentType != 0) {
-            boxMin /= minValueFromComponentType;
-        } else {
-            boxMin /= maxValueFromComponentType;
-        }
-        if (maxValueFromComponentType != 0) {
-            boxMax /= maxValueFromComponentType;
-        }
+    // The axis-aligned box of all 8 transformed corners. (The sample viewer's version returned a cube around the
+    // bounding sphere of the min/max corners, up to sqrt(3) times too large per axis and far larger for long thin
+    // meshes, so framing and Focus kept the model small.)
+    math::dvec3 corners[8];
+    accessorCorners(_Accessor, _Transform, corners);
+    math::dvec3 min = corners[0];
+    math::dvec3 max = corners[0];
+    for (const math::dvec3& corner : corners) {
+        min = math::min(min, corner);
+        max = math::max(max, corner);
     }
-
-    boxMin = _Transform * math::dvec4(boxMin, 1);
-    boxMax = _Transform * math::dvec4(boxMax, 1);
-
-    math::dvec3 center = (boxMin + boxMax) / 2.0;
-    math::dvec3 centerToSurface = boxMax - center;
-    double radius = math::length(centerToSurface);
-
-    math::dvec3 min(center.x - radius, center.y - radius, center.z - radius);
-    math::dvec3 max(center.x + radius, center.y + radius, center.z + radius);
-
-    return { min, max, center };
+    return { min, max, (min + max) / 2.0 };
 }
 
 void utils::fillNodeTransforms(const core::Vector<Node*>& _Nodes, NodeTransforms& _NodeTransforms, const math::dmat4& _Root)

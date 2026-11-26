@@ -388,7 +388,7 @@ void Application::registerAgentCommands()
             if (!args.contains("node") || args["node"].is_null() || args["node"].get<std::string>().empty()) {
                 if (activeScene == nullptr) return CommandReply::failure("no_scene", "no scene loaded");
                 if (view) activeViewport->cameraActor.orientUserCamera(*view);
-                activeViewport->cameraActor.fitCameraToScene(*activeScene, &gltfModel);
+                activeViewport->cameraActor.fitCameraToScene(*activeScene, &gltfModel, view.has_value());
                 activeViewport->antiAliasing.resetHistory();
                 sceneRevisions.mark(ux3d::imgui::SceneChange::ViewCamera);
                 return CommandReply::success({{"node", nullptr}, {"camera", getCameraJson(activeViewport)}});
