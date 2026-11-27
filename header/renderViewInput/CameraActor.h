@@ -41,7 +41,9 @@ public:
     // Frames the whole scene so its bounding box fills the viewport. Without _keepRotation it also
     // turns to the isometric home view (front-left, above).
     void fitCameraToScene(const gltf::Scene& _scene, const gltf::Gltf* _gltf, bool _keepRotation = false);
-    void updateClippingPlanes(const gltf::Extends& extents);
+    // Near (and the zoom limits) follow extents at the current zoom. With _reach, the far plane also keeps every
+    // corner of _reach in range from the current eye (focus on a small node keeps the rest of the scene visible).
+    void updateClippingPlanes(const gltf::Extends& extents, const gltf::Extends* _reach = nullptr);
     void updateUserCameraTransform();
     void rotateCamera(int32_t _deltaX, int32_t _deltaY);
     void setCameraRotation(float _x, float _y);

@@ -1,5 +1,6 @@
 #include "renderViewInput/CameraActor.h"
 #include "gltf/mesh/Attribute.h"
+#include "gltf/Gltf.h"
 #include "gltf/Mesh.h"
 #include "gltf/Node.h"
 #include "gltf/mesh/Primitive.h"
@@ -102,12 +103,19 @@ void CameraActor::presentFocusNode(const renderer::GltfRenderLayer* renderLayer,
         targetZoom = static_cast<float>(gltf::utils::getFittingCameraZoom(extends, yFov, aspectRatio)) * (margin > 0.0f ? margin : 1.0f);
     }
     m_zoom = targetZoom;
-    updateClippingPlanes(extends);
+    updateClippingPlanes(extends); // zoom limits for this node before setZoom clamps to them
 
     updateCameraSpeeds(extends, yFov, aspectRatio);
     setZoom(targetZoom);
     m_lookTarget = extends.center;
     updateUserCameraTransform();
+
+    // The node's box sets near; the far plane must still reach the whole drawn scene, or focusing a small part
+    // (a 2 cm button: far about 4 m) clips the rest of the model once the camera moves.
+    if (const gltf::Scene* scene = _gltf->getDefaultScene(); scene != nullptr) {
+        const gltf::Extends sceneExtends = gltf::utils::getExtends(scene->getNodes(), _gltf, math::identity<math::dmat4>(), true);
+        updateClippingPlanes(extends, &sceneExtends);
+    }
 
     if (m_pUserCamera != nullptr && m_pUserCamera->getType() == renderer::Camera::Type::Orthographic) {
         auto* camera = m_pUserCamera;
@@ -201,7 +209,7 @@ void CameraActor::fitPointsToView(const gltf::Extends& _extends, const std::vect
     setZoom(static_cast<float>(distance));
 }
 
-void CameraActor::updateClippingPlanes(const gltf::Extends& extents)
+void CameraActor::updateClippingPlanes(const gltf::Extends& extents, const gltf::Extends* _reach)
 {
     if (m_pUserCamera == nullptr) {
         return;
@@ -209,6 +217,17 @@ void CameraActor::updateClippingPlanes(const gltf::Extends& extents)
     gltf::ClippingPlanes clippingPlanes = gltf::utils::getFittingClippingPlanes(extents, m_zoom);
     clippingPlanes.zNear = math::max(clippingPlanes.zFar, 0.0); // should not be negative
     clippingPlanes.zFar = math::abs(clippingPlanes.zFar);
+    if (_reach != nullptr) {
+        // Farthest corner of _reach from the eye, in the same units as zFar (scaled by clippingPlanesScale below).
+        const math::dvec3 eye(getEyePosition());
+        double reach = 0.0;
+        for (int i = 0; i < 8; ++i) {
+            const math::dvec3 corner((i & 1) ? _reach->max.x : _reach->min.x, (i & 2) ? _reach->max.y : _reach->min.y,
+                (i & 4) ? _reach->max.z : _reach->min.z);
+            reach = std::max(reach, math::distance(eye, corner));
+        }
+        clippingPlanes.zFar = std::max(clippingPlanes.zFar, reach);
+    }
 
     // the user might be zooming around so we move the clipping planes further apart
     constexpr float clippingPlanesScale = 100.f;
